@@ -58,4 +58,16 @@ wraps to the command
 ```
 
 
+## install
+
+clone this repo into your `~/.koad-io` folder
+```bash
+git clone https://github.com/koad/io.git ~/.koad-io
+```
+
+add the `~/.koad-io/bin` folder to your path (add this to your .bashrc)
+```bash
+[ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin
+```
+
 /koad
