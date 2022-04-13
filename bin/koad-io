@@ -14,7 +14,7 @@ echo "--koad-io [$ENTITY] $1 start--"
 # ensure we have arguments to parse, else run the koad:io update tool.  
 echo "$0 [$# arguments]"
 if [[ $# -eq 0 ]]; 
-    then >&2 echo "Did you want something?" && exec $HOME/.koad-io/commands/install/command.sh && exit 64;
+    then >&2 echo "$ENTITY at your service." && exec $HOME/.koad-io/hooks/executed-without-arguements.sh && exit 64;
 fi
 
 # Load any enviroment details that exist in the entities dotfiles folder.
