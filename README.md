@@ -163,17 +163,17 @@ alice hello awesome time machine
 
 check the commands folder to see what comes pre-loaded, not alot.
 
-- [init](/commands/init/README.md)  
-- [whoami](/commands/whoami/README.md)  
-- [example](/commands/example/README.md)  
+- [/commands/init/README.md](/commands/init/README.md)  
+- [/commands/whoami/README.md](/commands/whoami/README.md)  
+- [/commands/example/README.md](/commands/example/README.md)  
 
 language specific examples 
 
-- [example/bash](/commands/example/bash.sh)  
-- [example/javascript](/commands/example/javascript.sh)  
-- [example/python](/commands/example/python.sh)  
-- [example/rust](/commands/example/rust.sh)  
-- [example/go](/commands/example/go.sh)  
+- [/commands/example/bash/README.md](/commands/example/bash/README.md)  
+- [/commands/example/javascript/README.md](/commands/example/javascript/README.md)  
+- [/commands/example/python/README.md](/commands/example/python/README.md)  
+- [/commands/example/rust/README.md](/commands/example/rust/README.md)  
+- [/commands/example/go/README.md](/commands/example/go/README.md)  
 
 interact with the example command to see how things work
 ```bash
