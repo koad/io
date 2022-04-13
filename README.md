@@ -65,7 +65,7 @@ wraps to the command
 
 ## install
 
-clone this repo into your `~/.koad-io` folder
+create the `~/.koad-io` folder with a clone this repo
 ```bash
 git clone https://github.com/koad/io.git ~/.koad-io
 ```
@@ -77,7 +77,7 @@ add the `~/.koad-io/bin` folder to your path (add this to your .bashrc)
 
 ## create
 
-create your first koad:io entity!  sooo exciting!
+> your first koad:io entity! 🤩 sooo exciting! 
 
 ```bash
 koad-io init alice
@@ -110,6 +110,9 @@ commands can be available to all entities
 
 
 ### create
+
+> your first ever koad:io command! 😄 
+
 
 inside ~/.koad-io/commands/
 ```bash
