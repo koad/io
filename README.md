@@ -83,17 +83,13 @@ create your first koad:io entity!  sooo exciting!
 koad-io init alice
 ```
 
-once done, you can call upon alice using her name 
-```bash
-alice do something
-```
 
 alice will be created entirely in the .alice directory in your home directory
 ```bash
 ls -la ~/.alice
 ```
 
-> back this directory up NOW, and keep it somewhere suuuuuper safe.
+> back this directory up NOW, and keep it __somewhere suuuuuper safe__.
 > want to automated backups?  build a [raspberry pi powered concealment keyring that also pretends to be your front door bell](https://duckduckgo.com).
 
 Your entity's directory will be a basic bare/blank koad:io skeleton filled with directories and keys that will be handy for you if you ever decide you want your entity to exist among multiple devices and locations.
@@ -106,7 +102,7 @@ cd ~/.alice && ls -la
 
 
 
-You can ignore this for now and focus on populating your commands folder with whatever creative thing you desire.
+You can ignore this idea for now and focus on populating your commands folder with whatever creative thing you desire.
 
 ## global commands
 
