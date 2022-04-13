@@ -9,7 +9,7 @@ koad:io helps with tasks that you perform on a regular basis.
 [![Matrix](https://img.shields.io/matrix/io:koad.sh?label=io:koad.sh&logo=matrix&server_fqdn=matrix.koad.sh)](https://matrix.to/#/#io:koad.sh?via=koad.sh)
 
 
-by saving a task as a command, and saving the environment variables used,
+by saving a task as a command, and saving the environment variables used as an entity,
 
 - I can remember how I did a thing
 - I can replay the thing I did
@@ -17,6 +17,7 @@ by saving a task as a command, and saving the environment variables used,
 - I can go back and see if I was right
 - I can keep my things together as simple files and folders
 - I don't need to install or depend on complex tools and vendors
+- I can keep my projects/data categorized into entities (an entity for each `area of focus`)
 
 
 ## customizable chain reactions
