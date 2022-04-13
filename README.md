@@ -2,6 +2,10 @@
 
 koad:io helps with tasks that you perform on a regular basis.
 
+
+> warning: this might be shit, it's too early to tell.
+
+
 [![Matrix](https://img.shields.io/matrix/io:koad.sh?label=io:koad.sh&logo=matrix&server_fqdn=matrix.koad.sh)](https://matrix.to/#/#io:koad.sh?via=koad.sh)
 
 
