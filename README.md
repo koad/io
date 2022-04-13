@@ -7,7 +7,7 @@ koad:io helps with tasks that you perform on a regular basis.
 
 by saving a task as a command, and saving the environment variables used,
 
-- I can remember show I did a thing
+- I can remember how I did a thing
 - I can replay the thing I did
 - I can automate the thing I did
 - I can keep my things together as simple files and folders
@@ -43,22 +43,19 @@ no1
 ```bash
 alice probe domain koad.sh
 ```
-
-wraps the command 
+wraps to the command 
 ```bash
 ~/.koad-io/commands/probe/domain/command.sh koad.sh
 ```
 
-
 no2
-
 ```bash
 alice probe electrum lenoir.ecoincore.com 50002 ssl
 ```
-
-wraps the command 
+wraps to the command 
 ```bash
-~/.koad-io/commands/probe/domain/command.sh koad.sh
+~/.koad-io/commands/probe/electrum.sh lenoir.ecoincore.com 50002 ssl
 ```
 
 
+/koad
