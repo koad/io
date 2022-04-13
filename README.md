@@ -75,4 +75,8 @@ add the `~/.koad-io/bin` folder to your path (add this to your .bashrc)
 [ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin
 ```
 
+
+P.S.  somebody somewhere, sometime, will create a voice controller for this,. so keep that in mind when creating commands.  You have full control, imagine if you were able to teach siri over time (for yourself);  it would be amazing.  
+
+
 /koad
