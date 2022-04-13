@@ -56,7 +56,7 @@ FILETORUN="$WORKING_DIR/command.sh"
 [[ -f $WORKING_DIR/$COMMAND_NAME.sh ]] && echo "Command is in file form" >&2 && FILETORUN="$WORKING_DIR/$COMMAND_NAME.sh";
 
 # Make sure we have a valid command file to run, else crash 66
-[[ ! -f $FILETORUN ]] && echo "Malformed command setup, sorry -- i dont know how to proceed.." && echo "FILETORUN: $FILETORUN">&2 && exit 66;
+[[ ! -f $FILETORUN ]] && echo "Could not find command file to execute, sorry." && echo "FILETORUN: $FILETORUN" >&2 && exit 66;
 
 # If the working directory contains enviroment and credentials, load them
 
