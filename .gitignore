@@ -7,3 +7,6 @@
 !README.md
 !commands
 !commands/README.md
+!commands/init
+!commands/init/command.sh
+!commands/init/README.md
