@@ -130,15 +130,13 @@ inside ~/.koad-io/commands/hello using any entity
 ```bash
 cd ~/.koad-io/commands/hello
 alice command
-alice command arg1 arg2 arge3 arg4
+alice command arg1 arg2 arg3 arg4
 ```
 
 globally available using any entity
 ```bash
-
-```bash
 alice hello
-alice command arg1 arg2 arge3 arg4
+alice command arg1 arg2 arg3 arg4
 ```
 
 
@@ -167,17 +165,17 @@ inside ~/.alice/commands/hello using any entity
 ```bash
 cd ~/.alice/commands/hello
 alice command
-alice command arg1 arg2 arge3 arg4
+alice command arg1 arg2 arg3 arg4
 ```
 
 globally available using only alice
 ```bash
-alice hello world
-alice hello awesome time machine
+alice hello
+alice hello arg1 arg2 arg3 arg4
 ```
 
 
-## project folder specific commands
+## folder specific commands
 
 You can use your entity's environment anywhere you want.
 
@@ -202,7 +200,7 @@ inside ~/some/random/folder/
 ```bash
 cd ~/some/random/folder/
 alice hello
-alice hello arg1 arg2 arge3 arg4
+alice hello arg1 arg2 arg3 arg4
 ```
 
 
