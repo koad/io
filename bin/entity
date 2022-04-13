@@ -1,0 +1,5 @@
+#!/bin/bash
+
+export ENTITY='entity'
+koad-io "$@";
+
