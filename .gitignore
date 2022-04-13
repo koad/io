@@ -1,11 +1,6 @@
-aggreements
-assets
-chromium
-datasets
-docs
-lighthouse
-packages
-profiles
-skeletons
-.env
-
+*
+*/
+!.gitignore
+!bin
+!bin/koad-io
+!README.md
