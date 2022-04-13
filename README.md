@@ -110,11 +110,14 @@ commands can be available to all entities
 
 
 ### create
+
 inside ~/.koad-io/commands/
 ```bash
 mkdir ~/.koad-io/commands/hello
 cd ~/.koad-io/commands/hello
 echo '
+#!/usr/bin/env bash
+
 echo "hi there, $ENTITY here!"
 echo "args: $@"
 '> command.sh
@@ -144,11 +147,14 @@ alice command arg1 arg2 arge3 arg4
 commands can be specific to the entity
 
 ### create
+
 inside ~/.alice/commands/
 ```bash
 mkdir ~/.alice/commands/hello
 cd ~/.alice/commands/hello
 echo '
+#!/usr/bin/env bash
+
 echo "hi there, $ENTITY here!"
 echo "args: $@"
 '> command.sh
@@ -176,10 +182,13 @@ alice hello awesome time machine
 You can use your entity's environment anywhere you want.
 
 ### create
+
 inside ~/some/random/folder/
 ```bash
 cd ~/some/random/folder/
 echo '
+#!/usr/bin/env bash
+
 echo "hi there, $ENTITY here!"
 echo "args: $@"
 '> hello.sh
