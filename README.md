@@ -81,12 +81,12 @@ KOAD_IO_ARCHIVE_FOLDER=$HOME/.alice/archive/inbound
 
 ## install
 
-create the `~/.koad-io` folder with a clone this repo
+create the `~/.koad-io` folder with a clone of [this repo](https://github.com/koad/io)
 ```bash
 git clone https://github.com/koad/io.git ~/.koad-io
 ```
 
-add the `~/.koad-io/bin` folder to your path (add this to your .bashrc)
+add the `~/.koad-io/bin` folder to your path (add this to the end of your `~/.bashrc` file)
 ```bash
 [ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin
 ```
@@ -123,12 +123,15 @@ cd ~/.alice && ls -la
 /ssl
 /proc
 /home
+/hooks
 /media
 /archive
 /keybase
+/commands
+/.env
 ```
 
-You can ignore overwhelming possibilities for now and focus on populating your commands folder with whatever creative thing you desire.
+You can ignore the overwhelming possibilities for now and focus on populating your commands folder with whatever creative thing you desire.
 
 ## global commands
 
@@ -165,7 +168,7 @@ alice command arg1 arg2 arg3 arg4
 globally available using any entity
 ```bash
 alice hello
-alice command arg1 arg2 arg3 arg4
+alice hello arg1 arg2 arg3 arg4
 ```
 
 
