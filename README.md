@@ -106,34 +106,65 @@ You can ignore this idea for now and focus on populating your commands folder wi
 
 ## global commands
 
+commands can be available to all entities
+
+
 ### create
 inside ~/.koad-io/commands/
 ```bash
-cd ~/.koad-io/commands
-mkdir hello
-touch hello/command.sh
-chmod +x hello/command.sh
+mkdir ~/.koad-io/commands/hello
+cd ~/.koad-io/commands/hello
+echo '
+echo "hi there, $ENTITY here!"
+echo "args: $@"
+'> command.sh
+chmod +x command.sh
 ```
 
 ### run
+
+inside ~/.koad-io/commands/hello using any entity
 ```bash
-alice hello world
-alice hello awesome time machine
+cd ~/.koad-io/commands/hello
+alice command
+alice command arg1 arg2 arge3 arg4
+```
+
+globally available using any entity
+```bash
+
+```bash
+alice hello
+alice command arg1 arg2 arge3 arg4
 ```
 
 
 ## entity specific commands
 
+commands can be specific to the entity
+
 ### create
 inside ~/.alice/commands/
 ```bash
-cd ~/.alice/commands
-mkdir hello
-echo "echo @" > hello/command.sh
-chmod +x hello/command.sh
+mkdir ~/.alice/commands/hello
+cd ~/.alice/commands/hello
+echo '
+echo "hi there, $ENTITY here!"
+echo "args: $@"
+'> command.sh
+chmod +x command.sh
 ```
 
 ### run
+
+inside ~/.alice/commands/hello using any entity
+```bash
+cd ~/.alice/commands/hello
+alice command
+alice command arg1 arg2 arge3 arg4
+```
+
+globally available using only alice
 ```bash
 alice hello world
 alice hello awesome time machine
@@ -142,19 +173,27 @@ alice hello awesome time machine
 
 ## project folder specific commands
 
+You can use your entity's environment anywhere you want.
+
 ### create
-inside ~/Workbench/randomshit/
+inside ~/some/random/folder/
 ```bash
-cd ~/Workbench/randomshit/
-echo "this is a line" > hello.sh
+cd ~/some/random/folder/
+echo '
+echo "hi there, $ENTITY here!"
+echo "args: $@"
+'> hello.sh
 chmod +x hello.sh
+
 ```
 
 ### run
+
+inside ~/some/random/folder/
 ```bash
-cd ~/Workbench/randomshit/
-alice hello world
-alice hello awesome time machine
+cd ~/some/random/folder/
+alice hello
+alice hello arg1 arg2 arge3 arg4
 ```
 
 
