@@ -14,6 +14,7 @@ by saving a task as a command, and saving the environment variables used,
 - I can remember how I did a thing
 - I can replay the thing I did
 - I can automate the thing I did
+- I can go back and see if I was right
 - I can keep my things together as simple files and folders
 - I don't need to install or depend on complex tools and vendors
 
