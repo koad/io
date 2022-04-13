@@ -75,6 +75,106 @@ add the `~/.koad-io/bin` folder to your path (add this to your .bashrc)
 [ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin
 ```
 
+## create
+
+create your first koad:io entity!  sooo exciting!
+
+```bash
+koad-io init alice
+```
+
+once done, you can call upon alice using her name 
+```bash
+alice do something
+```
+
+alice will be created entirely in the .alice directory in your home directory
+```bash
+ls -la ~/.alice
+```
+
+> back this directory up NOW, and keep it somewhere suuuuuper safe.
+> want to automated backups?  build a [raspberry pi powered concealment keyring that also pretends to be your front door bell](https://duckduckgo.com).
+
+Your entity's directory will be a basic bare/blank koad:io skeleton filled with directories and keys that will be handy for you if you ever decide you want your entity to exist among multiple devices and locations.
+
+```bash
+cd ~/.alice && ls -la
+```
+```bash
+```
+
+
+
+You can ignore this for now and focus on populating your commands folder with whatever creative thing you desire.
+
+## global commands
+
+### create
+inside ~/.koad-io/commands/
+```bash
+cd ~/.koad-io/commands
+mkdir hello
+touch hello/command.sh
+chmod +x hello/command.sh
+```
+
+### run
+```bash
+alice hello world
+alice hello awesome time machine
+```
+
+
+## entity specific commands
+
+### create
+inside ~/.alice/commands/
+```bash
+cd ~/.alice/commands
+mkdir hello
+echo "echo @" > hello/command.sh
+chmod +x hello/command.sh
+```
+
+### run
+```bash
+alice hello world
+alice hello awesome time machine
+```
+
+
+## project folder specific commands
+
+### create
+inside ~/Workbench/randomshit/
+```bash
+cd ~/Workbench/randomshit/
+echo "this is a line" > hello.sh
+chmod +x hello.sh
+```
+
+### run
+```bash
+cd ~/Workbench/randomshit/
+alice hello world
+alice hello awesome time machine
+```
+
+
+
+## 🤝 Support
+
+As mentioned above, I am an amateur; 
+
+I have been using computers for a long time, programming for a long time; but, I totally suck in a lot of ways.  
+
+> I'd appreciate any feedback from any seasoned `bash` users out there!  
+
+Contributions, issues, and feature requests are welcome!  
+
+Give a ⭐️ if you like this project!
+
 
 P.S.  somebody somewhere, sometime, will create a voice controller for this,. so keep that in mind when creating commands.  You have full control, imagine if you were able to teach siri over time (for yourself);  it would be amazing.  
 
