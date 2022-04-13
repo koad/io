@@ -1,12 +1,16 @@
 *
 */
 !.gitignore
+!.github
+!.github/FUNDING.yml
+
+!README.md
+
 !bin
 !bin/koad-io
 !bin/entity
-!README.md
-!hooks
 
+!hooks
 !hooks/executed-without-arguments.sh
 
 !commands
