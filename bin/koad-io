@@ -1,0 +1,69 @@
+#!/bin/bash
+
+## koad-io cli wrapper
+## a component of koad:io
+## copyright kingofalldata.com
+
+
+# we want to save CWD as the directory which the command was fired from, and pass this into the regular command.
+export CWD=$PWD
+
+# ack
+echo "--koad-io [$ENTITY] $1 start--"
+
+# ensure we have arguments to parse, else run the koad:io update tool.  
+echo "$0 [$# arguments]"
+if [[ $# -eq 0 ]]; 
+    then >&2 echo "Did you want something?" && exec $HOME/.koad-io/commands/install/command.sh && exit 64;
+fi
+
+# Load any enviroment details that exist in the entities dotfiles folder.
+[ -f $HOME/.$ENTITY/.env ] && echo "loading $HOME/.$ENTITY/.env" && set -a && source $HOME/.$ENTITY/.env 
+[ -f $HOME/.$ENTITY/.credentials ] && echo "loading $HOME/.$ENTITY/.credentials" && set -a && source $HOME/.$ENTITY/.credentials 
+
+KOAD_IO_COMMANDS_DIR="$HOME/.koad-io/commands/$2"
+ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands/$2"
+
+# TODO: these next 16 lines need to be replaced with some logic
+
+# Check to see if we even have a command of that name,
+[[ ! -d $KOAD_IO_COMMANDS_DIR ]] && [[ ! -d $ENTITY_COMMANDS_DIR ]] && echo "Cannot find that command, sorry..[command does not exist]" >&2 && exit 66;
+
+WORKING_DIR="$HOME/.koad-io/commands/$2"
+EXEC_ARGS="$3 $4 $5 $6 $7"
+
+# find a more specific command, and override WORKING_DIR and EXEC_ARGS.
+# // load any default command from koad:io
+[[ -d $KOAD_IO_COMMANDS_DIR/$3/ ]] && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$3" && COMMAND_NAME=$3 && EXEC_ARGS="$4 $5 $6 $7"
+[[ -d $KOAD_IO_COMMANDS_DIR/$3/$4/ ]] && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$3/$4" && COMMAND_NAME=$4 && EXEC_ARGS="$5 $6 $7"
+[[ -d $KOAD_IO_COMMANDS_DIR/$3/$4/$5/ ]] && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$3/$4/$5" && COMMAND_NAME=$5 && EXEC_ARGS="$6 $7"
+
+# // load any command from entity
+[[ -d $ENTITY_COMMANDS_DIR/$3/ ]] && WORKING_DIR="$ENTITY_COMMANDS_DIR/$3" && COMMAND_NAME=$3 && EXEC_ARGS="$4 $5 $6 $7"
+[[ -d $ENTITY_COMMANDS_DIR/$3/$4/ ]] && WORKING_DIR="$ENTITY_COMMANDS_DIR/$3/$4" && COMMAND_NAME=$4 && EXEC_ARGS="$5 $6 $7"
+[[ -d $ENTITY_COMMANDS_DIR/$3/$4/$5/ ]] && WORKING_DIR="$ENTITY_COMMANDS_DIR/$3/$4/$5" && COMMAND_NAME=$5 && EXEC_ARGS="$6 $7"
+
+# // load any command from current working directory's command folder
+[[ -d $CWD/commands/$3/ ]] && WORKING_DIR="$CWD/$3" && COMMAND_NAME=$3 && EXEC_ARGS="$4 $5 $6 $7"
+[[ -d $CWD/commands/$3/$4/ ]] && WORKING_DIR="$CWD/$3/$4" && COMMAND_NAME=$4 && EXEC_ARGS="$5 $6 $7"
+[[ -d $CWD/commands/$3/$4/$5/ ]] && WORKING_DIR="$CWD/$3/$4/$5" && COMMAND_NAME=$5 && EXEC_ARGS="$6 $7"
+
+# // finally, load command from current working directory
+[[ -f $CWD/$1.sh ]] && WORKING_DIR="$CWD" && COMMAND_NAME=$1 && EXEC_ARGS="$2 $3 $4 $5 $6 $7"
+
+# command file can either be named `command.sh` or have the same name as the command with .sh extention
+FILETORUN="$WORKING_DIR/command.sh"
+[[ -f $WORKING_DIR/$COMMAND_NAME.sh ]] && echo "Command is in file form" >&2 && FILETORUN="$WORKING_DIR/$COMMAND_NAME.sh";
+
+# Make sure we have a valid command file to run, else crash 66
+[[ ! -f $FILETORUN ]] && echo "Malformed command setup, sorry -- i dont know how to proceed.." && echo "FILETORUN: $FILETORUN">&2 && exit 66;
+
+# If the working directory contains enviroment and credentials, load them
+
+# Load any enviroment details that exist in the entities dotfiles folder.
+[ -f $WORKING_DIR/.env ] && echo "loading $WORKING_DIR/.env" && set -a && source $WORKING_DIR/.env 
+[ -f $WORKING_DIR/.credentials ] && echo "loading $WORKING_DIR/.credentials" && set -a && source $WORKING_DIR/.credentials 
+
+# All is well, lets go!
+echo "--exec $FILETORUN $EXEC_ARGS"
+exec $FILETORUN $EXEC_ARGS
