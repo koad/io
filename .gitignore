@@ -3,4 +3,5 @@
 !.gitignore
 !bin
 !bin/koad-io
+!bin/entity
 !README.md
