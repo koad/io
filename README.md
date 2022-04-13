@@ -159,6 +159,43 @@ alice hello awesome time machine
 
 
 
+## preload
+
+check the commands folder to see what comes pre-loaded, not alot.
+
+- [init](/commands/init/README.md)  
+- [whoami](/commands/whoami/README.md)  
+- [example](/commands/example/README.md)  
+
+language specific examples 
+
+- [example/bash](/commands/example/bash.sh)  
+- [example/javascript](/commands/example/javascript.sh)  
+- [example/python](/commands/example/python.sh)  
+- [example/rust](/commands/example/rust.sh)  
+- [example/go](/commands/example/go.sh)  
+
+interact with the example command to see how things work
+```bash
+alice example
+```
+output
+```
+see how these examples work by taking a peek into the `~/.koad-io/commands/example` folder
+
+this output is createed by the file `~/.koad-io/commands/example/command.sh`
+
+run other example commands, written to showcase various available languages
+
+alice example bash
+alice example javascript
+alice example python
+alice example rust
+alice example go
+```
+
+
+
 ## 🤝 Support
 
 As mentioned above, I am an amateur; 
