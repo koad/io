@@ -27,16 +27,16 @@ when calling a koad:io command, there is a chain-reaction of steps that happen; 
 - `alice` loads some general environment details, then calls the koad:io cli wrapper
 	1. `ENTITY=alice`   
 - koad:io cli wrapper loads some more specific environment details
-	1. `~/.koad-io/.env`   (if exists)
-	2. `~/.$ENTITY/.env`   (if exists)
-	3. `~/.$ENTITY/.credentials`   (if exists)
+	1. `~/.koad-io/.env`   (if exists)  
+	2. `~/.$ENTITY/.env`   (if exists)  
+	3. `~/.$ENTITY/.credentials`   (if exists)  
 - then, finds the most relevant regular command by searching in 4 locations and uses the results from the last location it scans.
 - In each location, the deepest directory that contains a `command.sh` file or a `$COMMAND_NAME.sh` file will used.
-	1. `~/.koad-io/commands/`
-	2. `~/.$ENTITY/commands/`
+	1. `~/.koad-io/commands/`  
+	2. `~/.$ENTITY/commands/`  
 - checks the CURRENT_DIRECTORY for commands,. if found will use and also load .env and .credentials CURRENT_DIRECTORY 
-	3. `$CURRENT_DIRECTORY/commands/`
-	4. `./$COMMAND_NAME.sh` - a command of the same name in the current directory.
+	1. `$CURRENT_DIRECTORY/commands/`  
+	2. `./$COMMAND_NAME.sh` - a command of the same name in the current directory.  
 - then calls the regular command with
 	- environment details from the chain reaction
 	- the remaining arguments passed into the entity cli wrapper
