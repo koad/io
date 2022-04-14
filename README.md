@@ -13,11 +13,10 @@ by saving a task as a `command`, and saving the environment variables used is an
 
 - I can remember how I did a thing
 - I can replay the thing I did
-- I can automate the thing I did
 - I can go back and see if I was right
 - I can keep my things together as simple files and folders
 - I don't need to install or depend on complex tools and vendors
-- I can keep my projects/data categorized into entities (an entity for each `area of focus`)
+- I can keep my projects/data organized into categories (an entity folder for each `area of focus`)
 
 
 ## customizable chain reactions
@@ -41,7 +40,7 @@ when calling a koad:io command, there is a chain-reaction of steps that happen; 
 	- `$CURRENT_DIRECTORY/commands/`  
 - if a command of the same name is in the current directory	
 	- use it instead: `./$COMMAND_NAME.sh`
-	- load more enviroment vars 
+	- load more environment vars 
 		- `$CURRENT_DIRECTORY/.env`   (if exists)  
 		- `$CURRENT_DIRECTORY/.credentials`   (if exists)  
 - then calls the regular command with
@@ -106,7 +105,7 @@ ls -la ~/.alice
 ```
 
 > back this directory up NOW, and keep it __somewhere suuuuuper safe__.
-> want to automated backups?  build a [raspberry pi powered concealment keyring that also pretends to be your front door bell](https://duckduckgo.com).
+> want to automated backups?  build a [raspberry pi powered concealment key-ring that also pretends to be your front door bell](https://duckduckgo.com).
 
 Your entity's directory will be a basic bare/blank koad:io skeleton filled with directories and keys that will be handy for you if you ever decide you want your entity to exist among multiple devices and locations.
 
@@ -133,15 +132,14 @@ cd ~/.alice && ls -la
 
 You can ignore the overwhelming possibilities for now and focus on populating your commands folder with whatever creative thing you desire.
 
-## global commands
+## create commands
 
-commands can be available to all entities
+bookmark [koad's bash cheatsheet](https://book.koad.sh/cheatsheets/bourn-again-scripting/) as it is a handy resource for creating new tasks/commands.
 
 
-### create
+### global commands
 
 > your first ever koad:io command! 😄 
-
 
 inside ~/.koad-io/commands/
 ```bash
@@ -239,7 +237,7 @@ alice hello arg1 arg2 arg3 arg4
 
 ## preload
 
-check the commands folder to see what comes pre-loaded, not alot.
+check the commands folder to see what comes preloaded, not a lot.
 
 - [/commands/init/README.md](/commands/init/README.md)  
 - [/commands/whoami/README.md](/commands/whoami/README.md)  
@@ -261,7 +259,7 @@ output
 ```
 see how these examples work by taking a peek into the `~/.koad-io/commands/example` folder
 
-this output is createed by the file `~/.koad-io/commands/example/command.sh`
+this output is created by the file `~/.koad-io/commands/example/command.sh`
 
 run other example commands, written to showcase various available languages
 
