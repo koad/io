@@ -83,7 +83,7 @@ ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands"
 [[ ! -n $FILETORUN ]] && echo "Could not find command file to execute, sorry." && echo "FILETORUN: $FILETORUN" >&2 && exit 66;
 
 # If the working directory contains environment and credentials, load them
-[ -f $COMMAND_LOCATION/.env ] && echo "loading $COMMAND_LOCATION/.env" && set -a && source $COMMAND_LOCATION/.env 
+[ -f $COMMAND_LOCATION/.env ]         && echo "loading $COMMAND_LOCATION/.env"         && set -a && source $COMMAND_LOCATION/.env 
 [ -f $COMMAND_LOCATION/.credentials ] && echo "loading $COMMAND_LOCATION/.credentials" && set -a && source $COMMAND_LOCATION/.credentials 
 
 # if DEBUG is set, barf out some details.
