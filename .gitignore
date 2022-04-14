@@ -6,21 +6,35 @@
 
 !README.md
 
-!bin
+!bin/
 !bin/koad-io
 !bin/entity
 
-!hooks
+!hooks/
 !hooks/executed-without-arguments.sh
 
-!commands
+!commands/
 !commands/README.md
 
-!commands/init
+!commands/init/
 !commands/init/command.sh
 !commands/init/README.md
 
-!commands/example
+!commands/example/
 !commands/example/command.sh
 !commands/example/README.md
+
+!commands/test/
+!commands/test/command.sh
+
+!commands/test/one/
+!commands/test/one/command.sh
+
+!commands/test/one/two/
+!commands/test/one/two/command.sh
+
+!commands/test/one/two/three/
+!commands/test/one/two/three/command.sh
+
+!commands/test/one/two/three/four.sh
 
