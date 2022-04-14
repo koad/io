@@ -4,9 +4,12 @@
 ## a component of koad:io
 ## copyright kingofalldata.com
 
-
 # we want to save CWD as the directory which the command was fired from, and pass this into the regular command.
 export CWD=$PWD
+[[ $DEBUG ]] && echo "PWD=$PWD";
+[[ $DEBUG ]] && echo "ORIG_ARGS=$1 $2 $3 $4 $5 $6 $7 $8"
+
+[[ $8 ]] && echo 'You have reached the limites here, sorry -- too many arguments.' && exit 68
 
 # ack
 echo "--koad-io [$ENTITY] $1 start--"
@@ -14,49 +17,81 @@ echo "--koad-io [$ENTITY] $1 start--"
 # ensure we have arguments to parse, else run the koad:io update tool.  
 echo "$0 [$# arguments]"
 if [[ $# -eq 0 ]]; 
-    then >&2 echo "$ENTITY at your service." && exec $HOME/.koad-io/hooks/executed-without-arguements.sh && exit 64;
+    then >&2 echo "$ENTITY at your service." && exec $HOME/.koad-io/hooks/executed-without-arguments.sh && exit 64;
 fi
 
 # Load any enviroment details that exist in the entities dotfiles folder.
 [ -f $HOME/.$ENTITY/.env ] && echo "loading $HOME/.$ENTITY/.env" && set -a && source $HOME/.$ENTITY/.env 
 [ -f $HOME/.$ENTITY/.credentials ] && echo "loading $HOME/.$ENTITY/.credentials" && set -a && source $HOME/.$ENTITY/.credentials 
 
-KOAD_IO_COMMANDS_DIR="$HOME/.koad-io/commands/$2"
-ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands/$2"
+KOAD_IO_COMMANDS_DIR="$HOME/.koad-io/commands"
+[[ $DEBUG ]] && echo "KOAD_IO_COMMANDS_DIR=$KOAD_IO_COMMANDS_DIR";
 
-# TODO: these next 16 lines need to be replaced with some logic
+ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands"
+[[ $DEBUG ]] && echo "ENTITY_COMMANDS_DIR=$ENTITY_COMMANDS_DIR";
 
-# Check to see if we even have a command of that name,
-[[ ! -d $KOAD_IO_COMMANDS_DIR ]] && [[ ! -d $ENTITY_COMMANDS_DIR ]] && echo "Cannot find that command, sorry..[command does not exist]" >&2 && exit 66;
 
-WORKING_DIR="$HOME/.koad-io/commands/$2"
-EXEC_ARGS="$3 $4 $5 $6 $7"
+# Check to see if we even have a command directory of that name or a file of the same name in the current working directory.  If not, then bail.
+[[ ! -d $KOAD_IO_COMMANDS_DIR ]] && [[ ! -d $ENTITY_COMMANDS_DIR ]] && [[ ! -d $PWD/commmands/ ]]  && [[ ! -f $PWD/$1.sh ]] && echo "Cannot find that command, sorry..[command does not exist]" >&2 && exit 66;
 
-# find a more specific command, and override WORKING_DIR and EXEC_ARGS.
-# // load any default command from koad:io
-[[ -d $KOAD_IO_COMMANDS_DIR/$3/ ]] && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$3" && COMMAND_NAME=$3 && EXEC_ARGS="$4 $5 $6 $7"
-[[ -d $KOAD_IO_COMMANDS_DIR/$3/$4/ ]] && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$3/$4" && COMMAND_NAME=$4 && EXEC_ARGS="$5 $6 $7"
-[[ -d $KOAD_IO_COMMANDS_DIR/$3/$4/$5/ ]] && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$3/$4/$5" && COMMAND_NAME=$5 && EXEC_ARGS="$6 $7"
 
-# // load any command from entity
-[[ -d $ENTITY_COMMANDS_DIR/$3/ ]] && WORKING_DIR="$ENTITY_COMMANDS_DIR/$3" && COMMAND_NAME=$3 && EXEC_ARGS="$4 $5 $6 $7"
-[[ -d $ENTITY_COMMANDS_DIR/$3/$4/ ]] && WORKING_DIR="$ENTITY_COMMANDS_DIR/$3/$4" && COMMAND_NAME=$4 && EXEC_ARGS="$5 $6 $7"
-[[ -d $ENTITY_COMMANDS_DIR/$3/$4/$5/ ]] && WORKING_DIR="$ENTITY_COMMANDS_DIR/$3/$4/$5" && COMMAND_NAME=$5 && EXEC_ARGS="$6 $7"
+# TODO: these next 16 lines need to be replaced with some logic, but it NEEDS to be extremely human readable... hmm
+# I just don't know how to create the logic here,. .. i'll spell it out as best as I can.
+# note: we limit our abilities here by hard-wiring $1 thru $7, this should not be hard-wired.
 
-# // load any command from current working directory's command folder
-[[ -d $CWD/commands/$3/ ]] && WORKING_DIR="$CWD/$3" && COMMAND_NAME=$3 && EXEC_ARGS="$4 $5 $6 $7"
-[[ -d $CWD/commands/$3/$4/ ]] && WORKING_DIR="$CWD/$3/$4" && COMMAND_NAME=$4 && EXEC_ARGS="$5 $6 $7"
-[[ -d $CWD/commands/$3/$4/$5/ ]] && WORKING_DIR="$CWD/$3/$4/$5" && COMMAND_NAME=$5 && EXEC_ARGS="$6 $7"
+# find the deepest available command within the global commands 
+# each search will replace the results from the previous,. so it goes from least priority to most
+# ie: a shallow command in `alice` will take precedence of the command of the same name in `~/.koad-io/commands`
 
-# // finally, load command from current working directory
-[[ -f $CWD/$1.sh ]] && WORKING_DIR="$CWD" && COMMAND_NAME=$1 && EXEC_ARGS="$2 $3 $4 $5 $6 $7"
+# find deepest globally available command from ~/.koad-io/commands
+[[ $1 ]] && [[ -d $KOAD_IO_COMMANDS_DIR/$1/ ]]             && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$1"             && COMMAND_NAME=$1 && EXEC_ARGS=($2 $3 $4 $5 $6 $7) && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+[[ $2 ]] && [[ -d $KOAD_IO_COMMANDS_DIR/$1/$2 ]]           && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$1/$2"          && COMMAND_NAME=$2 && EXEC_ARGS=($3 $4 $5 $6 $7)    && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+[[ $3 ]] && [[ -d $KOAD_IO_COMMANDS_DIR/$1/$2/$3/ ]]       && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$1/$2/$3"       && COMMAND_NAME=$3 && EXEC_ARGS=($4 $5 $6 $7)       && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+[[ $4 ]] && [[ -d $KOAD_IO_COMMANDS_DIR/$1/$2/$3/$4/ ]]    && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$1/$2/$3/$4"    && COMMAND_NAME=$4 && EXEC_ARGS=($5 $6 $7)          && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+[[ $5 ]] && [[ -d $KOAD_IO_COMMANDS_DIR/$1/$2/$3/$4/$5/ ]] && WORKING_DIR="$KOAD_IO_COMMANDS_DIR/$1/$2/$3/$4/$5" && COMMAND_NAME=$5 && EXEC_ARGS=($6 $7)             && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+
+# find deepest command from entity
+[[ $1 ]] && [[ -d $ENTITY_COMMANDS_DIR/$1/ ]]               && WORKING_DIR="$ENTITY_COMMANDS_DIR/$1"              && COMMAND_NAME=$1 && EXEC_ARGS=("$2 $3 $4 $5 $6 $7") && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+[[ $2 ]] && [[ -d $ENTITY_COMMANDS_DIR/$1/$2/ ]]            && WORKING_DIR="$ENTITY_COMMANDS_DIR/$1/$2"           && COMMAND_NAME=$2 && EXEC_ARGS=("$3 $4 $5 $6 $7")    && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+[[ $3 ]] && [[ -d $ENTITY_COMMANDS_DIR/$1/$2/$3/ ]]         && WORKING_DIR="$ENTITY_COMMANDS_DIR/$1/$2/$3"        && COMMAND_NAME=$3 && EXEC_ARGS=("$4 $5 $6 $7")       && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+[[ $4 ]] && [[ -d $ENTITY_COMMANDS_DIR/$1/$2/$3/$4/ ]]      && WORKING_DIR="$ENTITY_COMMANDS_DIR/$1/$2/$3/$4"     && COMMAND_NAME=$4 && EXEC_ARGS=("$5 $6 $7")          && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+[[ $5 ]] && [[ -d $ENTITY_COMMANDS_DIR/$1/$2/$3/$4/$5/ ]]   && WORKING_DIR="$ENTITY_COMMANDS_DIR/$1/$2/$3/$4/$5"  && COMMAND_NAME=$5 && EXEC_ARGS=("$6 $7")             && [[ $DEBUG ]] && echo "Found command directory: $WORKING_DIR";
+
+# find deepest command from current working directory's command folder
+[[ $1 ]] && [[ -d $CWD/commands/$1/ ]]               && WORKING_DIR="$CWD/commands/$1"              && COMMAND_NAME=$1 && EXEC_ARGS=("$2 $3 $4 $5 $6 $7") && [[ $DEBUG ]] && echo "Found command directory:$WORKING_DIR";
+[[ $2 ]] && [[ -d $CWD/commands/$1/$2/ ]]            && WORKING_DIR="$CWD/commands/$1/$2"           && COMMAND_NAME=$2 && EXEC_ARGS=("$3 $4 $5 $6 $7")    && [[ $DEBUG ]] && echo "Found command directory:$WORKING_DIR";
+[[ $3 ]] && [[ -d $CWD/commands/$1/$2/$3/ ]]         && WORKING_DIR="$CWD/commands/$1/$2/$3"        && COMMAND_NAME=$3 && EXEC_ARGS=("$4 $5 $6 $7")       && [[ $DEBUG ]] && echo "Found command directory:$WORKING_DIR";
+[[ $4 ]] && [[ -d $CWD/commands/$1/$2/$3/$4/ ]]      && WORKING_DIR="$CWD/commands/$1/$2/$3/$4"     && COMMAND_NAME=$4 && EXEC_ARGS=("$5 $6 $7")          && [[ $DEBUG ]] && echo "Found command directory:$WORKING_DIR";
+[[ $5 ]] && [[ -d $CWD/commands/$1/$2/$3/$4/$5/ ]]   && WORKING_DIR="$CWD/commands/$1/$2/$3/$4/$5"  && COMMAND_NAME=$5 && EXEC_ARGS=("$6 $7")             && [[ $DEBUG ]] && echo "Found command directory:$WORKING_DIR";
+
+[[ $DEBUG ]] && echo
+[[ $DEBUG ]] && echo "POTENTIAL_COMMAND: $COMMAND_NAME"
+[[ $DEBUG ]] && echo "POTENTIAL_EXEC_ARGS: ${EXEC_ARGS[@]}"
+[[ $DEBUG ]] && echo
+
+POTENTIAL_NAMED_COMMAND=${EXEC_ARGS[0]}
+[[ $DEBUG ]] && echo "POTENTIAL_NAMED_COMMAND: $POTENTIAL_NAMED_COMMAND";
+
+POTENTIAL_REMAINDER_ARGUMENTS=("${EXEC_ARGS[@]}")
+unset POTENTIAL_REMAINDER_ARGUMENTS[0]
+[[ $DEBUG ]] && echo "POTENTIAL_REMAINDER_ARGUMENTS: ${POTENTIAL_REMAINDER_ARGUMENTS[@]}";
+[[ $DEBUG ]] && echo
 
 # command file can either be named `command.sh` or have the same name as the command with .sh extention
-FILETORUN="$WORKING_DIR/command.sh"
-[[ -f $WORKING_DIR/$COMMAND_NAME.sh ]] && echo "Command is in file form" >&2 && FILETORUN="$WORKING_DIR/$COMMAND_NAME.sh";
+[[ -f $WORKING_DIR/command.sh ]] && echo "command.sh is found in $WORKING_DIR" >&2 && FILETORUN="$WORKING_DIR/command.sh";
+[[ -f $WORKING_DIR/$POTENTIAL_NAMED_COMMAND.sh ]]      && echo "$POTENTIAL_NAMED_COMMAND.sh is is found in $WORKING_DIR"   >&2 &&  EXEC_ARGS="${POTENTIAL_REMAINDER_ARGUMENTS[@]}" && FILETORUN="$WORKING_DIR/$POTENTIAL_NAMED_COMMAND.sh";
+
+# finally, find a command from current working directory of the same name
+[[ -f $CWD/$1.sh ]]              && echo "$1.sh is is found in $CWD"           >&2 &&  EXEC_ARGS="$2 $3 $4 $5 $6 $7"&& FILETORUN="$CWD/$1.sh";
+
+[[ $DEBUG ]] && echo
+[[ $DEBUG ]] && echo "WORKING_DIR=$WORKING_DIR";
+[[ $DEBUG ]] && echo "FILETORUN=$FILETORUN";
+[[ $DEBUG ]] && echo "EXEC_ARGS=$EXEC_ARGS";
+[[ $DEBUG ]] && echo
 
 # Make sure we have a valid command file to run, else crash 66
-[[ ! -f $FILETORUN ]] && echo "Could not find command file to execute, sorry." && echo "FILETORUN: $FILETORUN" >&2 && exit 66;
+[[ ! -n $FILETORUN ]] && echo "Could not find command file to execute, sorry." && echo "FILETORUN: $FILETORUN" >&2 && exit 66;
 
 # If the working directory contains enviroment and credentials, load them
 
