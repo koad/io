@@ -1,5 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-export ENTITY='entity'
+export ENTITY='alice'
 koad-io "$@";
-
