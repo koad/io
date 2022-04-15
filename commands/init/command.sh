@@ -25,6 +25,13 @@ sleep 1
 echo "Gestating new koad:io entity '$ENTITY'"
 echo
 
+
+sleep 1
+echo "this will take some time to generate identity keys for $ENTITY"
+echo "documentation is a work in progress, but you can check it out while you wait."
+echo "https://book.koad.sh/reference/koad-io-entity/"
+echo
+
 sleep 1
 mkdir -p $DATADIR         && [[ $DEBUG ]] && echo "[init] creating $DATADIR"
 mkdir -p $DATADIR/bin     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/bin"
@@ -113,8 +120,8 @@ echo
 sleep 1
 echo "archving command version information"
 git rev-parse --short HEAD > $DATADIR/VERSION
-[ -f $DATADIR/VERSION ] && cat $DATADIR/VERSION
 echo "wrote version information to: $DATADIR/VERSION"
+[ -f $DATADIR/VERSION ] && cat $DATADIR/VERSION
 echo
 
 sleep 1
