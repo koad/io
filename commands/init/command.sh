@@ -20,12 +20,13 @@ if [ $# -eq 0 ]
     exit 1
 fi
 
-sleep 1
 [ -d $DATADIR ] && echo 'Directory already exists, cannot proceed.' && exit 1
 
-echo "No problem, gestating $ENTITY"
+sleep 1
+echo "Gestating new koad:io entity '$ENTITY'"
 echo
 
+sleep 1
 mkdir -p $DATADIR         && [[ $DEBUG ]] && echo "[init] creating $DATADIR"
 mkdir -p $DATADIR/bin     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/bin"
 mkdir -p $DATADIR/etc     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/etc"
@@ -39,8 +40,6 @@ mkdir -p $DATADIR/home    && [[ $DEBUG ]] && echo "[init] creating $DATADIR/home
 mkdir -p $DATADIR/media   && [[ $DEBUG ]] && echo "[init] creating $DATADIR/media"
 mkdir -p $DATADIR/archive && [[ $DEBUG ]] && echo "[init] creating $DATADIR/archive"
 mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[init] creating $DATADIR/keybase"
-
-sleep 1
 [ ! -v $DEBUG ] && echo "[[ gestation output locations suppressed ]]" && echo
 
 sleep 1
@@ -85,7 +84,7 @@ openssl dhparam -out $DATADIR/ssl/dhparam-2048.pem 2048 > /dev/null 2>&1
 echo "generated: $DATADIR/ssl/dhparam-2048.pem 2048"
 echo
 echo "Generating 4096 bit dhparam, this will take a long time, 10 minutes max?"
-openssl dhparam -out $DATADIR/ssl/dhparam-4096.pem 4096 > /dev/null 2>&1
+# openssl dhparam -out $DATADIR/ssl/dhparam-4096.pem 4096 > /dev/null 2>&1
 echo "generated: $DATADIR/ssl/dhparam-4096.pem 4096"
 sleep 1
 
@@ -133,18 +132,20 @@ echo
 sleep 3
 echo "Congratulations!"
 echo
-echo && printf '%s\n' "You've just created brand a new digital life!  Enjoy YOUR new digital best friend! You can keep this new friend private, or choose to make aspects of her public.  You are in control." | fold -w $WORD_WRAP_WIDTH -s
-echo && printf '%s\n' "You can use any existing friend to create another." | fold -w $WORD_WRAP_WIDTH -s
+echo && printf '%s\n' "You've just created a new digital life!" | fold -w $WORD_WRAP_WIDTH -s
+echo && printf '%s\n' "btw: you can use any existing friend to create another." | fold -w $WORD_WRAP_WIDTH -s
 echo "ie: > $ENTITY init alice"
 echo
 
 echo "try '$ENTITY test'"
-echo " then try '$ENTITY test one two three four'"
+echo "then try '$ENTITY test one two three four'"
 echo
 
 echo "have fun with $ENTITY!  I hope you make it into something nice."
 echo
 echo "/koad"
+echo
+echo "-------------------------------------------------------------------------------"
 
 sleep 3
 echo "ready player one -> $ENTITY"
