@@ -25,7 +25,6 @@ sleep 1
 echo "Gestating new koad:io entity '$ENTITY'"
 echo
 
-
 sleep 1
 echo "this will take some time to generate identity keys for $ENTITY"
 echo "documentation is a work in progress, but you can check it out while you wait."
@@ -135,6 +134,7 @@ echo
 # TODO: spawn 2 nebula networks using this keyring
 #       one for machines
 #       one for humans
+
 sleep 3
 echo "Congratulations!"
 echo
@@ -151,8 +151,8 @@ echo "have fun with $ENTITY!  I hope you make it into something nice."
 echo
 echo "/koad"
 echo
-echo "-------------------------------------------------------------------------------"
 
-sleep 3
+sleep 5
+echo "-------------------------------------------------------------------------------"
 echo "ready player one -> $ENTITY"
 echo
