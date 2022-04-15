@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 
-# TODO: if fold length is more than 80, make it 80
-# WORD_WRAP_WIDTH=$(tput cols)
-WORD_WRAP_WIDTH=80
-
 ENTITY=$1
 DATADIR=$HOME/.$ENTITY
+
+# TODO: if fold length is more than 80, make it 80
+WORD_WRAP_WIDTH=$(tput cols)
 
 echo
 echo
@@ -84,7 +83,7 @@ openssl dhparam -out $DATADIR/ssl/dhparam-2048.pem 2048 > /dev/null 2>&1
 echo "generated: $DATADIR/ssl/dhparam-2048.pem 2048"
 echo
 echo "Generating 4096 bit dhparam, this will take a long time, 10 minutes max?"
-# openssl dhparam -out $DATADIR/ssl/dhparam-4096.pem 4096 > /dev/null 2>&1
+openssl dhparam -out $DATADIR/ssl/dhparam-4096.pem 4096 > /dev/null 2>&1
 echo "generated: $DATADIR/ssl/dhparam-4096.pem 4096"
 sleep 1
 
@@ -132,8 +131,8 @@ echo
 sleep 3
 echo "Congratulations!"
 echo
-echo && printf '%s\n' "You've just created a new digital life!" | fold -w $WORD_WRAP_WIDTH -s
-echo && printf '%s\n' "btw: you can use any existing friend to create another." | fold -w $WORD_WRAP_WIDTH -s
+echo "You've just created a new digital life!"
+echo "btw: you can use any existing friend to create another."
 echo "ie: > $ENTITY init alice"
 echo
 
