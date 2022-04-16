@@ -73,14 +73,14 @@ ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands"
 [[ $COMMAND_LOCATION ]] && POTENTIAL_REMAINDER_ARGUMENTS=("${EXEC_ARGS[@]}") && unset POTENTIAL_REMAINDER_ARGUMENTS[0] && [[ $DEBUG ]] && echo "POTENTIAL_REMAINDER_ARGUMENTS: ${POTENTIAL_REMAINDER_ARGUMENTS[@]}" && echo
 
 # command file can either be named `command.sh` or have the same name as the command with .sh extension
-[[ -f $COMMAND_LOCATION/command.sh ]]                  && echo "command.sh is found in $COMMAND_LOCATION" >&2                     && FILETORUN="$COMMAND_LOCATION/command.sh";
-[[ -f $COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh ]] && echo "$POTENTIAL_NAMED_COMMAND.sh is is found in $COMMAND_LOCATION" >&2 && EXEC_ARGS="${POTENTIAL_REMAINDER_ARGUMENTS[@]}" && FILETORUN="$COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh";
+[[ -f $COMMAND_LOCATION/command.sh ]]                  && echo "command.sh is found in $COMMAND_LOCATION" >&2                     && export EXEC_FILE="$COMMAND_LOCATION/command.sh";
+[[ -f $COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh ]] && echo "$POTENTIAL_NAMED_COMMAND.sh is is found in $COMMAND_LOCATION" >&2 && EXEC_ARGS="${POTENTIAL_REMAINDER_ARGUMENTS[@]}" && export EXEC_FILE="$COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh";
 
 # finally, find a command from current working directory of the same name
-[[ -f $CWD/$1.sh ]] && echo "$1.sh is is found in $CWD" >&2 &&  EXEC_ARGS="$2 $3 $4 $5 $6 $7 $8"&& FILETORUN="$CWD/$1.sh" && COMMAND_LOCATION=$CWD;
+[[ -f $CWD/$1.sh ]] && echo "$1.sh is is found in $CWD" >&2 &&  EXEC_ARGS="$2 $3 $4 $5 $6 $7 $8"&& export EXEC_FILE="$CWD/$1.sh" && COMMAND_LOCATION=$CWD;
 
 # Make sure we have a valid command file to run, else crash 66
-[[ ! -n $FILETORUN ]] && echo "Could not find command file to execute, sorry." && echo "FILETORUN: $FILETORUN" >&2 && exit 66;
+[[ ! -n $EXEC_FILE ]] && echo "Could not find command file to execute, sorry." && echo "EXEC_FILE: $EXEC_FILE" >&2 && exit 66;
 
 # If the working directory contains environment and credentials, load them
 [ -f $COMMAND_LOCATION/.env ]         && echo "loading $COMMAND_LOCATION/.env"         && set -a && source $COMMAND_LOCATION/.env 
@@ -89,10 +89,10 @@ ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands"
 # if DEBUG is set, barf out some details.
 [[ $DEBUG ]] && echo
 [[ $DEBUG ]] && echo "COMMAND_LOCATION=$COMMAND_LOCATION";
-[[ $DEBUG ]] && echo "FILETORUN=$FILETORUN";
+[[ $DEBUG ]] && echo "EXEC_FILE=$EXEC_FILE";
 [[ $DEBUG ]] && echo "EXEC_ARGS=$EXEC_ARGS";
 [[ $DEBUG ]] && echo
 
 # All is well, lets go!
-echo "--exec $FILETORUN $EXEC_ARGS"
-exec $FILETORUN $EXEC_ARGS
+echo "--exec $EXEC_FILE $EXEC_ARGS"
+exec $EXEC_FILE $EXEC_ARGS
