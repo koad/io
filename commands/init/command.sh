@@ -83,8 +83,8 @@ sleep 9 & spinner $! && sleep .9;
 echo && echo "Let's go!";
 echo && sleep 1 & spinner $!
 echo "Gestating new koad:io entity '$ENTITY'"
-[[ MOTHER ]] && echo "Gestation arose from ${MOTHER}";
-[[ ! MOTHER ]] && echo "Immaculate Conception, no initial genome!"
+[[ $MOTHER ]] && echo "Gestation arose from ${MOTHER}";
+[[ ! $MOTHER ]] && echo "Immaculate Conception, no initial genome!"
 
 echo && sleep 1 & spinner $!
 mkdir -p $DATADIR         && [[ $DEBUG ]] && echo "[init] creating $DATADIR"
@@ -105,23 +105,22 @@ mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[init] creating $DATADIR/keyb
 
 [[ $MOTHER ]] && sleep 1 & spinner $!
 [[ $MOTHER ]] && echo "cloning genes from mother $MOTHER";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/skeletons ]] && cp -r $HOME/.$MOTHER/skeletons $HOME/.$ENTITY/  & spinner $! && echo "cloned mother ${MOTHER}'s skeletons to $HOME/.ENTITY/skeletons";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/packages ]]  && cp -r $HOME/.$MOTHER/packages $HOME/.$ENTITY/   & spinner $! && echo "cloned mother ${MOTHER}'s packages to $HOME/.ENTITY/packages";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/commands ]]  && cp -r $HOME/.$MOTHER/commands $HOME/.$ENTITY/   & spinner $! && echo "cloned mother ${MOTHER}'s commands to $HOME/.ENTITY/commands";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/recipes ]]   && cp -r $HOME/.$MOTHER/recipes $HOME/.$ENTITY/    & spinner $! && echo "cloned mother ${MOTHER}'s recipes to $HOME/.ENTITY/recipes";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/assets ]]    && cp -r $HOME/.$MOTHER/assets $HOME/.$ENTITY/     & spinner $! && echo "cloned mother ${MOTHER}'s assets to $HOME/.ENTITY/assets";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/cheats ]]    && cp -r $HOME/.$MOTHER/cheats $HOME/.$ENTITY/     & spinner $! && echo "cloned mother ${MOTHER}'s cheats to $HOME/.ENTITY/cheats";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/hooks ]]     && cp -r $HOME/.$MOTHER/hooks $HOME/.$ENTITY/      & spinner $! && echo "cloned mother ${MOTHER}'s hooks to $HOME/.ENTITY/hooks";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/docs ]]      && cp -r $HOME/.$MOTHER/docs $HOME/.$ENTITY/       & spinner $! && echo "cloned mother ${MOTHER}'s docs to $HOME/.ENTITY/docs";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/skeletons ]] && cp -r $HOME/.$MOTHER/skeletons $HOME/.$ENTITY/  & spinner $! && echo "cloned mother $MOTHER's skeletons to $HOME/.ENTITY/skeletons";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/packages ]]  && cp -r $HOME/.$MOTHER/packages $HOME/.$ENTITY/   & spinner $! && echo "cloned mother $MOTHER's packages to $HOME/.ENTITY/packages";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/commands ]]  && cp -r $HOME/.$MOTHER/commands $HOME/.$ENTITY/   & spinner $! && echo "cloned mother $MOTHER's commands to $HOME/.ENTITY/commands";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/recipes ]]   && cp -r $HOME/.$MOTHER/recipes $HOME/.$ENTITY/    & spinner $! && echo "cloned mother $MOTHER's recipes to $HOME/.ENTITY/recipes";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/assets ]]    && cp -r $HOME/.$MOTHER/assets $HOME/.$ENTITY/     & spinner $! && echo "cloned mother $MOTHER's assets to $HOME/.ENTITY/assets";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/cheats ]]    && cp -r $HOME/.$MOTHER/cheats $HOME/.$ENTITY/     & spinner $! && echo "cloned mother $MOTHER's cheats to $HOME/.ENTITY/cheats";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/hooks ]]     && cp -r $HOME/.$MOTHER/hooks $HOME/.$ENTITY/      & spinner $! && echo "cloned mother $MOTHER's hooks to $HOME/.ENTITY/hooks";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/docs ]]      && cp -r $HOME/.$MOTHER/docs $HOME/.$ENTITY/       & spinner $! && echo "cloned mother $MOTHER's docs to $HOME/.ENTITY/docs";
 [[ $MOTHER ]] && echo
 
 [[ $MOTHER ]] && sleep 1 & spinner $!
 [[ $MOTHER ]] && echo "remembering mother $MOTHER's public identity";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/rsa.pub ]] && cp -r $HOME/.$MOTHER/id/rsa.pub $HOME/.$ENTITY/id/$MOTHER.pub && echo "cloned mother ${MOTHER}'s public rsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/dsa.pub ]] && cp -r $HOME/.$MOTHER/id/dsa.pub $HOME/.$ENTITY/id/$MOTHER.pub && echo "cloned mother ${MOTHER}'s public dsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/rsa.pub ]] && cp -r $HOME/.$MOTHER/id/rsa.pub $HOME/.$ENTITY/id/$MOTHER.pub && echo "cloned mother $MOTHER's public rsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/dsa.pub ]] && cp -r $HOME/.$MOTHER/id/dsa.pub $HOME/.$ENTITY/id/$MOTHER.pub && echo "cloned mother $MOTHER's public dsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
 [[ $MOTHER ]] && echo
 
-[[ ! $MOTHER ]] && sleep 1 & spinner $!
 [[ ! $MOTHER ]] && MOTHER='mary'
 [[ ! $MOTHER ]] && echo ""
 
