@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 
+# If command was ran from another koad:io entity, then use it as the mother and clone her genes
 [[ $ENTITY ]] && MOTHER=$ENTITY
 
+# Set the entity as the one that will be gestated.
 ENTITY=$1
+
+# Everything will be created within the entity's dotfiles directory.
+# ie: /home/koad/.alice/
 DATADIR=$HOME/.$ENTITY
 
+# Some output should be word wrapped.
 # TODO: if fold length is more than 80, make it 80
 WORD_WRAP_WIDTH=$(tput cols)
 
@@ -53,22 +59,19 @@ function cursorBack() {
 
 SPINNER_POS=0
 function spinner() {
-  # make sure we use non-unicode character type locale 
-  # (that way it works for any locale as long as the font supports the characters)
-  local LC_CTYPE=C
 
+  local LC_CTYPE=C
   local pid=$1 # Process Id of the previous running command
-  local spin='⣾⣽⣻⢿⡿⣟⣯⣷'
+  local BUSY_CURSOR='⠃⠢⢠⣀⡄⠔⠘⠉⠣⢢⣠⣄⡔⠜⠙⠋⢣⣢⣤⣔⡜⠝⠛⠫⣣⣦⣴⣜⡝⠟⠻⢫⣧⣶⣼⣝⡟⠿⢻⣫⣧⣶⣼⣝⡟⠿⢻⣫⣣⣦⣴⣜⡝⠟⠻⢫⢣⣢⣤⣔⡜⠝⠛⠫⠣⢢⣠⣄⡔⠜⠙'   # silly
   local charwidth=3
 
   tput civis # cursor invisible
   while kill -0 $pid 2>/dev/null; do
-    SPINNER_POS=$(((SPINNER_POS + $charwidth) % ${#spin}))
-    printf "%s" "${spin:$SPINNER_POS:$charwidth}"
+    SPINNER_POS=$(((SPINNER_POS + $charwidth) % ${#BUSY_CURSOR}))
+    printf "%s" "${BUSY_CURSOR:$SPINNER_POS:$charwidth}"
 
     cursorBack 1
-    sleep .1
-    # sleep .33
+    sleep .06
   done
   tput cnorm
   wait $pid # capture exit code
@@ -115,13 +118,20 @@ mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[init] creating $DATADIR/keyb
 [[ $MOTHER ]] && echo && sleep 1 & spinner $!
 
 [[ $MOTHER ]] && echo "remembering mother $MOTHER's public identity";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/rsa.pub ]] && cp -r $HOME/.$MOTHER/id/rsa.pub $HOME/.$ENTITY/id/$MOTHER.pub && echo "cloned mother $MOTHER's public rsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/dsa.pub ]] && cp -r $HOME/.$MOTHER/id/dsa.pub $HOME/.$ENTITY/id/$MOTHER.pub && echo "cloned mother $MOTHER's public dsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/rsa.pub ]] && cp -r $HOME/.$MOTHER/id/rsa.pub $HOME/.$ENTITY/id/$MOTHER.rsa.pub && echo "cloned mother $MOTHER's public rsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/dsa.pub ]] && cp -r $HOME/.$MOTHER/id/dsa.pub $HOME/.$ENTITY/id/$MOTHER.dsa.pub && echo "cloned mother $MOTHER's public dsa key to $HOME/.ENTITY/id/$MOTHER.dsa.pub" && sleep 1 & spinner $!;
 [[ $MOTHER ]] && echo && sleep 1 & spinner $!
 
 [[ ! $MOTHER ]] && MOTHER='mary'
 [[ ! $MOTHER ]] && echo "Immaculate Conception, no initial genome!"
 [[ ! $MOTHER ]] && echo && sleep 1 & spinner $!
+
+echo "Generating cryptographic device identities ($ENTITY@$HOSTNAME)"
+ssh-keygen -t ed25519 -C "$ENTITY@$MOTHER" -f $DATADIR/ssl/ed25519 -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ed25519"
+ssh-keygen -t ecdsa -b 521 -C "$ENTITY@$MOTHER" -f $DATADIR/ssl/ecdsa -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ecdsa"
+ssh-keygen -t rsa -b 4096 -C "$ENTITY@$MOTHER" -f $DATADIR/id/rsa -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/rsa"
+ssh-keygen -t dsa -C "$ENTITY@$MOTHER" -f $DATADIR/id/dsa -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/dsa"
+echo && sleep 1 & spinner $!
 
 echo "Generating master elliptic curve parameters"
 openssl ecparam -name prime256v1 -out $DATADIR/ssl/master-curve-parameters.pem & spinner $!
@@ -148,13 +158,6 @@ openssl genpkey -algorithm EC  -pass pass:$ENTITY -pkeyopt ec_paramgen_curve:P-2
 echo "generated: $DATADIR/ssl/session.pem"
 echo && sleep 1 & spinner $!
 
-echo "Generating cryptographic device identities ($ENTITY@$HOSTNAME)"
-ssh-keygen -t ed25519 -C "$ENTITY@$MOTHER" -f $DATADIR/ssl/ed25519 -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ed25519"
-ssh-keygen -t ecdsa -b 521 -C "$ENTITY@$MOTHER" -f $DATADIR/ssl/ecdsa -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ecdsa"
-ssh-keygen -t rsa -b 4096 -C "$ENTITY@$MOTHER" -f $DATADIR/id/rsa -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/rsa"
-ssh-keygen -t dsa -C "$ENTITY@$MOTHER" -f $DATADIR/id/dsa -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/dsa"
-echo && sleep 1 & spinner $!
-
 printf '%s\n' "Generating keys to be used during Diffie Hellman Key Exchanges." | fold -w $WORD_WRAP_WIDTH -s
 printf '%s\n' "This will help ensure that your new friend can identify herself easily when he sees itself across networks." | fold -w $WORD_WRAP_WIDTH -s
 echo "homework: research the Diffie Hellman key exchange process"
@@ -176,10 +179,8 @@ GESTATED_BY=$MOTHER
 GESTATE_VERSION=$(cd $HOME/.koad-io && git rev-parse --short HEAD)
 BIRTHDAY=$(date +%y:%m:%d:%H:%M:%S)
 NAME=$ENTITY
-"> ./VERSION
-
-echo "wrote version information to: $DATADIR/ssl/VERSION"
-[ -f $DATADIR/ssl/VERSION ] && cat $DATADIR/ssl/VERSION
+"> $DATADIR/KOAD_IO_VERSION
+echo "wrote version information to: $DATADIR/KOAD_IO_VERSION"
 echo && sleep 1 & spinner $!
 
 echo "Creating entity wrapper command: $ENTITY"
