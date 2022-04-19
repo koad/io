@@ -6,7 +6,7 @@ koad:io helps with tasks that you perform on a regular basis.
 > warning: I am an amateur > all of this might be shit, it's too early to tell.
 
 
-[![Matrix](https://img.shields.io/matrix/io:koad.sh?label=io:koad.sh&logo=matrix&server_fqdn=matrix.koad.sh)](https://matrix.to/#/#io:koad.sh?via=koad.sh)
+[![Matrix](src/assets/badges/matrix/io.svg)](https://matrix.to/#/#io:koad.sh?via=koad.sh)
 
 
 by saving a task as a `command`, and saving the environment variables used is an `entity`,
