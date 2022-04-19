@@ -6,6 +6,9 @@
 
 !README.md
 
+!assets/
+!assets/matrix.svg
+
 !bin/
 !bin/koad-io
 !bin/entity
