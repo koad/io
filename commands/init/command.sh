@@ -36,7 +36,7 @@ echo
 
 echo "this will take some time to gestate $ENTITY"
 printf '%s\n' "documentation is a 'work in progress' (it sucks), but you can check it out while you wait." | fold -w $WORD_WRAP_WIDTH -s
-echo "https://book.koad.sh/reference/koad-io-entity/"
+echo "https://book.koad.sh/reference/koad-io/entity/"
 echo
 
 if [ $# -eq 0 ]
@@ -93,11 +93,12 @@ mkdir -p $DATADIR         && [[ $DEBUG ]] && echo "[init] creating $DATADIR"
 mkdir -p $DATADIR/id      && [[ $DEBUG ]] && echo "[init] creating $DATADIR/id"
 mkdir -p $DATADIR/bin     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/bin"
 mkdir -p $DATADIR/etc     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/etc"
-mkdir -p $DATADIR/usr     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/usr"
 mkdir -p $DATADIR/lib     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/lib"
-mkdir -p $DATADIR/var     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/var"
 mkdir -p $DATADIR/man     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/man"
+mkdir -p $DATADIR/res     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/res"
 mkdir -p $DATADIR/ssl     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/ssl"
+mkdir -p $DATADIR/usr     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/usr"
+mkdir -p $DATADIR/var     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/var"
 mkdir -p $DATADIR/proc    && [[ $DEBUG ]] && echo "[init] creating $DATADIR/proc"
 mkdir -p $DATADIR/home    && [[ $DEBUG ]] && echo "[init] creating $DATADIR/home"
 mkdir -p $DATADIR/media   && [[ $DEBUG ]] && echo "[init] creating $DATADIR/media"
