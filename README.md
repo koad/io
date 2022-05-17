@@ -1,4 +1,15 @@
-# koad:io
+# koad:io; A __human cyborg operating system__  
+
+## This software is an operating system for a human cyborg.  It is designed to spawn new digital `entities` for a multple-personality enabled human host.
+
+### Install a koad:io entity in your mind to enable a new dimension of space-time for your projects and their support material.
+
+#### achieve singularity to become more powerful than a million men using the power of organization and stress-free productivity.
+
+#### Gain a progressive realization of your goals and missions throughout time, even after the human host (you) die.  Your entities can be shared among many human hosts to guarantee resilience in thought and action.
+
+
+---
 
 koad:io helps with tasks that you perform on a regular basis.
 
@@ -9,14 +20,16 @@ koad:io helps with tasks that you perform on a regular basis.
 [![Matrix](assets/matrix.svg)](https://matrix.to/#/#io:koad.sh?via=koad.sh)
 
 
-by saving a task as a `command`, and saving the environment variables used is an `entity`,
+by saving a task as a `command`, and saving the environment variables used as an `entity`,
 
-- I can remember how I did a thing
-- I can replay the thing I did
-- I can go back and see if I was right
-- I can keep my things together as simple files and folders
-- I don't need to install or depend on complex tools and vendors
-- I can keep my projects/data organized into categories (an entity folder for each `area of focus`)
+- I can remember how I did a thing.
+- I can define environment variables in a single file, with in a well-known place.
+- I can replay the thing I did.
+- I can go back and see if I was right.
+- I can keep my things together as simple files and folders.
+- I don't need to install or depend on complex tools and vendors.
+- I can keep my projects/data organized into categories (an entity folder for each `area of focus`).
+- I can pass my projects/responsibilities onto someone else, as is.
 
 
 ## customizable chain reactions
