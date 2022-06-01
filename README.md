@@ -36,37 +36,37 @@ koad:io starts with a handful of [wrapper commands](https://book.koad.sh/referen
 
 ### commands
 
-> many people don't like to use the command prompt but we know [that is were the magic happens](https://book.koad.sh/cheatsheets/bourn-again-scripting).
+> many people don't like to use the command prompt but we know that it is [where all the magic is](https://book.koad.sh/cheatsheets/bourn-again-scripting).
 
 for those who use-and-know bash, koad:io will be easy to understand and [those who don't know](https://book.koad.sh/getting-started/) bash will always be waiting for someone to develop a UI they can install. 
 
 
 
-#### examples
+#### example potential koad:io commands
 
 start the software that is a website called book.koad.sh.
 ```bash
 alice start site book.koad.sh
 ```
 
-Open the element PWA as Alice and logged in as Alice
+Open the matrix/element web application and be logged in as Alice
 ```bash
 alice open element
 ```
 
-SSH into a server called toronto and passwordlessly log in as Alice
+SSH into a server called toronto and passwordlessly be logged in as Alice
 ```bash
 alice ssh toronto
 ```
 
 koad:io doesnt come with commands, they are meant to be added each by you, the creator of this space.
 
-> the documentation is shit right now, a collection of barf; but you can see if it helps you to understand were we are going here.  [book.koad.sh](book.koad.sh)
+> the documentation is shit right now, a collection of barf; but you can see if it helps you to understand where we are going here.  [book.koad.sh](book.koad.sh)
 
 
 #### chain reactions
 
-when calling a koad:io command, there is a chain-reaction of command files that get evaluated; this is where you can create and customize each command to run specific to the entity and/or the `current working directory`. 
+when calling a koad:io command, there is a chain-reaction of environment and command files that get evaluated; this is where you can create and customize each command to run specific to the entity and/or the `current working directory`. 
 
 - you call an entity wrapper, ie: `alice start`
 - if you didn't specify any arguments (ie: `alice`), stop here and pass the call to [the `executed-without-arguments.sh` hook](https://github.com/koad/io/blob/main/hooks/executed-without-arguments.sh).
