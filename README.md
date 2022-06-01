@@ -68,6 +68,7 @@ koad:io doesnt come with commands, they are meant to be added each by you, the c
 
 when calling a koad:io command, there is a chain-reaction of environment and command files that get evaluated; this is where you can create and customize each command to run specific to the entity and/or the `current working directory`. 
 
+
 - you call an entity wrapper, ie: `alice start`
 - if you didn't specify any arguments (ie: `alice`), stop here and pass the call to [the `executed-without-arguments.sh` hook](https://github.com/koad/io/blob/main/hooks/executed-without-arguments.sh).
 - `alice` loads some general environment details
@@ -160,9 +161,9 @@ ls -la ~/.alice
 > back this directory up NOW, and keep it __somewhere suuuuuper safe__.
 > want to automated backups?  build a [raspberry pi powered concealment key-ring that also pretends to be your front door bell](https://duckduckgo.com).
 
-Your entity's directory will be a basic bare/blank koad:io skeleton filled with directories and keys that will be handy for you if you ever decide you want your entity to exist among multiple devices and locations.
+Your entity's directory will be a basic bare/blank koad:io skeleton filled with directories and keys that will be handy for you if you ever decide you want your entity to exist among multiple devices/locations and interact with other-people-entities.
 
-You can ignore the overwhelming possibilities for now and focus on populating your commands folder with whatever creative thing you desire.
+> for now, Ignore the overwhelming possibilities and focus on populating your commands folder with whatever creative thing you desire.
 
 
 ### create commands
