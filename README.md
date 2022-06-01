@@ -1,72 +1,107 @@
-# koad:io; A __human cyborg operating system__  
+# koad:io
 
-## This software is an operating system for a human cyborg.  It is designed to spawn new digital `entities` for a multple-personality enabled human host.
-
-### Install a koad:io entity in your mind to enable a new dimension of space-time for your projects and their support material.
-
-#### achieve singularity to become more powerful than a million men using the power of organization and stress-free productivity.
-
-#### Gain a progressive realization of your goals and missions throughout time, even after the human host (you) die.  Your entities can be shared among many human hosts to guarantee resilience in thought and action.
-
+<!-- for that whom may have an eye to see -->
+An organizational tool for your mind's eye.
 
 ---
-
-koad:io helps with tasks that you perform on a regular basis.
-
 
 > warning: I am an amateur > all of this might be shit, it's too early to tell.
 
 
 [![Matrix](assets/matrix.svg)](https://matrix.to/#/#io:koad.sh?via=koad.sh)
 
+## reason
+
+>
+> [Your systems need to be](https://gettingthingsdone.com/) faster than you (can) think.
 
 by saving a task as a `command`, and saving the environment variables used as an `entity`,
 
 - I can remember how I did a thing.
-- I can define environment variables in a single file, with in a well-known place.
 - I can replay the thing I did.
 - I can go back and see if I was right.
 - I can keep my things together as simple files and folders.
-- I don't need to install or depend on complex tools and vendors.
 - I can keep my projects/data organized into categories (an entity folder for each `area of focus`).
-- I can pass my projects/responsibilities onto someone else, as is.
+- I can pass-on project files/folders onto someone else, as is.
+- I can visualize the structure of all my data.
+- I can internalize the content of all my data.
 
 
-## customizable chain reactions
 
-when calling a koad:io command, there is a chain-reaction of steps that happen; this is where you can create and customize each command to run specific to the entity and/or the `current working directory`. 
+
+## koad:io at a glance
+
+koad:io starts with a handful of [wrapper commands](https://book.koad.sh/reference/koad-io/commands).  Using these commands and a basic directory structure, koad:io makes it easy to remember where you leave your digital thoughts/things.
+
+
+### commands
+
+> many people don't like to use the command prompt but we know [that is were the magic happens](https://book.koad.sh/cheatsheets/bourn-again-scripting).
+
+for those who use-and-know bash, koad:io will be easy to understand and [those who don't know](https://book.koad.sh/getting-started/) bash will always be waiting for someone to develop a UI they can install. 
+
+
+
+#### examples
+
+start the software that is a website called book.koad.sh.
+```bash
+alice start site book.koad.sh
+```
+
+Open the element PWA as Alice and logged in as Alice
+```bash
+alice open element
+```
+
+SSH into a server called toronto and passwordlessly log in as Alice
+```bash
+alice ssh toronto
+```
+
+koad:io doesnt come with commands, they are meant to be added each by you, the creator of this space.
+
+> the documentation is shit right now, a collection of barf; but you can see if it helps you to understand were we are going here.  [book.koad.sh](book.koad.sh)
+
+
+#### chain reactions
+
+when calling a koad:io command, there is a chain-reaction of command files that get evaluated; this is where you can create and customize each command to run specific to the entity and/or the `current working directory`. 
 
 - you call an entity wrapper, ie: `alice start`
-- `alice` loads some general environment details, then calls the koad:io cli wrapper
-	- `ENTITY=alice`   
-	- `CURRENT_COMMAND=start`
-	- `CWD=$PWD` (the directory in which the command is issued)
-- koad:io cli wrapper loads some more specific environment details
-	- `~/.koad-io/.env`   (if exists)  
-	- `~/.$ENTITY/.env`   (if exists)  
-	- `~/.$ENTITY/.credentials`   (if exists)  
-- then, finds the most relevant regular command by searching in the following locations (and uses the results from the last location finds the command in).
-- In each location, the deepest directory that contains either a `command.sh` file or a `$COMMAND_NAME.sh` file will used.
-	- `~/.koad-io/commands/`  
-	- `~/.$ENTITY/commands/`  
-- checks the CURRENT_DIRECTORY 
-	- `$CURRENT_DIRECTORY/commands/`  
-- if a command of the same name is in the current directory	
-	- use it instead: `./$COMMAND_NAME.sh`
-	- load more environment vars 
-		- `$CURRENT_DIRECTORY/.env`   (if exists)  
-		- `$CURRENT_DIRECTORY/.credentials`   (if exists)  
-- then calls the regular command with
-	- environment details from the chain reaction
-	- the remaining arguments passed into the entity cli wrapper
+- if you didn't specify any arguments (ie: `alice`), stop here and pass the call to [the `executed-without-arguments.sh` hook](https://github.com/koad/io/blob/main/hooks/executed-without-arguments.sh).
+- `alice` loads some general environment details
+   - `ENTITY=alice`   
+   - `CWD=$PWD` (the directory in which the command is issued)
+- then calls the koad:io cli wrapper
+   - `~/.koad-io/bin/koad-io $@`
+- koad:io cli wrapper loads [`entity` specific environment details](https://book.koad.sh/reference/koad-io/entity/?h=entity)
+   - `~/.koad-io/.env`   (if exists)  
+   - `~/.$ENTITY/.env`   (if exists)  
+   - `~/.$ENTITY/.credentials`   (if exists)  
+- then, finds the most relevant regular command by searching in the following locations
+   - uses the results from the last location a command is found in.
+      * the deepest directory that contains either a `command.sh` file or a `$COMMAND_NAME.sh` file.
+   - `~/.koad-io/commands/`  
+   - `~/.$ENTITY/commands/`  
+   - checks the current working directory (CWD)
+      - `$CWD/commands/`  
+   - if a command of the same name is in the current directory 
+      - use it instead: `./$COMMAND_NAME.sh`
+      - load more environment vars 
+         - `$CWD/.env`   (if exists)  
+         - `$CWD/.credentials`   (if exists)  
+- finally, call the chosen command with
+   - environment details from the chain reaction
+   - the remaining arguments passed into the entity cli wrapper
 
-### examples
+#### examples explained
 
 no1
 ```bash
 alice probe domain koad.sh
 ```
-is similar to 
+is similar to / wraps to
 ```bash
 set -a 
 source ~/.koad-io/.env
@@ -78,7 +113,7 @@ no2
 ```bash
 alice archive video https://www.youtube.com/watch?v=dQw4w9WgXcQ
 ```
-wraps to the command 
+is similar to / wraps to
 ```bash
 set -a 
 source ~/.koad-io/.env
@@ -91,7 +126,11 @@ source ~/.alice/.env
 KOAD_IO_ARCHIVE_FOLDER=$HOME/.alice/archive/inbound
 ```
 
-## install
+> you can see that using this very general structure, you can create very specific outcomes.
+
+
+
+## install koad:io
 
 create the `~/.koad-io` folder with a clone of [this repo](https://github.com/koad/io)
 ```bash
@@ -103,7 +142,8 @@ add the `~/.koad-io/bin` folder to your path (add this to the end of your `~/.ba
 [ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin
 ```
 
-## create
+
+### create an entity
 
 > your first koad:io entity! 🤩 sooo exciting! 
 
@@ -122,35 +162,15 @@ ls -la ~/.alice
 
 Your entity's directory will be a basic bare/blank koad:io skeleton filled with directories and keys that will be handy for you if you ever decide you want your entity to exist among multiple devices and locations.
 
-```bash
-cd ~/.alice && ls -la
-```
-```bash
-/bin
-/etc
-/usr
-/lib
-/var
-/man
-/ssl
-/proc
-/home
-/hooks
-/media
-/archive
-/keybase
-/commands
-/.env
-```
-
 You can ignore the overwhelming possibilities for now and focus on populating your commands folder with whatever creative thing you desire.
 
-## create commands
+
+### create commands
 
 bookmark [koad's bash cheatsheet](https://book.koad.sh/cheatsheets/bourn-again-scripting/) as it is a handy resource for creating new tasks/commands.
 
 
-### global commands
+#### global commands
 
 > your first ever koad:io command! 😄 
 
@@ -167,7 +187,7 @@ echo "args: $@"
 chmod +x command.sh
 ```
 
-### run
+#### run
 
 inside ~/.koad-io/commands/hello using any entity
 ```bash
@@ -183,11 +203,11 @@ alice hello arg1 arg2 arg3 arg4
 ```
 
 
-## entity specific commands
+### entity specific commands
 
 commands can be specific to the entity
 
-### create
+#### create
 
 inside ~/.alice/commands/
 ```bash
@@ -202,7 +222,7 @@ echo "args: $@"
 chmod +x command.sh
 ```
 
-### run
+#### run
 
 inside ~/.alice/commands/hello using any entity
 ```bash
@@ -218,11 +238,11 @@ alice hello arg1 arg2 arg3 arg4
 ```
 
 
-## folder specific commands
+### folder specific commands
 
 You can use your entity's environment anywhere you want.
 
-### create
+#### create
 
 inside ~/some/random/folder/
 ```bash
@@ -237,7 +257,7 @@ chmod +x hello.sh
 
 ```
 
-### run
+#### run
 
 inside ~/some/random/folder/
 ```bash
@@ -248,7 +268,7 @@ alice hello arg1 arg2 arg3 arg4
 
 
 
-## preload
+### preload
 
 check the commands folder to see what comes preloaded, not a lot.
 
@@ -285,7 +305,7 @@ alice example go
 
 
 
-## 🤝 Support
+### 🤝 Support
 
 As mentioned above, I am an amateur; 
 
