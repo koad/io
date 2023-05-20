@@ -1,11 +1,19 @@
+Please note: This app is being developed. It is riddled with bugs, and everything is subject to change.
+
+
+Status: [BUG SALAD]
+
 # koad:io
 
 <!-- for that whom may have an eye to see -->
-An organizational tool for your mind's eye.
+tldr: An organizational tool for your mind's eye.  
+
+koad-io is a powerful command-line interface and toolset designed to help users easily manage and interact with a wide variety of data and resources. It provides a modular and extensible framework that can be easily customized to suit a wide range of needs, from simple scripting tasks to complex distributed systems.
 
 ---
 
 > warning: I am an amateur > all of this might be shit, it's too early to tell.
+
 
 
 [![Matrix](assets/matrix.svg)](https://matrix.to/#/#io:koad.sh?via=koad.sh)
@@ -159,16 +167,16 @@ ls -la ~/.alice
 ```
 
 > back this directory up NOW, and keep it __somewhere suuuuuper safe__.
-> want to automated backups?  build a [raspberry pi powered concealment key-ring that also pretends to be your front door bell](https://duckduckgo.com).
+> want to automated backups?  build a [raspberry pi powered concealment key-ring that also pretends to be your antique/legacy/low-tech front door bell](https://duckduckgo.com).
 
-Your entity's directory will be a basic bare/blank koad:io skeleton filled with directories and keys that will be handy for you if you ever decide you want your entity to exist among multiple devices/locations and interact with other-people-entities.
+Your entity's directory will be a basic bare/blank koad:io skeleton filled with directories and keys that will be handy for you if you ever decide you want your entity to exist among multiple devices/locations and interact with other-people-entities.  Indeed, this project could be the start of a fully decentralized (deviceless) operating system that turns all the worlds computers into your private productivity operating system.
 
 > for now, Ignore the overwhelming possibilities and focus on populating your commands folder with whatever creative thing you desire.
 
 
 ### create commands
 
-bookmark [koad's bash cheatsheet](https://book.koad.sh/cheatsheets/bourn-again-scripting/) as it is a handy resource for creating new tasks/commands.
+bookmark [koad's bash cheatsheet](https://book.koad.sh/cheatsheets/bourn-again-scripting/) as it is a handy resource for creating new tasks/commands and view the [./commands/](/commands) folder where a couple of commands needed to (re)produce and initialize new and future-generation koad:io entities.
 
 
 #### global commands
@@ -306,6 +314,10 @@ alice example go
 
 
 
+### Contributing
+
+koad-io is an open-source project, and contributions are always welcome. If you'd like to contribute to koad-io, please take a look at our contributing guidelines for more information.
+
 ### 🤝 Support
 
 As mentioned above, I am an amateur; 
@@ -323,3 +335,8 @@ P.S.  somebody somewhere, sometime, will create a voice controller for this,. so
 
 
 /koad
+
+
+### License
+
+koad-io is licensed under the GPL License.
