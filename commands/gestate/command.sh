@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
 
+if [ $# -eq 0 ]
+  then
+    echo "No arguments supplied."
+    echo "Please supply a name for your new entity."
+    echo "eg: $ENTITY init alice"
+    exit 1
+fi
+
 # If command was ran from another koad:io entity, then use it as the mother and clone her genes
 [[ $ENTITY ]] && MOTHER=$ENTITY
 
 # Set the entity as the one that will be gestated.
 ENTITY=$1
 
-# Everything will be created within the entity's dotfiles directory.
-# ie: /home/koad/.alice/
-DATADIR=$HOME/.$ENTITY
-
 # Some output should be word wrapped.
 # TODO: if fold length is more than 80, make it 80
 WORD_WRAP_WIDTH=$(tput cols)
 
 echo
-echo
-
 echo "  o                                        o    o     o                 "
 echo " <|>                                      <|>  <|>  _<|>_               "
 echo " / \                                      < \  < >                      "
@@ -26,27 +28,22 @@ echo " / \/>   />       <\   />     / \  />     / \        / \   />       <\  "
 echo " \o/\o   \         /   \      \o/  \      \o/   o    \o/   \         /  "
 echo "  |  v\   o       o     o      |    o      |   <|>    |     o       o   "
 echo " / \  <\  <\__ __/>     <\__  / \   <\__  / \  < >   / \    <\__ __/>   "
-
 echo
-echo
-echo "koad:io 2016-2022 © kingofalldata.com"
+echo "koad:io 2016-2022 © koad.sh"
 echo "https://github.com/koad/io"
-echo && printf '%s\n' "koad:io comes with ABSOLUTELY NO WARRANTY, to the extent permitted by applicable law." | fold -w $WORD_WRAP_WIDTH -s
+echo 
+printf '%s\n' "koad:io comes with ABSOLUTELY NO WARRANTY, to the extent permitted by applicable law." | fold -w $WORD_WRAP_WIDTH -s
 echo
-
 echo "this will take some time to gestate $ENTITY"
 printf '%s\n' "documentation is a 'work in progress' (it sucks), but you can check it out while you wait." | fold -w $WORD_WRAP_WIDTH -s
 echo "https://book.koad.sh/reference/koad-io/entity/"
 echo
 
-if [ $# -eq 0 ]
-  then
-    echo "No arguments supplied"
-    exit 1
-fi
+# Everything will be created within the entity's dotfiles directory.
+# ie: /home/koad/.alice/
+DATADIR=$HOME/.$ENTITY
 
 [ -d $DATADIR ] && echo 'Directory already exists, cannot proceed.' && exit 1
-
 
 function shutdown() {
   tput cnorm # reset cursor
