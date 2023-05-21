@@ -313,6 +313,10 @@ alice example go
 ```
 
 
+### example: Alice
+
+Check out the example installtion: Alice. Alice is a fantastic working example that demonstrates the true potential of this technology. By exploring Alice's repository, which you can find at [https://github.com/koad/alice](https://github.com/koad/alice), you'll get a deeper understanding of how koad:io can enhance your productivity. Head over to Alice's repo now and be inspired by what koad:io can do. Happy exploring! 🚀
+
 
 ### Contributing
 
