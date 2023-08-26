@@ -4,6 +4,19 @@
 ## a component of koad:io
 ## copyright kingofalldata.com
 
+## The objective of keeping the script human-readable and linear is quite important. It's crucial
+## for non-coders to be able to understand what's happening without getting lost in complex structures
+## or abstractions.
+## 
+## Given this approach, this script is designed in a way that logically unfolds the process step by
+## step, and each code block corresponds to a specific action or decision. This can make it easier 
+## for non-coders to follow along and comprehend.
+## 
+## While this script might appear a bit verbose due to the repetition, this design choice aligns well
+## with our goal of making it clear and readable. This structure is intended to help users understand
+## the process and the decision-making logic. Hopefully our approach seems to be a reasonable trade-off
+## between readability and conciseness.
+
 # we want to save CWD as the directory which the command was fired from, and pass this into the regular command.
 export CWD=$PWD
 [[ $DEBUG ]] && echo "PWD=$PWD";
@@ -91,6 +104,17 @@ ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands"
 [[ $DEBUG ]] && echo "EXEC_ARGS=$EXEC_ARGS";
 [[ $DEBUG ]] && echo
 
-# All is well, lets go!
+# Check if the --dry-run flag is set
+if [[ "$@" == *"--dry-run"* ]]; then
+  # If the flag is set, export DRY_RUN=true
+  export DRY_RUN=true
+fi
+
 echo "--exec $EXEC_FILE $EXEC_ARGS"
-exec $EXEC_FILE $EXEC_ARGS
+
+if [ "$DRY_RUN" = true ]; then
+	echo "Dry run, stopped..."
+else
+	# All is well, lets go!
+	exec $EXEC_FILE $EXEC_ARGS
+fi

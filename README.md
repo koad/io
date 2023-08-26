@@ -10,6 +10,9 @@ tldr: An organizational tool for your mind's eye.
 
 koad-io is a powerful command-line interface and toolset designed to help users easily manage and interact with a wide variety of data and resources. It provides a modular and extensible framework that can be easily customized to suit a wide range of needs, from simple scripting tasks to complex distributed systems.
 
+Indeed, koad:io aims to provide a comprehensive command and control framework that allows you to manage various aspects of your projects and environments using well-defined commands. This approach can greatly simplify complex tasks and make it more efficient to manage different processes and configurations. The modularity and flexibility koad:io brings into your setup allow for easy extension and customization, making it a powerful tool for managing your meta-digital workflow. 
+
+
 ---
 
 > warning: I am an amateur > all of this might be shit, it's too early to tell.
@@ -157,7 +160,7 @@ add the `~/.koad-io/bin` folder to your path (add this to the end of your `~/.ba
 > your first koad:io entity! 🤩 sooo exciting! 
 
 ```bash
-koad-io init alice
+koad-io gestate alice
 ```
 
 
@@ -281,7 +284,7 @@ alice hello arg1 arg2 arg3 arg4
 
 check the commands folder to see what comes preloaded, not a lot.
 
-- [/commands/init/README.md](/commands/init/README.md)  
+- [/commands/gestate/README.md](/commands/gestate/README.md)  
 - [/commands/whoami/README.md](/commands/whoami/README.md)  
 - [/commands/example/README.md](/commands/example/README.md)  
 
@@ -315,7 +318,7 @@ alice example go
 
 ### example: Alice
 
-Check out the example installtion: Alice. Alice is a fantastic working example that demonstrates the true potential of this technology. By exploring Alice's repository, which you can find at [https://github.com/koad/alice](https://github.com/koad/alice), you'll get a deeper understanding of how koad:io can enhance your productivity. Head over to Alice's repo now and be inspired by what koad:io can do. Happy exploring! 🚀
+Check out the example installation: Alice. Alice is a fantastic working example that demonstrates the true potential of this technology. By exploring Alice's repository, which you can find at [https://github.com/koad/alice](https://github.com/koad/alice), you'll get a deeper understanding of how koad:io can enhance your productivity. Head over to Alice's repo now and be inspired by what koad:io can do. Happy exploring! 🚀
 
 
 ### Contributing
