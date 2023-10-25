@@ -29,7 +29,7 @@ echo " \o/\o   \         /   \      \o/  \      \o/   o    \o/   \         /  "
 echo "  |  v\   o       o     o      |    o      |   <|>    |     o       o   "
 echo " / \  <\  <\__ __/>     <\__  / \   <\__  / \  < >   / \    <\__ __/>   "
 echo
-echo "koad:io 2016-2022 © koad.sh"
+echo "koad:io 2016-2023 © koad.sh"
 echo "https://github.com/koad/io"
 echo 
 printf '%s\n' "koad:io comes with ABSOLUTELY NO WARRANTY, to the extent permitted by applicable law." | fold -w $WORD_WRAP_WIDTH -s
