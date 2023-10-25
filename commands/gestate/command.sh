@@ -59,13 +59,13 @@ function spinner() {
 
   local LC_CTYPE=C
   local pid=$1 # Process Id of the previous running command
-  local BUSY_CURSOR='⠃⠢⢠⣀⡄⠔⠘⠉⠣⢢⣠⣄⡔⠜⠙⠋⢣⣢⣤⣔⡜⠝⠛⠫⣣⣦⣴⣜⡝⠟⠻⢫⣧⣶⣼⣝⡟⠿⢻⣫⣧⣶⣼⣝⡟⠿⢻⣫⣣⣦⣴⣜⡝⠟⠻⢫⢣⣢⣤⣔⡜⠝⠛⠫⠣⢢⣠⣄⡔⠜⠙'   # silly
-  local charwidth=3
+  local BUSY_CURSOR='⠁⠂⠠⢀⡀⠄⠐⠈⠃⠢⢠⣀⡄⠔⠘⠉⠣⢢⣠⣄⡔⠜⠙⠋⢣⣢⣤⣔⡜⠝⠛⠫⣣⣦⣴⣜⡝⠟⠻⢫⣧⣶⣼⣝⡟⠿⢻⣫⣷⣾⣽⣟⡿⢿⣻⣯⣧⣶⣼⣝⡟⠿⢻⣫⣣⣦⣴⣜⡝⠟⠻⢫⢣⣢⣤⣔⡜⠝⠛⠫⠣⢢⣠⣄⡔⠜⠙⠋⠃⠢⢠⣀⡄⠔⠘⠉'
+  local SLICE_SIZE=3
 
   tput civis # cursor invisible
   while kill -0 $pid 2>/dev/null; do
-    SPINNER_POS=$(((SPINNER_POS + $charwidth) % ${#BUSY_CURSOR}))
-    printf "%s" "${BUSY_CURSOR:$SPINNER_POS:$charwidth}"
+    SPINNER_POS=$(((SPINNER_POS + $SLICE_SIZE) % ${#BUSY_CURSOR}))
+    printf "%s" "${BUSY_CURSOR:$SPINNER_POS:$SLICE_SIZE}"
 
     cursorBack 1
     sleep .06
