@@ -1,10 +1,11 @@
 # Ignore all files in the folder
 *
-!.gitignore
+*/
+!./.gitignore
 !reference.sh
 !TODO.md
 
-# Include specific commands
+# Include specific command folders
 !backup
 !browse
 !build

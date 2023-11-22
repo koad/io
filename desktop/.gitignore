@@ -1,5 +1,6 @@
 *
-!.gitignore
+*/
+!./.gitignore
 
 !LICENSE
 !koad-io-desktop.gif
