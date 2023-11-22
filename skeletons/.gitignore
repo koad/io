@@ -1,0 +1,12 @@
+# Ignore all files in the folder
+*
+!.gitignore
+!reference.sh
+!README.md
+
+# Include specific skeletons
+!bare
+# !calendar
+# !lighthouse
+# !chrome-extension
+# !gnome-extension

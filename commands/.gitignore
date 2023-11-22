@@ -1,0 +1,16 @@
+# Ignore all files in the folder
+*
+!.gitignore
+!reference.sh
+!TODO.md
+
+# Include specific commands
+!backup
+!browse
+!build
+!deploy
+!gestate
+!ssh
+!start
+!probe
+!test

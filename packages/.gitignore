@@ -1,0 +1,11 @@
+*
+!.gitignore
+
+!koad-io
+!koad-io-core
+!koad-io-appinfo
+!koad-io-session
+!koad-io-plus-head-js
+!koad-io-router
+!koad-io-router-progress
+!koad-io-collection-hooks
