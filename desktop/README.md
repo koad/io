@@ -2,7 +2,7 @@
 
 The `.koad-io/desktop` folder contains the koad:io Desktop App, which serves as a central hub for managing and launching various koad:io entities and applications on your desktop. This app is designed to provide a seamless desktop experience for koad:io users.
 
-![koad:io desktop interface](desktop/koad-io-desktop.png)
+![koad:io desktop interface](koad-io-desktop.gif)
 
 ## Overview
 
