@@ -1,2 +1,15 @@
 *
-*/
+!.gitignore
+
+!assets
+!bin
+!commands
+!daemon
+!desktop
+!hooks
+!packages
+!profiles
+!skeletons
+!icon.png
+!LICENSE
+!README.md
