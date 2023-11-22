@@ -24,6 +24,7 @@ The `packages` folder is extensible, allowing you to create and add your own cus
 
 If you wish to contribute to the koad:io project by creating or enhancing existing packages, you are encouraged to do so. You can submit your package contributions through pull requests to the official koad:io repository, making them available for other users to benefit from.
 
-## Conclusion
+## License
 
-The `packages` folder in a koad:io installation provides a collection of pre-built UI components and packages tailored for use with the Meteor framework and Blaze templating engine. By leveraging these packages, you can enhance the user interface and user experience of your koad:io applications, saving time and effort in developing and customizing UI elements.
+The individual packages in this directory may have their own licensing terms, which can usually be found in their respective README files. Please review the licensing information for each package before using them in your projects.
+
