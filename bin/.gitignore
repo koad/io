@@ -1,0 +1,6 @@
+*
+!.gitignore
+
+!entity
+!koad-io
+!README.md
