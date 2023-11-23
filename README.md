@@ -141,12 +141,17 @@ KOAD_IO_ARCHIVE_FOLDER=$HOME/.alice/archive/inbound
 > you can see that using this very general structure, you can create very specific outcomes.
 
 
+---
 
 ## install koad:io
 
+install these first 
+- [starship-cross-shell-prompt](https://book.koad.sh/cheatsheets/starship-cross-shell-prompt)
+- [node-volume-manager](https://book.koad.sh/cheatsheets/node-volume-manager)
+
 create the `~/.koad-io` folder with a clone of [this repo](https://github.com/koad/io)
 ```bash
-git clone https://github.com/koad/io.git ~/.koad-io
+git clone --recurse-submodules https://github.com/koad/io.git ~/.koad-io
 ```
 
 add the `~/.koad-io/bin` folder to your path (add this to the end of your `~/.bashrc` file)
