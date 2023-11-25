@@ -4,7 +4,7 @@ if [ $# -eq 0 ]
   then
     echo "No arguments supplied."
     echo "Please supply a name for your new entity."
-    echo "eg: $ENTITY init alice"
+    echo "eg: $ENTITY gestate alice"
     exit 1
 fi
 
@@ -86,21 +86,21 @@ echo "Gestating new koad:io entity '$ENTITY'"
 [[ $MOTHER ]] && echo "Gestation arose from ${MOTHER}";
 
 echo && sleep 1 & spinner $!
-mkdir -p $DATADIR         && [[ $DEBUG ]] && echo "[init] creating $DATADIR"
-mkdir -p $DATADIR/id      && [[ $DEBUG ]] && echo "[init] creating $DATADIR/id"
-mkdir -p $DATADIR/bin     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/bin"
-mkdir -p $DATADIR/etc     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/etc"
-mkdir -p $DATADIR/lib     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/lib"
-mkdir -p $DATADIR/man     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/man"
-mkdir -p $DATADIR/res     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/res"
-mkdir -p $DATADIR/ssl     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/ssl"
-mkdir -p $DATADIR/usr     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/usr"
-mkdir -p $DATADIR/var     && [[ $DEBUG ]] && echo "[init] creating $DATADIR/var"
-mkdir -p $DATADIR/proc    && [[ $DEBUG ]] && echo "[init] creating $DATADIR/proc"
-mkdir -p $DATADIR/home    && [[ $DEBUG ]] && echo "[init] creating $DATADIR/home"
-mkdir -p $DATADIR/media   && [[ $DEBUG ]] && echo "[init] creating $DATADIR/media"
-mkdir -p $DATADIR/archive && [[ $DEBUG ]] && echo "[init] creating $DATADIR/archive"
-mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[init] creating $DATADIR/keybase"
+mkdir -p $DATADIR         && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR"
+mkdir -p $DATADIR/id      && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/id"
+mkdir -p $DATADIR/bin     && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/bin"
+mkdir -p $DATADIR/etc     && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/etc"
+mkdir -p $DATADIR/lib     && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/lib"
+mkdir -p $DATADIR/man     && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/man"
+mkdir -p $DATADIR/res     && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/res"
+mkdir -p $DATADIR/ssl     && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/ssl"
+mkdir -p $DATADIR/usr     && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/usr"
+mkdir -p $DATADIR/var     && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/var"
+mkdir -p $DATADIR/proc    && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/proc"
+mkdir -p $DATADIR/home    && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/home"
+mkdir -p $DATADIR/media   && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/media"
+mkdir -p $DATADIR/archive && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/archive"
+mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/keybase"
 [ ! -v $DEBUG ] && echo "[[ gestation output locations suppressed ]]" && echo
 
 [[ $MOTHER ]] && sleep 1 & spinner $!
@@ -216,7 +216,7 @@ echo "Congratulations!"
 echo
 echo "You've just created a new digital life!"
 echo "btw: you can use any existing friend to create another, and take a clone of it's genes!"
-echo "ie: > $ENTITY init alice"
+echo "ie: > $ENTITY gestate alice"
 echo
 echo && sleep 6 & spinner $!
 
