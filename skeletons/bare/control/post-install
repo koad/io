@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+if [ -z "$DATADIR" ]; then
+  echo "DATADIR is not set or is empty."
+  exit 1
+fi
+
+
+echo "----"
+echo -e "\e[92mSUCCESS: Creation complete!\e[0m"
+echo "You can bring up your new site (in development mode) by issuing the following command"
+echo "cd $DATADIR && $ENTITY start"

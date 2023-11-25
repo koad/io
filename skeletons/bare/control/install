@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+
+
+if [ -z "$DATADIR" ]; then
+  echo "DATADIR is not set or is empty."
+  exit 1
+fi
+
+
+function shutdown() {
+  tput cnorm # reset cursor
+}
+trap shutdown EXIT
+
+function cursorBack() {
+  echo -en "\033[$1D"
+}
+
+SPINNER_POS=0
+function spinner() {
+  local LC_CTYPE=C
+  local pid=$1 # Process Id of the previous running command
+  local BUSY_CURSOR='⠃⠢⢠⣀⡄⠔⠘⠉⠣⢢⣠⣄⡔⠜⠙⠋⢣⣢⣤⣔⡜⠝⠛⠫⣣⣦⣴⣜⡝⠟⠻⢫⣧⣶⣼⣝⡟⠿⢻⣫⣧⣶⣼⣝⡟⠿⢻⣫⣣⣦⣴⣜⡝⠟⠻⢫⢣⣢⣤⣔⡜⠝⠛⠫⠣⢢⣠⣄⡔⠜⠙'   # silly
+  local charwidth=3
+
+  tput civis # cursor invisible
+  while kill -0 $pid 2>/dev/null; do
+    SPINNER_POS=$(((SPINNER_POS + $charwidth) % ${#BUSY_CURSOR}))
+    printf "%s" "${BUSY_CURSOR:$SPINNER_POS:$charwidth}"
+
+    cursorBack 1
+    sleep .06
+  done
+  tput cnorm
+  wait $pid # capture exit code
+  return $?
+}
+
+echo "About to create a new $SKELETON application in the $DATADIR folder"
+echo "Press Ctrl-C to cancel (6-second delay)"
+sleep 6 & spinner $! && sleep .6
+
+if [[ -z "$ENTITY" ]]; then
+  echo -e "\e[31mERROR: This command can only be run using an entity.\e[0m"
+  exit 64
+fi
+
+if [[ ! -d "$DATADIR" ]]; then
+  echo -e "\e[31mERROR: The specified site doesn't exist. Please check your call and try again.\e[0m"
+  exit 64
+fi
+
+echo "Spawning bare project in $DATADIR"
+
+echo "Creating: $DATADIR/README.md"
+touch "$DATADIR/README.md"
+
+echo "Creating: $DATADIR/.env"
+
+# TODO: This random port should be a range of less than 1 thousand ports and should be combined with an ENV var within the entity that specifies a base port (range start)
+RANDOM_PORT=$(( RANDOM % 888 + 20000 ))
+echo "KOAD_IO_PORT=$RANDOM_PORT" > "$DATADIR/.env"
+echo "KOAD_IO_TYPE=static" >> "$DATADIR/.env"
+echo "KOAD_IO_APP_NAME=bare_skeleton" >> "$DATADIR/.env"
+
+echo "Creating config for device '$HOSTNAME' > $DATADIR/config/$HOSTNAME.json"
+mkdir "$DATADIR/config"
+echo "{}" > "$DATADIR/config/$HOSTNAME.json"
+
+mkdir "$DATADIR/logs"
+echo "mkdir client/templates"
+
+echo "Installing new meteor app in $DATADIR/src"
+cd "$DATADIR" && meteor create --bare src > "$DATADIR/logs/meteor-init.log"
+# cd "$DATADIR" && meteor create --bare src > "$DATADIR/logs/meteor-init.log" & spinner $!
