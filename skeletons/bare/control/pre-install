@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Check if NVM is installed
+if ! type nvm > /dev/null 2>&1; then
+    echo "NVM is not installed. Installing NVM..."
+    # Install NVM (This is the basic install command, modify as needed)
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
+
+    # Source NVM scripts (modify this according to where NVM is installed)
+    export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+fi
+
+# Check if Meteor is installed
+if ! type meteor > /dev/null 2>&1; then
+    echo "Meteor is not installed. Installing Meteor..."
+    # Install Meteor (This is the basic install command, modify as needed)
+    curl https://install.meteor.com/ | sh
+fi
