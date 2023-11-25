@@ -15,3 +15,7 @@
 !start
 !probe
 !test
+
+!spawn
+!spawn/command.sh
+!spawn/README.md
