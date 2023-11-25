@@ -1,0 +1,145 @@
+/*  koad was here  */
+
+:root {
+ 
+   /* Hue determines the colour, in degrees; 0 to 360 */
+   --application-hue: 200;     
+
+   /* Determines the saturation; 0 to 100 percent */
+   /* A higher number will give you intense colour */
+   /* A lower number will give you a less intense colour */     
+   --application-saturation: 61; 
+
+   /* Determines the brightness; 0 to 100 percent */
+   --application-brightness: 10;  
+
+   /* Determines the transparency; 0 to 100 percent */
+   --application-transparency: 10;  
+   --shadow-transparency: 10;  
+   --accent-transparency: 10;  
+
+   --content-width: 90vw;
+   --contrastThreshold: 80%;
+   --lightnessTransform: 50%;
+   --darknessTransform: 55%;
+   --accent-text-brightness-percent: 100%;  
+
+   /*these puppies can be used logically*/
+   --side-edges: 10px;
+   --left-edge: 0px;
+   --right-edge: 0px;
+   --bottom-edge: 0px;
+   --top-edge: 0px;
+
+   /* these we can generate from the single hue */
+   --text-hue: var(--application-hue);         
+   --shadow-hue: var(--application-hue);         
+   --accent-hue: var(--application-hue);       
+
+/*   --text-brightness: calc(100 - var(--application-brightness));*/
+   --text-brightness: 100;
+   --text-saturation: calc(var(--application-saturation)-2);
+   --shadow-saturation: calc(var(--application-saturation)-5);
+   --accent-saturation: calc(var(--application-saturation)+12);
+
+   --shadow-brightness: calc(var(--application-brightness) / 2);  
+   --accent-brightness: calc(var(--application-brightness) * 2);  
+
+   /* CALCULATIONS */
+   /*TODO:  SOME OF THIS SHIT DOESNT WORK WHEN MINIMIZED;*/
+   /*TODO:  SOME OF THIS SHIT DOESNT WORK WHEN MINIMIZED;*/
+   /*TODO:  SOME OF THIS SHIT DOESNT WORK WHEN MINIMIZED;*/
+   /*TODO:  SOME OF THIS SHIT DOESNT WORK WHEN MINIMIZED;*/
+   /*intermediates are needed here, the minifier will break this shit otherwise.*/
+
+   --application-brightness-intermediate: calc(100 / var(--application-brightness));
+   --application-brightness-percent: calc(100% / var(--application-brightness-intermediate));
+
+   --application-saturation-intermediate: calc(100 / var(--application-saturation));
+   --application-saturation-percent: calc(100% / var(--application-saturation-intermediate));
+
+   --text-brightness-intermediate: calc(100 / var(--text-brightness));
+/*   --text-brightness-percent: calc(100% / var(--text-brightness-intermediate));*/
+   --text-brightness-percent: 100%;
+   
+   --text-saturation-intermediate: calc(100 / var(--text-saturation));
+   --text-saturation-percent: calc(100% / var(--text-saturation-intermediate));
+
+   --accent-saturation-intermediate: calc(100 / var(--accent-saturation));
+   --accent-saturation-percent: calc(100% / var(--accent-saturation-intermediate));
+
+   --accent-brightness-intermediate: calc(100 / var(--accent-brightness));
+   --accent-brightness-percent: calc(100% / var(--accent-brightness-intermediate));
+
+   --shadow-saturation-intermediate: calc(100 / var(--shadow-saturation));
+   --shadow-saturation-percent: calc(100% / var(--shadow-saturation-intermediate));
+
+   --shadow-brightness-intermediate: calc(100 / var(--shadow-brightness));
+   --shadow-brightness-percent: calc(100% / var(--shadow-brightness-intermediate));
+
+   --application-transparency-intermediate: calc(100 / var(--application-transparency));
+   --application-transparency-percent: calc( 100% - calc(100% / var(--application-transparency-intermediate)));
+
+   --text-inverted: hsl(var(--text-hue), var(--text-saturation-percent), calc(100% - var(--text-brightness-percent)));
+   --light-l: calc(var(--application-brightness) * 6);
+   --dark-l: calc(var(--application-brightness) - var(--darknessTransform));
+
+
+   /*TODO:  SOME OF THIS SHIT DOESNT WORK WHEN MINIMIZED;*/
+   /*TODO:  SOME OF THIS SHIT DOESNT WORK WHEN MINIMIZED;*/
+   /*TODO:  SOME OF THIS SHIT DOESNT WORK WHEN MINIMIZED;*/
+   /*TODO:  SOME OF THIS SHIT DOESNT WORK WHEN MINIMIZED;*/
+
+   --border-color: hsl(var(--accent-hue), var(--text-saturation-percent), calc(100% - var(--text-brightness-percent)));
+   --text-color: hsl(var(--text-hue), var(--text-saturation-percent), var(--text-brightness-percent));
+   --shadow-color: hsla(var(--shadow-hue), var(--shadow-saturation-percent), var(--shadow-brightness-percent), var(--application-transparency-percent));
+   --background-color: hsla(var(--application-hue), var(--application-saturation-percent), 6%, 1);
+
+   --highlight-color: hsl(var(--application-hue), var(--application-saturation-percent), var(--application-brightness-percent));
+   --highlight-color-transparent: hsla(var(--application-hue), var(--application-saturation-percent), var(--application-brightness-percent), var(--application-transparency-percent));
+   --highlight-text-color: var(--text-color);
+
+   --accent-color: hsla(var(--accent-hue), var(--accent-saturation-percent), var(--accent-brightness-percent), 1);
+   --accent-text-color: hsla(var(--accent-hue), var(--accent-saturation-percent), var(--accent-text-brightness-percent), 1);
+
+   --base: hsl(var(--application-hue), var(--application-saturation-percent), var(--accent-brightness-percent));
+   --dark: hsl(var(--application-hue), var(--application-saturation-percent), 9%);
+   --light: hsl(var(--application-hue), var(--application-saturation-percent), 77%);
+
+   --fill-color: hsla(var(--application-hue), var(--application-saturation-percent), 88%, 0.88);
+
+   --text: var(--text-color);
+   --background: var(--background-color);
+   --primary: hsla(var(--application-hue), var(--application-saturation-percent), 40%, 1);
+   --secondary: hsl(var(--application-hue), var(--application-saturation-percent), 25%);
+   --accent: hsl(var(--application-hue), var(--application-saturation-percent), calc(100% - var(--application-brightness-percent)));
+
+   /* CONSTANTS */
+   
+   --success: #28a745;
+   --info: #17a2b8;
+   --info: #02aed6;
+   --warning: #ffc107;
+   --danger: #dc3545;
+
+   --blue: #007bff;
+   --indigo: #6610f2;
+   --purple: #6f42c1;
+   --pink: #f36;
+   --red: #dc3545;
+   --orange: #fd7e14;
+   --yellow: #ffc107;
+   --green: #28a745;
+   --teal: #20c997;
+   --cyan: #02aed6;
+   --white: #fff;
+   --gray: #6c757d;
+   --gray-dark: #343a40;
+
+   --font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
+   --body-font: Segoe UI, Roboto, Helvetica Neue, Arial;
+   --heading-font: Roboto, sans-serif;
+   --table-font: monospace;
+   --card-font: Helvetica Neue, Arial, sans-serif;
+}
+ 

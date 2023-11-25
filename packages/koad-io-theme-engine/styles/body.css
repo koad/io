@@ -1,0 +1,67 @@
+body, html {
+	font-family: var(--body-font);
+	background-color: var(--background-color);
+	color: var(--text-color);
+	margin: 0;
+	position: relative;
+  min-height: 100%;
+}
+
+h1, h2, h3, h4, h5, h6{
+	color: var(--text-color);
+}
+
+pre {
+	background: var(--shadow-color);
+	color: var(--text-color);
+	padding: 15px;
+}
+
+html {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+small {
+    font-size: 80%;
+}
+
+.background-element{
+	z-index: -100;
+}
+
+input {
+	background-color: var(--secondary-color);
+	color: var(--fill-color);
+	/*border-right-color: green;*/
+	border: 1px solid var(--accent-color);
+	padding: 3px;
+}
+
+.clearfix {
+	overflow: auto;
+}
+
+.clear-fix {
+	overflow: auto;
+}
+
+.clear {
+	overflow: auto;
+}
+
+.relative{
+	position: relative;
+}
+
+.absolute{
+	position: absolute;
+}
+
+.no-wrap{
+	white-space: nowrap;
+}
+
+.nowrap{
+	white-space: nowrap;
+}

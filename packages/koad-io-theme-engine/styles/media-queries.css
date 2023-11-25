@@ -1,0 +1,31 @@
+:root{
+
+  --breakpoint-xs: 0;
+  --breakpoint-sm: 576px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 992px;
+  --breakpoint-xl: 1200px;
+  --breakpoint-xxl: 1440px; /* larger screens */
+  --breakpoint-xxxl: 1920px; /* full HD screens */
+  --breakpoint-uhd: 3840px; /* 4K UHD screens */
+  --breakpoint-4k: 4096px; /* 4K DCI screens */
+  --breakpoint-5k: 5120px; /* 5K screens */
+  --breakpoint-6k: 6016px; /* 6K screens */
+  --breakpoint-8k: 7680px; /* 8K screens */
+  --breakpoint-9k: 8640px; /* 9K screens, if needed */
+
+}
+
+@media (min-width: var(--breakpoint-xxl)) {
+  /* Styles for screens larger than 1440px */
+}
+
+@media (min-width: var(--breakpoint-xxxl)) {
+  /* Styles for screens larger than 1920px */
+}
+
+@media (min-width: var(--breakpoint-uhd)) {
+  /* Styles for screens larger than 3840px (4K UHD) */
+}
+
+/* Continue as needed for larger sizes */
