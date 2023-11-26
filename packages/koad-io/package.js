@@ -21,6 +21,7 @@ Package.onUse(function(api) {
   api.imply("mobile-experience");
   api.imply("koad:io-router");
   api.imply("koad:io-session");
+  api.imply("koad:io-plus-head-js");
   api.imply("templating");
   api.imply("jquery");
   api.imply("tracker");
