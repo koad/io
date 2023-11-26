@@ -4,7 +4,7 @@ cd $HOME/.koad-io/packages
 
 if [ ! -d io-session ]; then
     echo "Fetching package koad:io-session"
-    git clone git@github.com:koad/io-session.git
+    git clone https://github.com/koad/io-session.git
 fi
 
 if [ ! -d io-router ]; then
