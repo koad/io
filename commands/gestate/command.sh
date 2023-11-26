@@ -116,6 +116,8 @@ mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/k
 [[ $MOTHER ]] && echo && sleep 1 & spinner $!
 
 [[ $MOTHER ]] && echo "remembering mother $MOTHER's public identity";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ed25519.pub ]] && cp -r $HOME/.$MOTHER/id/ed25519.pub $HOME/.$ENTITY/id/$MOTHER.ed25519.pub && echo "cloned mother $MOTHER's public ed25519 key to $HOME/.ENTITY/id/$MOTHER.ed25519.pub" && sleep 1 & spinner $!;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ecdsa.pub ]] && cp -r $HOME/.$MOTHER/id/ecdsa.pub $HOME/.$ENTITY/id/$MOTHER.ecdsa.pub && echo "cloned mother $MOTHER's public ecdsa key to $HOME/.ENTITY/id/$MOTHER.ecdsa.pub" && sleep 1 & spinner $!;
 [[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/rsa.pub ]] && cp -r $HOME/.$MOTHER/id/rsa.pub $HOME/.$ENTITY/id/$MOTHER.rsa.pub && echo "cloned mother $MOTHER's public rsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
 [[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/dsa.pub ]] && cp -r $HOME/.$MOTHER/id/dsa.pub $HOME/.$ENTITY/id/$MOTHER.dsa.pub && echo "cloned mother $MOTHER's public dsa key to $HOME/.ENTITY/id/$MOTHER.dsa.pub" && sleep 1 & spinner $!;
 [[ $MOTHER ]] && echo && sleep 1 & spinner $!
@@ -124,11 +126,12 @@ mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/k
 [[ ! $MOTHER ]] && echo "Immaculate Conception, no initial genome!"
 [[ ! $MOTHER ]] && echo && sleep 1 & spinner $!
 
+# no passwords on these keys, since there is no keyboard in alice's world.. TODO: check assumptions
 echo "Generating cryptographic device identities ($ENTITY@$HOSTNAME)"
-ssh-keygen -t ed25519 -C "$ENTITY@$MOTHER" -f $DATADIR/ssl/ed25519 -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ed25519"
-ssh-keygen -t ecdsa -b 521 -C "$ENTITY@$MOTHER" -f $DATADIR/ssl/ecdsa -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ecdsa"
-ssh-keygen -t rsa -b 4096 -C "$ENTITY@$MOTHER" -f $DATADIR/id/rsa -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/rsa"
-ssh-keygen -t dsa -C "$ENTITY@$MOTHER" -f $DATADIR/id/dsa -P "$ENTITY@$MOTHER" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/dsa"
+ssh-keygen -t ed25519 -C "$ENTITY@$MOTHER" -f $DATADIR/id/ed25519 -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ed25519"
+ssh-keygen -t ecdsa -b 521 -C "$ENTITY@$MOTHER" -f $DATADIR/id/ecdsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ecdsa"
+ssh-keygen -t rsa -b 4096 -C "$ENTITY@$MOTHER" -f $DATADIR/id/rsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/rsa"
+ssh-keygen -t dsa -C "$ENTITY@$MOTHER" -f $DATADIR/id/dsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/dsa"
 echo && sleep 1 & spinner $!
 
 echo "Generating master elliptic curve parameters"
