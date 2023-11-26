@@ -43,7 +43,7 @@ Package.onUse(function(api) {
 	api.use("ecmascript");
 	api.use("matb33:collection-hooks", "server", {weak: true});
 
-	api.imply("koad:io-session", "client", {weak: true});
+	api.imply("koad:io-session", "client");
 
 	// loads first, initializes the koad object.
 	api.addFiles("both/initial.js");
