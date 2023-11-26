@@ -154,7 +154,7 @@ openssl genpkey -aes256 -pass pass:$ENTITY -paramfile $DATADIR/ssl/master-curve-
 echo "generated: $DATADIR/ssl/relay-curve.pem"
 echo && sleep 1 & spinner $!
 
-echo "Generating seesion key"
+echo "Generating session key"
 openssl genpkey -algorithm EC  -pass pass:$ENTITY -pkeyopt ec_paramgen_curve:P-256 -out $DATADIR/ssl/session.pem & spinner $!
 echo "generated: $DATADIR/ssl/session.pem"
 echo && sleep 1 & spinner $!
