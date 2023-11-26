@@ -151,7 +151,7 @@ install these first
 
 create the `~/.koad-io` folder with a clone of [this repo](https://github.com/koad/io)
 ```bash
-git clone --recurse-submodules https://github.com/koad/io.git ~/.koad-io
+git clone https://github.com/koad/io.git ~/.koad-io
 ```
 
 add the `~/.koad-io/bin` folder to your path (add this to the end of your `~/.bashrc` file)
