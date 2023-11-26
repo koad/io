@@ -1,0 +1,117 @@
+<template name="RecordNotFound">
+    <center><span class="text-danger">record not found</span></center>
+</template>
+
+<template name="Error400">
+    <div class="container-fluid">
+        <div class="row-fluid">
+            <div class="col-lg-12">
+                <div class="centering text-center error-container">
+                    <div class="text-center"><br><br><br>
+                        <img src="/images/errors/error.png"><br>
+                        <h2 class="without-margin"><span class="text-warning"><big>Error 400:  Bad Request</big></span></h2>
+                        <h4 class="text-warning">The application you are using (e.g. your web browser) accessed the server incorrectly or the request was somehow corrupted.</h4>
+                    </div>
+                    {{>ErrorFooter}}
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template name="Error401">
+    <div class="container-fluid">
+        <div class="row-fluid">
+            <div class="col-lg-12">
+                <div class="centering text-center error-container">
+                    <div class="text-center"><br><br><br>
+                        <img src="/images/errors/error.png"><br>
+                        <h2 class="without-margin"><span class="text-warning"><big>Error 401:  Unauthorized</big></span></h2>
+                        <h4 class="text-warning">You are trying to access a restricted web page but you aren't authorized to do so.</h4>
+                    </div>
+                    {{>ErrorFooter}}
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template name="Error403">
+    <div class="container-fluid">
+        <div class="row-fluid">
+            <div class="col-lg-12">
+                <div class="centering text-center error-container">
+                    <div class="text-center"><br><br><br>
+                        <img src="/images/errors/error.png"><br>
+                        <h2 class="without-margin"><span class="text-warning"><big>Error 403:  Forbidden</big></span></h2>
+                        <h4 class="text-warning">You don't have permission to access this file or page.</h4>
+                    </div>
+                    {{>ErrorFooter}}
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template name="Error404">
+    <div class="container-fluid">
+        <div class="row-fluid">
+            <div class="col-lg-12">
+                <div class="centering text-center error-container">
+                    <div class="text-center"><br><br><br>
+                        <img src="/images/errors/alert.png"><br>
+                        <h2 class="without-margin">Error 404:  Not Found</h2>
+                        <h4 class="text-warning">The server was unable to find the requested resource.  If you feel this is a mistake, please submit some feedback.</h4>
+                    </div>
+                    {{>ErrorFooter}}
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template name="NotFound">
+    <div class="container-fluid">
+        <div class="row-fluid">
+            <div class="col-lg-12">
+                <div class="centering text-center error-container">
+                    <div class="text-center"><br><br><br>
+                        <img src="/images/errors/alert.png"><br>
+                        <h2 class="without-margin">Error 404:  Not Found</h2>
+                        <h4 class="text-warning">The server was unable to find the requested resource.  If you feel this is a mistake, please submit some feedback.</h4>
+                    </div>
+                    {{>ErrorFooter}}
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template name="Error500">
+    <div class="container-fluid">
+        <div class="row-fluid">
+            <div class="col-lg-12">
+                <div class="centering text-center error-container">
+                    <div class="text-center"><br><br><br>
+                        <img src="/images/errors/error.png"><br>
+                        <h2 class="without-margin"><span class="text-warning"><big>Error 500:  Internal Server Error</big></span></h2>
+                        <h4 class="text-warning">The server has encountered an error and was unable to complete your request.  Please try again later.</h4>
+                    </div>
+                    {{>ErrorFooter}}
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template name="ErrorFooter">
+    <hr>
+    <div class="text-center">
+        <h3><small>Choose an option</small></h3>
+    </div>
+    <ul class="pager">
+        <li><a href="{{pathFor route='home'}}">&larr; Return to the home page</a></li>
+        <li><a href="{{pathFor route='register'}}">Sign-in</a></li>
+        <li><a href="{{pathFor route='help'}}">View help pages &rarr;</a></li>
+    </ul>
+</template>
