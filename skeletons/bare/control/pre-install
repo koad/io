@@ -1,12 +1,5 @@
 #!/bin/bash
 
-# Check if Meteor is installed
-if ! type meteor > /dev/null 2>&1; then
-    echo "Meteor is not installed. Installing Meteor..."
-    # Install Meteor (This is the basic install command, modify as needed)
-    curl https://install.meteor.com/ | sh
-fi
-
 cd $HOME/.koad-io/packages
 if ! -d io-collection-hooks; then
     echo "Fetching package koad:io-collection-hooks"
@@ -26,4 +19,12 @@ fi
 if ! -d io-router-progress; then
     echo "Fetching package koad:io-router-progress"
     git clone https://github.com/koad/io-router-progress.git
+fi
+
+# Check if Meteor is installed
+if ! type meteor > /dev/null 2>&1; then
+    echo -e "\e[31mMeteor is not installed. Install Meteor pls...\e[0m"
+    echo "Install Meteor (This is the basic install command, modify as needed)"
+    echo "curl https://install.meteor.com/ | sh"
+    exit 1
 fi
