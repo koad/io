@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Check for the first argument (skeleton name)
 if [ -z "$1" ]; then
