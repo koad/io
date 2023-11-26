@@ -6,3 +6,24 @@ if ! type meteor > /dev/null 2>&1; then
     # Install Meteor (This is the basic install command, modify as needed)
     curl https://install.meteor.com/ | sh
 fi
+
+cd $HOME/.koad-io/packages
+if ! -d io-collection-hooks; then
+    echo "Fetching package koad:io-collection-hooks"
+    clone https://github.com/koad/io-collection-hooks.git
+fi
+
+if ! -d io-session; then
+    echo "Fetching package koad:io-session"
+    clone git@github.com:koad/io-session.git
+fi
+
+if ! -d io-router; then
+    echo "Fetching package koad:io-router"
+    clone https://github.com/koad/io-router.git
+fi
+
+if ! -d io-router-progress; then
+    echo "Fetching package koad:io-router-progress"
+    clone https://github.com/koad/io-router-progress.git
+fi
