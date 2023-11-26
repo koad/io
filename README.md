@@ -159,6 +159,10 @@ add the `~/.koad-io/bin` folder to your path (add this to the end of your `~/.ba
 [ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin
 ```
 
+all together, 
+```bash
+git clone https://github.com/koad/io.git ~/.koad-io && echo -e "\n\n[ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin\n" >> ~/.bashrc && export PATH=$PATH:$HOME/.koad-io/bin
+```
 
 ### create an entity
 
