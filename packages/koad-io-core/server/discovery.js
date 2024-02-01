@@ -29,7 +29,7 @@ Meteor.startup(()=>{
 
 	log.upstart('Created new instance in ApplicationInternals:', internals);
 	koad.internals = internals;
-	loadEntityRSA();
+	// loadEntityRSA();
 
 	// This is app discovery;  
 	// it allows your apps to recognize themselves, then they can start a conversation.
