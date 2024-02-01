@@ -42,9 +42,12 @@ Package.onUse(function(api) {
 	api.use("random");
 	api.use("mongo");
 	api.use("ecmascript");
+	api.use("mizzao:timesync");
 	api.use("matb33:collection-hooks", "server", {weak: true});
+	api.use("koad:io-local-collection", "client");
 
 	api.imply("koad:io-session", "client");
+	api.imply("koad:io-local-collection", "client");
 
 	// loads first, initializes the koad object.
 	api.addFiles("both/initial.js");
@@ -53,6 +56,7 @@ Package.onUse(function(api) {
 	api.addFiles("server/logger.js", "server");
 	api.addFiles("server/upstart.js", "server");
 	api.addFiles("client/upstart.js", "client");
+	api.addFiles("client/search.js", "client");
 
 	api.addFiles([
 		"both/time-constants.js",
@@ -66,8 +70,13 @@ Package.onUse(function(api) {
 		"server/discovery.js",
 		"server/sysinfo.js",
 		"server/counters.js",
+		"server/search.js",
 		"server/cron.js",
 	], "server");  
+
+
+  	api.export("GlobalSearch");
+  	api.export("SearchHistory", 'client');
 
 	api.export(["SECONDS", "MINUTES", "HOURS", "DAYS", "WEEKS", "MONTHS", "YEARS"]);
 	api.export(["allow", "ALLOW", "deny", "DENY"]);
@@ -87,6 +96,7 @@ Package.onUse(function(api) {
 	api.export("ApplicationStatistics", "server");
 	api.export("ApplicationServices", "server");
 	api.export("ApplicationSessions", "server");
+	api.export("ApplicationConsumables", "server");
 
 	// Export the koad object created by this package...
 	api.export("koad");
