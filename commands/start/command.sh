@@ -1,25 +1,13 @@
 #!/usr/bin/env bash
 
-# Print the arguments received
-echo $1 $2
-
 # Get the current date and time
-CURRENTDATETIME=`date +"%Y-%m-%d-%H-%M"`
-
+CURRENTDATETIME=$(date +"%Y-%m-%d-%H-%M")
 
 # Assert valid koad:io workspace (DATADIR)
-source "$HOME/.koad-io/hooks/assert-datadir.sh"
-if [[ -z "$DATADIR" ]]; then
-  echo "."
-    echo -e "\033[31mkoad/io: unable to find a valid koad:io workspace or fixture\033[0m"
-  exit 64
-fi
+source "$HOME/.koad-io/commands/assert/datadir/command.sh"
 
-echo "ENTITY: $ENTITY"
-echo "LOCAL_BUILD: $LOCAL_BUILD"
-
-echo "entering DATADIR: $DATADIR"
 cd $DATADIR
+[[ -n "$1" ]] && KOAD_IO_TYPE=$1
 
 # Array of required variables
 required_vars=("KOAD_IO_BIND_IP" "KOAD_IO_PORT" "KOAD_IO_APP_NAME" "KOAD_IO_TYPE")
@@ -74,9 +62,12 @@ elif [[ -f ./src/.meteor/release ]]; then
     echo "Starting koad-io developer fixture"
     echo "Data directory: $PWD";
     echo "Source: $PWD/src";
+    echo "-"
 
     # Start Meteor application in development mode
-    cd $PWD/src && meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE
+    cd $PWD/src
+    meteor npm install
+    meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE
 
 else
     echo -e "\033[31mkoad/io application not found.\033[0m"

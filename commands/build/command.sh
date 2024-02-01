@@ -4,11 +4,7 @@
 start=$(date +%s)
 
 # Assert valid koad:io workspace (DATADIR)
-source "$HOME/.koad-io/hooks/assert-datadir.sh"
-if [ -z "$DATADIR" ]; then
-  echo "unable to find a valid koad:io workspace or fixture."
-  exit 64
-fi
+source "$HOME/.koad-io/commands/assert/datadir/command.sh"
 
 # Array of required variables
 required_vars=("KOAD_IO_BIND_IP" "KOAD_IO_PORT" "KOAD_IO_APP_NAME" "KOAD_IO_TYPE")
