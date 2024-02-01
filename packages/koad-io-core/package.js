@@ -21,10 +21,11 @@ Npm.depends({
 	"node-machine-id": "1.1.12",
 	"cron": "1.8.2",
 	"systeminformation": "5.11.14",
-    "bitcoinjs-lib": "6.1.3",
-    "bip32": "4.0.0",
-    "bip39": "3.1.0",
-    "ssh2": "1.14.0"
+    // "bitcoinjs-lib": "6.1.3",
+    // "@scure/bip32": "1.3.2",
+    "@scure/bip39": "1.2.1", // https://github.com/paulmillr/scure-bip39
+    // "ethereum-cryptography": "2.1.2",
+    // "ssh2": "1.14.0"
 });
 
 Package.onUse(function(api) {
