@@ -1,9 +1,17 @@
+// Deny all client-side updates to user documents
+if(Meteor.users) Meteor.users.deny({
+  update() { return true; }
+});
+
+
+
+
 if(DEBUG) log.info('new collection: internals');
 
 console.log('mong', koad.mongo)
 ApplicationInternals = new Mongo.Collection('internals', koad.mongo);
 
-if(Package["matb33:collection-hooks"]) {
+if(Package["matb33:collection-hooks"] && Meteor.users) {
 	ApplicationInternals.before.insert(function(userId, doc) {
 		doc.instance = koad.instance;
 		return doc.created = new Date();
