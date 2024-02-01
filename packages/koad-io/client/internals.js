@@ -42,16 +42,23 @@ Meteor.startup(() => {
   }, 1600);
 });
 
-
 const manageUserAuthenticationState = (id, state) => {
   koad.internals.asof = new Date();
-  if (state && state.stampedLoginToken) {
-    Meteor.loginWithToken(state.stampedLoginToken.token, (error) => {
-      if (error) {
-        console.error(`Login failed: ${error}`);
-      } else {
+  if(!state) return;
+  if (state.consumable) {
+    logDebug('consumable has arrived,')
+    Meteor.call('gather.consumable', state.consumable ,((error, res)=>{
+      if(error) return console.log({error})
+      Meteor.loginWithToken(res, (error) => {
+        if (error) return console.error(`Login failed: ${error}`);
+        logDebug('nomnom,')
         logDebug('Successfully logged in.');
-      }
+      });
+    }));
+  } else if (state.stampedLoginToken) { //DEPRECATED:: DO NOT USE THIS SHIT!
+    Meteor.loginWithToken(state.stampedLoginToken.token, (error) => {
+      if (error) return console.error(`Login failed: ${error}`);
+      logDebug('Successfully logged in.');
     });
   }
   logDebug('manageUserAuthenticationState');
