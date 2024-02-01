@@ -4,6 +4,9 @@
 
 The `spawn` command is a powerful tool designed to quickly set up projects by deploying predefined templates, known as skeletons. It automates the process of copying skeleton structures into the current working directory and executing associated control scripts.
 
+This command is useful for quickly setting up a project or environment with a predefined structure and configuration, which can be customized further as needed. It demonstrates the flexibility of the koad:io system in managing and deploying reusable templates or structures.
+
+
 ## Prerequisites
 
 Before using the `spawn` command, ensure that:
