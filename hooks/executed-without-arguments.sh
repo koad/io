@@ -9,7 +9,7 @@ if ! command -v dotenv &>/dev/null; then
 fi
 
 # Drop into a new bash prompt with the entity called forth.
-dotenv -e ~/.koad-io/.env -e ~/.$ENTITY/.env bash
+dotenv -e $HOME/.koad-io/.env -e $ENTITY_DIR/.env bash
 
 # When the user exists the previously launched terminal, reset the terminal window title.
 echo -ne "\033]0;${USER} on ${HOSTNAME}\007" && echo
