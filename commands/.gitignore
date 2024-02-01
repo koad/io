@@ -19,3 +19,8 @@
 !spawn
 !spawn/command.sh
 !spawn/README.md
+
+!assert
+!assert/datadir
+!assert/datadir/command.sh
+!assert/datadir/README.md
