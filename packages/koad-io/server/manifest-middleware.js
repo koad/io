@@ -1,3 +1,4 @@
+if(!process.env.KOAD_IO_ENABLE_PWA_MIDDLEWARE) return;
 if(!Meteor.settings?.public?.application)
   return console.log('[koad:io] no application settings found, not serving a manifest.');
 

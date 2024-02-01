@@ -1,3 +1,6 @@
+if(!process.env.KOAD_IO_ENABLE_404_MIDDLEWARE) return;
+if(process.env.KOAD_IO_DISABLE_404_MIDDLEWARE) return;
+
 const { pathToRegexp } = Npm.require("path-to-regexp");
 const useragent = require('useragent');
 const hostname = new URL(Meteor.absoluteUrl()).hostname;
@@ -8,15 +11,17 @@ if(!Meteor.settings?.public?.ident?.instance) return console.log('[koad:io] no i
 
 // TODO: no mo hard coded shis bro...
 if(hostname == "127.0.0.1") return log.debug('running on localhost, no need for restrictions');
+if(hostname == `${process.env.KOAD_IO_BIND_IP}:${process.env.KOAD_IO_PORT}`) return log.debug('direct-connect, no need for restrictions');
 if(isPrivateIP(hostname)) return log.debug('running on local network, no need for restrictions');
-
 const paths = [ // add the paths NOT loaded within the router logically
   '/probes/application', 
   '/probes/instance', 
   '/robots.txt',
+  '/.well-known/koad-io.json'
 ];
 
 if(koad.manifest) paths.push('/manifest.json');
+paths.push('/pwa-service-worker.js');
 if(koad.features?.oembed) paths.push('/oembed');
 
 const hosts = [
@@ -141,7 +146,7 @@ Meteor.startup(() => {
       logConnectionError({
         code: 404,
         type: 'not found',
-        message: `File not found for ${req.url}`
+        message: `File not !!found!! for ${req.url}`
       }, req);
 
       res.writeHead(404, {'Content-Type': 'text/html'});
@@ -153,10 +158,10 @@ Meteor.startup(() => {
     }
   });
 
-  log.start('serving /oembed')
   // Serve oEmbed metadata for specific crawlers (e.g., Discord and Twitter)
   WebApp.connectHandlers.use('/oembed', (req, res) => {
 
+    log.debug('serving /oembed')
     const oEmbedUrl = req.query.url; // Get the content URL from the 'url' query parameter
     const useragentString = req.headers['user-agent'];
     const ua = useragent.parse(useragentString);
