@@ -71,5 +71,5 @@ mkdir "$DATADIR/logs"
 echo "mkdir client/templates"
 
 echo "Installing new meteor app in $DATADIR/src"
-cd "$DATADIR" && meteor create --bare src > "$DATADIR/logs/meteor-init.log"
-# cd "$DATADIR" && meteor create --bare src > "$DATADIR/logs/meteor-init.log" & spinner $!
+cd "$DATADIR" && meteor create --bare src > "$DATADIR/logs/meteor-init.log" & spinner $!
+echo "Installing new meteor app complete!"
