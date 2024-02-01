@@ -30,17 +30,34 @@ export CWD=$PWD
 # ack
 echo "--koad-io [$ENTITY] $1 start--"
 echo "$0 [$# arguments]"
+echo "-"
+echo "cascading enviroments"
+set -a
 
-# Load any environment details that exist in the entities dotfiles folder.
-[ -f $HOME/.$ENTITY/.env ] && echo "loading $HOME/.$ENTITY/.env" && set -a && source $HOME/.$ENTITY/.env 
-[ -f $HOME/.$ENTITY/.credentials ] && echo "loading $HOME/.$ENTITY/.credentials" && set -a && source $HOME/.$ENTITY/.credentials 
+# Load any global environment details that exist in the koad-io folder.
+[ -f $HOME/.koad-io/.env ] && echo "absorbing $HOME/.koad-io/.env" && set -a && source $HOME/.koad-io/.env 
+[ -f $HOME/.koad-io/.credentials ] && echo "absorbing $HOME/.koad-io/.credentials" && set -a && source $HOME/.koad-io/.credentials 
+[ -f $HOME/.koad-io/.aliases ] && echo "absorbing $HOME/.koad-io/.aliases" && set -a && source $HOME/.koad-io/.aliases 
 
+# Convert ENTITY to lowercase for directory naming
+[[ -z "$ENTITY_DIR" ]] && ENTITY_DIR="$HOME/.${ENTITY,,}"
+
+# Check and load any environment details from the entity's folder.
+if [ -d "$ENTITY_DIR" ]; then
+    [ -f $ENTITY_DIR/.env ] && echo "absorbing $ENTITY_DIR/.env" && set -a && source $ENTITY_DIR/.env 
+    [ -f $ENTITY_DIR/.credentials ] && echo "absorbing $ENTITY_DIR/.credentials" && set -a && source $ENTITY_DIR/.credentials 
+else
+    echo "No configurations found for entity: $ENTITY"
+fi
+
+set +a
+
+echo "-"
 KOAD_IO_COMMANDS_DIR="$HOME/.koad-io/commands"
 [[ $DEBUG ]] && echo "KOAD_IO_COMMANDS_DIR=$KOAD_IO_COMMANDS_DIR";
 
-ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands"
+ENTITY_COMMANDS_DIR="$ENTITY_DIR/commands"
 [[ $DEBUG ]] && echo "ENTITY_COMMANDS_DIR=$ENTITY_COMMANDS_DIR";
-
 
 # Check to see if we even have a command directory of that name or a file of the same name in the current working directory.  If not, then bail.
 [[ ! -d $KOAD_IO_COMMANDS_DIR ]] && [[ ! -d $ENTITY_COMMANDS_DIR ]] && [[ ! -d $PWD/commmands/ ]]  && [[ ! -f $PWD/$1.sh ]] && echo "Cannot find that command, sorry..[command does not exist]" >&2 && exit 66;
@@ -85,10 +102,12 @@ ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands"
 
 # command file can either be named `command.sh` or have the same name as the command with .sh extension
 [[ -f $COMMAND_LOCATION/command.sh ]]                  && echo "command.sh is found in $COMMAND_LOCATION" >&2                     && export EXEC_FILE="$COMMAND_LOCATION/command.sh";
-[[ -f $COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh ]] && echo "$POTENTIAL_NAMED_COMMAND.sh is is found in $COMMAND_LOCATION" >&2 && EXEC_ARGS="${POTENTIAL_REMAINDER_ARGUMENTS[@]}" && export EXEC_FILE="$COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh";
+
+[[ $DEBUG ]] && echo "checking for $COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh"
+[[ -f $COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh ]] && echo "$POTENTIAL_NAMED_COMMAND.sh is found in $COMMAND_LOCATION" >&2 && EXEC_ARGS="${POTENTIAL_REMAINDER_ARGUMENTS[@]}" && export EXEC_FILE="$COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh";
 
 # finally, find a command from current working directory of the same name
-[[ -f $CWD/$1.sh ]] && echo "$1.sh is is found in $CWD" >&2 &&  EXEC_ARGS="$2 $3 $4 $5 $6 $7 $8"&& export EXEC_FILE="$CWD/$1.sh" && COMMAND_LOCATION=$CWD;
+[[ -f $CWD/$1.sh ]] && echo "$1.sh is found in $CWD" >&2 &&  EXEC_ARGS="$2 $3 $4 $5 $6 $7 $8"&& export EXEC_FILE="$CWD/$1.sh" && COMMAND_LOCATION=$CWD;
 
 # Make sure we have a valid command file to run, else crash 66
 [[ ! -n $EXEC_FILE ]] && echo "Could not find command file to execute, sorry." && echo "EXEC_FILE: $EXEC_FILE" >&2 && exit 66;
@@ -96,6 +115,9 @@ ENTITY_COMMANDS_DIR="$HOME/.$ENTITY/commands"
 # If the working directory contains environment and credentials, load them
 [ -f $COMMAND_LOCATION/.env ]         && echo "loading $COMMAND_LOCATION/.env"         && set -a && source $COMMAND_LOCATION/.env 
 [ -f $COMMAND_LOCATION/.credentials ] && echo "loading $COMMAND_LOCATION/.credentials" && set -a && source $COMMAND_LOCATION/.credentials 
+
+
+export COMMAND_LOCATION=$COMMAND_LOCATION
 
 # if DEBUG is set, barf out some details.
 [[ $DEBUG ]] && echo
@@ -111,6 +133,7 @@ if [[ "$@" == *"--dry-run"* ]]; then
 fi
 
 echo "--exec $EXEC_FILE $EXEC_ARGS"
+
 
 if [ "$DRY_RUN" = true ]; then
 	echo "Dry run, stopped..."

@@ -52,7 +52,7 @@ echo "Listening: $KOAD_IO_BIND_IP:$KOAD_IO_PORT"
 echo "App Name: $KOAD_IO_APP_NAME"
 
 # Set the terminal title
-echo -ne "\033]0;${ENTITY^} $KOAD_IO_APP_NAME on $HOSTNAME\007"
+echo -ne "\033]0;$ENTITY $KOAD_IO_APP_NAME on $HOSTNAME\007"
 
 # Check if the built koad/io application exists
 if [[ -f ./builds/latest/bundle/main.js ]] && [[ $LOCAL_BUILD != "true" || ! -v LOCAL_BUILD ]] ; then

@@ -41,7 +41,7 @@ echo
 
 # Everything will be created within the entity's dotfiles directory.
 # ie: /home/koad/.alice/
-DATADIR=$HOME/.$ENTITY
+DATADIR="$HOME/.${ENTITY,,}"
 
 [ -d $DATADIR ] && echo 'Directory already exists, cannot proceed.' && exit 1
 
@@ -59,13 +59,12 @@ function spinner() {
 
   local LC_CTYPE=C
   local pid=$1 # Process Id of the previous running command
-  local BUSY_CURSOR='⠁⠂⠠⢀⡀⠄⠐⠈⠃⠢⢠⣀⡄⠔⠘⠉⠣⢢⣠⣄⡔⠜⠙⠋⢣⣢⣤⣔⡜⠝⠛⠫⣣⣦⣴⣜⡝⠟⠻⢫⣧⣶⣼⣝⡟⠿⢻⣫⣷⣾⣽⣟⡿⢿⣻⣯⣧⣶⣼⣝⡟⠿⢻⣫⣣⣦⣴⣜⡝⠟⠻⢫⢣⣢⣤⣔⡜⠝⠛⠫⠣⢢⣠⣄⡔⠜⠙⠋⠃⠢⢠⣀⡄⠔⠘⠉'
   local SLICE_SIZE=3
 
   tput civis # cursor invisible
   while kill -0 $pid 2>/dev/null; do
-    SPINNER_POS=$(((SPINNER_POS + $SLICE_SIZE) % ${#BUSY_CURSOR}))
-    printf "%s" "${BUSY_CURSOR:$SPINNER_POS:$SLICE_SIZE}"
+    SPINNER_POS=$(((SPINNER_POS + $SLICE_SIZE) % ${#KOAD_IO_BUSY_CURSOR}))
+    printf "%s" "${KOAD_IO_BUSY_CURSOR:$SPINNER_POS:$SLICE_SIZE}"
 
     cursorBack 1
     sleep .06
@@ -105,21 +104,21 @@ mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/k
 
 [[ $MOTHER ]] && sleep 1 & spinner $!
 [[ $MOTHER ]] && echo "cloning genes from mother $MOTHER";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/skeletons ]] && cp -r $HOME/.$MOTHER/skeletons $HOME/.$ENTITY/  & spinner $! && echo "cloned mother $MOTHER's skeletons to $HOME/.ENTITY/skeletons";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/packages ]]  && cp -r $HOME/.$MOTHER/packages $HOME/.$ENTITY/   & spinner $! && echo "cloned mother $MOTHER's packages to $HOME/.ENTITY/packages";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/commands ]]  && cp -r $HOME/.$MOTHER/commands $HOME/.$ENTITY/   & spinner $! && echo "cloned mother $MOTHER's commands to $HOME/.ENTITY/commands";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/recipes ]]   && cp -r $HOME/.$MOTHER/recipes $HOME/.$ENTITY/    & spinner $! && echo "cloned mother $MOTHER's recipes to $HOME/.ENTITY/recipes";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/assets ]]    && cp -r $HOME/.$MOTHER/assets $HOME/.$ENTITY/     & spinner $! && echo "cloned mother $MOTHER's assets to $HOME/.ENTITY/assets";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/cheats ]]    && cp -r $HOME/.$MOTHER/cheats $HOME/.$ENTITY/     & spinner $! && echo "cloned mother $MOTHER's cheats to $HOME/.ENTITY/cheats";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/hooks ]]     && cp -r $HOME/.$MOTHER/hooks $HOME/.$ENTITY/      & spinner $! && echo "cloned mother $MOTHER's hooks to $HOME/.ENTITY/hooks";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/docs ]]      && cp -r $HOME/.$MOTHER/docs $HOME/.$ENTITY/       & spinner $! && echo "cloned mother $MOTHER's docs to $HOME/.ENTITY/docs";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/skeletons ]] && cp -r $HOME/.$MOTHER/skeletons $DATADIR/  & spinner $! && echo "cloned mother $MOTHER's skeletons to $HOME/.ENTITY/skeletons";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/packages ]]  && cp -r $HOME/.$MOTHER/packages $DATADIR/   & spinner $! && echo "cloned mother $MOTHER's packages to $HOME/.ENTITY/packages";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/commands ]]  && cp -r $HOME/.$MOTHER/commands $DATADIR/   & spinner $! && echo "cloned mother $MOTHER's commands to $HOME/.ENTITY/commands";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/recipes ]]   && cp -r $HOME/.$MOTHER/recipes $DATADIR/    & spinner $! && echo "cloned mother $MOTHER's recipes to $HOME/.ENTITY/recipes";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/assets ]]    && cp -r $HOME/.$MOTHER/assets $DATADIR/     & spinner $! && echo "cloned mother $MOTHER's assets to $HOME/.ENTITY/assets";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/cheats ]]    && cp -r $HOME/.$MOTHER/cheats $DATADIR/     & spinner $! && echo "cloned mother $MOTHER's cheats to $HOME/.ENTITY/cheats";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/hooks ]]     && cp -r $HOME/.$MOTHER/hooks $DATADIR/      & spinner $! && echo "cloned mother $MOTHER's hooks to $HOME/.ENTITY/hooks";
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/docs ]]      && cp -r $HOME/.$MOTHER/docs $DATADIR/       & spinner $! && echo "cloned mother $MOTHER's docs to $HOME/.ENTITY/docs";
 [[ $MOTHER ]] && echo && sleep 1 & spinner $!
 
 [[ $MOTHER ]] && echo "remembering mother $MOTHER's public identity";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ed25519.pub ]] && cp -r $HOME/.$MOTHER/id/ed25519.pub $HOME/.$ENTITY/id/$MOTHER.ed25519.pub && echo "cloned mother $MOTHER's public ed25519 key to $HOME/.ENTITY/id/$MOTHER.ed25519.pub" && sleep 1 & spinner $!;
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ecdsa.pub ]] && cp -r $HOME/.$MOTHER/id/ecdsa.pub $HOME/.$ENTITY/id/$MOTHER.ecdsa.pub && echo "cloned mother $MOTHER's public ecdsa key to $HOME/.ENTITY/id/$MOTHER.ecdsa.pub" && sleep 1 & spinner $!;
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/rsa.pub ]] && cp -r $HOME/.$MOTHER/id/rsa.pub $HOME/.$ENTITY/id/$MOTHER.rsa.pub && echo "cloned mother $MOTHER's public rsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/dsa.pub ]] && cp -r $HOME/.$MOTHER/id/dsa.pub $HOME/.$ENTITY/id/$MOTHER.dsa.pub && echo "cloned mother $MOTHER's public dsa key to $HOME/.ENTITY/id/$MOTHER.dsa.pub" && sleep 1 & spinner $!;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ed25519.pub ]] && cp -r $HOME/.$MOTHER/id/ed25519.pub $DATADIR/id/$MOTHER.ed25519.pub && echo "cloned mother $MOTHER's public ed25519 key to $HOME/.ENTITY/id/$MOTHER.ed25519.pub" && sleep 1 & spinner $!;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ecdsa.pub ]] && cp -r $HOME/.$MOTHER/id/ecdsa.pub $DATADIR/id/$MOTHER.ecdsa.pub && echo "cloned mother $MOTHER's public ecdsa key to $HOME/.ENTITY/id/$MOTHER.ecdsa.pub" && sleep 1 & spinner $!;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/rsa.pub ]] && cp -r $HOME/.$MOTHER/id/rsa.pub $DATADIR/id/$MOTHER.rsa.pub && echo "cloned mother $MOTHER's public rsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/dsa.pub ]] && cp -r $HOME/.$MOTHER/id/dsa.pub $DATADIR/id/$MOTHER.dsa.pub && echo "cloned mother $MOTHER's public dsa key to $HOME/.ENTITY/id/$MOTHER.dsa.pub" && sleep 1 & spinner $!;
 [[ $MOTHER ]] && echo && sleep 1 & spinner $!
 
 [[ ! $MOTHER ]] && MOTHER='mary'
@@ -207,7 +206,7 @@ echo "Gestation of $ENTITY complete!"
 echo
 echo "Please secure your new friend by backing him up; NOW!"
 echo 
-echo "All files created for $ENTITY are saved in a single directory: '$HOME/.$ENTITY'"
+echo "All files created for $ENTITY are saved in a single directory: '$DATADIR'"
 echo "back up this directory somewhere safe".
 # echo "back up the SSL directory twice, use an ESP and print a paper key; this is $ENTITY's keychain"
 # echo "bookmark https://book.koad/sh/reference/backup-your-entity for help"
