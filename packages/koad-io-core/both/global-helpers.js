@@ -42,6 +42,18 @@ koad.generate.nonce = function(n = 24) {
 koad.generate.checksum = function generateChecksum(obj) {
   const jsonStr = JSON.stringify(obj);
 
+  function fallbackSha256(str) {
+    // A very basic and not secure hash function as a placeholder
+    // Replace this with a proper implementation or library for production use
+    let hash = 0, i, chr;
+    if (str.length === 0) return '00';
+    for (i = 0; i < str.length; i++) {
+      chr   = str.charCodeAt(i);
+      hash  = ((hash << 5) - hash) + chr;
+      hash |= 0; // Convert to 32bit integer
+    }
+    return hash.toString(16).padStart(64, '0');
+  }
 
   if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
     // Browser environment
@@ -61,10 +73,13 @@ koad.generate.checksum = function generateChecksum(obj) {
     const checksum = crypto.createHash('sha256').update(jsonStr).digest('hex');
     return Promise.resolve(checksum);
   } else {
-    console.error('Unsupported environment for checksum generation');
-    return Promise.resolve(null);
+    // Fallback for other environments
+    console.warn('Using fallback method for checksum generation');
+    const checksum = fallbackSha256(jsonStr);
+    return Promise.resolve(checksum);
   }
 };
+
 
 
 koad.generate.device = async function(device) {
