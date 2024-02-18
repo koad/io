@@ -8,13 +8,23 @@ The purpose of the `packages` folder is to enhance the user interface and user e
 
 ## Integration with Meteor
 
-To use the packages in the `packages` folder, you need to set the environment variable `METEOR_PACKAGES` to point to the location of the `packages` directory. By default, this directory is located at `~/.koad-io/packages`. You can modify this location based on your preferences or project requirements.
+To use the packages in the `packages` folder, you need to set the environment variable `METEOR_PACKAGES` to point to the location of the `packages` directory. By default, koad:io sets this location to `~/.koad-io/packages`. You can modify this location based on your preferences or project requirements. within your project's .env file.
 
-Once you have set the `METEOR_PACKAGES` environment variable, Meteor can access the packages in the `packages` directory and include them in your koad:io applications. These packages are written in Meteor's package system and utilize the Blaze templating engine, which allows for seamless integration with your application's UI.
+Once you have set the `METEOR_PACKAGES` environment variable, Meteor can access the packages in this `packages` directory and include them in your koad:io applications. These packages are written in Meteor's package system and utilize the Blaze templating engine, which allows for seamless integration with your application's UI no matter if you are using React, Svelt or and one of a dozen different development platforms.
+
 
 ## Usage
 
-To utilize the packages in your koad:io projects, you can import the desired packages in your JavaScript files and use the provided Blaze templates and UI components within your application's templates. The package documentation and examples can guide you on how to effectively integrate and utilize each specific package.
+It's possible to specify multiple directories for Meteor packages by using the `METEOR_PACKAGE_DIRS` environment variable. If the same package is found in more than one specified directory, Meteor will use the package from the first directory listed in the variable's value. You can set this variable as shown below:
+
+```bash
+METEOR_PACKAGE_DIRS="$HOME/.alice/packages:$HOME/.ecoincore/packages:$HOME/.koad-io/packages"
+```
+
+you can add a package to your meteor project like so, using the name set within the project's package.js file
+```bash
+meteor add koad:io
+```
 
 It's worth noting that the packages in the `packages` folder are optional and can be used based on your project's needs. You can selectively include the packages that provide the desired functionality for your application. Feel free to explore the available packages, experiment with different UI elements, and customize them to fit your project's requirements.
 
