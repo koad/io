@@ -25,8 +25,8 @@ echo "Adding Starship initialization to .bashrc..."
 echo 'eval "$(starship init bash)"' >> ~/.bashrc
 
 # Step 5: Reload .bashrc to apply changes immediately
-# Reloading .bashrc to make Starship available in the current session.
-echo "Reloading .bashrc to apply changes..."
-source ~/.bashrc
+echo "Reload .bashrc to make Starship available in the current session."
+echo "> source ~/.bashrc"
 
+echo
 echo "Starship installation complete!"
