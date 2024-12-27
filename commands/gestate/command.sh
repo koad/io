@@ -54,6 +54,10 @@ function cursorBack() {
   echo -en "\033[$1D"
 }
 
+if [ -z "${KOAD_IO_BUSY_CURSOR+x}" ]; then
+  KOAD_IO_BUSY_CURSOR='⠁⠂⠠⢀⡀⠄⠐⠈⠃⠢⢠⣀⡄⠔⠘⠉⠣⢢⣠⣄⡔⠜⠙⠋⢣⣢⣤⣔⡜⠝⠛⠫⣣⣦⣴⣜⡝⠟⠻⢫⣧⣶⣼⣝⡟⠿⢻⣫⣷⣾⣽⣟⡿⢿⣻⣯⣧⣶⣼⣝⡟⠿⢻⣫⣣⣦⣴⣜⡝⠟⠻⢫⢣⣢⣤⣔⡜⠝⠛⠫⠣⢢⣠⣄⡔⠜⠙⠋⠃⠢⢠⣀⡄⠔⠘⠉'
+fi
+
 SPINNER_POS=0
 function spinner() {
 
