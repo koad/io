@@ -1,8 +1,19 @@
-# Ignore all files in the folder
+# Ignore everything by default
 *
-!./.gitignore
-!reference.sh
-!./README.md
 
-# Include specific skeletons
-!bare
+# Allow these files
+!.gitignore
+!README.md
+!reference.sh
+
+# Allow the bare directory and all files inside recursively
+!bare/
+!bare/**
+
+!interface/
+!interface/**
+
+!lighthouse/
+!lighthouse/**
+
+
