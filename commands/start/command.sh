@@ -34,6 +34,20 @@ fi
 [[ ! $SETTINGS_FILE ]] && SETTINGS_FILE="$PWD/config/$HOSTNAME.json";
 [[ ! -f $SETTINGS_FILE ]] && echo "settings file not found: $SETTINGS_FILE" && exit 65
 
+# Check if DB_HOST and DB_PORT are set
+if [[ -z "$DB_HOST" || -z "$DB_PORT" ]]; then
+  echo "DB_HOST or DB_PORT is not set. Skipping MongoDB check."
+else
+  echo "Waiting for MongoDB at $DB_HOST:$DB_PORT to be available..."
+
+  # Loop until MongoDB responds
+  while ! nc -z "$DB_HOST" "$DB_PORT"; do
+    sleep 1
+  done
+
+  echo "MongoDB is now available!"
+fi
+
 # Print the settings being used
 echo "Settings: $SETTINGS_FILE";
 echo "Listening: $KOAD_IO_BIND_IP:$KOAD_IO_PORT"
