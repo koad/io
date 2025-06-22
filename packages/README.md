@@ -1,40 +1,66 @@
-# Packages Folder
+# `~/.koad-io/packages` — Meteor UI Packages for Entities
 
-The `packages` folder in a koad:io installation contains user interface components and packages designed to be used with the Meteor framework and Blaze templating engine. These packages provide pre-built UI elements and functionality that can be easily integrated into your koad:io projects.
+The `packages` folder contains prebuilt UI components and logic modules for use with Meteor-based applications. These are tailored to work with Blaze, but play nicely with other JS frontends.
 
-## Purpose
+This system allows small, single-use apps (focused and simple) to collectively form a larger GTD-style system when they share an `entity`.
 
-The purpose of the `packages` folder is to enhance the user interface and user experience of your koad:io applications. These packages offer a range of UI components, such as forms, buttons, menus, modals, and more. They are designed to work seamlessly with the Meteor framework, making it easier to build interactive and responsive user interfaces.
+---
 
-## Integration with Meteor
+## 🔧 Purpose
 
-To use the packages in the `packages` folder, you need to set the environment variable `METEOR_PACKAGES` to point to the location of the `packages` directory. By default, koad:io sets this location to `~/.koad-io/packages`. You can modify this location based on your preferences or project requirements. within your project's .env file.
+* Serve as a shared UI toolkit for `koad:io` entities.
+* Provide modular components: forms, menus, modals, auth systems, etc.
+* Encourage building focused, minimal Meteor apps that collaborate via shared entity-based MongoDBs.
 
-Once you have set the `METEOR_PACKAGES` environment variable, Meteor can access the packages in this `packages` directory and include them in your koad:io applications. These packages are written in Meteor's package system and utilize the Blaze templating engine, which allows for seamless integration with your application's UI no matter if you are using React, Svelt or and one of a dozen different development platforms.
+---
 
+## 🌐 Integration with Meteor
 
-## Usage
+To use these packages:
 
-It's possible to specify multiple directories for Meteor packages by using the `METEOR_PACKAGE_DIRS` environment variable. If the same package is found in more than one specified directory, Meteor will use the package from the first directory listed in the variable's value. You can set this variable as shown below:
+1. Point `METEOR_PACKAGE_DIRS` to include this directory:
 
-```bash
-METEOR_PACKAGE_DIRS="$HOME/.alice/packages:$HOME/.ecoincore/packages:$HOME/.koad-io/packages"
-```
+   ```bash
+   export METEOR_PACKAGE_DIRS="$HOME/.koad-io/packages"
+   ```
 
-you can add a package to your meteor project like so, using the name set within the project's package.js file
-```bash
-meteor add koad:io
-```
+   Or, combine it with entity-specific packages:
 
-It's worth noting that the packages in the `packages` folder are optional and can be used based on your project's needs. You can selectively include the packages that provide the desired functionality for your application. Feel free to explore the available packages, experiment with different UI elements, and customize them to fit your project's requirements.
+   ```bash
+   export METEOR_PACKAGE_DIRS="$HOME/.alice/packages:$HOME/.ecoincore/packages:$HOME/.koad-io/packages"
+   ```
 
-## Contribution and Customization
+2. Add the package(s) to your app:
 
-The `packages` folder is extensible, allowing you to create and add your own custom packages or modify existing ones. If you have UI components or functionality that you frequently use in your koad:io projects, you can create a custom package and place it in the `packages` directory. This enables you to reuse your custom UI elements across multiple projects and maintain consistency in your application's design.
+   ```bash
+   meteor add koad:io
+   ```
 
-If you wish to contribute to the koad:io project by creating or enhancing existing packages, you are encouraged to do so. You can submit your package contributions through pull requests to the official koad:io repository, making them available for other users to benefit from.
+Packages are resolved in order, so your own custom packages can override defaults.
 
-## License
+---
 
-The individual packages in this directory may have their own licensing terms, which can usually be found in their respective README files. Please review the licensing information for each package before using them in your projects.
+## 🤖 Entity-Integrated Apps
+
+Each app can be paired with a specific entity (e.g., `~/.alice`) and its MongoDB instance. Auth and state are synced automatically, allowing apps to "see each other" and collaborate without centralization.
+
+* Useful for **building small apps** that still behave as **a unified system**.
+
+---
+
+## ✍️ Customization & Contribution
+
+* Build your own packages and drop them into this folder.
+* Fork and modify the UI packages to fit your stack.
+* Submit improvements or new packages via PR to [github.com/koad/io](https://github.com/koad/io).
+
+---
+
+## 📜 Licensing
+
+Each package may carry its own license. Check each package's `README.md` and `LICENSE` file before reuse or redistribution.
+
+---
+
+> Pro Tip: Use these packages to keep your apps minimal and decoupled, while still composing a full-featured entity-driven interface.
 
