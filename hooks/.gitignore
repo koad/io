@@ -1,1 +1,6 @@
-!*
+*
+*/
+!./.gitignore
+
+!README.md
+!executed-without-arguments.sh
