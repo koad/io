@@ -101,17 +101,6 @@ echo "hello world" | alice sign
 
 ---
 
-## 🧬 Integration points
-
-Built-in support for Meteor methods like:
-
-* `keystore.request.login(identifier)`
-* `keystore.verify.login(cid, signedMessage)`
-
-Deterministically hashes assertions into CIDs, signed and returned via `koad:io`.
-
----
-
 ## 🌐 Philosophy
 
 * 🚫 No cloud, ever
@@ -136,13 +125,6 @@ MIT — Yours to fork, break, and rebuild.
 > — @you, wisely
 
 ---
-
-
-
-
-
-
-
 
 
 ## 🐇 Want to See How Deep the Rabbit Hole Goes?
