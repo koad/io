@@ -1,4 +1,4 @@
-# `~/.koad-io/packages` — Meteor UI Packages for Entities
+# `~/.koad-io/packages` — Meteor Packages for koad:io
 
 The `packages` folder contains prebuilt UI components and logic modules for use with Meteor-based applications. These are tailored to work with Blaze, but play nicely with other JS frontends.
 
