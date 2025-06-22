@@ -1,322 +1,440 @@
-Please note: This app is being developed. It is riddled with bugs, and everything is subject to change.
 
+> ⚠️ **Please note:** This app is under active development.  
+> It is riddled with bugs. Everything is subject to change.
 
-Status: [BUG SALAD]
-
-# koad:io
+# 🧠 koad:io
 
 <!-- for that whom may have an eye to see -->
-tldr: An organizational tool for your mind's eye.  
+**tldr:** An organizational tool for your mind's eye.  
 
-koad-io is a powerful command-line interface and toolset designed to help users easily manage and interact with a wide variety of data and resources. It provides a modular and extensible framework that can be easily customized to suit a wide range of needs, from simple scripting tasks to complex distributed systems.
+**koad:io** is a sovereign, local-first command-and-control framework for automating your digital life. It encapsulates identity, environment, and intent — letting you structure your scripts, services, and thoughts as composable, auditable entities.
 
-Indeed, koad:io aims to provide a comprehensive command and control framework that allows you to manage various aspects of your projects and environments using well-defined commands. This approach can greatly simplify complex tasks and make it more efficient to manage different processes and configurations. The modularity and flexibility koad:io brings into your setup allow for easy extension and customization, making it a powerful tool for managing your meta-digital workflow. 
+At its core, `koad:io` is a modular CLI toolchain designed to manage:
+- ⚙️ Reusable commands and workflows
+- 🔐 Identity-backed assertions
+- 📂 Project- and context-scoped environments
+- 🗂️ Data and service organization across machines, devices, and personas
 
+Whether you're managing shell scripts, building full-stack apps, or signing cryptographic login requests — `koad:io` helps you keep the whole thing structured, shareable, and verifiable.
+
+> “Your systems need to be faster than you (can) think.”  
+> — adapted from [Getting Things Done](https://gettingthingsdone.com/)
 
 ---
 
-> warning: I am an amateur > all of this might be shit, it's too early to tell.
+## 🧭 Reason
 
+By saving a task as a `command`, and saving its working context as an `entity`, I can:
 
+- 📜 Remember *how* I did a thing
+- 🔁 Replay it later, identically
+- ⏳ Audit my decisions and assumptions
+- 🗃 Keep my stuff together as simple files and folders
+- 🧠 Internalize the structure of my work
+- 📦 Package or pass projects on as-is
+- 👁 Visualize the state and focus areas of my system
 
-[![Matrix](assets/matrix.svg)](https://matrix.to/#/#io:koad.sh?via=koad.sh)
+---
 
-## reason
+## ⚡ Status
 
->
-> [Your systems need to be](https://gettingthingsdone.com/) faster than you (can) think.
+> **[BUG SALAD]**  
+> Use at your own curiosity. It works. But only mostly. Maybe.
 
-by saving a task as a `command`, and saving the environment variables used as an `entity`,
+---
 
-- I can remember how I did a thing.
-- I can replay the thing I did.
-- I can go back and see if I was right.
-- I can keep my things together as simple files and folders.
-- I can keep my projects/data organized into categories (an entity folder for each `area of focus`).
-- I can pass-on project files/folders onto someone else, as is.
-- I can visualize the structure of all my data.
-- I can internalize the content of all my data.
+## 🔍 koad:io at a glance
 
+- 🧱 **Entities** = containers for env variables, commands, and keys
+- 🧾 **Commands** = repeatable tasks saved as bash scripts
+- 🧠 **Context-aware execution** = auto-loads `.env`, keys, and project scopes
+- 📜 **PGP assertion system** = sign/verify/login flows via GPG
+- 🔗 **Meteor integration** = talk to local/remote daemons with verifiable identity
+- 🧰 **No cloud required** = all data is stored locally
 
+---
 
+## 🛠 Directory layout (typical)
 
-## koad:io at a glance
-
-koad:io starts with a handful of [wrapper commands](https://book.koad.sh/reference/koad-io/commands).  Using these commands and a basic directory structure, koad:io makes it easy to remember where you leave your digital thoughts/things.
-
-
-### commands
-
-> many people don't like to use the command prompt but we know that it is [where all the magic is](https://book.koad.sh/cheatsheets/bourn-again-scripting).
-
-for those who use-and-know bash, koad:io will be easy to understand and [those who don't know](https://book.koad.sh/getting-started/) bash will always be waiting for someone to develop a UI they can install. 
-
-
-
-#### example potential koad:io commands
-
-start the software that is a website called book.koad.sh.
 ```bash
-alice start site book.koad.sh
+.koad-io/
+├── bin/            # Entrypoint commands (alice, koad, etc.)
+├── commands/       # Global command templates
+├── .env            # Global koad-wide vars
+└── .aliases        # Optional alias layer
+````
+
+Each entity has its own world:
+
+```bash
+.alice/
+├── id/             # GPG keys (pub+priv)
+├── commands/       # Persona-level commands
+├── .env            # Local config
+├── sites/          # Per-domain overrides
+├── hooks/          # Optional pre/post exec scripts
 ```
 
-Open the matrix/element web application and be logged in as Alice
+---
+
+## ✍️ Example usage
+
+```bash
+# Login via SSH to a different device
+alice ssh crapple
+
+# Sign a message with alice's key
+alice sign "I am the sovereign."
+
+# Generate a login assertion for a domain
+alice generate login wonderland.koad.sh
+
+# Generate a login assertion for a domain and deliver it
+alice login wonderland.koad.sh [session id]
+```
+
+Or pipe anything into a clipboarded GPG clearsign:
+
+```bash
+echo "hello world" | alice sign
+```
+
+---
+
+## 🧬 Integration points
+
+Built-in support for Meteor methods like:
+
+* `keystore.request.login(identifier)`
+* `keystore.verify.login(cid, signedMessage)`
+
+Deterministically hashes assertions into CIDs, signed and returned via `koad:io`.
+
+---
+
+## 🌐 Philosophy
+
+* 🚫 No cloud, ever
+* 🔐 Identity-first
+* 🧱 Modular, file-based, reproducible
+* 🧠 Designed for thinkers, hackers, and sovereign operators
+
+---
+
+## 💬 Community
+
+[![Matrix](assets/matrix.svg)](https://matrix.to/#/#io:koad.sh?via=koad.sh)
+Come hang out in the `#io:koad.sh` room — share flows, scripts, bugs, ideas.
+
+---
+
+## 🪪 License
+
+MIT — Yours to fork, break, and rebuild.
+
+> “I am an amateur. This might all be shit. It's too early to tell.”
+> — @you, wisely
+
+---
+
+
+
+
+
+
+
+
+
+## 🐇 Want to See How Deep the Rabbit Hole Goes?
+
+### Commands
+
+Some folks fear the command line. But we know the truth:
+
+> [The magic lives here.](https://kingofalldata.com/cheatsheets/bourn-again-scripting)
+
+If you're comfortable with `bash`, `koad:io` will make perfect sense.
+If not — well, maybe someone will build a UI for you. Eventually.
+
+---
+
+### 🧠 Example: Potential koad\:io Commands
+
+Start a site:
+
+```bash
+alice start site kingofalldata.com
+```
+
+Open Element (Matrix) as Alice:
+
 ```bash
 alice open element
 ```
 
-SSH into a server called toronto and passwordlessly be logged in as Alice
+SSH into "toronto" as Alice:
+
 ```bash
 alice ssh toronto
 ```
 
-koad:io doesnt come with commands, they are meant to be added each by you, the creator of this space.
+> `koad:io` doesn’t ship with commands.
+> You build your own — intimately, intentionally.
 
-> the documentation is shit right now, a collection of barf; but you can see if it helps you to understand where we are going here.  [book.koad.sh](book.koad.sh)
+📚 [Read more](https://kingofalldata.com)
 
+---
 
-#### chain reactions
+## 🔗 Chain Reactions: How a Command is Processed
 
-when calling a koad:io command, there is a chain-reaction of environment and command files that get evaluated; this is where you can create and customize each command to run specific to the entity and/or the `current working directory`. 
+Every command execution goes through a deterministic path of evaluation:
 
+1. **Call an entity wrapper**
+   → `alice start`, `alice hello`, etc.
 
-- you call an entity wrapper, ie: `alice start`
-- if you didn't specify any arguments (ie: `alice`), stop here and pass the call to [the `executed-without-arguments.sh` hook](https://github.com/koad/io/blob/main/hooks/executed-without-arguments.sh).
-- `alice` loads some general environment details
-   - `ENTITY=alice`   
-   - `CWD=$PWD` (the directory in which the command is issued)
-- then calls the koad:io cli wrapper
-   - `~/.koad-io/bin/koad-io $@`
-- koad:io cli wrapper loads [`entity` specific environment details](https://book.koad.sh/reference/koad-io/entity/?h=entity)
-   - `~/.koad-io/.env`   (if exists)  
-   - `~/.$ENTITY/.env`   (if exists)  
-   - `~/.$ENTITY/.credentials`   (if exists)  
-- then, finds the most relevant regular command by searching in the following locations
-   - uses the results from the last location a command is found in.
-      * the deepest directory that contains either a `command.sh` file or a `$COMMAND_NAME.sh` file.
-   - `~/.koad-io/commands/`  
-   - `~/.$ENTITY/commands/`  
-   - checks the current working directory (CWD)
-      - `$CWD/commands/`  
-   - if a command of the same name is in the current directory 
-      - use it instead: `./$COMMAND_NAME.sh`
-      - load more environment vars 
-         - `$CWD/.env`   (if exists)  
-         - `$CWD/.credentials`   (if exists)  
-- finally, call the chosen command with
-   - environment details from the chain reaction
-   - the remaining arguments passed into the entity cli wrapper
+2. **No args?**
+   → Run `hooks/executed-without-arguments.sh`.
 
-#### examples explained
+3. **Set environment:**
 
-no1
+   * `ENTITY=alice`
+   * `CWD=$PWD`
+
+4. **Call core CLI wrapper:**
+   → `~/.koad-io/bin/koad-io $@`
+
+5. **Load environments (if present):**
+
+   * `~/.koad-io/.env`
+   * `~/.$ENTITY/.env`
+   * `~/.$ENTITY/.credentials`
+
+6. **Find the command script:**
+
+   * `~/.koad-io/commands/`
+   * `~/.$ENTITY/commands/`
+   * `$CWD/commands/`
+   * `./$COMMAND.sh`
+
+7. **Load local env (if needed):**
+
+   * `$CWD/.env`
+   * `$CWD/.credentials`
+
+8. **Execute command.sh** with full context.
+
+---
+
+### 🧪 Examples
+
+**Example 1:**
+
 ```bash
 alice probe domain koad.sh
 ```
-is similar to / wraps to
+
+Breaks down to:
+
 ```bash
-set -a 
+set -a
 source ~/.koad-io/.env
 source ~/.alice/.env
 ~/.koad-io/commands/probe/domain/command.sh koad.sh
 ```
 
-no2
+**Example 2:**
+
 ```bash
 alice archive video https://www.youtube.com/watch?v=dQw4w9WgXcQ
 ```
-is similar to / wraps to
+
+Breaks down to:
+
 ```bash
-set -a 
+set -a
 source ~/.koad-io/.env
 source ~/.alice/.env
-~/.koad-io/commands/archive/video.sh https://www.youtube.com/watch?v=dQw4w9WgXcQ
+~/.koad-io/commands/archive/video.sh https://www.youtube.com/watch?v=...
 ```
-> saves the results in the `~/.alice/archive/inbound` folder by default or will take a specified  folder within `~/.alice/.env/` as `KOAD_IO_ARCHIVE_FOLDER`
+
+> Will store output in `~/.alice/archive/inbound` or the path in `KOAD_IO_ARCHIVE_FOLDER`.
 
 ```env
 KOAD_IO_ARCHIVE_FOLDER=$HOME/.alice/archive/inbound
 ```
 
-> you can see that using this very general structure, you can create very specific outcomes.
-
-
 ---
 
-## install koad:io
+## ⚙️ Install `koad:io`
 
-install these first 
-- [starship-cross-shell-prompt](https://book.koad.sh/cheatsheets/starship-cross-shell-prompt)
-- [node-volume-manager](https://book.koad.sh/cheatsheets/node-volume-manager)
+1. Install dependencies:
 
-create the `~/.koad-io` folder with a clone of [this repo](https://github.com/koad/io)
+   * [starship](https://kingofalldata.com/cheatsheets/starship-cross-shell-prompt)
+   * [node-volume-manager](https://kingofalldata.com/cheatsheets/node-volume-manager)
+
+2. Clone the repo:
+
 ```bash
 git clone https://github.com/koad/io.git ~/.koad-io
 ```
 
-add the `~/.koad-io/bin` folder to your path (add this to the end of your `~/.bashrc` file)
+3. Add it to your `PATH` (append to `~/.bashrc`):
+
 ```bash
 [ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin
 ```
 
-all together, 
+One-liner install:
+
 ```bash
-git clone https://github.com/koad/io.git ~/.koad-io && echo -e "\n\n[ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin\n" >> ~/.bashrc && export PATH=$PATH:$HOME/.koad-io/bin
+git clone https://github.com/koad/io.git ~/.koad-io && echo -e "\n\n[ -d ~/.koad-io/bin ] && export PATH=\$PATH:\$HOME/.koad-io/bin\n" >> ~/.bashrc && export PATH=$PATH:$HOME/.koad-io/bin
 ```
 
-### create an entity
+---
 
-> your first koad:io entity! 🤩 sooo exciting! 
+## 👤 Create Your First Entity
+
+> Your first `koad:io` entity — congrats!
 
 ```bash
 koad-io gestate alice
 ```
 
+Check it:
 
-alice will be created entirely in the .alice directory in your home directory
 ```bash
 ls -la ~/.alice
 ```
 
-> back this directory up NOW, and keep it __somewhere suuuuuper safe__.
-> want to automated backups?  build a [raspberry pi powered concealment key-ring that also pretends to be your antique/legacy/low-tech front door bell](https://duckduckgo.com).
+**Back this up.** Store it somewhere *ridiculously safe.*
 
-Your entity's directory will be a basic bare/blank koad:io skeleton filled with directories and keys that will be handy for you if you ever decide you want your entity to exist among multiple devices/locations and interact with other-people-entities.  Indeed, this project could be the start of a fully decentralized (deviceless) operating system that turns all the worlds computers into your private productivity operating system.
+---
 
-> for now, Ignore the overwhelming possibilities and focus on populating your commands folder with whatever creative thing you desire.
+## 🛠 Create Commands
 
+Start here:
 
-### create commands
+* [Bash Cheatsheet](https://kingofalldata.com/cheatsheets/bourn-again-scripting)
+* Browse `./commands/` for prototypes
 
-bookmark [koad's bash cheatsheet](https://book.koad.sh/cheatsheets/bourn-again-scripting/) as it is a handy resource for creating new tasks/commands and view the [./commands/](/commands) folder where a couple of commands needed to (re)produce and initialize new and future-generation koad:io entities.
+### 🔄 Global Command Example
 
-
-#### global commands
-
-> your first ever koad:io command! 😄 
-
-inside ~/.koad-io/commands/
 ```bash
 mkdir ~/.koad-io/commands/hello
 cd ~/.koad-io/commands/hello
-echo '
+cat <<EOF > command.sh
 #!/usr/bin/env bash
-
-echo "hi there, $ENTITY here!"
-echo "args: $@"
-'> command.sh
+echo "hi there, \$ENTITY here!"
+echo "args: \$@"
+EOF
 chmod +x command.sh
 ```
 
-#### run
+Run from anywhere:
 
-inside ~/.koad-io/commands/hello using any entity
-```bash
-cd ~/.koad-io/commands/hello
-alice command
-alice command arg1 arg2 arg3 arg4
-```
-
-globally available using any entity
 ```bash
 alice hello
-alice hello arg1 arg2 arg3 arg4
+alice hello arg1 arg2
 ```
 
+---
 
-### entity specific commands
+### 👤 Entity-Specific Command
 
-commands can be specific to the entity
-
-#### create
-
-inside ~/.alice/commands/
 ```bash
 mkdir ~/.alice/commands/hello
 cd ~/.alice/commands/hello
-echo '
+cat <<EOF > command.sh
 #!/usr/bin/env bash
-
-echo "hi there, $ENTITY here!"
-echo "args: $@"
-'> command.sh
+echo "hi there, \$ENTITY here!"
+echo "args: \$@"
+EOF
 chmod +x command.sh
 ```
 
-#### run
+Run only with Alice:
 
-inside ~/.alice/commands/hello using any entity
-```bash
-cd ~/.alice/commands/hello
-alice command
-alice command arg1 arg2 arg3 arg4
-```
-
-globally available using only alice
 ```bash
 alice hello
-alice hello arg1 arg2 arg3 arg4
 ```
 
+---
 
-### folder specific commands
+### 📁 Folder-Specific Command
 
-You can use your entity's environment anywhere you want.
-
-#### create
-
-inside ~/some/random/folder/
 ```bash
 cd ~/some/random/folder/
-echo '
+cat <<EOF > hello.sh
 #!/usr/bin/env bash
-
-echo "hi there, $ENTITY here!"
-echo "args: $@"
-'> hello.sh
+echo "hi there, \$ENTITY here!"
+echo "args: \$@"
+EOF
 chmod +x hello.sh
-
 ```
 
-#### run
+Then:
 
-inside ~/some/random/folder/
 ```bash
-cd ~/some/random/folder/
 alice hello
-alice hello arg1 arg2 arg3 arg4
 ```
 
+---
+
+> `koad:io` isn’t just CLI automation — it’s a system for embedding memory into code, and shaping your tools around your mental model.
+
+**Now go build yours.**
+Your entity is listening.
+
+---
 
 
-### preload
 
-check the commands folder to see what comes preloaded, not a lot.
 
-- [/commands/gestate/README.md](/commands/gestate/README.md)  
-- [/commands/whoami/README.md](/commands/whoami/README.md)  
-- [/commands/example/README.md](/commands/example/README.md)  
+## 🔹 Preloaded Commands
 
-language specific examples 
+Check the `commands/` folder — there’s not a lot preloaded. And that’s intentional.
 
-- [/commands/example/bash/README.md](/commands/example/bash/README.md)  
-- [/commands/example/javascript/README.md](/commands/example/javascript/README.md)  
-- [/commands/example/python/README.md](/commands/example/python/README.md)  
-- [/commands/example/rust/README.md](/commands/example/rust/README.md)  
-- [/commands/example/go/README.md](/commands/example/go/README.md)  
+You’re meant to build this your way. But here’s what’s included by default:
 
-interact with the example command to see how things work
+### 📦 Base Commands
+
+* [gestate](/commands/gestate/README.md) — create new entities
+* [whoami](/commands/whoami/README.md) — introspect the current environment
+* [example](/commands/example/README.md) — explore supported patterns
+
+---
+
+### 💬 Language-Specific Examples
+
+Use these to see how to write `koad:io` commands in different languages:
+
+* [bash](/commands/example/bash/README.md)
+* [javascript](/commands/example/javascript/README.md)
+* [python](/commands/example/python/README.md)
+* [rust](/commands/example/rust/README.md)
+* [go](/commands/example/go/README.md)
+
+---
+
+### 🔍 Try It: Example Command
+
+Run the base example:
+
 ```bash
 alice example
 ```
-output
+
+Sample output:
+
 ```
-see how these examples work by taking a peek into the `~/.koad-io/commands/example` folder
+see how these examples work by taking a peek into the ~/.koad-io/commands/example folder
 
-this output is created by the file `~/.koad-io/commands/example/command.sh`
+this output is created by the file ~/.koad-io/commands/example/command.sh
+```
 
-run other example commands, written to showcase various available languages
+Run language-specific demos:
 
+```bash
 alice example bash
 alice example javascript
 alice example python
@@ -324,10 +442,18 @@ alice example rust
 alice example go
 ```
 
+Each one is a minimal, working prototype in its language — meant to inspire your own tools.
 
-### example: Alice
+---
 
-Check out the example installation: Alice. Alice is a fantastic working example that demonstrates the true potential of this technology. By exploring Alice's repository, which you can find at [https://github.com/koad/alice](https://github.com/koad/alice), you'll get a deeper understanding of how koad:io can enhance your productivity. Head over to Alice's repo now and be inspired by what koad:io can do. Happy exploring! 🚀
+## 🧠 Example Entity: `Alice`
+
+Need inspiration? Explore the [Alice repo](https://github.com/koad/alice) — a complete, working entity built with `koad:io`.
+
+Alice is designed to showcase the real-world utility and creativity behind the `koad:io` approach.
+
+> 🛰 Check it out, fork it, remix it — and build your own synthetic intelligence system.
+
 
 
 ### Contributing
