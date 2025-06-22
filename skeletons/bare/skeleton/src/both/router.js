@@ -1,5 +1,5 @@
 Router.configure({
-  layoutTemplate: "BlankLayout",
+  layoutTemplate: "ApplicationLayout",
 });
 
-Router.route('/', {name: 'home', template: 'BlankPage'});
+Router.route('/', {name: 'home', template: 'ApplicationHome'});
