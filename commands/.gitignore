@@ -16,6 +16,10 @@
 !probe
 !test
 
+!init
+!init/command.sh
+!init/README.md
+
 !spawn
 !spawn/command.sh
 !spawn/README.md
