@@ -17,6 +17,11 @@ if [ ! -d io-router-progress ]; then
     git clone https://github.com/koad/io-router-progress.git
 fi
 
+if [ ! -d io-template-helpers ]; then
+    echo "Fetching package koad:io-template-helpers"
+    git clone https://github.com/koad/io-template-helpers.git
+fi
+
 # Check if Meteor is installed
 if ! type meteor > /dev/null 2>&1; then
     echo -e "\e[31mMeteor is not installed. Install Meteor pls...\e[0m"
