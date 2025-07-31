@@ -7,7 +7,7 @@ Package.describe({
 });
 
 Package.onUse(function(api) {
-  api.versionsFrom(['2.2', '2.7'])
+  api.versionsFrom(['3.3'])
 
   api.use('ecmascript');
 
@@ -19,6 +19,7 @@ Package.onUse(function(api) {
   api.imply("standard-minifier-css");
   api.imply("standard-minifier-js");
   api.imply("mobile-experience");
+  api.imply("koad:io-template-helpers");
   api.imply("koad:io-router");
   api.imply("koad:io-session");
   api.imply("koad:io-plus-head-js");
@@ -27,11 +28,12 @@ Package.onUse(function(api) {
   api.imply("tracker");
 
   api.use("mongo");
+  api.use("check");
   api.use("tracker");
   api.use("koad:io-router");
-  api.use("koad:io-router-progress");
+  // api.use("koad:io-router-progress");
   api.use("koad:io-session");
-  
+
   api.use('mizzao:timesync');
   api.imply('mizzao:timesync');
 
@@ -58,12 +60,12 @@ Package.onUse(function(api) {
     'client/power-management.js',
     'client/vitals.js',
   ], 'client');
-  
+
   api.export("koad");
   api.export('Accounts');
   api.export('UserStatus');
   api.export('CountryCodes');
-  
+
   api.export('ApplicationSessions');
   api.export('ApplicationInternals');
   // api.export('ApplicationEvents');

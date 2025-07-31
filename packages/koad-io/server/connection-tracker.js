@@ -59,11 +59,11 @@ Meteor.onConnection(function(connection){
 	}
 
 	//Finnished combing the data, throw it in database and pick it back up when client sumbits visitLog;
-	ApplicationSessions.insert(session);
+	ApplicationSessions.insertAsync(session);
 
 	// when this connection closes, process and orphan the session.
 	connection.onClose(function() {
-		ApplicationSessions.update({_id: connection.id}, {$set: {
+		ApplicationSessions.updateAsync({_id: connection.id}, {$set: {
 			closed: new Date(),
 			state: 'closed'
 		}});

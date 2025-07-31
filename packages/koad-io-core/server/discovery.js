@@ -17,10 +17,10 @@ function loadEntityRSA() {
   });
 };
 
-Meteor.startup(()=>{
+Meteor.startup(async ()=>{
 	const upstart = new Date();
 
-	const internals = ApplicationInternals.insert({
+	const internals = await ApplicationInternals.insertAsync({
 		upstart,
 		entity: process.env.ENTITY,
 		ident: Meteor.settings?.public?.ident,
@@ -35,7 +35,7 @@ Meteor.startup(()=>{
 	// it allows your apps to recognize themselves, then they can start a conversation.
 
 	// via JSON api/curl
-	WebApp.connectHandlers.use('/.well-known/koad-io.json', (req, res, next) => {
+	WebApp.handlers.use('/.well-known/koad-io.json', (req, res, next) => {
 		res.writeHead(316, {'Content-Type': 'application/json'});
 		res.end(JSON.stringify({
 			upstart,

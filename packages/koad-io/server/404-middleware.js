@@ -93,7 +93,7 @@ const logConnectionError = function (payload, req) {
   };
   log.warning(`${payload.code}: ${payload.host}: ${payload.message}`);
   log.debug({event})
-  ApplicationErrors.insert( event );
+  ApplicationErrors.insertAsync( event );
 
 };
 
@@ -106,7 +106,7 @@ Meteor.startup(() => {
 
   // Return a 404 HTTP response if the route doesn't exist
   // TODO: Create error pages in /public/errorpages/ and use one here.
-  WebApp.connectHandlers.use('/', (req, res, next) => {
+  WebApp.handlers.use('/', (req, res, next) => {
   
     if(!isValidUseragent(req.headers['user-agent'])){
       logConnectionError({
@@ -159,7 +159,7 @@ Meteor.startup(() => {
   });
 
   // Serve oEmbed metadata for specific crawlers (e.g., Discord and Twitter)
-  WebApp.connectHandlers.use('/oembed', (req, res) => {
+  WebApp.handlers.use('/oembed', (req, res) => {
 
     log.debug('serving /oembed')
     const oEmbedUrl = req.query.url; // Get the content URL from the 'url' query parameter

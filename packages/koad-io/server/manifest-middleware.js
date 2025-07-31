@@ -37,7 +37,7 @@ const siteManifest = {
 
 Meteor.startup(() => {
   koad.manifest = siteManifest;
-  WebApp.connectHandlers.use('/manifest.json', (req, res, next) => {
+  WebApp.handlers.use('/manifest.json', (req, res, next) => {
       res.writeHead(200, {'Content-Type': 'text/html'});
       res.end(JSON.stringify(siteManifest, null, 3));
   });

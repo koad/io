@@ -31,7 +31,7 @@ async function updateDeviceInformation() {
 
   try {
 
-		let device = ApplicationDevices.findOne(koad.device);
+		let device = await ApplicationDevices.findOneAsync(koad.device);
 		if(!device){
 			log.error('hardware information lost!');
 			process.exit(1);
@@ -45,10 +45,10 @@ async function updateDeviceInformation() {
 			orphaned: {$exists: 0}
 		});
 
-		aliveDevices.forEach((d)=>{
+		aliveDevices.forEach(async (d)=>{
 			if(!d.reporter){
 				// there is no reporter, we take over in next function
-			}else if(d.asof < timeOfDeath(d.reporter.interval)) ApplicationDevices.update({ _id: d._id }, { $set: {
+			}else if(d.asof < timeOfDeath(d.reporter.interval)) await ApplicationDevices.updateAsync({ _id: d._id }, { $set: {
 				state: 'stranded', 
 				stranded: new Date(),
 			}, $unset: { reporter: 1 }});
@@ -58,7 +58,7 @@ async function updateDeviceInformation() {
 		
 		if(!device.reporter){
 			log.success('hardware reporter not on duty!  taking over job.');
-			ApplicationDevices.update({_id: koad.device}, {
+			await ApplicationDevices.updateAsync({_id: koad.device}, {
 				$set: {
 					state: 'online',
 					reporter: {
@@ -92,7 +92,7 @@ async function updateDeviceInformation() {
 		// 	volumes: await si.dockerVolumes(),
 		// }
 
-		ApplicationDevices.update({_id: koad.device}, {$set: {
+		await ApplicationDevices.updateAsync({_id: koad.device}, {$set: {
 			// hostname: os.hostname(),
 			asof: new Date(),
 			system: {
@@ -112,7 +112,7 @@ async function updateDeviceInformation() {
 async function updateProcessInformation() {
 
   try {
-		let instance = ApplicationProcesses.findOne(koad.process);
+		let instance = await ApplicationProcesses.findOneAsync(koad.process);
 		if(!instance) {
 			log.error('process instance not found!');
 			process.exit(1);
@@ -125,7 +125,7 @@ async function updateProcessInformation() {
 
 
 		// Any old process record from before,. lets complete it.
-		ApplicationProcesses.update({ 
+		await ApplicationProcesses.updateAsync({
 			_id: {$ne: koad.process},
 			device: koad.device, 
 			entity: process.env.ENTITY, 
@@ -140,12 +140,12 @@ async function updateProcessInformation() {
 			state: 'running'
 		});
 
-		runningProcesses.forEach((proc)=>{
-			if(proc.asof < timeOfDeath(proc.interval)) ApplicationProcesses.update({ _id: proc._id }, { $set: {state: 'orphaned', orphaned: new Date()} });
+		runningProcesses.forEach(async (proc)=>{
+			if(proc.asof < timeOfDeath(proc.interval)) await ApplicationProcesses.updateAsync({ _id: proc._id }, { $set: {state: 'orphaned', orphaned: new Date()} });
 		});
 
 		const used = process.memoryUsage().heapUsed / 1024 / 1024;
-		ApplicationProcesses.update(koad.process, {$set: {
+		await ApplicationProcesses.updateAsync(koad.process, {$set: {
 			asof: new Date(),
 			state: 'running',
 			"system.memory": process.memoryUsage(),
@@ -163,9 +163,9 @@ async function updateProcessInformation() {
 
 async function processUpstart() {
 
-	let hardware = ApplicationDevices.findOne({uuid: machineID});
+	let hardware = await ApplicationDevices.findOneAsync({uuid: machineID});
 	if(!hardware) {
-		koad.device = ApplicationDevices.insert({
+		koad.device = await ApplicationDevices.insertAsync({
 				hostname: os.hostname(),
 				discovered: new Date(),
 				description: process.env.HARDWARE_DESCRIPTION,
@@ -261,7 +261,7 @@ async function processUpstart() {
 	};
 
 	// then start a new record.
-	koad.process = ApplicationProcesses.insert(proc);
+	koad.process = await ApplicationProcesses.insertAsync(proc);
   
   // Scheduling
   DEVICE_TIMER = Meteor.setInterval(updateDeviceInformation, DEVICE_UPDATE_INTERVAL);
@@ -270,10 +270,10 @@ async function processUpstart() {
 };
 
 // Main startup
-Meteor.startup(function () {
+Meteor.startup(async function () {
   // Initialization
 	log.start('entity coordination started for process', koad.internals);
-  processUpstart();
+  await processUpstart();
 });
 
 log.success('loaded koad-io/system-information-scraper.js');

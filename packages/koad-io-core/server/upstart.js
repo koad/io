@@ -6,8 +6,8 @@ koad={
 	device: null,
   entity: process.env.ENTITY,
 	mongo: {},
-  error : function(code, message, stack) {
-    let id = ApplicationErrors.insert({
+  error : async function(code, message, stack) {
+    let id = await ApplicationErrors.insertAsync({
       event: 'koad.error',
       code, message,
       created: new Date(),

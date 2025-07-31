@@ -81,17 +81,16 @@ Meteor.startup(function () {
                 Session.set('activeHandshake', true);
                 if(DEBUG) console.log('handshaking with server');
 
-                Meteor.call('enable.connection', session, function(err, res) {
+                Meteor.callAsync('enable.connection', session).then((res) => {
                     if(DEBUG) console.log({res})
                     Session.set('activeHandshake', undefined);
-                    if(err){
-                        if(DEBUG) console.log(err);
-                        throw Meteor.Error(err, 'CLIENT::STARTUP', 'enable.connection', true)
-                    } else {
-                        Session.set('established', true);
-                        Session.setPersistent('activeSession', res);
-                        if(DEBUG) console.log('dataport connection to server established');
-                    }
+                    Session.set('established', true);
+                    Session.setPersistent('activeSession', res);
+                    if(DEBUG) console.log('dataport connection to server established');
+                }).catch((err) => {
+                    if(DEBUG) console.log(err);
+                    Session.set('activeHandshake', undefined);
+                    throw new Meteor.Error(err, 'CLIENT::STARTUP', 'enable.connection', true)
                 });
             }; 
 
