@@ -1,6 +1,6 @@
 Package.describe({
   name: 'koad:io',
-  version: '5.6.3',
+  version: '5.6.4',
   summary: '',
   git: '',
   documentation: null
