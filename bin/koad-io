@@ -60,7 +60,7 @@ ENTITY_COMMANDS_DIR="$ENTITY_DIR/commands"
 [[ $DEBUG ]] && echo "ENTITY_COMMANDS_DIR=$ENTITY_COMMANDS_DIR";
 
 # Check to see if we even have a command directory of that name or a file of the same name in the current working directory.  If not, then bail.
-[[ ! -d $KOAD_IO_COMMANDS_DIR ]] && [[ ! -d $ENTITY_COMMANDS_DIR ]] && [[ ! -d $PWD/commmands/ ]]  && [[ ! -f $PWD/$1.sh ]] && echo "Cannot find that command, sorry..[command does not exist]" >&2 && exit 66;
+[[ ! -d $KOAD_IO_COMMANDS_DIR ]] && [[ ! -d $ENTITY_COMMANDS_DIR ]] && [[ ! -d $PWD/commands/ ]]  && [[ ! -f $PWD/$1.sh ]] && echo "Cannot find that command, sorry..[command does not exist]" >&2 && exit 66;
 
 # TODO: these next 16 lines need to be replaced with some logic, but it NEEDS to be extremely human readable... hmm
 # I just don't know how to create the logic here,. .. I'll spell it out as best as I can.
