@@ -4,7 +4,8 @@ if [ $# -eq 0 ]
   then
     echo "No arguments supplied."
     echo "Please supply a name for your new entity."
-    echo "eg: $ENTITY gestate alice"
+    echo "eg: $ENTITY gestate alice [--full]"
+    echo "Use --full to perform complete generation including dhparams (time-consuming)"
     exit 1
 fi
 
@@ -13,6 +14,12 @@ fi
 
 # Set the entity as the one that will be gestated.
 ENTITY=$1
+
+# Check for optional --full flag
+FULL_MODE=false
+if [ "$2" = "--full" ]; then
+  FULL_MODE=true
+fi
 
 # Some output should be word wrapped.
 # TODO: if fold length is more than 80, make it 80
@@ -196,24 +203,27 @@ openssl genpkey -algorithm EC  -pass pass:$ENTITY -pkeyopt ec_paramgen_curve:P-2
 echo "generated: $DATADIR/ssl/session.pem"
 echo && sleep 1 & spinner $!
 
-printf '%s\n' "Generating keys to be used during Diffie Hellman Key Exchanges." | fold -w $WORD_WRAP_WIDTH -s
-printf '%s\n' "This will help ensure that your new friend can identify herself easily when he sees itself across networks." | fold -w $WORD_WRAP_WIDTH -s
-echo "homework: research the Diffie Hellman key exchange process"
-echo && sleep 1 & spinner $!
+if [ "$FULL_MODE" = true ]; then
+  printf '%s\n' "Generating keys to be used during Diffie Hellman Key Exchanges." | fold -w $WORD_WRAP_WIDTH -s
+  printf '%s\n' "This will help ensure that your new friend can identify herself easily when he sees itself across networks." | fold -w $WORD_WRAP_WIDTH -s
+  echo "homework: research the Diffie Hellman key exchange process"
+  echo && sleep 1 & spinner $!
 
-echo "Generating 2048 bit dhparam, this won't take so long, about a minute."
-openssl dhparam -out $DATADIR/ssl/dhparam-2048.pem 2048 > /dev/null 2>&1 & spinner $!
-echo "generated: $DATADIR/ssl/dhparam-2048.pem 2048"
-echo
-echo "Generating 4096 bit dhparam, this will take a long time, 10 minutes max?"
-openssl dhparam -out $DATADIR/ssl/dhparam-4096.pem 4096 > /dev/null 2>&1 & spinner $!
-echo "generated: $DATADIR/ssl/dhparam-4096.pem 4096"
-echo && sleep 1 & spinner $!
-
-
-
-
-
+  echo "Generating 2048 bit dhparam, this won't take so long, about a minute."
+  openssl dhparam -out $DATADIR/ssl/dhparam-2048.pem 2048 > /dev/null 2>&1 & spinner $!
+  echo "generated: $DATADIR/ssl/dhparam-2048.pem 2048"
+  echo
+  echo "Generating 4096 bit dhparam, this will take a long time, 10 minutes max?"
+  openssl dhparam -out $DATADIR/ssl/dhparam-4096.pem 4096 > /dev/null 2>&1 & spinner $!
+  echo "generated: $DATADIR/ssl/dhparam-4096.pem 4096"
+  echo && sleep 1 & spinner $!
+else
+  echo "Skipping dhparam generation (use --full to generate)"
+  echo "# Placeholder - generate with: openssl dhparam -out dhparam-2048.pem 2048" > $DATADIR/ssl/dhparam-2048.pem
+  echo "# Placeholder - generate with: openssl dhparam -out dhparam-4096.pem 4096" > $DATADIR/ssl/dhparam-4096.pem
+  echo "Created placeholder dhparam files"
+  echo && sleep 1 & spinner $!
+fi
 
 echo "Gestation of $ENTITY complete!"
 echo
