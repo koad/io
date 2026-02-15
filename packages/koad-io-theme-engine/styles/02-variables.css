@@ -36,11 +36,11 @@
    --shadow-hue: var(--application-hue);         
    --accent-hue: var(--application-hue);       
 
-/*   --text-brightness: calc(100 - var(--application-brightness));*/
-   --text-brightness: 100;
-   --text-saturation: calc(var(--application-saturation)-2);
-   --shadow-saturation: calc(var(--application-saturation)-5);
-   --accent-saturation: calc(var(--application-saturation)+12);
+   --text-brightness: calc(100 - var(--application-brightness));
+   /*--text-brightness: 100;*/
+   --text-saturation: calc(var(--application-saturation) - 2);
+   --shadow-saturation: calc(var(--application-saturation) - 5);
+   --accent-saturation: calc(var(--application-saturation) + 12);
 
    --shadow-brightness: calc(var(--application-brightness) / 2);  
    --accent-brightness: calc(var(--application-brightness) * 2);  
@@ -59,8 +59,8 @@
    --application-saturation-percent: calc(100% / var(--application-saturation-intermediate));
 
    --text-brightness-intermediate: calc(100 / var(--text-brightness));
-/*   --text-brightness-percent: calc(100% / var(--text-brightness-intermediate));*/
-   --text-brightness-percent: 100%;
+   --text-brightness-percent: calc(100% / var(--text-brightness-intermediate));
+   /*--text-brightness-percent: 100%;*/
    
    --text-saturation-intermediate: calc(100 / var(--text-saturation));
    --text-saturation-percent: calc(100% / var(--text-saturation-intermediate));

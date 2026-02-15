@@ -15,6 +15,7 @@
 !start
 !probe
 !test
+!commit
 
 !init
 !init/command.sh
