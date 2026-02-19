@@ -11,7 +11,7 @@ Package.describe({
 });
 
 Package.onUse(function(api) {
-  api.versionsFrom('2.2');
+  api.versionsFrom(['3.0']);
   api.use('ecmascript');
   api.mainModule('koad-io-plus-head-js.js', 'client');
 });
