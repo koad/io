@@ -3,13 +3,12 @@ console.log('koad:io - loading has begun');
 koad = {
 	maintenance: true,
 	lighthouse: null,
-	extention: null,
+	extension: null,
 	instance: null,
 	gateway: null,
 	session: null,
 	internals: 'unset',
 	identity: {},
-	generate: {},
 	storage: {},
 	library: {},
 	format: {
