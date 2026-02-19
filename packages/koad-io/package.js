@@ -1,13 +1,13 @@
 Package.describe({
   name: 'koad:io',
   version: '5.6.4',
-  summary: '',
-  git: '',
-  documentation: null
+  summary: 'Main koad:io package providing core functionality for koad-io meteor apps',
+  git: 'https://github.com/koad/io',
+  documentation: 'https://book.koad.sh/'
 });
 
 Package.onUse(function(api) {
-  api.versionsFrom(['3.3'])
+  api.versionsFrom(['3.0', '3.3'])
 
   api.use('ecmascript');
 
