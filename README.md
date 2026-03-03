@@ -60,20 +60,64 @@ By saving a task as a `command`, and saving its working context as an `entity`, 
 .koad-io/
 ├── bin/            # Entrypoint commands (alice, koad, etc.)
 ├── commands/       # Global command templates
+├── packages/       # Local Meteor packages
+├── skeletons/      # Project templates
+├── hooks/          # Execution hooks
 ├── .env            # Global koad-wide vars
-└── .aliases        # Optional alias layer
+├── .credentials   # Private credentials (not in git)
+└── .aliases       # Optional alias layer
 ````
 
 Each entity has its own world:
 
 ```bash
 .alice/
-├── id/             # GPG keys (pub+priv)
+├── id/             # GPG keys (pub+priv), SSH keys
 ├── commands/       # Persona-level commands
+├── skills/         # opencode skills
+├── memories/       # Context memories
+├── skeletons/      # Custom project templates
+├── packages/       # Entity-specific Meteor packages
 ├── .env            # Local config
-├── sites/          # Per-domain overrides
+├── .credentials    # Entity credentials
 ├── hooks/          # Optional pre/post exec scripts
+└── .local/        # Local data (minimongo if no MongoDB)
 ```
+
+---
+
+## 📦 Local Meteor Packages
+
+koad:io supports local Meteor packages via `METEOR_PACKAGE_DIRS`.
+
+Set in `~/.koad-io/.env`:
+```bash
+METEOR_PACKAGE_DIRS=$HOME/.ecoincore/packages:$HOME/.koad-io/packages
+```
+
+This allows:
+- Custom packages in `~/.koad-io/packages/`
+- eCoinCore packages in `~/.ecoincore/packages/`
+- Entity-specific packages in `~/.alice/packages/`
+
+---
+
+## 🗄️ MongoDB Modes
+
+### With MongoDB (Centralized)
+Set `MONGO_URL` in entity's `.env`:
+```bash
+MONGO_URL=mongodb://localhost:3001/mydb
+```
+- All apps share same database
+- Single login via Meteor Accounts + OAuth
+- Apps can share data
+
+### Without MongoDB (Isolated)
+Each Meteor app creates **minimongo** in `.local/meteor/`
+- App is isolated from other apps
+- No shared data
+- Good for testing/prototyping
 
 ---
 
@@ -174,8 +218,10 @@ Every command execution goes through a deterministic path of evaluation:
 1. **Call an entity wrapper**
    → `alice start`, `alice hello`, etc.
 
-2. **No args?**
-   → Run `hooks/executed-without-arguments.sh`.
+2. **No arguments?**
+   → Run `hooks/executed-without-arguments.sh`
+   → Launches: `opencode --agent "$ENTITY" --model "$OPENCODE_MODEL" ./`
+   → This opens the entity as an AI agent in opencode!
 
 3. **Set environment:**
 
@@ -276,17 +322,33 @@ git clone https://github.com/koad/io.git ~/.koad-io && echo -e "\n\n[ -d ~/.koad
 
 ## 👤 Create Your First Entity
 
-> Your first `koad:io` entity — congrats!
+### Option 1: Clone Alice (Recommended)
 
 ```bash
-koad-io gestate alice
+git clone https://github.com/koad/alice.git ~/.alice
+koad-io init alice
 ```
 
-Check it:
+Creates the `alice` command, skips key generation.
+
+### Option 2: Gestate New Entity (Full)
 
 ```bash
-ls -la ~/.alice
+koad-io gestate myentity
 ```
+
+Creates from scratch with keys, directories, and wrapper.
+
+### Option 3: Gestate from Entity (Inherits)
+
+If running from an existing entity:
+```bash
+alice gestate newentity
+```
+
+Copies skeletons, commands, packages from mother entity!
+
+---
 
 **Back this up.** Store it somewhere *ridiculously safe.*
 
@@ -374,13 +436,15 @@ Your entity is listening.
 
 ## 🔹 Preloaded Commands
 
-Check the `commands/` folder — there’s not a lot preloaded. And that’s intentional.
+Check the `commands/` folder — there's not a lot preloaded. And that's intentional.
 
-You’re meant to build this your way. But here’s what’s included by default:
+You're meant to build this your way. But here's what's included by default:
 
 ### 📦 Base Commands
 
-* [gestate](/commands/gestate/README.md) — create new entities
+* [gestate](/commands/gestate/README.md) — create new entity (full: keys + dirs + wrapper)
+* [init](/commands/init/README.md) — initialize existing folder (skip keys, create wrapper)
+* [spawn](/commands/spawn/README.md) — deploy skeleton to current folder
 * [whoami](/commands/whoami/README.md) — introspect the current environment
 * [example](/commands/example/README.md) — explore supported patterns
 
@@ -425,6 +489,39 @@ alice example go
 ```
 
 Each one is a minimal, working prototype in its language — meant to inspire your own tools.
+
+---
+
+## 💀 Skeletons: Project Templates
+
+Skeletons provide **precise, reproducible** starting points for projects.
+
+### How It Works
+
+1. Create skeleton in `~/.koad-io/skeletons/<name>/`
+2. Structure: `skeleton/` folder + `control/` scripts
+3. Run `alice spawn <name>` to deploy to current folder
+
+### Available Skeletons
+
+* **bare** — Minimal Meteor app
+* **interface** — UI-focused project
+* **lighthouse** — Lighthouse-related
+
+### Control Scripts
+
+- `control/pre-install` — runs before copying
+- `control/install` — main setup
+- `control/post-install` — runs after copying
+
+### Meteor is Swappable
+
+Meteor is the default compiler, but you can replace it with:
+- Vite
+- webpack
+- Any build tool
+
+Just modify the skeleton's install script. Skeletons bring context — not random starts, but precise ones.
 
 ---
 
