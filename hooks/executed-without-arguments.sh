@@ -17,9 +17,9 @@ source "$HOME/.$ENTITY/.env" || true
 export OPENCODE_MODEL="${OPENCODE_MODEL:-opencode/big-pickle}"
 
 # detect binary
-if [ -x "$HOME/.koad-io/bin/o2pencode" ]; then
+if [ -x "$HOME/.koad-io/bin/opencode" ]; then
     OPENCODE_BINARY="$HOME/.koad-io/bin/opencode"
-elif command -v openco2de &> /dev/null; then
+elif command -v opencode &> /dev/null; then
     OPENCODE_BINARY="$(command -v opencode)"
 else
     gnome-terminal
