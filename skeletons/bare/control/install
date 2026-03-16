@@ -50,12 +50,12 @@ if [[ ! -d "$DATADIR" ]]; then
   exit 64
 fi
 
-echo "Spawning bare project in $DATADIR"
+echo -e "\e[32mSpawning bare project in $DATADIR\e[0m"
 
-echo "Creating: $DATADIR/README.md"
+echo -e "\e[32mCreating: $DATADIR/README.md\e[0m"
 touch "$DATADIR/README.md"
 
-echo "Creating: $DATADIR/.env"
+echo -e "\e[32mCreating: $DATADIR/.env\e[0m"
 
 # TODO: This random port should be a range of less than 1 thousand ports and should be combined with an ENV var within the entity that specifies a base port (range start)
 RANDOM_PORT=$(( RANDOM % 888 + 20000 ))
@@ -63,13 +63,13 @@ echo "KOAD_IO_PORT=$RANDOM_PORT" > "$DATADIR/.env"
 echo "KOAD_IO_TYPE=static" >> "$DATADIR/.env"
 echo "KOAD_IO_APP_NAME=bare_skeleton" >> "$DATADIR/.env"
 
-echo "Creating config for device '$HOSTNAME' > $DATADIR/config/$HOSTNAME.json"
+echo -e "\e[32mCreating config for device '$HOSTNAME' > $DATADIR/config/$HOSTNAME.json\e[0m"
 mkdir "$DATADIR/config"
 echo "{}" > "$DATADIR/config/$HOSTNAME.json"
 
 mkdir "$DATADIR/logs"
-echo "mkdir client/templates"
+echo -e "\e[32mmkdir client/templates\e[0m"
 
-echo "Installing new meteor app in $DATADIR/src"
+echo -e "\e[32mInstalling new meteor app in $DATADIR/src\e[0m"
 cd "$DATADIR" && meteor create --bare src > "$DATADIR/logs/meteor-init.log" & spinner $!
 echo "Installing new meteor app complete!"

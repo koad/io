@@ -2,24 +2,19 @@
 
 cd $HOME/.koad-io/packages
 
-if [ ! -d io-session ]; then
-    echo "Fetching package koad:io-session"
-    git clone https://github.com/koad/io-session.git
+if [ ! -d session ]; then
+    echo -e "\e[32mFetching package koad:io-session\e[0m"
+    git clone https://github.com/koad/io-session.git session
 fi
 
-if [ ! -d io-router ]; then
-    echo "Fetching package koad:io-router"
-    git clone https://github.com/koad/io-router.git
+if [ ! -d router ]; then
+    echo -e "\e[32mFetching package koad:io-router\e[0m"
+    git clone https://github.com/koad/io-router.git router
 fi
 
-if [ ! -d io-router-progress ]; then
-    echo "Fetching package koad:io-router-progress"
-    git clone https://github.com/koad/io-router-progress.git
-fi
-
-if [ ! -d io-template-helpers ]; then
-    echo "Fetching package koad:io-template-helpers"
-    git clone https://github.com/koad/io-template-helpers.git
+if [ ! -d router-progress ]; then
+    echo -e "\e[32mFetching package koad:io-router-progress\e[0m"
+    git clone https://github.com/koad/io-router-progress.git router-progress
 fi
 
 # Check if Meteor is installed
