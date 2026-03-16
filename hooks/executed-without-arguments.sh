@@ -22,8 +22,16 @@ if [ -x "$HOME/.koad-io/bin/opencode" ]; then
 elif command -v opencode &> /dev/null; then
     OPENCODE_BINARY="$(command -v opencode)"
 else
-    gnome-terminal
-    exit 1
+    SHELL_NAME="${SHELL:-/bin/bash}"
+    if command -v gnome-terminal &> /dev/null; then
+        echo "No opencode binary found, dropping into $SHELL_NAME"
+        gnome-terminal -- "$SHELL"
+    else
+        echo "No terminal emulator found and opencode binary not available."
+        echo "Dropping into shell: $SHELL_NAME"
+        exec "$SHELL_NAME"
+    fi
+    exit 0
 fi
 
 echo "Launching OpenCode agent '$ENTITY' with model '$OPENCODE_MODEL'"
