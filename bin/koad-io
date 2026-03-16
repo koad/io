@@ -40,7 +40,7 @@ set -a
 [ -f $HOME/.koad-io/.aliases ] && echo "absorbing $HOME/.koad-io/.aliases" && set -a && source $HOME/.koad-io/.aliases 
 
 # Convert ENTITY to lowercase for directory naming
-[[ -z "$ENTITY_DIR" ]] && ENTITY_DIR="$HOME/.${ENTITY,,}"
+[[ -z "$ENTITY_DIR" ]] && ENTITY_DIR="$HOME/.$(echo "$ENTITY" | tr '[:upper:]' '[:lower:]')"
 
 # Check and load any environment details from the entity's folder.
 if [ -d "$ENTITY_DIR" ]; then
