@@ -1,2 +1,4 @@
 dist
-builds
+.archive
+.local
+.env
