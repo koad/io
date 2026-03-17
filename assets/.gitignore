@@ -1,4 +1,8 @@
 *
-!.gitignore
+*/
 
-!matrix.svg
+!.gitignore
+!original.png
+!splash.png
+!logo.png
+!icon.png
