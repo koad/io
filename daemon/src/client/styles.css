@@ -1,0 +1,355 @@
+:root {
+  --background-color: transparent; /* Default background color */
+}
+
+a{
+  color: white;
+}
+
+.rotCorrect{
+  color: #FFFFFF99;
+}
+
+:root {
+ 
+   /* github dark == hsl(215, 15%, 16%)*/
+
+   /* Hue determines the colour, in degrees; 0 to 360 */
+   --application-hue: 215;         
+   --text-hue: 210;         
+
+   /* Determines the saturation; 0 to 100 percent */
+   /* A higher number will give you intense colour */
+   /* A lower number will give you a less intense colour */
+   --application-saturation: 15;  
+   --text-saturation: 32;  
+
+   /* Determines the brightness; 0 to 100 percent */
+   --application-brightness: 16;  
+   --text-brightness: 85; 
+
+   /* Determines the transparency; 0 to 100 percent */
+   --application-transparency: 20;  
+   --application-transparency-percent: calc(var(--application-transparency) * 1%);
+
+
+   /* Simplified calcs to prevent breakage during minification */
+   --application-hue-percent: var(--application-hue);
+   --application-saturation-percent: calc(var(--application-saturation) * 1%);
+   --application-brightness-percent: calc(var(--application-brightness) * 1%);
+
+
+   --text-brightness-percent: calc(var(--text-brightness) * 1%);
+   --text-saturation-percent: calc(var(--text-saturation) * 1%);
+
+
+   --text-color: hsl(var(--text-hue), var(--text-saturation-percent), var(--text-brightness-percent));
+   --text-inverted: hsl(var(--text-hue), var(--text-saturation-percent), calc(100% - var(--text-brightness-percent)));
+   --highlight-text-color: var(--text-color);
+   --contrastThreshold: 80%;
+   --lightnessTransform: 10%;
+   --darknessTransform: 15%;
+
+   --light-l: calc(var(--application-brightness-percent) + var(--lightnessTransform));
+   --dark-l: calc(var(--application-brightness-percent) - var(--darknessTransform));
+
+   --base: hsl(var(--application-hue), var(--application-saturation-percent), var(--application-brightness-percent));
+   --dark: hsl(var(--application-hue), var(--application-saturation-percent), var(--dark-l));
+   --light: hsl(var(--application-hue), var(--application-saturation-percent), var(--light-l));
+
+   --highlight-color: hsl(var(--application-hue-percent), var(--application-saturation-percent), var(--application-brightness-percent));
+   --highlight-color-transparent: hsla(var(--application-hue-percent), var(--application-saturation-percent), var(--application-brightness-percent), var(--application-transparency-percent));
+   
+   --accent-hue: var(--application-hue);         
+   --accent-saturation: var(--application-saturation);  
+   --accent-brightness: var(--application-brightness);  
+   --accent-text-brightness-percent: 100%;  
+
+   --accent-brightness-percent: calc(var(--accent-brightness) * 1%);
+   --accent-saturation-percent: calc(var(--accent-saturation) * 1%);
+   --accent-color: hsla(var(--accent-hue), var(--accent-saturation-percent), var(--accent-brightness-percent), 1);
+   --accent-text-color: hsla(var(--accent-hue), var(--accent-saturation-percent), var(--accent-text-brightness-percent), 1);
+
+   /* Shadow colour */
+   /* under side of topbar menu */
+   /* background of accordion menu */
+   
+   --shadow-hue: var(--application-hue);         
+
+   --shadow-brightness: var(--application-brightness);  
+   --shadow-brightness-percent: calc(var(--shadow-brightness) * 1%);
+
+   --shadow-saturation: var(--application-saturation);  
+   --shadow-saturation-percent: calc(var(--shadow-saturation) * 1%);
+
+   --shadow-color: hsl(var(--shadow-hue), var(--shadow-saturation-percent), var(--shadow-brightness-percent));
+   --accent-color: hsl(var(--shadow-hue), var(--shadow-saturation-percent), calc(var(--shadow-brightness-percent) * 2));
+
+
+   --background-color: hsla(var(--application-hue-percent), var(--application-saturation-percent), 10%, 1);
+   --fill-color: hsla(var(--application-hue-percent), var(--application-saturation-percent), 88%, 0.88);
+
+   --breakpoint-xs: 0;
+   --breakpoint-sm: 576px;
+   --breakpoint-md: 768px;
+   --breakpoint-lg: 992px;
+   --breakpoint-xl: 1200px;
+
+   --side-edges: 10px;
+   --left-edge: 0px;
+
+   --success: #28a745;
+   --info: #17a2b8;
+   --info: #02aed6;
+   --warning: #ffc107;
+   --danger: #dc3545;
+
+   --blue: #007bff;
+   --indigo: #6610f2;
+   --purple: #6f42c1;
+   --pink: #f36;
+   --red: #dc3545;
+   --orange: #fd7e14;
+   --yellow: #ffc107;
+   --green: #28a745;
+   --teal: #20c997;
+   --cyan: #02aed6;
+   --white: #fff;
+   --gray: #6c757d;
+   --gray-dark: #343a40;
+
+
+   --font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
+   --body-font: Segoe UI, Roboto, Helvetica Neue, Arial;
+   --heading-font: Roboto, sans-serif;
+   --table-font: monospace;
+   --card-font: Helvetica Neue, Arial, sans-serif;
+
+}
+
+
+:root {
+    --application-hue: 192;
+    --shadow-hue: 192;
+    --text-hue: 194;
+    --application-saturation: 88;
+    --shadow-saturation: 65;
+    --text-saturation: 6;
+    --application-brightness: 29;
+    --shadow-brightness: 30;
+    --text-brightness: 90;
+    --application-transparency: 100;
+}
+
+
+
+
+
+html, body {
+/*  background: var(--background-color);*/
+  width: 100%;
+  height: 100%;
+  color: #EEEEEE;
+  margin: 0px;
+  overflow: hidden;
+}
+
+
+
+#navMenu:before {
+}
+
+#navMenu {
+  top: 70px;
+  left: 0px;
+  width: 137px;
+  height: 136px;
+  z-index: 100;
+  background: linear-gradient(90deg, var(--shadow-color), var(--shadow-color), var(--shadow-color), var(--accent-color), var(--accent-color),var(--shadow-color), var(--shadow-color),  var(--shadow-color));
+  -webkit-background: linear-gradient(90deg, var(--shadow-color), var(--shadow-color), var(--shadow-color), var(--accent-color), var(--accent-color),var(--shadow-color), var(--shadow-color),  var(--shadow-color));
+  background-size: 800% 400%;
+  -webkit-background-size: 400% 400%;
+  animation: gradient 9s infinite;
+  -webkit-animation: gradient 9s infinite;
+  
+  border-radius: 2px;
+  border-bottom-left-radius: 12px;
+
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: drag;
+  -webkit-transition: border-radius 1s;
+  transition: border-radius 1s;
+  transition: 1.5s;
+}
+
+.nav:hover {
+  background: var(--accent-color);
+}
+
+@keyframes gradient {
+  50% {
+    background-position: 100% 0;
+  }
+}
+
+@-webkit-keyframes gradient {
+  50% {
+    background-position: 100% 0;
+  }
+}
+
+.diamond {
+  position: absolute;
+  width: 67px;
+  height: 67px;
+  background: var(--shadow-color);
+  margin: 10px;
+  cursor: pointer;
+  box-shadow: 1px 4px 10px #101010;
+}
+
+.diamond:active {
+  background: #222222;
+  box-shadow: 0px 1px 2.5px #101010;
+  transition: 0.1s;
+
+
+  -webkit-transition: 0.1s;
+}
+
+.pulse {
+  animation: pulse 0.6s ease-in-out;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.17);
+  }
+  60% {
+    transform: scale(0.77);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.nav {
+  transition: 0.5s;
+  -webkit-transition: 0.5s;
+  border-radius: 2px;
+
+  display: flex;
+  align-content: center;
+  justify-content: center;
+}
+
+.nav0 {
+  top: 0px;
+  left: 0px;
+  border-top-left-radius: 12px;
+}
+
+.nav1 {
+  top: 0px;
+  left: 70px;
+}
+
+.nav2 {
+  top: 0px;
+  left: 140px;
+  border-top-right-radius: 12px;
+}
+
+.nav3 {
+  top: 70px;
+  left: 140px;
+}
+
+.nav4 {
+  top: 140px;
+  left: 140px;
+  border-bottom-right-radius: 12px;
+}
+
+.nav.small {
+  top: 150px;
+  left: 0px;
+  z-index: 10;
+  background: #0000;
+  transition: 0.5s;
+  display: hidden;
+  -webkit-transition: 0.5s;
+  box-shadow: 1px 4px 10px #10101000;
+
+
+}
+
+#navMenu.small {
+
+
+  border-bottom-left-radius: 152px;
+  border-top-left-radius: 152px;
+  border-top-right-radius: 152px;
+  border-bottom-right-radius: 152px;
+  width: 64px;
+  height: 64px;
+  margin-top: 86px;
+}
+
+img{
+  transition: border-radius 6s;
+  -webkit-transition: border-radius 1s;
+  transition: border-radius 1s;
+  transition: 1.5s;
+
+}
+
+.small img{
+  border-radius: 50%;
+}
+
+
+
+.rotCorrect {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rotCorrect img{
+  -webkit-app-region: no-drag;
+  max-width: 90%;
+  max-height: 90%;
+}
+
+
+i {
+  color: #EEEEEE;
+}
+
+
+img {
+  max-width: 100%; /* Make sure the image doesn't exceed the container's width */
+  max-height: 100%; /* Make sure the image doesn't exceed the container's height */
+}
+
+
+.draggable{
+  -webkit-app-region: drag;
+}
+
+.main-icon{
+  max-width: 100px;
+  position: fixed;
+  bottom: 0px;
+  left: 0px;
+}

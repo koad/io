@@ -1,0 +1,16 @@
+{
+  "name": "src",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "meteor run"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.23.2",
+    "body-parser": "^1.20.2",
+    "electron": "^31.1.0",
+    "meteor-node-stubs": "^1.2.1"
+  }
+}
