@@ -20,18 +20,18 @@ Npm.depends({
 	"node-machine-id": "1.1.12",
 	"cron": "1.8.2",
 	"systeminformation": "5.11.14",
-    // "bitcoinjs-lib": "6.1.3",
-    // "@scure/bip32": "1.3.2",
-    "@scure/bip39": "1.2.1", // https://github.com/paulmillr/scure-bip39
-    // "ethereum-cryptography": "2.1.2",
-    "ssh2": "1.14.0",
-    "kbpgp": "2.1.15", // Keybase PGP for identity and cryptography
-    "ipfs-core": "0.18.1", // IPFS implementation for distributed storage
-    "ipfs-http-client": "60.0.1" // IPFS HTTP client
+	// "bitcoinjs-lib": "6.1.3",
+	// "@scure/bip32": "1.3.2",
+	"@scure/bip39": "1.2.1", // https://github.com/paulmillr/scure-bip39
+	// "ethereum-cryptography": "2.1.2",
+	"ssh2": "1.14.0",
+	"kbpgp": "2.1.15", // Keybase PGP for identity and cryptography
+	"ipfs-core": "0.18.1", // IPFS implementation for distributed storage
+	"ipfs-http-client": "60.0.1" // IPFS HTTP client
 });
 
 Package.onUse(function(api) {
-  	api.versionsFrom(["3.0", "3.3"])
+	api.versionsFrom(["3.0", "3.3"])
 
 	api.imply("meteor-base");
 	api.imply("mongo");
@@ -71,6 +71,10 @@ Package.onUse(function(api) {
 	api.use('underscore');
 	api.use('ejson'); // for cloning
 
+	api.use("reactive-var");
+	api.use("tracker");
+
+
 	// loads first, initializes the koad object.
 	api.addFiles("both/initial.js");
 
@@ -105,8 +109,8 @@ Package.onUse(function(api) {
 	], "client");
 
 
-  	api.export("GlobalSearch", "server");
-  	api.export("SearchHistory", 'client');
+	api.export("GlobalSearch", "server");
+	api.export("SearchHistory", 'client');
 
 	api.export(["SECONDS", "MINUTES", "HOURS", "DAYS", "WEEKS", "MONTHS", "YEARS"]);
 	api.export(["allow", "ALLOW", "deny", "DENY"]);
@@ -118,8 +122,8 @@ Package.onUse(function(api) {
 	// Export the collections created within this package...
 	api.export("Counters", "server");
 
-  	api.export("ApplicationEvents", "server");
-  	api.export("ApplicationErrors", "server");
+	api.export("ApplicationEvents", "server");
+	api.export("ApplicationErrors", "server");
 	api.export("ApplicationDevices", "server");
 	api.export("ApplicationProcesses", "server");
 	api.export("ApplicationStatistics", "server");
@@ -135,9 +139,9 @@ Package.onUse(function(api) {
 
 
 Package.onTest(function (api) {
-  api.use('koad:io-core');
-  api.use('tinytest');
-  api.use('test-helpers');
-  api.addFiles('test/utils_test.js');
+	api.use('koad:io-core');
+	api.use('tinytest');
+	api.use('test-helpers');
+	api.addFiles('test/utils_test.js');
 });
 
