@@ -332,17 +332,6 @@ koad.search = {
 	}
 };
 
-/**
- * Subscribe to Search History
- * 
- * Automatically subscribes when user logs in.
- */
-Tracker.autorun(() => {
-	if (Meteor.userId()) {
-		Meteor.subscribe('searchHistory', 10);
-	}
-});
-
 if (DEBUG) {
 	console.log('[search] Client search system initialized');
 }
