@@ -96,6 +96,7 @@ Package.onUse(function(api) {
 		"server/counters.js",
 		"server/search.js",
 		"server/cron.js",
+		"server/sanitation.js",
 		"server/database-indexes.js",
 	], "server");
 
@@ -117,8 +118,8 @@ Package.onUse(function(api) {
 	// Export the collections created within this package...
 	api.export("Counters", "server");
 
-  	api.export("ApplicationEvents", "server");
-  	api.export("ApplicationErrors", "server");
+	api.export("ApplicationEvents", "server");
+	api.export("ApplicationErrors", "server");
 	api.export("ApplicationDevices", "server");
 	api.export("ApplicationProcesses", "server");
 	api.export("ApplicationStatistics", "server");
