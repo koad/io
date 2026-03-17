@@ -1,17 +1,24 @@
+/**
+ * Application Collections
+ * 
+ * Core Mongo collections used throughout the koad:io ecosystem.
+ * Collections are global and available on both client and server.
+ */
+
 // Deny all client-side updates to user documents
 if(Meteor.users) Meteor.users.deny({
   update() { return true; }
 });
 
-
 // koad-io application collections start with lower case
 ApplicationErrors = new Mongo.Collection('errors', koad.mongo);
 ApplicationEvents = new Mongo.Collection('events', koad.mongo);
 ApplicationDevices = new Mongo.Collection('devices', koad.mongo);
-ApplicationSessions = new Meteor.Collection('sessions', koad.mongo);
 ApplicationServices = new Mongo.Collection('services', koad.mongo);
+ApplicationSessions = new Meteor.Collection('sessions', koad.mongo);
 ApplicationInternals = new Mongo.Collection('internals', koad.mongo);
 ApplicationProcesses = new Mongo.Collection('processes', koad.mongo);
+ApplicationSupporters = new Mongo.Collection('supporters', koad.mongo);
 ApplicationStatistics = new Meteor.Collection("statistics", koad.mongo);
 ApplicationConsumables = new Mongo.Collection('consumables', koad.mongo);
 
@@ -96,6 +103,16 @@ if(Package["matb33:collection-hooks"] && Meteor.users) {
 		doc.updatedBy = koad.instance;
 		return doc.updated = new Date();
 	});
+
+	ApplicationSupporters.before.insert(function(userId, doc) {
+		doc.instance = koad.instance;
+		return doc.created = new Date();
+	});
+
+	ApplicationSupporters.before.update(function(userId, doc) {
+		doc.updatedBy = koad.instance;
+		return doc.updated = new Date();
+	});
 };
 
-log.success('loaded koad-io/collections');
+log.success('loaded koad-io-core/collections');
