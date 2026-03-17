@@ -260,4 +260,43 @@ Meteor.publish('searchHistory', function(limit = 10) {
 	);
 });
 
+// ============================================================================
+// Database Indexes
+// ============================================================================
+
+Meteor.startup(async () => {
+	try {
+		log.debug('[search] Creating database indexes...');
+		
+		// Find searches by user
+		await GlobalSearch.createIndexAsync({ userId: 1, timestamp: -1 });
+		
+		// TTL index - auto-delete old searches after 30 days
+		// Note: This index can also be used for finding recent searches
+		try {
+			await GlobalSearch.createIndexAsync(
+				{ timestamp: 1 },
+				{ expireAfterSeconds: 2592000, name: 'search_history_ttl' }
+			);
+		} catch (error) {
+			if (error.message.includes('equivalent index already exists')) {
+				// Drop old timestamp index and recreate with TTL
+				log.debug('[search] Dropping old timestamp_1 or timestamp_-1 index and recreating with TTL...');
+				await GlobalSearch.dropIndexAsync('timestamp_1').catch(() => {});
+				await GlobalSearch.dropIndexAsync('timestamp_-1').catch(() => {});
+				await GlobalSearch.createIndexAsync(
+					{ timestamp: 1 },
+					{ expireAfterSeconds: 2592000, name: 'search_history_ttl' }
+				);
+			} else {
+				throw error;
+			}
+		}
+		
+		log.debug('[search] Database indexes created');
+	} catch (error) {
+		log.error('[search] Error creating indexes:', error.message);
+	}
+});
+
 log.success('loaded koad-io-core/search');
