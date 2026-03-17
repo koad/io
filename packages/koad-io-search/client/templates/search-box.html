@@ -1,0 +1,34 @@
+<template name="koadSearchBox">
+	<div class="koad-search-box {{#if focused}}koad-search-box--focused{{/if}}">
+		<div class="koad-search-box__input-wrapper">
+			<input 
+				type="text" 
+				class="koad-search-box__input" 
+				placeholder="{{placeholder}}" 
+				value="{{query}}"
+				autocomplete="off"
+				spellcheck="false"
+			/>
+			<div class="koad-search-box__icons">
+				{{#if loading}}
+					<span class="koad-search-box__loading">⏳</span>
+				{{else}}
+					{{#if query}}
+						<button class="koad-search-box__clear" title="Clear">×</button>
+					{{/if}}
+				{{/if}}
+				<span class="koad-search-box__icon">🔍</span>
+			</div>
+		</div>
+
+		{{#if showResults}}
+			{{> koadSearchResults results=localResults source="local"}}
+		{{/if}}
+
+		{{#if showHint}}
+			<div class="koad-search-box__hint">
+				Press <kbd>Enter</kbd> to search server
+			</div>
+		{{/if}}
+	</div>
+</template>

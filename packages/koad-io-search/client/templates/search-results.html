@@ -1,0 +1,54 @@
+<template name="koadSearchResults">
+	<div class="koad-search-results koad-search-results--{{source}}">
+		{{#if hasResults}}
+			{{#if isLocal}}
+				<div class="koad-search-results__header">
+					<span class="koad-search-results__badge koad-search-results__badge--local">
+						Local Results
+					</span>
+				</div>
+			{{/if}}
+
+			{{#each collections}}
+				<div class="koad-search-results__collection">
+					<div class="koad-search-results__collection-header">
+						{{collectionName}}
+						<span class="koad-search-results__count">{{count}}</span>
+					</div>
+					<div class="koad-search-results__items">
+						{{#each items}}
+							{{> koadSearchResultItem item=this collection=../collectionName}}
+						{{/each}}
+					</div>
+				</div>
+			{{/each}}
+		{{else}}
+			<div class="koad-search-results__empty">
+				No local results found
+			</div>
+		{{/if}}
+	</div>
+</template>
+
+<template name="koadSearchResultItem">
+	<div class="koad-search-result-item" data-collection="{{collection}}" data-id="{{item._id}}">
+		<div class="koad-search-result-item__content">
+			{{#if isLocalStorage}}
+				<div class="koad-search-result-item__title">
+					🔑 {{item.key}}
+				</div>
+				<div class="koad-search-result-item__meta">
+					{{item.value}}
+				</div>
+			{{else}}
+				<div class="koad-search-result-item__title">
+					{{getDisplayTitle item collection}}
+				</div>
+				<div class="koad-search-result-item__meta">
+					{{getDisplayMeta item collection}}
+				</div>
+			{{/if}}
+		</div>
+		<div class="koad-search-result-item__arrow">→</div>
+	</div>
+</template>
