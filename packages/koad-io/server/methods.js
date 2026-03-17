@@ -1,105 +1,140 @@
 const BEACON_VERSION = 'kMDZiN';
 
-// TODO: Maybe there is a race condition between 'enable.connection' and user login -- make sure we arent LoggingIn before we try to enable connection.
+/**
+ * Client Session & Analytics Methods
+ * 
+ * These methods are called by the client to report session state,
+ * page views, and analytics data.
+ */
 
 Meteor.methods({
-    'enable.connection': async function (data) {
+	/**
+	 * Enable Connection
+	 * 
+	 * Called by client after connection is established to provide additional
+	 * client-side context (app version, traffic source, previous session, etc).
+	 * 
+	 * Race Condition Handling:
+	 * - Session is created immediately in Meteor.onConnection
+	 * - This method can be called before OR after login
+	 * - If login happened first, userId/username are already set by onLogin hook
+	 * - If login happens later, onLogin hook will set userId/username
+	 * - Either order is safe!
+	 * 
+	 * @param {Object} data - Client metadata
+	 * @param {String} data.lastSession - Previous session ID (for returning users)
+	 * @param {String} data.application - Application name/version
+	 * @param {String} data.version - Client version
+	 * @param {Boolean} data.aff - Is this an affiliate link?
+	 * @param {String} data.sid - Source ID for affiliate tracking
+	 */
+	'enable.connection': async function (data) {
+		// Determine IP address (simulation vs real connection)
+		let ip = this.isSimulation ? 'simulation' : this.connection.clientAddress;
+		
+		// Use x-real-ip header if available (behind proxy)
+		if (this.connection.httpHeaders?.['x-real-ip']) {
+			ip = this.connection.httpHeaders['x-real-ip'];
+		}
 
-        let ip = 'simulation'
-        if (!this.isSimulation) { ip = this.connection.clientAddress; }
-        let username = 'anonymous'
+		// Check if user is already authenticated
+		// (login may have happened before enable.connection was called)
+		let username = 'anonymous';
+		const user = await Meteor.users.findOneAsync(Meteor.userId());
+		if (user) {
+			username = user.username;
+		}
 
-        var user = await Meteor.users.findOneAsync(Meteor.userId());
-        if(user) username = user.username;
+		log.debug(`[enable.connection] Connection enabled by ${username} from ${ip}`);
 
-        log.debug(`connection enabled by ${username}`);
+		// Find the session created by Meteor.onConnection
+		const currentVisit = await ApplicationSessions.findOneAsync({ _id: this.connection.id });
+		
+		if (!currentVisit) {
+			log.error('[enable.connection] Session not found for connection', {
+				connectionId: this.connection.id,
+				userId: Meteor.userId(),
+				username
+			});
+			throw new Meteor.Error('session-not-found', 'Cannot locate session for this connection');
+		}
 
-        // TODO: is this a hack?  why 
-        if(this.connection.httpHeaders['x-real-ip']) ip = this.connection.httpHeaders['x-real-ip'];
+		// Handle returning visitors (link this session to previous one)
+		if (data.lastSession == null) {
+			log.system('[enable.connection] New client connection established', { ip });
+		} else {
+			const earlierVisit = await ApplicationSessions.findOneAsync({ _id: data.lastSession });
+			
+			if (earlierVisit === undefined) {
+				log.warning('[enable.connection] Previous session not found', {
+					reportedSession: data.lastSession,
+					currentSession: this.connection.id,
+					ip
+				});
+			} else {
+				log.system('[enable.connection] Returning client connection established', { ip });
+				
+				// Link previous session to this one
+				await ApplicationSessions.updateAsync(
+					{ _id: earlierVisit._id },
+					{ $set: { nextConnection: this.connection.id } }
+				);
+			}
+		}
 
-        // console.debug(data)
-        // console.debug(this.connection)
+		// Validate IP consistency
+		if (currentVisit?.ipaddr && currentVisit.ipaddr !== ip) {
+			log.warning('[enable.connection] IP address mismatch', {
+				sessionIP: currentVisit.ipaddr,
+				connectionIP: ip,
+				connectionId: this.connection.id
+			});
+		}
 
-        // If we have an earlier connection reported, add this connection to it's blob.
+		// Build update object
+		const updateObj = {
+			enabled: true,
+			previousVisit: data.earlierVisit,
+			application: data.application,
+			version: data.version,
+			clientConnect: new Date(),
+			trafficSource: data,
+			state: 'connected'
+		};
 
-        var currentVisit = await ApplicationSessions.findOneAsync({_id: this.connection.id});
-        if(currentVisit == undefined) { 
-            return log.error("CLIENT::CONNECTION", "Cannot locate visitor session information!");
-        };
+		// Set username if not already authenticated
+		// (if user logged in before enable.connection, userId/username are already set)
+		if (!currentVisit.userId) {
+			if (Meteor.userId()) {
+				// User authenticated between onConnection and enable.connection
+				updateObj.userId = user._id;
+				updateObj.username = user.username;
+			} else {
+				// User not authenticated yet
+				updateObj.username = 'Anonymous';
+			}
+		}
 
-        if(data.lastSession == null){
-            log.system("CLIENT::CONNECTION", "New client connection has been established.", false, ip);
-        } else {
-            var earlierVisit = await ApplicationSessions.findOneAsync({_id: data.lastSession});
-            if(earlierVisit === undefined) {
-                log.warning("CLIENT::CONNECTION", "Not able to find the reported previous connection!", false, ip);
-            } else {
-                log.system("CLIENT::CONNECTION", "Returning client connection has been established.", false, ip);
-                await ApplicationSessions.updateAsync( {_id: earlierVisit._id}, { $set: { nextConnection: this.connection.id} });
-            }
-        };
+		// Handle affiliate tracking
+		if (data.aff) {
+			updateObj.referer = data.sid;
+		}
 
+		// TODO: Implement campaign tracking from query string parameters
+		// Future enhancement: Track campaign params (sid, cmp, s1-s5) from URL
+		// This would allow attribution tracking for marketing campaigns
+		// Example: ?sid=email-campaign&cmp=spring-sale&s1=variant-a
 
-// TODO: handle the querystring
-// // 
-//                 // If the url has an voucher/campaign add them
-//                 if (qs.sid) {
-//                     session = {
-//                         location: window.location,
-//                         aff: true,
-//                         sid: qs.sid,
-//                         cmp: qs.cmp ? qs.cmp : null,
-//                         s1: qs.s1 ? qs.s1 : null,
-//                         s2: qs.s2 ? qs.s2 : null,
-//                         s3: qs.s3 ? qs.s3 : null,
-//                         s4: qs.s4 ? qs.s4 : null,
-//                         s5: qs.s5 ? qs.s5 : null
-//                     };
-//                 } else {
-//                     session = {
-//                         location: window.location,
-//                         aff: false,
-//                         sid: 'Organic',
-//                         cmp: 'None',
-//                         s1: 's1',
-//                         s2: 's2',
-//                         s3: 's3',
-//                         s4: 's4',
-//                         s5: 's5'
-//                     };
-//                 }
-                
+		await ApplicationSessions.updateAsync(
+			{ _id: this.connection.id },
+			{ $set: updateObj }
+		);
 
-
-        if(currentVisit?.ipaddr && currentVisit?.ipaddr !== ip) log.error('connection IP and logged connection IP are different!');
-        // log.debug({currentVisit});
-
-        if(currentVisit.userId == undefined) {
-            if(Meteor.userId()) {
-                currentVisit.userId = user._id;
-                currentVisit.username = user.username;
-            } else {
-                currentVisit.username = "Anonymous";
-            }
-        }
-        
-        currentVisit.enabled = true;
-        currentVisit.previousVisit = data.earlierVisit;
-        currentVisit.application = data.application;
-        currentVisit.version = data.version;
-        currentVisit.clientConnect = new Date();
-        currentVisit.trafficSource = data;
-
-        currentVisit.state='connected'
-        if(data.aff){
-            currentVisit.referer = data.sid;
-        }
-
-        delete currentVisit._id
-        await ApplicationSessions.updateAsync({_id: this.connection.id}, {$set: currentVisit});
-        return {_id: this.connection.id, geo: currentVisit.geo};
-
-    },
+		return {
+			_id: this.connection.id,
+			geo: currentVisit.geo
+		};
+	},
     'update.client.subscriptions': async function (data) {  // This function is called by the router any time a user engages a route
 
         check(data, Object);
