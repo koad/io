@@ -118,8 +118,8 @@ Package.onUse(function(api) {
 	// Export the collections created within this package...
 	api.export("Counters", "server");
 
-	api.export("ApplicationEvents", "server");
-	api.export("ApplicationErrors", "server");
+  	api.export("ApplicationEvents", "server");
+  	api.export("ApplicationErrors", "server");
 	api.export("ApplicationDevices", "server");
 	api.export("ApplicationProcesses", "server");
 	api.export("ApplicationStatistics", "server");
