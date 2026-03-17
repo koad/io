@@ -30,7 +30,7 @@ Package.onUse(function(api) {
   api.use("check");
   api.use("tracker");
   api.use("koad:io-router");
-  // api.use("koad:io-router-progress");
+  api.use("koad:io-router-progress");
   api.use("koad:io-session");
 
   api.use('mizzao:timesync');
