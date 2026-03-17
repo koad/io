@@ -3,7 +3,6 @@
 
 allow = function() {return true;}
 deny = function() {return false;}
-// function Login() {return log.info(arguments)}
 
 if(DEBUG) console.log('koad:io - DEBUG mode enabled, expect verbose output!');
 
