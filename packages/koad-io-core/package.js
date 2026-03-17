@@ -24,7 +24,10 @@ Npm.depends({
     // "@scure/bip32": "1.3.2",
     "@scure/bip39": "1.2.1", // https://github.com/paulmillr/scure-bip39
     // "ethereum-cryptography": "2.1.2",
-    "ssh2": "1.14.0"
+    "ssh2": "1.14.0",
+    "kbpgp": "2.1.15", // Keybase PGP for identity and cryptography
+    "ipfs-core": "0.18.1", // IPFS implementation for distributed storage
+    "ipfs-http-client": "60.0.1" // IPFS HTTP client
 });
 
 Package.onUse(function(api) {
@@ -75,28 +78,35 @@ Package.onUse(function(api) {
 	api.addFiles("server/logger.js", "server");
 	api.addFiles("server/upstart.js", "server");
 	api.addFiles("client/upstart.js", "client");
-	// api.addFiles("client/search.js", "client");
+	api.addFiles("client/search.js", "client");
 
 	api.addFiles([
 		"both/utils.js",
 		"both/time-constants.js",
 		"both/global-helpers.js",
 		"both/router.js",
-		"both/identity.js",
 	]);
 
 	api.addFiles([
 		"server/collections.js",
 		"server/discovery.js",
+		"server/identity.js",
+		"server/identity-init.js",
 		"server/sysinfo.js",
 		"server/counters.js",
-		// "server/search.js",
+		"server/search.js",
 		"server/cron.js",
+		"server/cleanup-tasks.js",
+		"server/database-indexes.js",
 	], "server");
 
+	api.addFiles([
+		"client/identity.js",
+	], "client");
 
-  	// api.export("GlobalSearch");
-  	// api.export("SearchHistory", 'client');
+
+  	api.export("GlobalSearch", "server");
+  	api.export("SearchHistory", 'client');
 
 	api.export(["SECONDS", "MINUTES", "HOURS", "DAYS", "WEEKS", "MONTHS", "YEARS"]);
 	api.export(["allow", "ALLOW", "deny", "DENY"]);
@@ -116,6 +126,7 @@ Package.onUse(function(api) {
 	api.export("ApplicationServices", "server");
 	api.export("ApplicationSessions", "server");
 	api.export("ApplicationConsumables", "server");
+	api.export("ApplicationSupporters", "server");
 
 	// Export the koad object created by this package...
 	api.export("koad");
