@@ -96,7 +96,6 @@ Package.onUse(function(api) {
 		"server/counters.js",
 		"server/search.js",
 		"server/cron.js",
-		"server/cleanup-tasks.js",
 		"server/database-indexes.js",
 	], "server");
 
