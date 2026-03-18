@@ -1,6 +1,6 @@
 Package.describe({
 	"name": "koad:io-core",
-	"version": "3.3.0",
+	"version": "3.6.9",
 	"summary": "The core koad-io package that all koad-io meteor apps use.  This package sets up the koad global object which is expanded upon by other koad:io packages",
 	"grain": "eGq8SP8XpJ2zhFM5s53KBN",
 	"git": "https://github.com/koad/io",

@@ -1,6 +1,6 @@
 Package.describe({
   name: 'koad:io-accounts',
-  version: '0.3.3',
+  version: '3.6.9',
   summary: '',
   git: '',
   documentation: null

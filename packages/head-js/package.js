@@ -1,6 +1,6 @@
 Package.describe({
   name: 'koad:io-plus-head-js',
-  version: '0.0.1',
+  version: "3.6.9",
   // Brief, one-line summary of the package.
   summary: '',
   // URL to the Git repository containing the source code for this package.

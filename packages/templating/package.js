@@ -1,6 +1,6 @@
 Package.describe({
   name: 'koad:io-templating',
-  version: '3.0.0',
+  version: '3.6.9',
   summary: 'Templating with helpers for koad:io Meteor applications',
   documentation: 'README.md'
 });

@@ -1,6 +1,6 @@
 Package.describe({
   name: "koad:io-session",
-  version: "0.5.0",
+  version: '3.6.9',
   summary: "Persistently store Session data on the client",
   git: "https://github.com/koad/io-session"
 });

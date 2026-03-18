@@ -1,6 +1,6 @@
 Package.describe({
 	name: 'koad:io-search',
-	version: '1.0.0',
+	version: '3.6.9',
 	summary: 'Search UI component with local and remote search capabilities',
 	git: 'https://github.com/koad/io',
 	documentation: 'README.md'
