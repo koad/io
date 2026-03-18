@@ -1,22 +1,5 @@
 #!/bin/bash
 
-cd $HOME/.koad-io/packages
-
-if [ ! -d session ]; then
-    echo -e "\e[32mFetching package koad:io-session\e[0m"
-    git clone https://github.com/koad/io-session.git session
-fi
-
-if [ ! -d router ]; then
-    echo -e "\e[32mFetching package koad:io-router\e[0m"
-    git clone https://github.com/koad/io-router.git router
-fi
-
-if [ ! -d router-progress ]; then
-    echo -e "\e[32mFetching package koad:io-router-progress\e[0m"
-    git clone https://github.com/koad/io-router-progress.git router-progress
-fi
-
 # Check if Meteor is installed
 if ! type meteor > /dev/null 2>&1; then
     echo -e "\e[31mMeteor is not installed. Install Meteor pls...\e[0m"
