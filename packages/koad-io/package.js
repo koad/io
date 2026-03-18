@@ -19,6 +19,7 @@ Package.onUse(function(api) {
   api.imply("standard-minifier-css");
   api.imply("standard-minifier-js");
   api.imply("mobile-experience");
+  api.imply("koad:io-templating");
   api.imply("koad:io-router");
   api.imply("koad:io-session");
   api.imply("koad:io-plus-head-js");
