@@ -5,7 +5,7 @@
  * Author     Tero Piirainen  (tipiirai)
  * Maintainer Robert Hoffmann (itechnology)
  * License    MIT / http://bit.ly/mit-license
- * WebSite    http://headjs.com
+ * WebSite    https://github.com/headjs/headjs
  */
 (function(win, undefined) {
     "use strict";
