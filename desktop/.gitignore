@@ -1,5 +1,13 @@
-*
-*/
+.local
+config
+commands
+parked-utilities
+resources
+src
+temp
+trash
+
+node_modules
 !./.gitignore
 
 !LICENSE
