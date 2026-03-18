@@ -1,0 +1,80 @@
+/* Keyframes for the spinner */
+@-webkit-keyframes iron-router-progress-before {
+	0%   { -webkit-transform: rotate(0deg);   transform: rotate(0deg); }
+	100% { -webkit-transform: rotate(360deg); transform: rotate(360deg); }
+}
+@-moz-keyframes iron-router-progress-before {
+	0%   { -moz-transform: rotate(0deg);   transform: rotate(0deg); }
+	100% { -moz-transform: rotate(360deg); transform: rotate(360deg); }
+}
+@-o-keyframes iron-router-progress-before {
+	0%   { -o-transform: rotate(0deg);   transform: rotate(0deg); }
+	100% { -o-transform: rotate(360deg); transform: rotate(360deg); }
+}
+@-ms-keyframes iron-router-progress-before {
+	0%   { -ms-transform: rotate(0deg);   transform: rotate(0deg); }
+	100% { -ms-transform: rotate(360deg); transform: rotate(360deg); }
+}
+@keyframes iron-router-progress-before {
+	0%   { transform: rotate(0deg); }
+	100% { transform: rotate(360deg); }
+}
+
+/* Main progress bar */
+#iron-router-progress {
+	display: block;
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 0%;
+	height: 3px;
+	background-color: rgba(160, 160, 160, 0.6);
+	box-shadow: 0 0 5px rgba(160, 160, 160, 0.6);
+	opacity: 1;
+	z-index: 10000;
+}
+
+/* CSS-only spinner */
+/* The spinner only shows after 0.5 seconds of load time */
+#iron-router-progress.spinner:before {
+	content: "";
+	display: block;
+	position: fixed;
+	top: 10px;
+	right: 10px;
+	width: 25px;
+	height: 25px;
+	background-color: transparent;
+	border: 3px solid rgba(160, 160, 160, 0.6);
+	border-radius: 100px;
+	border-right-color: transparent !important;
+	opacity: 0;
+	z-index: 10000;
+	pointer-events: none;
+	transition: 0.5s opacity;
+	transition-delay: 0.5s;
+}
+
+/* Loading state transitions */
+#iron-router-progress.loading {
+	transition: 1s width, 1s opacity;
+	transition-delay: 0s, 1s;
+}
+
+#iron-router-progress.loading.spinner:before {
+	opacity: 1;
+	-webkit-animation: iron-router-progress-before 0.5s linear infinite;
+	-moz-animation: iron-router-progress-before 0.5s linear infinite;
+	-o-animation: iron-router-progress-before 0.5s linear infinite;
+	-ms-animation: iron-router-progress-before 0.5s linear infinite;
+	animation: iron-router-progress-before 0.5s linear infinite;
+}
+
+/* Done state - fade out */
+#iron-router-progress.done {
+	opacity: 0;
+}
+
+#iron-router-progress.done.spinner:before {
+	opacity: 0;
+}

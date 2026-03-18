@@ -1,0 +1,129 @@
+<!--
+  Page Templates - koad:io-router Example
+
+  This file contains the templates for individual pages that will be rendered
+  when their corresponding routes are activated by the router.
+-->
+
+<!-- Home Page Template -->
+<template name="home">
+  <div class="page home-page">
+    <h2>{{title}}</h2>
+    <p>{{description}}</p>
+
+    <div class="features">
+      <h3>Key Features</h3>
+      <ul>
+        <li>Simple, declarative route definitions</li>
+        <li>Layout and template management</li>
+        <li>Built-in hooks and middleware</li>
+        <li>Reactive state management</li>
+        <li>Data loading and waiting</li>
+      </ul>
+    </div>
+
+    <div class="examples">
+      <h3>Routing Examples</h3>
+      <p>
+        Current time: {{currentTime}}
+        <br>
+        This time updates reactively if you have a reactive data source.
+      </p>
+
+      <h4>Try These Links:</h4>
+      <ul>
+        <li>
+          <a href="{{pathFor 'about'}}">About Page</a> -
+          Demonstrates a basic route with data context
+        </li>
+        <li>
+          <a href="{{pathFor 'item' _id='123'}}">Item #123</a> -
+          Demonstrates route parameters
+        </li>
+        <li>
+          <a href="/non-existent-path">Non-existent Path</a> -
+          Demonstrates the "not found" template
+        </li>
+      </ul>
+    </div>
+  </div>
+</template>
+
+<!-- About Page Template -->
+<template name="about">
+  <div class="page about-page">
+    <h2>{{title}}</h2>
+
+    <div class="about-content">
+      <p>
+        The koad:io-router package provides a powerful, flexible routing solution for your
+        Meteor applications. It handles client-side and server-side routing with a clean,
+        declarative API.
+      </p>
+
+      <h3>Features</h3>
+      <ul>
+        {{#each features}}
+          <li>{{this}}</li>
+        {{/each}}
+      </ul>
+
+      <h3>Getting Started</h3>
+      <p>
+        To use koad:io-router in your project:
+      </p>
+      <pre><code>meteor add koad:io-router</code></pre>
+
+      <p>
+        Current version: {{routerVersion}}
+      </p>
+
+      <button class="go-home">Return to Home</button>
+    </div>
+  </div>
+</template>
+
+<!-- Item Page Template -->
+<template name="item">
+  <div class="page item-page">
+    <h2>Item Details</h2>
+
+    <div class="item-details">
+      <p>
+        <strong>Item ID:</strong> {{_id}}
+      </p>
+      <p>
+        <strong>Name:</strong> {{name}}
+      </p>
+      <p>
+        <strong>Description:</strong> {{description}}
+      </p>
+
+      <div class="route-params-explanation">
+        <h3>How Route Parameters Work</h3>
+        <p>
+          This page demonstrates how to use route parameters in koad:io-router.
+          The route definition for this page is:
+        </p>
+        <pre><code>Router.route('/item/:_id', {
+  name: 'item',
+  template: 'item',
+  data: function() {
+    // The params object contains all route parameters
+    return {
+      _id: this.params._id,
+      name: 'Example Item ' + this.params._id,
+      description: 'This demonstrates accessing route parameters'
+    };
+  }
+});</code></pre>
+        <p>
+          The <code>:_id</code> in the route path defines a parameter that can be accessed
+          in the route's data function via <code>this.params._id</code>.
+        </p>
+      </div>
+
+      <button class="go-home">Return to Home</button>
+    </div>
+  </div>
+</template>

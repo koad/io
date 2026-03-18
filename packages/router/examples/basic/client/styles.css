@@ -1,0 +1,147 @@
+/**
+ * Styles for the koad:io-router Basic Example
+ *
+ * This CSS file provides basic styling for the router example.
+ * It's intentionally simple to keep the focus on the router functionality.
+ */
+
+/* General Styles */
+body {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  color: #333;
+  margin: 0;
+  padding: 0;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Header Styles */
+header {
+  border-bottom: 1px solid #eee;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+}
+
+header h1 {
+  color: #2c3e50;
+  margin-top: 0;
+}
+
+nav ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+}
+
+nav li {
+  margin-right: 20px;
+}
+
+nav a {
+  text-decoration: none;
+  color: #3498db;
+  font-weight: bold;
+}
+
+nav a:hover {
+  color: #2980b9;
+}
+
+/* Main Content Styles */
+main {
+  min-height: 400px;
+}
+
+.page {
+  padding: 20px 0;
+}
+
+h2 {
+  color: #2c3e50;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+}
+
+h3 {
+  color: #3498db;
+  margin-top: 25px;
+}
+
+pre {
+  background-color: #f8f9fa;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  padding: 15px;
+  overflow: auto;
+}
+
+code {
+  font-family: Monaco, Menlo, Consolas, 'Courier New', monospace;
+  background-color: #f8f9fa;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+button, .btn {
+  background-color: #3498db;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-block;
+  text-decoration: none;
+  margin-top: 15px;
+}
+
+button:hover, .btn:hover {
+  background-color: #2980b9;
+}
+
+/* Page-specific styles */
+.features, .examples, .about-content, .item-details {
+  margin: 20px 0;
+}
+
+.features ul, .examples ul {
+  padding-left: 20px;
+}
+
+.loading, .not-found {
+  text-align: center;
+  padding: 40px 0;
+}
+
+.loading h2, .not-found h2 {
+  color: #3498db;
+}
+
+.route-params-explanation {
+  background-color: #f8f9fa;
+  border-left: 4px solid #3498db;
+  padding: 15px;
+  margin: 20px 0;
+}
+
+/* Footer Styles */
+footer {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+  color: #7f8c8d;
+  font-size: 0.9em;
+}
+
+footer a {
+  color: #3498db;
+  text-decoration: none;
+}
+
+footer a:hover {
+  text-decoration: underline;
+}

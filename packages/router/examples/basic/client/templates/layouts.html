@@ -1,0 +1,65 @@
+<!--
+  Main Layout Template - koad:io-router Example
+
+  This template defines the main layout structure for all pages in the application.
+  The koad:io-router package uses layouts to provide a consistent structure across
+  different routes while only changing the content in the yield regions.
+-->
+<template name="mainLayout">
+  <div class="container">
+    <header>
+      <h1>koad:io-router Example</h1>
+
+      <!-- Navigation menu -->
+      <nav>
+        <ul>
+          <li><a href="{{pathFor 'home'}}">Home</a></li>
+          <li><a href="{{pathFor 'about'}}">About</a></li>
+          <li><a href="{{pathFor 'item' _id='example'}}">Example Item</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <main>
+      <!--
+        The {{> yield}} helper is a special placeholder that gets replaced with
+        the template for the current route.
+      -->
+      {{> yield}}
+    </main>
+
+    <footer>
+      <p>
+        Learn more about the
+        <a href="https://github.com/koadic/koad-io-router" target="_blank">koad:io-router package</a>
+      </p>
+    </footer>
+  </div>
+</template>
+
+<!--
+  Loading Template
+
+  This template is shown while data is being loaded for a route.
+  It's specified in the router configuration (loadingTemplate: 'loading').
+-->
+<template name="loading">
+  <div class="loading">
+    <h2>Loading...</h2>
+    <p>Please wait while the content is loading.</p>
+  </div>
+</template>
+
+<!--
+  Not Found Template
+
+  This template is shown when a route isn't found.
+  It's specified in the router configuration (notFoundTemplate: 'notFound').
+-->
+<template name="notFound">
+  <div class="not-found">
+    <h2>Page Not Found</h2>
+    <p>The page you requested could not be found.</p>
+    <a href="{{pathFor 'home'}}" class="btn">Return to Home</a>
+  </div>
+</template>
