@@ -1,31 +1,20 @@
 # Ignore all files in the folder
 *
 */
-!./.gitignore
-!reference.sh
-!TODO.md
+!.gitignore
 
 # Include specific command folders
+!assert
 !backup
 !browse
 !build
+!commit
 !deploy
 !gestate
+!init
+!probe
+!shell
+!spawn
 !ssh
 !start
-!probe
 !test
-!commit
-
-!init
-!init/command.sh
-!init/README.md
-
-!spawn
-!spawn/command.sh
-!spawn/README.md
-
-!assert
-!assert/datadir
-!assert/datadir/command.sh
-!assert/datadir/README.md
