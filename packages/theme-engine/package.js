@@ -2,7 +2,6 @@ Package.describe({
   name: 'koad:io-theme-engine',
   version: '3.6.9',
   summary: 'Theme engine for koad:io Meteor applications',
-  git: 'https://github.com/koad/io-theme-engine',
   documentation: 'README.md'
 });
 

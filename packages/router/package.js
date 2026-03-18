@@ -1,7 +1,7 @@
 Package.describe({
   name: 'koad:io-router',
   summary: 'Routing specifically designed for koad:io',
-  version: '3.6.9',
+  version: '3.6.9'
 });
 
 Npm.depends({

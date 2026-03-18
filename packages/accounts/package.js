@@ -1,9 +1,8 @@
 Package.describe({
   name: 'koad:io-accounts',
   version: '3.6.9',
-  summary: '',
-  git: '',
-  documentation: null
+  summary: 'Account management with roles, invitations, and authentication for koad:io applications',
+  documentation: 'README.md'
 });
 
 Package.onUse(function(api) {

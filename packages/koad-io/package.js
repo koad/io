@@ -1,9 +1,7 @@
 Package.describe({
   name: 'koad:io',
   version: '8.8.8',
-  summary: 'Main koad:io package providing core functionality for koad-io meteor apps',
-  git: 'https://github.com/koad/io',
-  documentation: 'https://book.koad.sh/'
+  summary: 'Main koad:io package providing core functionality for koad-io meteor apps'
 });
 
 Package.onUse(function(api) {
