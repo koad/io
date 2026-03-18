@@ -1,0 +1,7 @@
+# Ignore all files in the folder
+*
+*/
+!.gitignore
+
+# Include specific command folders
+!datadir
