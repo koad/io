@@ -5,6 +5,7 @@ Review the currently staged files and craft a git commit message that is meaning
 Focus on the *why* behind the changes, not just what was mechanically modified. 
 The subject line should be clear and concise (under 72 characters). 
 Do not include any commentary or explanation outside of the commit message itself. 
+If there are no staged files, then do nothing other than say so.
 Once the message is ready, create the commit. Do not push.
 "
 
