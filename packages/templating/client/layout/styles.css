@@ -1,0 +1,230 @@
+.application-containment {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* center container - panels slide over this */
+.content-containment {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  overflow: auto;
+  overflow-x: hidden;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.content-containment.left-open {
+  transform: translateX(var(--panel-width, 280px));
+}
+
+.content-containment.right-open {
+  transform: translateX(calc(-1 * var(--panel-width, 280px)));
+}
+
+.content-containment.both-open {
+  transform: translateX(calc(var(--panel-width, 280px) - var(--panel-width, 280px)));
+}
+
+/* panel containers */
+.panel-containment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--panel-width, 280px);
+  min-width: var(--panel-min-width, 200px);
+  max-width: var(--panel-max-width, 85vw);
+  z-index: 20;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              width 0.1s ease;
+  will-change: transform;
+  overflow: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  background: var(--panel-bg, #fff);
+  box-shadow: var(--panel-shadow, 2px 0 10px rgba(0,0,0,0.15));
+}
+
+.panel-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 25;
+}
+
+.panel-handle:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.panel-handle:active {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* LEFT PANELS */
+.panel-containment.left {
+  left: 0;
+  transform: translateX(-100%);
+}
+
+.panel-handle.left {
+  right: 0;
+}
+
+.panel-containment.left.open {
+  transform: translateX(0);
+}
+
+/* RIGHT PANELS */
+.panel-containment.right {
+  right: 0;
+  transform: translateX(100%);
+}
+
+.panel-handle.right {
+  left: 0;
+}
+
+.panel-containment.right.open {
+  transform: translateX(0);
+}
+
+/* Panel header */
+.panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: inherit;
+  padding: var(--panel-padding, 16px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.panel-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.panel-close:focus-visible {
+  outline: 2px solid var(--focus-color, #0066cc);
+  outline-offset: 2px;
+}
+
+/* History navigation */
+.panel-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.panel-nav button {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.panel-nav button:hover:not(:disabled) {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.panel-nav button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* back-to-top link */
+.back-to-top {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: none;
+  padding: 8px 12px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  border-radius: 16px;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 10;
+}
+
+.back-to-top.show {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.8;
+}
+
+.back-to-top:hover {
+  opacity: 1;
+  transform: translateY(-2px);
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  :root {
+    --panel-width: 85vw;
+    --panel-min-width: 280px;
+    --panel-max-width: 85vw;
+  }
+
+  .panel-handle {
+    display: none;
+  }
+
+  .back-to-top {
+    bottom: 24px;
+    right: 24px;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .content-containment,
+  .panel-containment,
+  .back-to-top {
+    transition: none;
+  }
+}
+
+/* Focus management for accessibility */
+.panel-containment:focus-within {
+  z-index: 22;
+}
+
+/* Print styles */
+@media print {
+  .panel-containment,
+  .back-to-top {
+    display: none !important;
+  }
+
+  .content-containment {
+    transform: none !important;
+  }
+}
