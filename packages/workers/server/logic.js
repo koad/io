@@ -643,15 +643,61 @@ koad.workers.start = async function(config) {
 // process.on('SIGINT', shutdownHandler);
 
 // Handle uncaught errors
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', async (error) => {
 	log.error(`[uncaughtException] ${error.message}`);
 	log.error(`[uncaughtException] Stack: ${error.stack}`);
-	// Don't exit immediately, let other handlers run
+
+	for (const [service, data] of koad.workers._activeIntervals.entries()) {
+		try {
+			await WorkerProcesses.updateAsync(data.workerId, {
+				$set: {
+					insane: true,
+					state: 'error',
+					lastError: new Date()
+				},
+				$push: {
+					errors: {
+						message: error.message.toString(),
+						stack: error.stack,
+						timestamp: new Date(),
+						retryAttempt: 0,
+						type: 'uncaughtException'
+					}
+				}
+			});
+			log.error(`[uncaughtException] Worker ${service} marked as insane`);
+		} catch (updateError) {
+			log.error(`[uncaughtException] Failed to mark worker ${service} as insane: ${updateError.message}`);
+		}
+	}
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', async (reason, promise) => {
 	log.error(`[unhandledRejection] Reason: ${reason}`);
-	log.error(`[unhandledRejection] Promise: ${promise}`);
+
+	for (const [service, data] of koad.workers._activeIntervals.entries()) {
+		try {
+			await WorkerProcesses.updateAsync(data.workerId, {
+				$set: {
+					insane: true,
+					state: 'error',
+					lastError: new Date()
+				},
+				$push: {
+					errors: {
+						message: String(reason),
+						stack: reason?.stack || 'No stack trace',
+						timestamp: new Date(),
+						retryAttempt: 0,
+						type: 'unhandledRejection'
+					}
+				}
+			});
+			log.error(`[unhandledRejection] Worker ${service} marked as insane`);
+		} catch (updateError) {
+			log.error(`[unhandledRejection] Failed to mark worker ${service} as insane: ${updateError.message}`);
+		}
+	}
 });
 
 /**
