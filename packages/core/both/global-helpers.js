@@ -31,6 +31,20 @@ DENY = deny();
 if(!koad.calculate) koad.calculate = {};
 if(!koad.generate) koad.generate = {};
 
+koad.generate.handle = function(str) {
+    return str.toLowerCase().replace(/[^a-z0-9]/g, "")
+}
+
+const EASILY_RECOGNIZABLE = "23456789ABCDEFGHJKLMNPQRSTWXYZabcdefghijkmnopqrstuvwxyz";
+koad.generate.cid = function(e) {
+    const handle = koad.generate.handle(e);
+    const crypto = require('crypto');
+    const digest = crypto.createHash("sha256").update(handle).digest();
+    let cid = "";
+    for (let i = 0; i < 17; i++) cid += EASILY_RECOGNIZABLE[digest[i] % EASILY_RECOGNIZABLE.length];
+    return cid
+}
+
 koad.generate.uuid = function() {
   return Random.id();
 };

@@ -94,8 +94,6 @@ Package.onUse(function(api) {
 		"server/counters.js",
 		"server/search.js",
 		"server/cron.js",
-		"server/sanitation.js",
-		"server/database-indexes.js",
 	], "server");
 
 	api.addFiles([
