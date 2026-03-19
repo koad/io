@@ -124,28 +124,33 @@ Meteor.setTimeout(() => {
 		return;
 	}
 
-	const sessionData = koad.sessions.find({ _id: sessionId });
-	
-	if (!sessionData) {
-		console.error('[dataport] No session data found, cannot attach to dataport');
-		return;
-	}
-
-	koad.internals.upstart = new Date();
-
-	sessionData.observeChanges({
-		added: function (id) {
-			if (DEBUG) console.log(`[dataport] Attached to session [${id}], observing changes`);
-		},
+	Tracker.autorun(() => {
+		const sessionData = ApplicationSessions.find({ _id: sessionId });
 		
-		changed: function (id, changedFields) {
-			if (DEBUG) console.log(`[dataport] Session [${id}] updated:`, Object.keys(changedFields));
-			manageUserAuthenticationState(id, changedFields);
-		},
-		
-		removed: function (id) {
-			console.warn(`[dataport] Session [${id}] removed - connection may have closed`);
+		if (!sessionData.count()) {
+			return;
 		}
+
+		if (koad.internals.upstart) {
+			return;
+		}
+
+		koad.internals.upstart = new Date();
+
+		sessionData.observeChanges({
+			added: function (id) {
+				if (DEBUG) console.log(`[dataport] Attached to session [${id}], observing changes`);
+			},
+			
+			changed: function (id, changedFields) {
+				if (DEBUG) console.log(`[dataport] Session [${id}] updated:`, Object.keys(changedFields));
+				manageUserAuthenticationState(id, changedFields);
+			},
+			
+			removed: function (id) {
+				console.warn(`[dataport] Session [${id}] removed - connection may have closed`);
+			}
+		});
 	});
 }, 1600);
 

@@ -28,7 +28,6 @@ Package.onUse(function(api) {
 		'server/on-user-login.js',
 		'server/invitations.js',
 		'server/rate-limiting.js',
-		'server/database-indexes.js',
 	], 'server');
 
   // api.export('Accounts');
