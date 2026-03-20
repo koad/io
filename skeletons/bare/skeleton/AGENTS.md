@@ -1,10 +1,3 @@
-Got it — I can make `AGENTS.md` enforce **Plan Mode** during Question Period so nothing gets written or modified until it’s explicitly ended. Here’s a fully-formed, ready-to-drop version for your skeleton, including the feature template and the “no context.md” handling:
-
----
-
-# **AGENTS.md** – Agent Instruction Set
-
-```md id="agents-md"
 # AGENTS.md – Context-Driven Agent Workflow
 
 ## 1. Skeleton Loading
@@ -79,7 +72,6 @@ Got it — I can make `AGENTS.md` enforce **Plan Mode** during Question Period s
 4. Resolve all ambiguities; confirm feature list completeness.
 5. Declare satisfaction → exit Question Period.
 6. Enter Build/Specialist Mode to implement features incrementally.
-```
 
 
 # koad:io Development Environment
