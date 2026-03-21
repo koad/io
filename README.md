@@ -556,8 +556,3 @@ P.S.  somebody somewhere, sometime, will create a voice controller for this,. so
 
 
 /koad
-
-
-### License
-
-koad-io is licensed under the GPL License.
