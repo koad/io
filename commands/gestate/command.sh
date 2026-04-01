@@ -113,6 +113,35 @@ mkdir -p $DATADIR/archive && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/a
 mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/keybase"
 [ ! -v $DEBUG ] && echo "[[ gestation output locations suppressed ]]" && echo
 
+echo "Writing .gitignore to protect private keys from accidental commits"
+cat > $DATADIR/.gitignore << GITIGNORE
+# Private keys — never commit
+id/ed25519
+id/ecdsa
+id/rsa
+id/dsa
+
+# SSL private keys
+ssl/master-curve.pem
+ssl/device-curve.pem
+ssl/relay-curve.pem
+ssl/session.pem
+
+# Runtime
+proc/
+var/
+home/${ENTITY}/.cache/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+GITIGNORE
+echo "wrote .gitignore: $DATADIR/.gitignore"
+echo && sleep 1 & spinner $!
+
 [[ $MOTHER ]] && sleep 1 & spinner $!
 [[ $MOTHER ]] && echo "cloning genes from mother $MOTHER";
 [[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/skeletons ]] && cp -r $HOME/.$MOTHER/skeletons $DATADIR/  & spinner $! && echo "cloned mother $MOTHER's skeletons to $HOME/.ENTITY/skeletons";
