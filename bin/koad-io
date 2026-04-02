@@ -24,8 +24,16 @@ export CWD=$PWD
 
 [[ $9 ]] && echo 'You have reached the limits here, sorry -- too many arguments.' && exit 68
 
-# ensure we have arguments to parse, else run the executed-without-arguments hook.  
-[[ $# -eq 0 ]] && exec $HOME/.koad-io/hooks/executed-without-arguments.sh && exit 64;
+# ensure we have arguments to parse, else run the executed-without-arguments hook.
+# waterfall: entity hook > CWD hook > global hook
+if [[ $# -eq 0 ]]; then
+  HOOK_NAME="executed-without-arguments.sh"
+  if   [[ -n "$ENTITY" ]] && [[ -f "$HOME/.$ENTITY/hooks/$HOOK_NAME" ]];  then exec "$HOME/.$ENTITY/hooks/$HOOK_NAME";
+  elif [[ -f "$PWD/hooks/$HOOK_NAME" ]];                                   then exec "$PWD/hooks/$HOOK_NAME";
+  elif [[ -f "$HOME/.koad-io/hooks/$HOOK_NAME" ]];                         then exec "$HOME/.koad-io/hooks/$HOOK_NAME";
+  else echo "no hook found for: $HOOK_NAME" && exit 64;
+  fi
+fi
 
 # ack
 echo "--koad-io [$ENTITY] $1 start--"
