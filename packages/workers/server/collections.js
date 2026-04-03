@@ -21,10 +21,10 @@ WorkerProcesses.allow({
 
 
 // Create indexes for efficient queries
-Meteor.startup(function() {
-  WorkerProcesses.createIndex({ service: 1, instance: 1 }, { unique: true });
-  WorkerProcesses.createIndex({ lastHeartbeat: 1 });
-  WorkerProcesses.createIndex({ claimedBy: 1 });
-  WorkerProcesses.createIndex({ enabled: 1, insane: 1 });
-});
+// Meteor.startup(function() {
+//   WorkerProcesses.createIndex({ service: 1, instance: 1 }, { unique: true });
+//   WorkerProcesses.createIndex({ lastHeartbeat: 1 });
+//   WorkerProcesses.createIndex({ claimedBy: 1 });
+//   WorkerProcesses.createIndex({ enabled: 1, insane: 1 });
+// });
 
