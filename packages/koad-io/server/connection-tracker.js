@@ -30,12 +30,13 @@ var geoip = require('geoip-lite');
  */
 Meteor.startup(async () => {
 	const serverStartTime = new Date();
-	
+
 	// Find all sessions that were open when server stopped
 	// (established but not closed, older than this server instance, and from this instance)
 	// IMPORTANT: Filter by instance to handle multiple koad:io apps sharing same MongoDB
 	const orphanedSessions = await ApplicationSessions.find({
 		closed: { $exists: false },
+		orphanedAt: { $exists: false },
 		established: { $lt: serverStartTime },
 		instance: Meteor.instance
 	}).fetchAsync();
