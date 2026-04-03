@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# think — local inference via ollama on fourty4
+# think — raw one-liner for quick local inference via ollama on fourty4
+#
+# NOTE: Not for entity work. Use OpenClaw (port 18789) for anything identity-aware
+# or session-context-aware. This hits ollama directly with no harness integration.
 #
 # Usage:
 #   think "your prompt"
