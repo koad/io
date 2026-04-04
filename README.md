@@ -320,6 +320,63 @@ git clone https://github.com/koad/io.git ~/.koad-io && echo -e "\n\n[ -d ~/.koad
 
 ---
 
+### macOS Install (zsh)
+
+macOS uses **zsh** by default. Profile file is `~/.zshrc`, not `~/.bashrc`.
+
+**1. Install nvm (Node Version Manager):**
+
+```zsh
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+```
+
+nvm appends itself to `~/.zshrc` automatically. Reload your shell:
+
+```zsh
+source ~/.zshrc
+```
+
+**2. Install Node.js and Claude Code:**
+
+```zsh
+nvm install 24
+nvm use 24
+npm install -g @anthropic-ai/claude-code
+```
+
+Claude Code will be available at `~/.nvm/versions/node/<version>/bin/claude`.
+
+**3. Clone koad:io and add to PATH:**
+
+```zsh
+git clone https://github.com/koad/io.git ~/.koad-io
+echo '\n[ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin' >> ~/.zshrc
+source ~/.zshrc
+```
+
+One-liner install (macOS/zsh):
+
+```zsh
+git clone https://github.com/koad/io.git ~/.koad-io && echo '\n[ -d ~/.koad-io/bin ] && export PATH=$PATH:$HOME/.koad-io/bin' >> ~/.zshrc && export PATH=$PATH:$HOME/.koad-io/bin
+```
+
+**4. Verify the install:**
+
+```zsh
+which koad-io       # should show ~/.koad-io/bin/koad-io
+koad-io --version
+claude --version    # confirm Claude Code is accessible
+```
+
+**macOS gotchas:**
+
+- **Homebrew PATH**: If you use Homebrew (`/opt/homebrew/bin`), it's added to `~/.zshrc` by the Homebrew installer. No manual action needed, but ensure it appears before the nvm block.
+- **Apple Silicon (M1/M2/M3)**: Homebrew installs to `/opt/homebrew/` (not `/usr/local/`). This is already handled by the Homebrew installer.
+- **nvm + zsh**: If `nvm` isn't found after install, check that `~/.zshrc` contains the nvm init block and run `source ~/.zshrc`.
+- **System node conflict**: macOS may ship a system Node.js or have one from Homebrew. Always use `nvm use <version>` to ensure the correct Node.js is active. Run `which node` to confirm you're using the nvm-managed version.
+
+---
+
 ## 👤 Create Your First Entity
 
 ### Option 1: Clone Alice (Recommended)
