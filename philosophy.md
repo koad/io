@@ -91,6 +91,18 @@ Deliverables include both:
 
 The entity becomes the living documentation, the operator, the institutional memory.
 
+### 9. The Directory Is the Brief
+
+Context is not something you supply at invocation time. It is where you stand.
+
+The operating system has always tracked this: `$CWD`, the current working directory, flows automatically into every process that spawns. koad:io exposes that fact. Every entity hook reads `$CWD/PRIMER.md` before the entity forms a single thought.
+
+The result: you type one word. The entity arrives oriented to the folder you were standing in. Not because you configured it. Because you built the structure.
+
+PRIMER.md is not documentation. It is ambient intelligence infrastructure. The work you invest in describing where you are pays back every time an entity is invoked there. This is **proof of work in the original sense** — accumulated understanding, embedded in structure, readable by any mind willing to look. No extra setup. No ceremony. Stand in the folder; the folder speaks.
+
+**How to apply:** Every project directory that gets entity attention should have a PRIMER.md. Keep it current. The entity reads it cold — write for someone who has never seen this project but needs to be productive in thirty seconds.
+
 
 ## The Vision
 
