@@ -4,8 +4,15 @@ set -euo pipefail
 # ~/.koad-io/hooks/executed-without-arguments.sh
 #
 # Default hook — invoked when an entity command is called with no arguments.
-# Opens an interactive Claude Code session for the user, or runs a prompt
+# Opens an interactive AI session for the user, or runs a prompt
 # non-interactively when PROMPT= is set (entity-to-entity orchestration).
+#
+# ── HARNESS ──────────────────────────────────────────────────────────────────
+#
+#   Set KOAD_IO_ENTITY_HARNESS in ~/.koad-io/.env or ~/.$ENTITY/.env:
+#
+#     KOAD_IO_ENTITY_HARNESS=opencode   # default — free LLMs, try before buy
+#     KOAD_IO_ENTITY_HARNESS=claude     # Claude Code — team entities use this
 #
 # ── PORTABLE vs ROOTED ───────────────────────────────────────────────────────
 #
@@ -22,7 +29,7 @@ set -euo pipefail
 #   For most cases, setting variables in ~/.$ENTITY/.env is enough:
 #
 #     ENTITY_HOST=wonderland          # machine the entity lives on
-#     REMOTE_CLAUDE_BIN=...           # full path to claude on that machine
+#     REMOTE_HARNESS_BIN=...          # full path to harness binary on that machine
 #     REMOTE_NVM_INIT=...             # PATH setup command (macOS / NVM hosts)
 #
 #   For custom behavior beyond what variables allow, copy and edit the hook:
@@ -35,8 +42,8 @@ set -euo pipefail
 # ── PERMISSION POLICY ────────────────────────────────────────────────────────
 #
 #   Interactive (no PROMPT set — a user is at the keyboard):
-#     Never use --dangerously-skip-permissions. Claude will ask for approval
-#     on sensitive actions. That is the safety net. Do not remove it.
+#     Never use --dangerously-skip-permissions. The harness will ask for
+#     approval on sensitive actions. That is the safety net. Do not remove it.
 #
 #   Non-interactive (PROMPT= set — automated orchestration call):
 #     --dangerously-skip-permissions is acceptable. There is no user present
@@ -56,12 +63,16 @@ source "$HOME/.${ENTITY:?ENTITY not set}/.env" 2>/dev/null || true
 ENTITY_DIR="${ENTITY_DIR:-$HOME/.$ENTITY}"
 CALL_DIR="${CWD:-$PWD}"
 
+# Harness selection — opencode is the framework default (free LLMs, no API key)
+# Team entities set KOAD_IO_ENTITY_HARNESS=claude in their .env
+KOAD_IO_ENTITY_HARNESS="${KOAD_IO_ENTITY_HARNESS:-opencode}"
+
 # Rooted entity: set ENTITY_HOST to the machine this entity lives on.
 # Leave unset for portable entities.
 ENTITY_HOST="${ENTITY_HOST:-}"
 
 # For hosts with non-standard PATH (e.g. macOS + NVM):
-REMOTE_CLAUDE_BIN="${REMOTE_CLAUDE_BIN:-claude}"
+REMOTE_HARNESS_BIN="${REMOTE_HARNESS_BIN:-$KOAD_IO_ENTITY_HARNESS}"
 REMOTE_NVM_INIT="${REMOTE_NVM_INIT:-}"
 
 LOCKFILE="/tmp/entity-${ENTITY}.lock"
@@ -95,15 +106,33 @@ fi
 if [ -z "$PROMPT" ]; then
   if $ON_HOME_MACHINE; then
     cd "$ENTITY_DIR"
-    exec claude . --model sonnet --add-dir "$CALL_DIR"
+    case "$KOAD_IO_ENTITY_HARNESS" in
+      claude)
+        exec claude . --model sonnet --add-dir "$CALL_DIR"
+        ;;
+      opencode)
+        exec opencode --agent "$ENTITY" --model "${OPENCODE_MODEL:-}" ./
+        ;;
+      *)
+        echo "Unknown harness: $KOAD_IO_ENTITY_HARNESS" >&2
+        exit 1
+        ;;
+    esac
   else
     # Rooted entity: open interactive session on home machine
     exec ssh -t "$ENTITY_HOST" \
-      "${REMOTE_PREFIX}cd \$HOME/.$ENTITY && $REMOTE_CLAUDE_BIN . --model sonnet"
+      "${REMOTE_PREFIX}cd \$HOME/.$ENTITY && KOAD_IO_ENTITY_HARNESS=$KOAD_IO_ENTITY_HARNESS $REMOTE_HARNESS_BIN"
   fi
 fi
 
 # ── Non-interactive path — PROMPT set, orchestration call ────────────────────
+# opencode does not support non-interactive mode — fall back to claude
+if [ "$KOAD_IO_ENTITY_HARNESS" = "opencode" ]; then
+  EFFECTIVE_HARNESS=claude
+else
+  EFFECTIVE_HARNESS="$KOAD_IO_ENTITY_HARNESS"
+fi
+
 if [ -f "$LOCKFILE" ]; then
   LOCKED_PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
   if [ -n "$LOCKED_PID" ] && kill -0 "$LOCKED_PID" 2>/dev/null; then
@@ -116,12 +145,20 @@ trap 'rm -f "$LOCKFILE"' EXIT
 
 if $ON_HOME_MACHINE; then
   cd "$ENTITY_DIR"
-  claude --model sonnet --dangerously-skip-permissions --output-format=json \
-    -p "$PROMPT" 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))"
+  case "$EFFECTIVE_HARNESS" in
+    claude)
+      claude --model sonnet --dangerously-skip-permissions --output-format=json \
+        -p "$PROMPT" 2>/dev/null \
+        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))"
+      ;;
+    *)
+      echo "Unknown harness for non-interactive mode: $EFFECTIVE_HARNESS" >&2
+      exit 1
+      ;;
+  esac
 else
   ENCODED=$(printf '%s' "$PROMPT" | base64 -w0 2>/dev/null || printf '%s' "$PROMPT" | base64)
   ssh "$ENTITY_HOST" \
-    "${REMOTE_PREFIX}cd \$HOME/.$ENTITY && DECODED=\$(echo '$ENCODED' | base64 -d) && $REMOTE_CLAUDE_BIN --model sonnet --dangerously-skip-permissions --output-format=json -p \"\$DECODED\" 2>/dev/null" \
+    "${REMOTE_PREFIX}cd \$HOME/.$ENTITY && DECODED=\$(echo '$ENCODED' | base64 -d) && $REMOTE_HARNESS_BIN --model sonnet --dangerously-skip-permissions --output-format=json -p \"\$DECODED\" 2>/dev/null" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))"
 fi
