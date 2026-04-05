@@ -3,5 +3,6 @@
 !./.gitignore
 
 !README.md
+!PRIMER.md
 !entity-upstart.sh
 !executed-without-arguments.sh
