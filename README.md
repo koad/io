@@ -220,8 +220,9 @@ Every command execution goes through a deterministic path of evaluation:
 
 2. **No arguments?**
    → Run `hooks/executed-without-arguments.sh`
-   → Launches: `opencode --agent "$ENTITY" --model "$OPENCODE_MODEL" ./`
-   → This opens the entity as an AI agent in opencode!
+   → Harness selected by `KOAD_IO_ENTITY_HARNESS` (default: `opencode`, team entities set `claude`)
+   → Opens the entity as an interactive AI session — or runs non-interactively when `PROMPT=` is set
+   → See `hooks/PRIMER.md` for full documentation
 
 3. **Set environment:**
 
