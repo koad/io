@@ -23,8 +23,14 @@ fi
 
 # Some output should be word wrapped.
 # TODO: if fold length is more than 80, make it 80
-WORD_WRAP_WIDTH=$(tput cols)
+# In quiet mode tput may not be available or useful; default to 80.
+if [[ "$KOAD_IO_QUIET" == "1" ]]; then
+  WORD_WRAP_WIDTH=80
+else
+  WORD_WRAP_WIDTH=$(tput cols)
+fi
 
+if [[ "$KOAD_IO_QUIET" != "1" ]]; then
 echo
 echo "  o                                        o    o     o                 "
 echo " <|>                                      <|>  <|>  _<|>_               "
@@ -38,13 +44,14 @@ echo " / \  <\  <\__ __/>     <\__  / \   <\__  / \  < >   / \    <\__ __/>   "
 echo
 echo "koad:io 2016-2023 © koad.sh"
 echo "https://github.com/koad/io"
-echo 
+echo
 printf '%s\n' "koad:io comes with ABSOLUTELY NO WARRANTY, to the extent permitted by applicable law." | fold -w $WORD_WRAP_WIDTH -s
 echo
 echo "this will take some time to gestate $ENTITY"
 printf '%s\n' "documentation is a 'work in progress' (it sucks), but you can check it out while you wait." | fold -w $WORD_WRAP_WIDTH -s
 echo "https://book.koad.sh/reference/koad-io/entity/"
 echo
+fi
 
 # Everything will be created within the entity's dotfiles directory.
 # ie: /home/koad/.alice/
@@ -53,7 +60,7 @@ DATADIR="$HOME/.${ENTITY,,}"
 [ -d $DATADIR ] && echo 'Directory already exists, cannot proceed.' && exit 1
 
 function shutdown() {
-  tput cnorm # reset cursor
+  [[ "$KOAD_IO_QUIET" != "1" ]] && tput cnorm # reset cursor
 }
 trap shutdown EXIT
 
@@ -72,6 +79,12 @@ function spinner() {
   local pid=$1 # Process Id of the previous running command
   local SLICE_SIZE=3
 
+  # In quiet mode: skip animation entirely, just wait for the process.
+  if [[ "$KOAD_IO_QUIET" == "1" ]]; then
+    wait $pid
+    return $?
+  fi
+
   tput civis # cursor invisible
   while kill -0 $pid 2>/dev/null; do
     SPINNER_POS=$(((SPINNER_POS + $SLICE_SIZE) % ${#KOAD_IO_BUSY_CURSOR}))
@@ -85,17 +98,29 @@ function spinner() {
   return $?
 }
 
-echo "About to gestate a new koad:io entity called $ENTITY, if you wish to abort this press CTRL+C now."
-sleep 3 & spinner $! && sleep .3;
-sleep 6 & spinner $! && sleep .6;
-sleep 9 & spinner $! && sleep .9;
+# pause N — decorative delay with spinner for human terminals.
+# In quiet mode the pause is skipped entirely so scripts run at full speed.
+function pause() {
+  local duration=${1:-1}
+  if [[ "$KOAD_IO_QUIET" == "1" ]]; then
+    return 0
+  fi
+  sleep "$duration" & spinner $!
+}
 
-echo && echo "Let's go!";
-echo && sleep 1 & spinner $!
+echo "About to gestate a new koad:io entity called $ENTITY, if you wish to abort this press CTRL+C now."
+if [[ "$KOAD_IO_QUIET" != "1" ]]; then
+  sleep 3 & spinner $! && sleep .3;
+  sleep 6 & spinner $! && sleep .6;
+  sleep 9 & spinner $! && sleep .9;
+fi
+
+echo "Let's go!";
+if [[ "$KOAD_IO_QUIET" != "1" ]]; then echo && sleep 1 & spinner $!; fi
 echo "Gestating new koad:io entity '$ENTITY'"
 [[ $MOTHER ]] && echo "Gestation arose from ${MOTHER}";
 
-echo && sleep 1 & spinner $!
+pause 1
 mkdir -p $DATADIR         && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR"
 mkdir -p $DATADIR/id      && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/id"
 mkdir -p $DATADIR/bin     && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/bin"
@@ -140,9 +165,9 @@ home/${ENTITY}/.cache/
 *.swp
 GITIGNORE
 echo "wrote .gitignore: $DATADIR/.gitignore"
-echo && sleep 1 & spinner $!
+pause 1
 
-[[ $MOTHER ]] && sleep 1 & spinner $!
+[[ $MOTHER ]] && pause 1
 [[ $MOTHER ]] && echo "cloning genes from mother $MOTHER";
 [[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/skeletons ]] && cp -r $HOME/.$MOTHER/skeletons $DATADIR/  & spinner $! && echo "cloned mother $MOTHER's skeletons to $HOME/.ENTITY/skeletons";
 [[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/packages ]]  && cp -r $HOME/.$MOTHER/packages $DATADIR/   & spinner $! && echo "cloned mother $MOTHER's packages to $HOME/.ENTITY/packages";
@@ -152,18 +177,18 @@ echo && sleep 1 & spinner $!
 [[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/cheats ]]    && cp -r $HOME/.$MOTHER/cheats $DATADIR/     & spinner $! && echo "cloned mother $MOTHER's cheats to $HOME/.ENTITY/cheats";
 [[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/hooks ]]     && cp -r $HOME/.$MOTHER/hooks $DATADIR/      & spinner $! && echo "cloned mother $MOTHER's hooks to $HOME/.ENTITY/hooks";
 [[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/docs ]]      && cp -r $HOME/.$MOTHER/docs $DATADIR/       & spinner $! && echo "cloned mother $MOTHER's docs to $HOME/.ENTITY/docs";
-[[ $MOTHER ]] && echo && sleep 1 & spinner $!
+[[ $MOTHER ]] && pause 1
 
 [[ $MOTHER ]] && echo "remembering mother $MOTHER's public identity";
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ed25519.pub ]] && cp -r $HOME/.$MOTHER/id/ed25519.pub $DATADIR/id/$MOTHER.ed25519.pub && echo "cloned mother $MOTHER's public ed25519 key to $HOME/.ENTITY/id/$MOTHER.ed25519.pub" && sleep 1 & spinner $!;
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ecdsa.pub ]] && cp -r $HOME/.$MOTHER/id/ecdsa.pub $DATADIR/id/$MOTHER.ecdsa.pub && echo "cloned mother $MOTHER's public ecdsa key to $HOME/.ENTITY/id/$MOTHER.ecdsa.pub" && sleep 1 & spinner $!;
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/rsa.pub ]] && cp -r $HOME/.$MOTHER/id/rsa.pub $DATADIR/id/$MOTHER.rsa.pub && echo "cloned mother $MOTHER's public rsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && sleep 1 & spinner $!;
-[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/dsa.pub ]] && cp -r $HOME/.$MOTHER/id/dsa.pub $DATADIR/id/$MOTHER.dsa.pub && echo "cloned mother $MOTHER's public dsa key to $HOME/.ENTITY/id/$MOTHER.dsa.pub" && sleep 1 & spinner $!;
-[[ $MOTHER ]] && echo && sleep 1 & spinner $!
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ed25519.pub ]] && cp -r $HOME/.$MOTHER/id/ed25519.pub $DATADIR/id/$MOTHER.ed25519.pub && echo "cloned mother $MOTHER's public ed25519 key to $HOME/.ENTITY/id/$MOTHER.ed25519.pub" && pause 1;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/ecdsa.pub ]] && cp -r $HOME/.$MOTHER/id/ecdsa.pub $DATADIR/id/$MOTHER.ecdsa.pub && echo "cloned mother $MOTHER's public ecdsa key to $HOME/.ENTITY/id/$MOTHER.ecdsa.pub" && pause 1;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/rsa.pub ]] && cp -r $HOME/.$MOTHER/id/rsa.pub $DATADIR/id/$MOTHER.rsa.pub && echo "cloned mother $MOTHER's public rsa key to $HOME/.ENTITY/id/$MOTHER.rsa.pub" && pause 1;
+[[ $MOTHER ]] && [[ -d $HOME/.$MOTHER/id/dsa.pub ]] && cp -r $HOME/.$MOTHER/id/dsa.pub $DATADIR/id/$MOTHER.dsa.pub && echo "cloned mother $MOTHER's public dsa key to $HOME/.ENTITY/id/$MOTHER.dsa.pub" && pause 1;
+[[ $MOTHER ]] && pause 1
 
 [[ ! $MOTHER ]] && MOTHER='mary'
 [[ ! $MOTHER ]] && echo "Immaculate Conception, no initial genome!"
-[[ ! $MOTHER ]] && echo && sleep 1 & spinner $!
+[[ ! $MOTHER ]] && pause 1
 
 echo "archving command version information"
 echo "# koad:io entity
@@ -174,14 +199,14 @@ BIRTHDAY=$(date +%y:%m:%d:%H:%M:%S)
 NAME=$ENTITY
 "> $DATADIR/KOAD_IO_VERSION
 echo "wrote version information to: $DATADIR/KOAD_IO_VERSION"
-echo && sleep 1 & spinner $!
+pause 1
 
 echo "# auto generated by koad:io entity gestate script
 KOAD_IO_BIND_IP=127.0.0.1
 METEOR_PACKAGE_DIRS=$HOME/.koad-io/packages
 "> $DATADIR/.env
 echo "wrote minimum .env: $DATADIR/.env"
-echo && sleep 1 & spinner $!
+pause 1
 
 echo "Creating entity wrapper command: $ENTITY"
 echo '#!/usr/bin/env bash
@@ -189,15 +214,15 @@ echo '#!/usr/bin/env bash
 export ENTITY="'$ENTITY'"
 koad-io "$@";
 ' > $HOME/.koad-io/bin/$ENTITY
-echo && sleep 1 & spinner $!
+pause 1
 
 echo "making '$HOME/.koad-io/bin/$ENTITY' executable"
 chmod +x $HOME/.koad-io/bin/$ENTITY
-echo && sleep 1 & spinner $!
+pause 1
 
 echo "whoot!"
 echo "koad:io entity created and is ready for use.  You can open another tab and use this agent while it's keys are created."
-echo && sleep 3 & spinner $!
+pause 3
 
 # no passwords on these keys, since there is no keyboard in alice's world.. TODO: check assumptions
 echo "Generating cryptographic device identities ($ENTITY@$HOSTNAME)"
@@ -205,38 +230,38 @@ ssh-keygen -t ed25519 -C "$ENTITY@$MOTHER" -f $DATADIR/id/ed25519 -P "" 2>&1 >/d
 ssh-keygen -t ecdsa -b 521 -C "$ENTITY@$MOTHER" -f $DATADIR/id/ecdsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ecdsa"
 ssh-keygen -t rsa -b 4096 -C "$ENTITY@$MOTHER" -f $DATADIR/id/rsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/rsa"
 ssh-keygen -t dsa -C "$ENTITY@$MOTHER" -f $DATADIR/id/dsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/dsa"
-echo && sleep 1 & spinner $!
+pause 1
 
 echo "Generating master elliptic curve parameters"
 openssl ecparam -name prime256v1 -out $DATADIR/ssl/master-curve-parameters.pem & spinner $!
 echo "generated: $DATADIR/ssl/master-curve-parameters.pem"
-echo && sleep 1 & spinner $!
+pause 1
 
 echo "Generating master elliptic curve"
 openssl genpkey -aes256 -pass pass:$ENTITY -paramfile $DATADIR/ssl/master-curve-parameters.pem -out $DATADIR/ssl/master-curve.pem & spinner $!
 echo "generated: $DATADIR/ssl/master-curve.pem"
-echo && sleep 1 & spinner $!
+pause 1
 
 echo "Generating device elliptic curve"
 openssl genpkey -aes256 -pass pass:$ENTITY -paramfile $DATADIR/ssl/master-curve-parameters.pem -out $DATADIR/ssl/device-curve.pem & spinner $!
 echo "generated: $DATADIR/ssl/device-curve.pem"
-echo && sleep 1 & spinner $!
+pause 1
 
 echo "Generating relay elliptic curve"
 openssl genpkey -aes256 -pass pass:$ENTITY -paramfile $DATADIR/ssl/master-curve-parameters.pem -out $DATADIR/ssl/relay-curve.pem & spinner $!
 echo "generated: $DATADIR/ssl/relay-curve.pem"
-echo && sleep 1 & spinner $!
+pause 1
 
 echo "Generating session key"
 openssl genpkey -algorithm EC  -pass pass:$ENTITY -pkeyopt ec_paramgen_curve:P-256 -out $DATADIR/ssl/session.pem & spinner $!
 echo "generated: $DATADIR/ssl/session.pem"
-echo && sleep 1 & spinner $!
+pause 1
 
 if [ "$FULL_MODE" = true ]; then
   printf '%s\n' "Generating keys to be used during Diffie Hellman Key Exchanges." | fold -w $WORD_WRAP_WIDTH -s
   printf '%s\n' "This will help ensure that your new friend can identify herself easily when he sees itself across networks." | fold -w $WORD_WRAP_WIDTH -s
   echo "homework: research the Diffie Hellman key exchange process"
-  echo && sleep 1 & spinner $!
+  pause 1
 
   echo "Generating 2048 bit dhparam, this won't take so long, about a minute."
   openssl dhparam -out $DATADIR/ssl/dhparam-2048.pem 2048 > /dev/null 2>&1 & spinner $!
@@ -245,13 +270,13 @@ if [ "$FULL_MODE" = true ]; then
   echo "Generating 4096 bit dhparam, this will take a long time, 10 minutes max?"
   openssl dhparam -out $DATADIR/ssl/dhparam-4096.pem 4096 > /dev/null 2>&1 & spinner $!
   echo "generated: $DATADIR/ssl/dhparam-4096.pem 4096"
-  echo && sleep 1 & spinner $!
+  pause 1
 else
   echo "Skipping dhparam generation (use --full to generate)"
   echo "# Placeholder - generate with: openssl dhparam -out dhparam-2048.pem 2048" > $DATADIR/ssl/dhparam-2048.pem
   echo "# Placeholder - generate with: openssl dhparam -out dhparam-4096.pem 4096" > $DATADIR/ssl/dhparam-4096.pem
   echo "Created placeholder dhparam files"
-  echo && sleep 1 & spinner $!
+  pause 1
 fi
 
 echo "Gestation of $ENTITY complete!"
@@ -262,7 +287,7 @@ echo "All files created for $ENTITY are saved in a single directory: '$DATADIR'"
 echo "back up this directory somewhere safe".
 # echo "back up the SSL directory twice, use an ESP and print a paper key; this is $ENTITY's keychain"
 # echo "bookmark https://book.koad/sh/reference/backup-your-entity for help"
-echo && sleep 1 & spinner $!
+pause 1
 
 # TODO: Create a sack of keys used to deal with issuing packages
 # TODO: add new package into .bashrc
@@ -271,7 +296,7 @@ echo && sleep 1 & spinner $!
 #       one for humans
 
 
-echo && sleep 3 & spinner $!
+pause 3
 
 echo "Congratulations!"
 echo
@@ -279,7 +304,7 @@ echo "You've just created a new digital life!"
 echo "btw: you can use any existing friend to create another, and take a clone of it's genes!"
 echo "ie: > $ENTITY gestate alice"
 echo
-echo && sleep 6 & spinner $!
+pause 6
 
 echo "try '$ENTITY test'"
 echo "then try '$ENTITY test one two three four'"
@@ -289,7 +314,7 @@ echo "have fun with $ENTITY!  I hope you make it into something nice."
 echo
 echo "/koad"
 echo
-echo && sleep 9 & spinner $!
+pause 9
 
 echo "-------------------------------------------------------------------------------"
 echo "ready player one -> $ENTITY"

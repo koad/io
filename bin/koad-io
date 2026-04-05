@@ -22,6 +22,28 @@ export CWD=$PWD
 [[ $DEBUG ]] && echo "PWD=$PWD";
 [[ $DEBUG ]] && echo "ORIG_ARGS=$1 $2 $3 $4 $5 $6 $7 $8 $8"
 
+# Detect --quiet / -q flag or KOAD_IO_QUIET env var.
+# Quiet mode suppresses spinners and ANSI decoration while keeping plain-text status output.
+# This is intended for AI sessions, scripts, and CI pipelines where animation causes noise.
+for _arg in "$@"; do
+  if [[ "$_arg" == "--quiet" || "$_arg" == "-q" ]]; then
+    export KOAD_IO_QUIET=1
+    break
+  fi
+done
+unset _arg
+
+# Strip --quiet / -q from the argument list so subcommands do not see it.
+if [[ "$KOAD_IO_QUIET" == "1" ]]; then
+  _filtered_args=()
+  for _arg in "$@"; do
+    [[ "$_arg" == "--quiet" || "$_arg" == "-q" ]] && continue
+    _filtered_args+=("$_arg")
+  done
+  set -- "${_filtered_args[@]}"
+  unset _filtered_args _arg
+fi
+
 [[ $9 ]] && echo 'You have reached the limits here, sorry -- too many arguments.' && exit 68
 
 # ensure we have arguments to parse, else run the executed-without-arguments hook.
@@ -35,10 +57,15 @@ if [[ $# -eq 0 ]]; then
   fi
 fi
 
-# ack
-echo "--koad-io [$ENTITY] $1 start--"
-echo "$0 [$# arguments]"
-echo "-"
+# ack — always emit plain-text status so callers can follow progress;
+# ANSI decoration is suppressed in quiet mode.
+if [[ "$KOAD_IO_QUIET" == "1" ]]; then
+  echo "[koad-io] start: $1 (quiet mode)"
+else
+  echo "--koad-io [$ENTITY] $1 start--"
+  echo "$0 [$# arguments]"
+  echo "-"
+fi
 echo "cascading enviroments"
 set -a
 
