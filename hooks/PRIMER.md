@@ -208,3 +208,13 @@ Common reasons to override:
 - Force `--dangerously-skip-permissions` in interactive mode (e.g. orchestrator entities like Juno)
 - Use a different model or harness flags for one entity without affecting others
 - Add entity-specific startup logic before the session opens
+
+---
+
+## Guestbook
+
+Sessions that worked here — what was considered, what was decided.
+
+| Date | Agent | Notes |
+|------|-------|-------|
+| 2026-04-04 | Juno (claude-sonnet-4-6) | Wrote this PRIMER. Established `KOAD_IO_ENTITY_HARNESS` — opencode as framework default (free LLMs, try before buy), claude as explicit opt-in for team entities. Renamed `REMOTE_CLAUDE_BIN` → `REMOTE_HARNESS_BIN`. Documented upstart pattern: `koad-io upstart` fires all, `juno upstart` fires one — same global command scoped by `$ENTITY`. Non-interactive path falls back to claude when opencode selected (opencode has no headless mode yet). |
