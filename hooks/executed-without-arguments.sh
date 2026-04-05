@@ -32,6 +32,14 @@ set -euo pipefail
 #     REMOTE_HARNESS_BIN=...          # full path to harness binary on that machine
 #     REMOTE_NVM_INIT=...             # PATH setup command (macOS / NVM hosts)
 #
+#   Caller-side override — bypass SSH routing for a single invocation:
+#
+#     FORCE_LOCAL=1 faber             # treat this machine as home, skip SSH
+#
+#   Use this when the caller has already arranged to run on the correct machine
+#   (e.g. a hook that SSH'd in and is now running locally) or when testing
+#   entity behavior without triggering remote routing.
+#
 #   For custom behavior beyond what variables allow, copy and edit the hook:
 #
 #     cp ~/.koad-io/hooks/executed-without-arguments.sh ~/.$ENTITY/hooks/
@@ -93,6 +101,13 @@ fi
 ON_HOME_MACHINE=true
 if [ -n "$ENTITY_HOST" ] && [ "$(hostname -s)" != "$ENTITY_HOST" ]; then
   ON_HOME_MACHINE=false
+fi
+
+# Caller-side override: FORCE_LOCAL=1 bypasses SSH routing entirely.
+# Use when the caller has already landed on the right machine, or when .env
+# sets ENTITY_HOST but the invoking context should run locally anyway.
+if [ "${FORCE_LOCAL:-}" = "1" ]; then
+  ON_HOME_MACHINE=true
 fi
 
 # Build remote PATH prefix for SSH calls
