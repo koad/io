@@ -1,29 +1,59 @@
 # Hooks Directory
 
-## Overview
-
-The `hooks` directory contains a collection of bash scripts designed for use with the koad:io CLI. These scripts are integral to customizing and extending the functionality of the koad:io tool.
-
-## Customization
-
-- Users are encouraged to modify these scripts to tailor the koad:io-cli experience to their specific needs.
-- Each script serves a particular purpose within the CLI, and customizing them can significantly enhance your workflow.
-
-## Guidelines for Modifying Scripts
-
-- Before modifying, familiarize yourself with the script's current function.
-- Test your changes thoroughly to ensure they don't disrupt the CLI's core functionality.
-- Keep a backup of the original script before making any changes, in case you need to revert.
+Hooks are shell scripts the koad:io framework calls at specific lifecycle points.
+Entity hooks in `~/.$ENTITY/hooks/` override these framework defaults.
 
 ---
 
-## The `executed-without-arguments.sh` hook 
+## `executed-without-arguments.sh`
 
-When the `koad-io` command is executed without any arguments, this script:
+Called when an entity command is invoked with no arguments (e.g. just typing `vulcan`).
 
-1. Checks if `dotenv-cli` is installed, and if not, prompts the user to install it.
-2. Loads an environment file specific to the entity being invoked and opens a new bash prompt with that environment. This allows for a customized environment tailored to the specific needs of the entity.
+Gives the user an interactive Claude Code session with their entity, or runs a
+non-interactive prompt when `PROMPT=` is set (orchestration between entities).
 
-For example, if a user has a koad:io entity named `alice` and uses the command `alice` without adding any arguments, the script will load the environment variables from `~/.alice/.env`, then spawn a new bash prompt with these variables set.
+### Portable vs Rooted entities
 
-This approach of dynamically setting environment variables based on the invoked entity provides a flexible and user-friendly way to manage different project/environment settings within the koad:io ecosystem.
+**Portable** entities have no fixed home machine. They run wherever they are called
+from. This is the default — no configuration needed.
+
+**Rooted** entities live on a specific machine: private headquarters, local files
+not in git, installed apps (e.g. macOS tools). They must run there regardless of
+where the command is issued from.
+
+### Configuring a rooted entity
+
+Set these in `~/.$ENTITY/.env` — no hook override needed for most cases:
+
+```bash
+ENTITY_HOST=wonderland            # hostname of the entity's home machine
+REMOTE_CLAUDE_BIN=$HOME/.nvm/versions/node/v24.14.0/bin/claude
+REMOTE_NVM_INIT=export PATH=/opt/homebrew/bin:$HOME/.nvm/versions/node/v24.14.0/bin:$PATH
+```
+
+### Overriding the hook
+
+For behavior beyond what variables allow, copy and edit:
+
+```bash
+cp ~/.koad-io/hooks/executed-without-arguments.sh ~/.$ENTITY/hooks/
+$EDITOR ~/.$ENTITY/hooks/executed-without-arguments.sh
+```
+
+The entity hook takes precedence over this framework default.
+
+### Permission policy
+
+| Mode | `--dangerously-skip-permissions` |
+|------|----------------------------------|
+| Interactive (user at keyboard) | **Never** — Claude asks for approval. That is the safety net. |
+| Non-interactive (`PROMPT=` set) | Allowed — no user present, session cannot pause to ask. |
+
+Orchestrator entities (e.g. Juno) may carry `--dangerously-skip-permissions` in
+both paths by design — override the hook explicitly to do so.
+
+---
+
+## `entity-upstart.sh`
+
+Called at system upstart. Starts the koad:io daemon and desktop UI if present.
