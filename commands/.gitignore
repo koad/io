@@ -12,6 +12,7 @@
 !deploy
 !gestate
 !init
+!io
 !probe
 !shell
 !spawn
