@@ -146,16 +146,32 @@ id/ecdsa
 id/rsa
 id/dsa
 
+# GPG revocation certificate — store offline, never commit
+id/gpg-revocation.asc
+
 # SSL private keys
 ssl/master-curve.pem
 ssl/device-curve.pem
 ssl/relay-curve.pem
 ssl/session.pem
 
+# Secrets — .env is committed (config only), .credentials is not (secrets only)
+.credentials
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+logs/*.log
+
 # Runtime
 proc/
 var/
 home/${ENTITY}/.cache/
+home/*/.bash_history
+home/*/.zsh_history
+home/*/.local/
 
 # macOS
 .DS_Store
@@ -230,6 +246,49 @@ ssh-keygen -t ed25519 -C "$ENTITY@$MOTHER" -f $DATADIR/id/ed25519 -P "" 2>&1 >/d
 ssh-keygen -t ecdsa -b 521 -C "$ENTITY@$MOTHER" -f $DATADIR/id/ecdsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/ecdsa"
 ssh-keygen -t rsa -b 4096 -C "$ENTITY@$MOTHER" -f $DATADIR/id/rsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/rsa"
 ssh-keygen -t dsa -C "$ENTITY@$MOTHER" -f $DATADIR/id/dsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/dsa"
+pause 1
+
+echo "Generating GPG identity key for $ENTITY"
+GPG_EMAIL="${ENTITY}@kingofalldata.com"
+gpg --batch --gen-key 2>/dev/null <<GPGEOF
+%no-protection
+Key-Type: RSA
+Key-Length: 4096
+Subkey-Type: RSA
+Subkey-Length: 4096
+Name-Real: $ENTITY
+Name-Email: $GPG_EMAIL
+Expire-Date: 0
+%commit
+GPGEOF
+echo "generated: GPG key for $GPG_EMAIL"
+pause 1
+
+echo "Exporting GPG public key"
+GPG_FPR=$(gpg --list-keys --with-colons "$GPG_EMAIL" 2>/dev/null | grep '^fpr' | head -1 | cut -d: -f10)
+if [ -n "$GPG_FPR" ]; then
+  gpg --export --armor "$GPG_FPR" > "$DATADIR/id/gpg.pub" 2>/dev/null
+  echo "generated: $DATADIR/id/gpg.pub (fingerprint: ${GPG_FPR:(-16)})"
+  pause 1
+
+  echo "Generating GPG revocation certificate (store this offline)"
+  gpg --batch --yes --output "$DATADIR/id/gpg-revocation.asc" \
+    --command-fd 0 --gen-revoke "$GPG_FPR" <<REVEOF 2>/dev/null
+y
+0
+
+y
+REVEOF
+  if [ -f "$DATADIR/id/gpg-revocation.asc" ]; then
+    echo "generated: $DATADIR/id/gpg-revocation.asc"
+    echo "IMPORTANT: gpg-revocation.asc is gitignored. Back it up offline separately."
+  else
+    echo "WARNING: GPG revocation cert generation failed — generate manually with:"
+    echo "  gpg --gen-revoke $GPG_FPR > $DATADIR/id/gpg-revocation.asc"
+  fi
+else
+  echo "WARNING: Could not find GPG key fingerprint — skipping revocation cert"
+fi
 pause 1
 
 echo "Generating master elliptic curve parameters"
