@@ -46,6 +46,18 @@ fi
 
 [[ $9 ]] && echo 'You have reached the limits here, sorry -- too many arguments.' && exit 68
 
+# Cascade environments BEFORE hook dispatch — hooks need entity env vars
+# (CLAUDE_CONFIG_DIR, GIT_AUTHOR_*, ENTITY_DIR, etc.)
+set -a
+[ -f "$HOME/.koad-io/.env" ] && source "$HOME/.koad-io/.env"
+[ -f "$HOME/.koad-io/.credentials" ] && source "$HOME/.koad-io/.credentials"
+if [[ -n "$ENTITY" ]]; then
+  ENTITY_LOWER="$(echo "$ENTITY" | tr '[:upper:]' '[:lower:]')"
+  [ -f "$HOME/.$ENTITY_LOWER/.env" ] && source "$HOME/.$ENTITY_LOWER/.env"
+  [ -f "$HOME/.$ENTITY_LOWER/.credentials" ] && source "$HOME/.$ENTITY_LOWER/.credentials"
+fi
+set +a
+
 # ensure we have arguments to parse, else run the executed-without-arguments hook.
 # waterfall: entity hook > CWD hook > global hook
 if [[ $# -eq 0 ]]; then
