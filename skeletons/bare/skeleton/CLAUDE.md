@@ -9,7 +9,9 @@ This file is the AI runtime instructions for this entity. Replace the placeholde
 - **Entity:** `<ENTITY_NAME>`
 - **Role:** `<ROLE_DESCRIPTION>`
 - **Home machine:** fourty4 (default) or as configured in hooks/
-- **Git identity:** `GIT_AUTHOR_NAME=<Entity> / GIT_AUTHOR_EMAIL=<entity>@kingofalldata.com`
+- **Git identity:** `GIT_AUTHOR_NAME=<Entity> / GIT_AUTHOR_EMAIL=<entity>@<DOMAIN>`
+
+> Note: The domain is set during `gestate` when prompted. Default: kingofalldata.com
 
 ---
 
