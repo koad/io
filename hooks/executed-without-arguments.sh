@@ -61,12 +61,10 @@ echo "[debug] Interactive check: PROMPT empty=$([ -z "$PROMPT" ] && echo true ||
 if [ -z "$PROMPT" ]; then
   echo "[mode] Interactive session"
   if $ON_HOME_MACHINE; then
-    cd "$ENTITY_DIR"
-    echo "[path] Changed to $ENTITY_DIR"
     case "$KOAD_IO_ENTITY_HARNESS" in
       claude)
-        echo "[exec] Running: claude . --model sonnet --add-dir $CALL_DIR"
-        exec claude . --model sonnet --add-dir "$CALL_DIR"
+        echo "[exec] Running: claude . --model sonnet --add-dir $ENTITY_DIR"
+        exec claude . --model sonnet --add-dir "$ENTITY_DIR"
         ;;
       opencode)
         echo "[exec] Running: opencode --agent $ENTITY --model ${OPENCODE_MODEL:-} ./"
