@@ -248,8 +248,12 @@ ssh-keygen -t rsa -b 4096 -C "$ENTITY@$MOTHER" -f $DATADIR/id/rsa -P "" 2>&1 >/d
 ssh-keygen -t dsa -C "$ENTITY@$MOTHER" -f $DATADIR/id/dsa -P "" 2>&1 >/dev/null & spinner $! && echo "generated: $DATADIR/id/dsa"
 pause 1
 
+# Prompt for domain (default: kingofalldata.com for backwards compatibility)
+read -p "Enter your domain [kingofalldata.com]: " ENTITY_DOMAIN
+ENTITY_DOMAIN=${ENTITY_DOMAIN:-kingofalldata.com}
+
 echo "Generating GPG identity key for $ENTITY"
-GPG_EMAIL="${ENTITY}@kingofalldata.com"
+GPG_EMAIL="${ENTITY}@${ENTITY_DOMAIN}"
 gpg --batch --gen-key 2>/dev/null <<GPGEOF
 %no-protection
 Key-Type: RSA
