@@ -57,6 +57,7 @@ else
   meteor build $BUILDDIR --directory  # Build as a local directory
 
   echo "compile the bundle"
+  chmod -R u+w $BUILDDIR/bundle
   cd $BUILDDIR/bundle/programs/server/
   npm install && npm update 
   npm install --save @babel/runtime
