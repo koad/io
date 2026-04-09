@@ -31,6 +31,10 @@ The daemon serves as the **central hub** for the koad:io ecosystem:
 │  • MongoDB management (005)              │
 │  • UI serving (006)                      │
 │  • Passenger registry (007)              │
+│  • Stateless hub (008)                   │
+│  • Entity scheduler (009)                │
+│  • Meteor shell API (010)                │
+│  • Kingdom dashboard (011)               │
 └─────────────────┬───────────────────────┘
                   │
          ZeroTier VPN
@@ -53,6 +57,10 @@ The daemon serves as the **central hub** for the koad:io ecosystem:
 | 005 | MongoDB Management | ✅ Implemented | [005-mongodb-management.md](./005-mongodb-management.md) |
 | 006 | UI Serving | ✅ Implemented | [006-ui-serving.md](./006-ui-serving.md) |
 | 007 | Passenger Registry | ✅ Implemented | [007-passenger-registry.md](./007-passenger-registry.md) |
+| 008 | Stateless Hub | 🔲 Blocked | [008-stateless-hub.md](./008-stateless-hub.md) |
+| 009 | Entity Scheduler | 🔲 Not Started | [009-entity-scheduler.md](./009-entity-scheduler.md) |
+| 010 | Meteor Shell API | 🔲 Partial | [010-meteor-shell-api.md](./010-meteor-shell-api.md) |
+| 011 | Kingdom Dashboard | 🔲 Not Started | [011-kingdom-dashboard.md](./011-kingdom-dashboard.md) |
 
 ## Feature Status Legend
 
