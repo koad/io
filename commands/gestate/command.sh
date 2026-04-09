@@ -136,6 +136,8 @@ mkdir -p $DATADIR/home    && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/h
 mkdir -p $DATADIR/media   && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/media"
 mkdir -p $DATADIR/archive && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/archive"
 mkdir -p $DATADIR/keybase && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/keybase"
+mkdir -p $DATADIR/keyring && chmod 700 $DATADIR/keyring && [[ $DEBUG ]] && echo "[gestate] creating $DATADIR/keyring"
+export GNUPGHOME=$DATADIR/keyring
 [ ! -v $DEBUG ] && echo "[[ gestation output locations suppressed ]]" && echo
 
 echo "Writing .gitignore to protect private keys from accidental commits"
@@ -148,6 +150,9 @@ id/dsa
 
 # GPG revocation certificate — store offline, never commit
 id/gpg-revocation.asc
+
+# Entity GPG keyring — private keys, never commit
+keyring/
 
 # SSL private keys
 ssl/master-curve.pem
