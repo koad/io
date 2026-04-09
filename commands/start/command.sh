@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Get the current date and time
-CURRENTDATETIME=$(date +"%Y-%m-%d-%H-%M")
+# Get the current date and time (down to seconds for log uniqueness)
+CURRENTDATETIME=$(date +"%Y-%m-%d-%H-%M-%S")
 
 # Assert valid koad:io workspace (DATADIR)
 source "$HOME/.koad-io/commands/assert/datadir/command.sh"
@@ -53,8 +53,30 @@ echo "Settings: $SETTINGS_FILE";
 echo "Listening: $KOAD_IO_BIND_IP:$KOAD_IO_PORT"
 echo "App Name: $KOAD_IO_APP_NAME"
 
+# Derive screen session name from DATADIR path
+SCREEN_NAME=$(echo "$DATADIR" | sed "s|$HOME/\.||; s|/|-|g")
+
+# Check if already running — screen first, then port
+if screen -list | grep -q "$SCREEN_NAME"; then
+    echo "Already running: screen -r $SCREEN_NAME"
+    echo "Tail log: tail -f $DATADIR/builds/latest/*.log"
+    exit 0
+fi
+
+if lsof -i :$KOAD_IO_PORT -sTCP:LISTEN &>/dev/null; then
+    echo "Port $KOAD_IO_PORT already in use (no screen found)"
+    echo "Check: lsof -i :$KOAD_IO_PORT"
+    exit 1
+fi
+
 # Set the terminal title
 echo -ne "\033]0;$ENTITY $KOAD_IO_APP_NAME on $HOSTNAME\007"
+
+# Set up log file in the build's folder
+LOGDIR="$DATADIR/builds/latest"
+LOGFILE="$LOGDIR/$CURRENTDATETIME.log"
+echo "Screen: $SCREEN_NAME"
+echo "Log: $LOGFILE"
 
 # Check if the built koad/io application exists
 if [[ -f ./builds/latest/bundle/main.js ]] && [[ $LOCAL_BUILD != "true" || ! -v LOCAL_BUILD ]] ; then
@@ -68,7 +90,9 @@ if [[ -f ./builds/latest/bundle/main.js ]] && [[ $LOCAL_BUILD != "true" || ! -v 
 
     # Start the service
     echo "Starting service $KOAD_IO_DOMAIN"
-    cd builds/latest/bundle && BIND_IP=$KOAD_IO_BIND_IP PORT=$KOAD_IO_PORT node main.js
+    cd builds/latest/bundle
+    screen -dmS "$SCREEN_NAME" bash -c "BIND_IP=$KOAD_IO_BIND_IP PORT=$KOAD_IO_PORT node main.js 2>&1 | tee \"$LOGFILE\""
+    echo "Started in screen: $SCREEN_NAME"
 
 elif [[ -f ./src/.meteor/release ]]; then
 
@@ -81,7 +105,8 @@ elif [[ -f ./src/.meteor/release ]]; then
     # Start Meteor application in development mode
     cd $PWD/src
     meteor npm install
-    meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE
+    screen -dmS "$SCREEN_NAME" bash -c "meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
+    echo "Started in screen: $SCREEN_NAME"
 
 else
     echo -e "\033[31mkoad/io application not found.\033[0m"
