@@ -84,7 +84,7 @@ IMPORTANT: This is a shared conversation. Multiple entities will take turns spea
 
 This conversation will be used by multiple koad:io entities, one at a time. Each entity will be invoked with their own ENTITY.md loaded, so they know who they are. The rules:
 
-1. **Sign your work.** Begin every contribution with: --- <entity-name> @ <timestamp> ---
+1. **Sign your work.** Begin every contribution with full provenance: --- <entity-name> @ <timestamp> | <hostname>:<user> | <model> ---
 2. **State what you did.** Be specific about actions taken, files modified, decisions made.
 3. **Leave cleanly.** End your contribution with: --- <entity-name> out ---
 4. **Read the thread.** Before acting, read what others have contributed above you.

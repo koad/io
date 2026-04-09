@@ -58,24 +58,32 @@ fi
 echo "[$ENTITY_NAME] responding in party ${PARTY_NAME:-$SESSION_ID}"
 echo ""
 
+# Resolve provenance for signing
+_HOST="$(hostname -s 2>/dev/null || echo unknown)"
+_USER="$(whoami 2>/dev/null || echo unknown)"
+_MODEL="${OPENCODE_MODEL:-unknown}"
+
 # Load entity identity so the model knows who is responding
 ENTITY_IDENTITY=""
 if [ -f "$ENTITY_DIR/ENTITY.md" ]; then
   ENTITY_IDENTITY="$(cat "$ENTITY_DIR/ENTITY.md")"
 fi
 
-# Prefix the message with entity context
+# Prefix the message with entity context + provenance
 FULL_MESSAGE="[PARTY-LINE: You are now $ENTITY_NAME. Your identity follows.]
 
 $ENTITY_IDENTITY
 
 ---
 
+[PROVENANCE: Sign your work with full provenance:]
+--- $ENTITY_NAME @ <timestamp> | $_HOST:$_USER | $_MODEL ---
+
 [MESSAGE FROM ORCHESTRATOR]
 
 $MESSAGE
 
-[Remember: sign your work as $ENTITY_NAME, do real work, then leave.]"
+[Remember: sign with full provenance, do real work, then leave. End with: --- $ENTITY_NAME out ---]"
 
 # Pass the conch — session data in the party folder, permissions from party config
 OPENCODE_CONFIG_DIR="$PARTY_OPENCODE" \
