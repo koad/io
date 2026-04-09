@@ -1,0 +1,34 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "watcher": {
+    "ignore": ["node_modules/**", "dist/**", ".git/**"]
+  },
+  "agent": {
+    "$ENTITY": {
+      "temperature": 0.1,
+      "description": "$PURPOSE",
+      "mode": "primary",
+      "prompt": "$SYSTEM_PROMPT",
+      "permission": {
+        "external_directory": {
+          "$ENTITY_DIR/**": "allow",
+          "~/.koad-io/**": "allow",
+          "~/.ecoincore/packages/**": "allow",
+          "~/.sensitive/**": "deny",
+          "~/.secrets/**": "deny"
+        },
+        "read": "allow",
+        "write": "allow",
+        "edit": "allow",
+        "bash": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "skill": "allow",
+        "task": "allow",
+        "webfetch": "allow",
+        "todowrite": "allow",
+        "question": "allow"
+      }
+    }
+  }
+}

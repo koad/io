@@ -1,128 +1,113 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$HOME/.koad-io/.env" 2>/dev/null || true
-source "$HOME/.${ENTITY:?ENTITY not set}/.env" 2>/dev/null || true
-
-echo "[env] Loaded framework and entity env files"
+# Env already sourced by koad-io bin (framework .env → entity .env)
+# CWD already exported by koad-io bin (caller's working directory)
 
 ENTITY_DIR="${ENTITY_DIR:-$HOME/.$ENTITY}"
-CALL_DIR="${CWD:-$PWD}"
-echo "[config] ENTITY_DIR=$ENTITY_DIR, CALL_DIR=$CALL_DIR"
+export CALL_DIR="${CWD:-$PWD}"
+
+# Rooted = has an office (works from entity dir). Default = roaming (works from CWD).
+if [ "${KOAD_IO_ROOTED:-}" = "true" ]; then
+  HARNESS_WORK_DIR="$ENTITY_DIR"
+else
+  HARNESS_WORK_DIR="$CALL_DIR"
+fi
 
 KOAD_IO_ENTITY_HARNESS="${KOAD_IO_ENTITY_HARNESS:-opencode}"
-echo "[config] KOAD_IO_ENTITY_HARNESS=$KOAD_IO_ENTITY_HARNESS"
+KOAD_IO_OPENCODE_BIN="$HOME/.koad-io/bin/opencode"
 
-ENTITY_HOST="${ENTITY_HOST:-}"
-echo "[config] ENTITY_HOST=$ENTITY_HOST"
+# VESTA-SPEC-067: context assembly (stdout = system prompt, stderr = log)
+SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh" | tee "$ENTITY_DIR/.context")"
 
-REMOTE_HARNESS_BIN="${REMOTE_HARNESS_BIN:-$KOAD_IO_ENTITY_HARNESS}"
-REMOTE_NVM_INIT="${REMOTE_NVM_INIT:-}"
-echo "[config] REMOTE_HARNESS_BIN=$REMOTE_HARNESS_BIN, REMOTE_NVM_INIT=$REMOTE_NVM_INIT"
+cd "$HARNESS_WORK_DIR"
 
-LOCKFILE="/tmp/entity-${ENTITY}.lock"
+# --- Terminal title: entity on host in cwd ---
+_HOST="$(hostname -s 2>/dev/null || echo unknown)"
+_set_title() { printf '\033]0;%s\007' "$1"; }
+_set_title "$ENTITY on $_HOST in $HARNESS_WORK_DIR"
 
-PROMPT="${PROMPT:-}"
-FORCE_INTERACTIVE="${FORCE_INTERACTIVE:-}"
-if [ -z "$PROMPT" ] && [ ! -t 0 ]; then
-  PROMPT="$(cat)"
-fi
+# Restore title on exit (trap runs even after exec'd process ends... unless exec replaces)
+# So we wrap instead of exec for harnesses that need cleanup.
+_cleanup() { _set_title "$_HOST:$HARNESS_WORK_DIR"; }
+trap _cleanup EXIT
 
-echo "[debug] PROMPT length: ${#PROMPT}, FORCE_INTERACTIVE=$FORCE_INTERACTIVE"
+case "$KOAD_IO_ENTITY_HARNESS" in
+  claude)
+    claude . --model sonnet --add-dir "$ENTITY_DIR" \
+      --append-system-prompt "$SYSTEM_PROMPT"
+    ;;
+  opencode)
+    # --- Opencode: entity context via env, CWD is clean ---
+    export OPENCODE_DISABLE_CLAUDE_CODE=true
+    export OPENCODE_DISABLE_LSP_DOWNLOAD=true
+    export OPENCODE_DISABLE_TERMINAL_TITLE=true
 
-# Only inject PRIMER.md if there's already a prompt (don't trigger non-interactive for nothing)
-if [ -n "$PROMPT" ] && [ -f "${CALL_DIR}/PRIMER.md" ]; then
-  PROJECT_PRIMER="$(cat "$CALL_DIR/PRIMER.md")"
-  PROMPT="$(printf 'Project context (from %s/PRIMER.md):\n%s\n\n---\n\n%s' "$CALL_DIR" "$PROJECT_PRIMER" "$PROMPT")"
-  echo "[primer] Injected PRIMER.md from $CALL_DIR ($(wc -c < "$CALL_DIR/PRIMER.md") bytes)"
-fi
+    # Load entity's opencode.jsonc as template, inject assembled prompt
+    # Look in: entity dir root, then entity/opencode/, then framework default
+    OPENCODE_TEMPLATE=""
+    for _candidate in \
+      "$ENTITY_DIR/opencode.jsonc" \
+      "$ENTITY_DIR/opencode/opencode.jsonc" \
+      "$HOME/.koad-io/config/opencode.jsonc"; do
+      if [ -f "$_candidate" ]; then
+        OPENCODE_TEMPLATE="$_candidate"
+        break
+      fi
+    done
 
-ON_HOME_MACHINE=true
-if [ -n "$ENTITY_HOST" ] && [ "$(hostname -s)" != "$ENTITY_HOST" ]; then
-  ON_HOME_MACHINE=false
-fi
+    if [ -n "$OPENCODE_TEMPLATE" ]; then
+      echo "[startup] opencode template: $OPENCODE_TEMPLATE" >&2
+      # Shell-expand $ENTITY, $ENTITY_DIR, $PURPOSE in the template
+      # Strip jsonc line comments (only leading // not inside strings)
+      # Then jq injects the assembled prompt safely (handles escaping)
+      OPENCODE_CONFIG_CONTENT=$(
+        sed '/^[[:space:]]*\/\//d' "$OPENCODE_TEMPLATE" \
+        | sed "s|\\\$ENTITY_DIR|$ENTITY_DIR|g" \
+        | sed "s|\\\$ENTITY|$ENTITY|g" \
+        | sed "s|\\\$PURPOSE|${PURPOSE:-$ENTITY entity}|g" \
+        | jq --arg prompt "$SYSTEM_PROMPT" \
+            --arg entity "$ENTITY" \
+            '
+            if .agent[$entity] then
+              .agent[$entity].prompt = $prompt
+            elif .mode[$entity] then
+              .mode[$entity].prompt = $prompt
+            else . end
+            '
+      )
+      export OPENCODE_CONFIG_CONTENT
+    else
+      # No template — build minimal config inline
+      echo "[startup] opencode template: none found, building minimal" >&2
+      export OPENCODE_CONFIG_CONTENT
+      OPENCODE_CONFIG_CONTENT=$(jq -n \
+        --arg entity "$ENTITY" \
+        --arg desc "${PURPOSE:-$ENTITY entity}" \
+        --arg prompt "$SYSTEM_PROMPT" \
+        --arg entity_dir "$ENTITY_DIR" \
+        '{
+          agent: {
+            ($entity): {
+              description: $desc,
+              mode: "primary",
+              prompt: $prompt,
+              permission: {
+                external_directory: { ($entity_dir + "/**"): "allow" },
+                read:  { ($entity_dir + "/**"): "allow" },
+                write: { ($entity_dir + "/**"): "allow" },
+                bash: "allow", glob: "allow", grep: "allow",
+                edit: "allow", skill: "allow", task: "allow"
+              }
+            }
+          }
+        }')
+    fi
 
-if [ "${FORCE_LOCAL:-}" = "1" ]; then
-  ON_HOME_MACHINE=true
-  echo "[force-local] FORCE_LOCAL=1, bypassing SSH"
-fi
-echo "[machine] ON_HOME_MACHINE=$ON_HOME_MACHINE (hostname: $(hostname -s), ENTITY_HOST: $ENTITY_HOST)"
-
-if [ -n "$REMOTE_NVM_INIT" ]; then
-  REMOTE_PREFIX="$REMOTE_NVM_INIT && "
-else
-  REMOTE_PREFIX=""
-fi
-echo "[remote] REMOTE_PREFIX set"
-
-echo "[debug] PROMPT length: ${#PROMPT}, first 50 chars: '${PROMPT:0:50}'"
-echo "[debug] Interactive check: PROMPT empty=$([ -z "$PROMPT" ] && echo true || echo false), stdin tty=$([ -t 0 ] && echo true || echo false)"
-
-if [ -z "$PROMPT" ]; then
-  echo "[mode] Interactive session"
-  if $ON_HOME_MACHINE; then
-    case "$KOAD_IO_ENTITY_HARNESS" in
-      claude)
-        echo "[exec] Running: claude . --model sonnet --add-dir $ENTITY_DIR"
-        exec claude . --model sonnet --add-dir "$ENTITY_DIR"
-        ;;
-      opencode)
-        echo "[exec] Running: opencode --agent $ENTITY --model ${OPENCODE_MODEL:-} ./"
-        exec opencode --agent "$ENTITY" --model "${OPENCODE_MODEL:-}" ./
-        ;;
-      *)
-        echo "[error] Unknown harness: $KOAD_IO_ENTITY_HARNESS" >&2
-        exit 1
-        ;;
-    esac
-  else
-    echo "[exec] SSH to $ENTITY_HOST for interactive session"
-    exec ssh -t "$ENTITY_HOST" \
-      "${REMOTE_PREFIX}cd \$HOME/.$ENTITY && KOAD_IO_ENTITY_HARNESS=$KOAD_IO_ENTITY_HARNESS $REMOTE_HARNESS_BIN"
-  fi
-fi
-
-echo "[mode] Non-interactive (orchestration)"
-
-if [ "$KOAD_IO_ENTITY_HARNESS" = "opencode" ]; then
-  EFFECTIVE_HARNESS=claude
-  echo "[fallback] opencode → claude for non-interactive"
-else
-  EFFECTIVE_HARNESS="$KOAD_IO_ENTITY_HARNESS"
-fi
-echo "[harness] EFFECTIVE_HARNESS=$EFFECTIVE_HARNESS"
-
-if [ -f "$LOCKFILE" ]; then
-  LOCKED_PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
-  if [ -n "$LOCKED_PID" ] && kill -0 "$LOCKED_PID" 2>/dev/null; then
-    echo "[error] $ENTITY is busy (pid $LOCKED_PID). Try again shortly." >&2
+    "$KOAD_IO_OPENCODE_BIN" --agent "$ENTITY" --model "${OPENCODE_MODEL:-}" ./
+    ;;
+  *)
+    echo "[error] Unknown harness: $KOAD_IO_ENTITY_HARNESS" >&2
     exit 1
-  fi
-  echo "[lock] Cleared stale lockfile"
-fi
-echo "[lock] Acquired lock: $LOCKFILE (pid: $$)"
-echo $$ > "$LOCKFILE"
-trap 'rm -f "$LOCKFILE"' EXIT
-
-if $ON_HOME_MACHINE; then
-  cd "$ENTITY_DIR"
-  echo "[path] Changed to $ENTITY_DIR"
-  case "$EFFECTIVE_HARNESS" in
-    claude)
-      echo "[exec] Running: claude --model sonnet --dangerously-skip-permissions -p <prompt>"
-      claude --model sonnet --dangerously-skip-permissions --output-format=json \
-        -p "$PROMPT" 2>/dev/null \
-        | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))"
-      ;;
-    *)
-      echo "[error] Unknown harness: $EFFECTIVE_HARNESS" >&2
-      exit 1
-      ;;
-  esac
-else
-  echo "[exec] SSH to $ENTITY_HOST for non-interactive execution"
-  ENCODED=$(printf '%s' "$PROMPT" | base64 -w0 2>/dev/null || printf '%s' "$PROMPT" | base64)
-  ssh "$ENTITY_HOST" \
-    "${REMOTE_PREFIX}cd \$HOME/.$ENTITY && DECODED=\$(echo '$ENCODED' | base64 -d) && $REMOTE_HARNESS_BIN --model sonnet --dangerously-skip-permissions --output-format=json -p \"\$DECODED\" 2>/dev/null" \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))"
-fi
+    ;;
+esac

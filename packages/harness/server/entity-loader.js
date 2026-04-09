@@ -42,14 +42,19 @@ async function loadEntity(handle, baseDir) {
 
   const dir = path.join(baseDir, `.${handle}`);
 
-  const [envContent, claudeMd, primerMd, landingMd, passengerRaw, fallbacksRaw, memoriesDir] = await Promise.all([
+  // VESTA-SPEC-067: Context load order — kingdom → entity → implement → location → memory
+  const koadIoDir = path.join(baseDir, '.koad-io');
+
+  const [koadIoMd, entityMd, envContent, claudeMd, primerMd, landingMd, passengerRaw, fallbacksRaw, memoriesDir] = await Promise.all([
+    KoadHarnessUtils.readFile(path.join(koadIoDir, 'KOAD_IO.md')),   // Layer 1: Kingdom
+    KoadHarnessUtils.readFile(path.join(dir, 'ENTITY.md')),           // Layer 2: Entity
     KoadHarnessUtils.readFile(path.join(dir, '.env')),
-    KoadHarnessUtils.readFile(path.join(dir, 'CLAUDE.md')),
-    KoadHarnessUtils.readFile(path.join(dir, 'PRIMER.md')),
+    KoadHarnessUtils.readFile(path.join(dir, 'CLAUDE.md')),           // Layer 3: Implement
+    KoadHarnessUtils.readFile(path.join(dir, 'PRIMER.md')),           // Layer 4: Location
     KoadHarnessUtils.readFile(path.join(dir, 'landing.md')),
     KoadHarnessUtils.readFile(path.join(dir, 'passenger.json')),
     KoadHarnessUtils.readFile(path.join(dir, 'fallbacks.json')),
-    KoadHarnessUtils.readDir(path.join(dir, 'memories')),
+    KoadHarnessUtils.readDir(path.join(dir, 'memories')),             // Layer 5: Memory
   ]);
 
   const env = KoadHarnessUtils.parseEnv(envContent);
@@ -73,10 +78,12 @@ async function loadEntity(handle, baseDir) {
     purpose: env.PURPOSE || '',
     outfit: normalizeOutfit(passenger.outfit),
     buttons: passenger.buttons || [],
-    claudeMd: claudeMd || '',
-    primerMd,
+    koadIoMd: koadIoMd || '',    // Layer 1: Kingdom (VESTA-SPEC-067)
+    entityMd: entityMd || '',    // Layer 2: Entity identity
+    claudeMd: claudeMd || '',    // Layer 3: Implement config
+    primerMd,                    // Layer 4: Location context
     landingMd,
-    memories: memories.filter(Boolean),
+    memories: memories.filter(Boolean),  // Layer 5: Experience
     fallbacks,
     avatarPath: avatarExists ? avatarPath : null,
     dir,

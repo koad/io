@@ -72,15 +72,24 @@ POST /harness/jesus/chat
 - **Rate limiter:** per-session, per-IP, global concurrent limits
 - **Session store:** in-memory with TTL cleanup
 
-## Entity loading
+## Entity loading (VESTA-SPEC-067)
 
-Reads from `~/.{entity}/` directories: `.env`, `CLAUDE.md`, `PRIMER.md`, `landing.md`, `passenger.json`, `fallbacks.json`, `memories/*.md`, `avatar.png`. Outfit normalization follows VESTA-SPEC-063 LOD levels.
+Context is assembled in fixed layer order:
+
+1. **Kingdom** — `~/.koad-io/KOAD_IO.md` (shared across all entities)
+2. **Entity** — `~/.<entity>/ENTITY.md` (stable personality, role, team)
+3. **Implement** — `~/.<entity>/CLAUDE.md` (harness-specific config)
+4. **Location** — `~/.<entity>/PRIMER.md` (ambient working context)
+5. **Memory** — `~/.<entity>/memories/*.md` (accumulated knowledge)
+6. **Guardrails** — hardcoded safety cap (portal rules, injection defense)
+
+Also reads: `.env`, `landing.md`, `passenger.json`, `fallbacks.json`, `avatar.png`. Outfit normalization follows VESTA-SPEC-063 LOD levels.
 
 ## Architecture
 
 ```
 ~/.koad-io/packages/harness/     ← This package (framework layer)
-~/.kingdom/websites/*/config/    ← Settings per deployment (harness config)
+~/.forge/websites/*/config/      ← Settings per deployment (harness config)
 ~/.<entity>/                     ← Entity data (identity layer)
 ```
 

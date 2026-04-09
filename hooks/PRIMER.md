@@ -178,6 +178,7 @@ All variables are set in `~/.koad-io/.env` or `~/.$ENTITY/.env`. Entity values w
 |----------|---------|---------|
 | `KOAD_IO_ENTITY_HARNESS` | `opencode` | Which AI harness to launch (`opencode` or `claude`). Team entities set `claude` in their `.env`. |
 | `OPENCODE_MODEL` | _(set by opencode)_ | Model passed to opencode harness. |
+| `KOAD_IO_ROOTED` | _(unset)_ | If `true`, entity works from `$ENTITY_DIR` (has an office). Unset = roaming (works from `$CWD`). |
 | `ENTITY_HOST` | _(unset)_ | Machine the entity lives on. Unset = portable. |
 | `REMOTE_HARNESS_BIN` | _(harness name)_ | Full path to harness binary on the remote host. |
 | `REMOTE_NVM_INIT` | _(unset)_ | PATH setup command to run before harness on remote host. |

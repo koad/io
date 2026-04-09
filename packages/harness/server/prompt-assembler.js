@@ -21,11 +21,27 @@ HARD CONSTRAINTS — violating these breaks the interface:
 4. When you decide to assess: ask your question, then STOP. No <<LEVEL_COMPLETE>> in that message. Period.
 5. On the NEXT turn, if their answer shows real understanding, respond with brief congratulations + <<LEVEL_COMPLETE>> on its own line.`;
 
+// VESTA-SPEC-067: Context load order
+// Layer 1: Kingdom (KOAD_IO.md) → Layer 2: Entity (ENTITY.md) → Layer 3: Implement (CLAUDE.md)
+// → Layer 4: Location (PRIMER.md) → Layer 5: Memory → Layer 6: Guardrails (safety cap)
 function buildSystemPrompt(entity) {
   const parts = [];
 
+  if (entity.koadIoMd) {
+    parts.push(entity.koadIoMd.trim());
+  }
+
+  if (entity.entityMd) {
+    parts.push(entity.entityMd.trim());
+  }
+
   if (entity.claudeMd) {
     parts.push(entity.claudeMd.trim());
+  }
+
+  if (entity.primerMd) {
+    parts.push('## Current State\n');
+    parts.push(entity.primerMd.trim());
   }
 
   if (entity.memories.length > 0) {
@@ -33,11 +49,6 @@ function buildSystemPrompt(entity) {
     for (const mem of entity.memories) {
       parts.push(mem.trim());
     }
-  }
-
-  if (entity.primerMd) {
-    parts.push('## Current State\n');
-    parts.push(entity.primerMd.trim());
   }
 
   parts.push(GUARDRAILS);
