@@ -20,6 +20,19 @@ KOAD_IO_OPENCODE_BIN="$HOME/.koad-io/bin/opencode"
 # VESTA-SPEC-067: context assembly (stdout = system prompt, stderr = log)
 SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh" | tee "$ENTITY_DIR/.context")"
 
+# Layer 4: Location — append PRIMER.md from working directory (case-insensitive)
+PRIMER_FILE=""
+for _p in "$HARNESS_WORK_DIR"/[Pp][Rr][Ii][Mm][Ee][Rr].[Mm][Dd]; do
+  if [ -f "$_p" ]; then
+    PRIMER_FILE="$_p"
+    break
+  fi
+done
+if [ -n "$PRIMER_FILE" ]; then
+  echo "[startup] primer: $PRIMER_FILE ($(wc -c < "$PRIMER_FILE") bytes)" >&2
+  SYSTEM_PROMPT="$(printf '%s\n\n---\n\n# Location Context (%s)\n\n%s' "$SYSTEM_PROMPT" "$HARNESS_WORK_DIR" "$(cat "$PRIMER_FILE")")"
+fi
+
 cd "$HARNESS_WORK_DIR"
 
 # --- Terminal title: entity on host in cwd ---
