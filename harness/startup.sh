@@ -116,6 +116,42 @@ EOF
   _ls "$HARNESS_WORK_DIR" | head -30 | sed 's/^/- /'
 fi
 
+# --- Local .koad-io/ footprint ---
+# Workspaces may have a .koad-io/ folder with local kingdom state:
+# parties (shared conversations), breadcrumbs, config overrides.
+# If present, surface it so the entity knows what's here.
+if [ -d "$HARNESS_WORK_DIR/.koad-io" ]; then
+  echo "[startup] local .koad-io/ found in $HARNESS_WORK_DIR" >&2
+  cat <<'EOF'
+
+### Local .koad-io/
+EOF
+  _ls "$HARNESS_WORK_DIR/.koad-io" | sed 's/^/- /'
+
+  # Surface active parties
+  if [ -d "$HARNESS_WORK_DIR/.koad-io/parties" ]; then
+    cat <<'EOF'
+
+### Active Parties
+EOF
+    for _party_dir in "$HARNESS_WORK_DIR/.koad-io/parties"/*/; do
+      if [ -f "$_party_dir/PRIMER.md" ]; then
+        _party_name="$(basename "$_party_dir")"
+        _session_id=""
+        [ -f "$_party_dir/session" ] && _session_id="$(cat "$_party_dir/session")"
+        echo "- **$_party_name** (session: ${_session_id:-unknown})"
+        # Show first few lines of the PRIMER for context
+        head -8 "$_party_dir/PRIMER.md" | grep -E '^\- ' | sed 's/^/  /'
+      fi
+    done
+    cat <<'EOF'
+
+> There are active party-line conversations in this workspace.
+> Use `<entity> respond "message"` to join, or ask the user if they'd like to participate.
+EOF
+  fi
+fi
+
 printf '\n---\n\n'
 
 # --- Layer 1: Kingdom ---
