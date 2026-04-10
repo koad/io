@@ -105,7 +105,7 @@ elif [[ -f ./src/.meteor/release ]]; then
     # Start Meteor application in development mode
     cd $PWD/src
     meteor npm install
-    screen -dmS "$SCREEN_NAME" bash -c "meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
+    meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE
     echo "Started in screen: $SCREEN_NAME"
 
 else
