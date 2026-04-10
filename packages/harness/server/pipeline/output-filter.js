@@ -1,6 +1,9 @@
 const ROLE_BREAK_PATTERNS = [
-  /\bI'?m\s+(just\s+)?an?\s+(AI|language\s+model|chatbot|assistant)\b/i,
-  /\bAs\s+an?\s+(AI|language\s+model)\b/i,
+  // Only match the evasion pattern "I'm just an AI" — plain "I'm an AI" is
+  // factually correct and sometimes the right answer in character (e.g. a
+  // tutor entity confirming what it is to a learner). The ban is on the
+  // self-deflecting "just an AI" disclaimer, not on the domain vocabulary.
+  /\bI'?m\s+just\s+an?\s+(AI|language\s+model|chatbot|assistant)\b/i,
   /\bI\s+cannot\s+(actually|really)\b/i,
   /\bI\s+don'?t\s+have\s+(feelings|emotions|consciousness)\b/i,
   /\bI'?m\s+not\s+(actually|really)\s/i,
