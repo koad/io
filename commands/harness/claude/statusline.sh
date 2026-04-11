@@ -129,6 +129,35 @@ if [ -n "$_entity_dir_for_outfit" ] && [ -r "$_entity_dir_for_outfit/passenger.j
 fi
 [ -z "$_entity_color" ] && _entity_color="$_FC"
 
+# --- Sensor: tee payload to entity state (rooted entities only) ----------
+# The framework statusline runs for every entity that wires it in
+# settings.json. Roaming entities fire in arbitrary $CWDs that aren't the
+# entity's sessions in any locational sense — recording their payloads
+# would pollute state with unrelated sessions koad happens to run in other
+# directories. Rooted entities (KOAD_IO_ROOTED=true in their .env) always
+# open claude in $ENTITY_DIR, so a statusline firing there is definitively
+# the entity's own session, and the sensor captures meaningful self-
+# awareness data (context%, spend, 5h+7d rate limits, cost breakdown).
+#
+# Display still renders for everyone. Only the tee-to-state step is gated.
+# Path is XDG-compliant: ~/.<entity>/.local/state/harness/last-payload.json
+# Atomic tmp+rename so consumers never read a truncated file.
+#
+# See ~/.juno/memories (feedback_statusline_sensor_gating) for the rule.
+
+if [ -n "$PAYLOAD" ] && [ -n "$_entity_dir_for_outfit" ] \
+   && grep -Eq '^[[:space:]]*KOAD_IO_ROOTED[[:space:]]*=[[:space:]]*"?true"?[[:space:]]*$' \
+        "$_entity_dir_for_outfit/.env" 2>/dev/null; then
+  _sensor_dir="$_entity_dir_for_outfit/.local/state/harness"
+  if mkdir -p "$_sensor_dir" 2>/dev/null; then
+    _sensor_tmp="$_sensor_dir/.last-payload.json.tmp.$$"
+    if printf '%s' "$PAYLOAD" > "$_sensor_tmp" 2>/dev/null; then
+      mv -f "$_sensor_tmp" "$_sensor_dir/last-payload.json" 2>/dev/null \
+        || rm -f "$_sensor_tmp" 2>/dev/null
+    fi
+  fi
+fi
+
 # --- Entity + host resolution --------------------------------------------
 
 _entity="${ENTITY:-unscoped}"
