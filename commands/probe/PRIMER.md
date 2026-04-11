@@ -77,7 +77,7 @@ If you ever copy the exec line out of this script and modify it, keep both of th
 ## Current state
 
 - **Layer 1 shipped** 2026-04-11. Commit `490d6b5` in `~/.koad-io` (not pushed). Proven with an A/B against `~/.juno/ENTITY.md` — attached yields correct Juno self-ID, no context yields generic "AI assistant."
-- **Default model: `opencode/big-pickle`.** Chosen because the stored anthropic key in `~/.local/share/opencode/auth.json` is stale (`invalid x-api-key`). When that auth is refreshed, consider switching the default back to a cheaper haiku via `PROBE_MODEL` or a command edit.
+- **Default model: `opencode/big-pickle`.** Free-first policy — every koad:io framework default must be reachable without an API key, credit card, or signup. Big-pickle (opencode's free tier) is the only provider that currently hits that bar, so it's the default for probe, for the opencode harness, and for any future framework command that needs to make an LLM call. Per-entity `.env` files override the default once a user has opted into paid providers. See `feedback_free_first_defaults.md` in Juno's memory for the full rule.
 - **Plugin disabled = ollama unavailable.** `--pure` strips the ollama plugin, so `-m ollama/<model>` fails with `ProviderModelNotFoundError` inside probe. Not a bug — a consequence of the sealing. See "Open items" below.
 
 ## Open items
@@ -85,7 +85,7 @@ If you ever copy the exec line out of this script and modify it, keep both of th
 - [ ] **`probe audit` (layer 2).** Snapshot `(git sha of attached files, prompt, response, timestamp, model, environment hash)` → sign with entity key → append to `~/.<entity>/audits/probe/`. Turns every probe run into a cryptographically attributable decision record. Ties to `project_verified_action_stack` in Juno's memory — reproducibility is the precondition for attribution.
 - [ ] **`probe test` (layer 3).** YAML suites of `(context, prompt, assertion)` tuples. `juno probe test memories/tests/gtd.yaml` runs every case, reports pass/fail, exits non-zero on regression. Make it hookable from a pre-commit on `~/.<entity>/` so memory edits can't land without passing the probe suite.
 - [ ] **Local-inference escape hatch.** Add `--impure` / `--plugins` that drops the `--pure` flag so `-m ollama/<model>` works for local-only probes (cheap, private, no API cost). The trade-off: external plugins might leak state we're trying to seal. Worth investigating the plugin list before enabling.
-- [ ] **Refresh stale anthropic auth** in `~/.local/share/opencode/auth.json`. Separate from probe itself, but it's currently the reason the default model is big-pickle instead of haiku.
+- [ ] **Refresh stale anthropic auth** in `~/.local/share/opencode/auth.json` (`invalid x-api-key` on haiku/sonnet/opus). Independent of the free-first default — it just means `-m anthropic/...` overrides don't work right now even for users who have opted into the paywall. Would unblock fall-through to claude models when specifically requested.
 - [ ] **Harness-floor measurement.** Use probe to measure how much a given entity's loadout actually costs in tokens. Run a minimal ping prompt naked vs with the entity's full file set; the delta is the entity's real context weight. Cacheable per `(entity × model)`; useful for entity optimization.
 
 ## Related
