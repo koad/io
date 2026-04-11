@@ -16,6 +16,7 @@
 !init
 !io
 !probe
+!probe/**
 !shell
 !spawn
 !ssh
