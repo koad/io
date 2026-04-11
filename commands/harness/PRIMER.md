@@ -27,11 +27,19 @@ Every sub-directory here is one harness. Every sub-command is responsible for th
 | Harness  | Status      | Config-dir mechanic                   | Notes |
 |----------|-------------|---------------------------------------|-------|
 | default  | **shipped** | _(delegates)_                         | Meta-harness. Resolves `$ENTITY_DEFAULT_HARNESS` → `$KOAD_IO_DEFAULT_HARNESS` → `opencode`, then `exec`s the chosen sub-command with `$PROMPT` in env (no positional args) so the delegate's own env cascade owns provider/model selection. |
+| bash     | **shipped** | _(none — human harness)_              | The original way of using koad:io, pre-LLM. Loads the entity env, cds to rooted/roaming cwd, drops into an interactive bash with an entity-tagged PS1 (sources `~/.bashrc`, then prepends `[entity]` in magenta via a process-substituted rcfile). One-shot mode via `PROMPT` or positional. No provider/model. |
+| zsh      | **shipped** | _(none — human harness)_              | Mirror of `bash` for the **Mac hosts** (fourty4, flowbie) where zsh is the default shell. Uses a per-entity `ZDOTDIR` at `~/.cache/koad-io/harness/<entity>/zsh/` whose `.zshrc` sources the user's real `.zshrc` then tags `PROMPT`. Untested runtime on wonderland (Linux, no zsh), `bash -n` clean — validate on fourty4. |
 | claude   | **shipped** | `CLAUDE_CONFIG_DIR=$ENTITY_DIR`       | Verified with real `claude` CLI. Provider: anthropic. |
 | opencode | **shipped** | `XDG_CONFIG_HOME=$ENTITY_DIR`         | Verified with fake binary. Providers: anthropic/openai/ollama/openrouter/google + passthrough. |
 | pi       | **draft**   | `PI_CONFIG_DIR` + `XDG_CONFIG_HOME`   | **UNVERIFIED** — drafted from memory, pending validation on fourty4 where pi-mono actually runs. Binary name, flags, and model format all guessed. See the TESTING NOTES block in `pi/command.sh`. |
 | tui      | not started | —                                     | Planned. |
 | hermez   | not started | —                                     | Planned. NousResearch v0.6.0; GPG bonds need custom plugin. |
+
+**Human harnesses (bash / zsh).** `bash` and `zsh` are the pre-LLM way of using koad:io: a terminal, loaded with the entity's env, rooted in the right place, with the entity's commands on `PATH`. They exist for three reasons worth remembering:
+
+1. **Operator ergonomics.** Sometimes the right harness for a task is a shell, not a model. `juno harness bash` lands you in juno's shell, tagged as juno, for any manual work.
+2. **koadOS story.** A fresh install needs to be usable *immediately*, before any LLM auth is configured. `<entity> harness bash` is the zero-dependency fallback — no API key, no credit card, no signup, no network.
+3. **Harness honesty.** The `harness` primitive is an abstraction over *any* runtime, not just LLMs. Shipping shells as peers to claude/opencode/pi keeps that framing honest.
 
 ## Files at this level
 

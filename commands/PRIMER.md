@@ -46,7 +46,7 @@ Minimum contract for a `command.sh`:
 
 | Command  | Status      | One-line purpose |
 |----------|-------------|------------------|
-| `harness`  | **shipped** | entity × harness × provider × model launcher; see `harness/PRIMER.md` |
+| `harness`  | **shipped** | entity × harness × provider × model launcher; includes human harnesses `bash`/`zsh`; see `harness/PRIMER.md` |
 | `probe`    | **shipped** | naked-LLM context testing (layer 1); see `probe/PRIMER.md` |
 | `think`    | **shipped** | raw one-liner to fourty4 ollama for local inference (not entity-aware) |
 | `io`       | **shipped** | `.io` container format for sovereign identity capsules |
