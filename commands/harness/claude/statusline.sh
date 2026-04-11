@@ -41,19 +41,24 @@ PAYLOAD=""
 [ ! -t 0 ] && PAYLOAD="$(timeout 1s cat 2>/dev/null || true)"
 
 # --- ANSI colors ----------------------------------------------------------
+# No dim variants — koad's preference. Separators and "quiet" segments use
+# plain white instead of \033[2m dim.
 
 _R=$'\033[0m'          # reset
 _B=$'\033[1m'          # bold
-_D=$'\033[2m'          # dim
+_SEP_C=$'\033[37m'     # separator color (plain white)
 _FB=$'\033[1;37m'      # bold white
-_FC=$'\033[1;36m'      # bright cyan
+_FC=$'\033[1;36m'      # bright cyan (brand-tag fallback glyph color)
 _FM=$'\033[1;35m'      # bright magenta
 _FL=$'\033[1;34m'      # bright blue
 _FY=$'\033[33m'        # yellow
 _FG=$'\033[32m'        # green
 _FR=$'\033[31m'        # red
 _FW=$'\033[37m'        # white
-_FDIM=$'\033[2;37m'    # dim white
+
+# Backgrounds (used to flash row 2 as the context window fills).
+_BG_Y=$'\033[43m'      # yellow background
+_BG_R=$'\033[41m'      # red background
 
 # Graduated color by percentage: <60 green, 60-84 yellow, 85+ red
 pct_color() {
@@ -66,6 +71,63 @@ pct_color() {
   else printf '%s' "$_FR"
   fi
 }
+
+# Context-pressure background for row 2. Auto-compact triggers around ~85%,
+# and it's expensive (and disruptive) when it lands mid-task. We flash
+# yellow well before then and red when compact is imminent, so koad has
+# visual warning to checkpoint or wind down before the harness blows it up.
+#   >= 77%  → red background  (compact is very close)
+#   >= 68%  → yellow background (time to think about ending the task)
+#   else    → no background
+ctx_bg() {
+  local p="$1"
+  p="${p%\%}"
+  p="${p%.*}"
+  [ -z "$p" ] && return
+  if   [ "$p" -ge 77 ] 2>/dev/null; then printf '%s' "$_BG_R"
+  elif [ "$p" -ge 68 ] 2>/dev/null; then printf '%s' "$_BG_Y"
+  fi
+}
+
+# --- Entity outfit → glyph color -----------------------------------------
+# Outfit lives in $ENTITY_DIR/passenger.json under .outfit.{h,s} (VESTA-063).
+# Convert hue/sat (+ fixed brightness) to 24-bit truecolor so the ◊ brand
+# glyph IS the entity's outfit color. Falls back to bright cyan if no
+# outfit is set or jq/passenger is unavailable.
+
+hsv_to_ansi() {
+  # $1=hue (0-360), $2=sat (0-100), $3=val (0-100)
+  awk -v h="$1" -v s="$2" -v v="$3" 'BEGIN{
+    s=s/100; v=v/100;
+    c=v*s; x=c*(1-((h/60)%2<0?-((h/60)%2):(h/60)%2 - 0));
+    # The above mod is tricky in awk; use a manual fractional abs.
+    hh=h/60; f=hh-int(hh/2)*2; if(f<0)f=-f; if(f>1)f=2-f;
+    x=c*f; m=v-c;
+    if      (h<60)  {r=c; g=x; b=0}
+    else if (h<120) {r=x; g=c; b=0}
+    else if (h<180) {r=0; g=c; b=x}
+    else if (h<240) {r=0; g=x; b=c}
+    else if (h<300) {r=x; g=0; b=c}
+    else            {r=c; g=0; b=x}
+    printf "\033[38;2;%d;%d;%dm", (r+m)*255, (g+m)*255, (b+m)*255
+  }'
+}
+
+_entity_color=""
+_entity_dir_for_outfit="${ENTITY_DIR:-}"
+if [ -z "$_entity_dir_for_outfit" ] && [ -n "$CLAUDE_CONFIG_DIR" ] && [ -d "$CLAUDE_CONFIG_DIR" ]; then
+  _entity_dir_for_outfit="$CLAUDE_CONFIG_DIR"
+fi
+if [ -n "$_entity_dir_for_outfit" ] && [ -r "$_entity_dir_for_outfit/passenger.json" ] && command -v jq >/dev/null 2>&1; then
+  # Only emit a hue if one is actually set — otherwise the array collapses
+  # and we'd accidentally colorize the glyph with the saturation default.
+  _h=$(jq -r '.outfit.h // .outfit.hue // empty' "$_entity_dir_for_outfit/passenger.json" 2>/dev/null)
+  _s=$(jq -r '.outfit.s // .outfit.saturation // 70'   "$_entity_dir_for_outfit/passenger.json" 2>/dev/null)
+  if [ -n "$_h" ] && [ "$_h" != "null" ]; then
+    _entity_color="$(hsv_to_ansi "$_h" "${_s:-70}" 95)"
+  fi
+fi
+[ -z "$_entity_color" ] && _entity_color="$_FC"
 
 # --- Entity + host resolution --------------------------------------------
 
@@ -169,51 +231,63 @@ fi
 
 # --- Build segments (each colored, separator-free) -----------------------
 
-_sep="${_D} · ${_R}"
+_sep="${_SEP_C} · ${_R}"
 
-# Row 1 — identity and brand (always prominent)
-_brand="${_FC}◊${_R} ${_FB}koad:io${_R}"
-_ident="${_FM}${_entity}${_R}${_D}@${_R}${_FL}${_host}${_R}"
+# Row 1 — identity and brand (always prominent). The ◊ glyph wears the
+# entity's outfit color (hsv from passenger.json → truecolor), so the
+# brand tag visually IS the entity.
+_brand="${_entity_color}◊${_R} ${_FB}koad:io${_R}"
+_ident="${_FM}${_entity}${_R}${_FW}@${_R}${_FL}${_host}${_R}"
 _model_seg="${_FY}${_model_short}${_R}"
 _version_seg=""
-[ -n "$_cc_version" ] && _version_seg="${_D}v${_cc_version}${_R}"
+[ -n "$_cc_version" ] && _version_seg="${_FW}v${_cc_version}${_R}"
+
+# Timestamp — YYYY:MM:DD:HH:MM:SS local time. Always visible; anchors
+# the per-turn capture moment (statusline refreshes every turn).
+_ts_now="$(date '+%Y:%m:%d:%H:%M:%S' 2>/dev/null)"
+_ts_seg=""
+[ -n "$_ts_now" ] && _ts_seg="${_FW}${_ts_now}${_R}"
 
 # Row 2 — session telemetry
 _ctx_seg=""
 if [ -n "$_ctx_pct" ]; then
   _c=$(pct_color "$_ctx_pct")
-  _ctx_seg="${_D}ctx${_R} ${_c}${_ctx_pct}%${_R}"
+  _ctx_seg="${_FW}ctx${_R} ${_c}${_ctx_pct}%${_R}"
 fi
 
 _cost_seg=""
-[ -n "$_cost_display" ] && _cost_seg="${_FDIM}${_cost_display}${_R}"
+[ -n "$_cost_display" ] && _cost_seg="${_FW}${_cost_display}${_R}"
 
 _5h_seg=""
 if [ -n "$_5h_pct" ]; then
   _c=$(pct_color "$_5h_pct")
-  _5h_seg="${_D}5h${_R} ${_c}${_5h_pct}%${_R}"
+  _5h_seg="${_FW}5h${_R} ${_c}${_5h_pct}%${_R}"
 fi
 
 _7d_seg=""
 if [ -n "$_7d_pct" ]; then
   _c=$(pct_color "$_7d_pct")
-  _7d_seg="${_D}7d${_R} ${_c}${_7d_pct}%${_R}"
+  _7d_seg="${_FW}7d${_R} ${_c}${_7d_pct}%${_R}"
 fi
 
 _time_seg=""
-[ -n "$_time_display" ] && _time_seg="${_FDIM}${_time_display}${_R}"
+[ -n "$_time_display" ] && _time_seg="${_FW}${_time_display}${_R}"
 
 _diff_seg=""
 if [ -n "$_lines_add" ] && [ -n "$_lines_del" ]; then
   if [ "${_lines_add:-0}" -gt 0 ] 2>/dev/null || [ "${_lines_del:-0}" -gt 0 ] 2>/dev/null; then
-    _diff_seg="${_FG}+${_lines_add}${_R}${_D}/${_R}${_FR}-${_lines_del}${_R}"
+    _diff_seg="${_FG}+${_lines_add}${_R}${_FW}/${_R}${_FR}-${_lines_del}${_R}"
   fi
 fi
 
 # --- Compose — two rows, each width-adaptive -----------------------------
 #
-# Row 1 (identity):   brand · entity@host · model [· version at >=100]
+# Row 1 (identity):   brand · entity@host · model [· version at >=110] · timestamp
 # Row 2 (telemetry):  ctx% · cost · 5h% [· 7d% at >=95] [· dur at >=115] [· diff at >=135]
+#
+# Timestamp (YYYY:MM:DD:HH:MM:SS — koad's canonical kingdom format) always
+# renders on row 1 when available. It anchors each turn in wall time — the
+# statusline refreshes per turn, so this doubles as a per-turn clock.
 #
 # Thresholds are lower than single-row because each row has its own width
 # budget. A 14" zoomed laptop (~90 cols) sees a rich two-row line; wider
@@ -223,8 +297,11 @@ fi
 # and renders only when warnings are present.
 
 _row1="${_brand}${_sep}${_ident}${_sep}${_model_seg}"
-if [ "$_cols" -ge 100 ] && [ -n "$_version_seg" ]; then
+if [ "$_cols" -ge 110 ] && [ -n "$_version_seg" ]; then
   _row1="${_row1}${_sep}${_version_seg}"
+fi
+if [ -n "$_ts_seg" ]; then
+  _row1="${_row1}${_sep}${_ts_seg}"
 fi
 
 _row2=""
@@ -243,6 +320,15 @@ if [ "$_cols" -ge 115 ] && [ -n "$_time_seg" ]; then
 fi
 if [ "$_cols" -ge 135 ] && [ -n "$_diff_seg" ]; then
   _row2="${_row2}${_sep}${_diff_seg}"
+fi
+
+# Context pressure → row 2 gets a yellow/red background so koad sees the
+# warning at a glance before auto-compact lands. Inline resets inside the
+# row's segments would wipe the background, so we re-apply it after each
+# reset and pad the ends with a space for visual weight.
+_row2_bg="$(ctx_bg "$_ctx_pct")"
+if [ -n "$_row2_bg" ] && [ -n "$_row2" ]; then
+  _row2="${_row2_bg} ${_row2//${_R}/${_R}${_row2_bg}} ${_R}"
 fi
 
 # --- Emit (newline-separated rows) ---------------------------------------
