@@ -5,16 +5,28 @@ Launch an entity through a chosen **harness × provider × model**. This is the 
 ## Usage
 
 ```bash
-<entity> harness <harness> <provider> <model> [prompt]
+<entity> harness <harness> [provider] [model] [prompt]
 ```
+
+`<harness>` is required — but it can be the literal string `default` to use whatever `$ENTITY_DEFAULT_HARNESS` resolves to in the entity's `.env`. `<provider>` and `<model>` are **always optional**; each sub-command cascades missing values from the entity's `.env`, then the kingdom `.env`, then its own hardcoded default.
 
 ### Examples
 
 ```bash
+# Fully explicit
 juno  harness claude   anthropic opus-4-6
 sibyl harness claude   anthropic sonnet-4-6 "scan briefs for blockers"
 vesta harness opencode ollama    deepseek-r1
 alice harness claude   anthropic haiku-4-5  "hi"
+
+# Provider/model omitted — each harness reads ENTITY_DEFAULT_* from the entity's .env
+vesta harness claude
+vesta harness claude "close out the S1 triage batch"
+
+# Harness also omitted — the 'default' meta-harness reads ENTITY_DEFAULT_HARNESS
+vesta harness default
+vesta harness default "close out the S1 triage batch"
+alice harness default
 ```
 
 Prompt is optional — if present, the harness runs one-shot (`-p`); if absent, it runs interactively.
@@ -22,7 +34,7 @@ Prompt is optional — if present, the harness runs one-shot (`-p`); if absent, 
 Multi-word prompts can also be passed via environment variable to sidestep shell quoting through koad-io's dispatcher:
 
 ```bash
-PROMPT="review SPEC-072 and list gaps" vesta harness claude anthropic opus-4-6
+PROMPT="review SPEC-072 and list gaps" vesta harness default
 ```
 
 ## Directory shape
@@ -35,7 +47,7 @@ PROMPT="review SPEC-072 and list gaps" vesta harness claude anthropic opus-4-6
     └── command.sh        # one per harness — see contract below
 ```
 
-Current harnesses: **claude**. Planned: **opencode**, **tui**, **pi**, **hermez**.
+Current harnesses: **default** (meta), **claude**, **opencode**, **pi** (draft). Planned: **tui**, **hermez**.
 
 ## Sub-command contract
 
@@ -49,16 +61,36 @@ Each `harness/<harness>/command.sh` is responsible for five things:
 
 ## Defaults cascade
 
-When the user omits provider or model:
+Three axes resolve independently, each with the same shape:
 
 ```
-positional arg
-  → $ENTITY_DEFAULT_PROVIDER / $ENTITY_DEFAULT_MODEL   (from ~/.<entity>/.env)
-  → $KOAD_IO_DEFAULT_PROVIDER / $KOAD_IO_DEFAULT_MODEL (from ~/.koad-io/.env)
-  → hardcoded sub-command default (e.g. anthropic / opus-4-6)
+harness:  positional arg
+            → $ENTITY_DEFAULT_HARNESS    (~/.<entity>/.env)
+            → $KOAD_IO_DEFAULT_HARNESS   (~/.koad-io/.env)
+            → opencode                   (hardcoded)
+
+provider: positional arg
+            → $ENTITY_DEFAULT_PROVIDER   (~/.<entity>/.env)
+            → $KOAD_IO_DEFAULT_PROVIDER  (~/.koad-io/.env)
+            → anthropic                  (hardcoded per sub-command)
+
+model:    positional arg
+            → $ENTITY_DEFAULT_MODEL      (~/.<entity>/.env)
+            → $KOAD_IO_DEFAULT_MODEL     (~/.koad-io/.env)
+            → per sub-command            (opus-4-6 for claude, claude-sonnet-4-6 for opencode)
 ```
 
-Entities can pin a preferred provider/model in their own `.env` without affecting other entities.
+Only the `default` meta-harness resolves the **harness axis**. Provider and model are resolved inside each real sub-command (claude, opencode, …) so the cascade is identical whether you called `vesta harness default`, `vesta harness claude`, or `vesta harness claude anthropic sonnet-4-6`.
+
+Recommended entity `.env` block (entity-scoped under the `ENTITY_` namespace):
+
+```bash
+ENTITY_DEFAULT_HARNESS=claude
+ENTITY_DEFAULT_PROVIDER=anthropic
+ENTITY_DEFAULT_MODEL=sonnet-4-6
+```
+
+Entities can pin their own preferences without affecting other entities. A kingdom-wide fallback can be set in `~/.koad-io/.env` using the `KOAD_IO_DEFAULT_*` form.
 
 ## Relationship to existing launchers
 

@@ -10,6 +10,8 @@ The koad:io `harness` built-in lets any entity be launched through any harness w
 <entity> harness <harness> <provider> <model> [prompt]
 ```
 
+`<harness>` can be the literal string **`default`** — a meta-harness that resolves `$ENTITY_DEFAULT_HARNESS` (from `~/.<entity>/.env`) and delegates. `<provider>` and `<model>` are optional at every call site; each sub-command cascades positional → `$ENTITY_DEFAULT_*` → `$KOAD_IO_DEFAULT_*` → hardcoded. Pin your preferences in `.env` once and use `<entity> harness default [prompt]` thereafter.
+
 Every sub-directory here is one harness. Every sub-command is responsible for the same five things:
 
 1. Export `<HARNESS>_CONFIG_DIR=$ENTITY_DIR` (the SPEC-072 structural rule — mechanically it may be `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `PI_CONFIG_DIR`, etc., depending on what the underlying CLI respects)
@@ -22,6 +24,7 @@ Every sub-directory here is one harness. Every sub-command is responsible for th
 
 | Harness  | Status      | Config-dir mechanic                   | Notes |
 |----------|-------------|---------------------------------------|-------|
+| default  | **shipped** | _(delegates)_                         | Meta-harness. Resolves `$ENTITY_DEFAULT_HARNESS` → `$KOAD_IO_DEFAULT_HARNESS` → `opencode`, then `exec`s the chosen sub-command with `$PROMPT` in env (no positional args) so the delegate's own env cascade owns provider/model selection. |
 | claude   | **shipped** | `CLAUDE_CONFIG_DIR=$ENTITY_DIR`       | Verified with real `claude` CLI. Provider: anthropic. |
 | opencode | **shipped** | `XDG_CONFIG_HOME=$ENTITY_DIR`         | Verified with fake binary. Providers: anthropic/openai/ollama/openrouter/google + passthrough. |
 | pi       | **draft**   | `PI_CONFIG_DIR` + `XDG_CONFIG_HOME`   | **UNVERIFIED** — drafted from memory, pending validation on fourty4 where pi-mono actually runs. Binary name, flags, and model format all guessed. See the TESTING NOTES block in `pi/command.sh`. |
@@ -47,6 +50,30 @@ For `juno harness claude anthropic opus-4-6 "hi"`:
 - exec `harness/claude/command.sh anthropic opus-4-6 hi`
 
 Word-splitting on exec means multi-word prompts arrive as separate positional args. Sub-commands must either `PROMPT="$*"` to reassemble, or honor an env-var `PROMPT` override for callers who want to sidestep the splitting.
+
+## The `default` meta-harness
+
+`harness/default/command.sh` is a thin dispatcher — not a harness in its own right. It exists so entities can pin their preferred runtime in `.env` once and then invoke `<entity> harness default` without restating the harness name on every call.
+
+Expected entity `.env` (entity-scoped, under the `ENTITY_` namespace):
+
+```bash
+ENTITY_DEFAULT_HARNESS=claude       # claude | opencode | pi | ...
+ENTITY_DEFAULT_PROVIDER=anthropic   # read by the real harness's own cascade
+ENTITY_DEFAULT_MODEL=sonnet-4-6     # read by the real harness's own cascade
+```
+
+Kingdom-wide fallback (under the `KOAD_IO_` namespace) in `~/.koad-io/.env`:
+
+```bash
+KOAD_IO_DEFAULT_HARNESS=opencode
+KOAD_IO_DEFAULT_PROVIDER=anthropic
+KOAD_IO_DEFAULT_MODEL=claude-sonnet-4-6
+```
+
+Resolution rule for each of the three axes: positional arg → entity default → kingdom default → hardcoded sub-command default. The `default` meta-harness only resolves the **harness axis** itself; provider/model are resolved inside the chosen sub-command, so the same cascade works whether you call `vesta harness default`, `vesta harness claude`, or `vesta harness claude anthropic sonnet-4-6`.
+
+Prompt hand-off: `default/command.sh` rejoins post-dispatcher positional args into `$PROMPT` and exports it, then `exec`s the delegate with **zero** positional args — otherwise the delegate would mistake prompt words for provider/model. Every shipped sub-command honors `PROMPT` over `$*`.
 
 ## Adding a new harness
 
