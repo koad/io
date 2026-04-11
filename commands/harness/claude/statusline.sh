@@ -239,7 +239,7 @@ fi
 # koad's kingdom shell prompt (~/.config/starship.toml) renders:
 #   Row 1: user on host with entity CWD       (muted "on"/"with" connectors)
 #   Row 2: origin-url 🌱branch 📝×N 🏎️💨×M ... (git-state emoji glyphs)
-#   Row 3: YY:MM:DD:HH:MM:SS ❯                 (timestamp + character)
+#   Row 3: YY:MM:DD:HH:MM:SS ◊ provider model ctx cost  (entity ribbon)
 #
 # We reuse starship verbatim for rows 1 and 2 so the Claude Code statusline
 # is visually identical to what koad sees at the shell — same identity
@@ -247,11 +247,14 @@ fi
 # same colors. STARSHIP_SHELL=plain tells starship to skip zsh/bash prompt
 # escape markers so the ANSI we get is directly emittable.
 #
-# Row 3 is ours: entity-colored-colon timestamp + green ❯ (where the
-# shell cursor would sit) + sensor telemetry (provider, model, ctx,
-# cost) + optional quota warning when any rate limit window is almost
-# full. The stats trail the ❯ like typed input, keeping the visual
-# anchor at the cursor position even as the harness data scrolls past.
+# Row 3 is ours: entity-colored-colon timestamp + entity ◊ glyph in the
+# entity's outfit color (where the shell cursor would sit) + sensor
+# telemetry (provider, model, ctx, cost) + optional quota warning when
+# any rate limit window is almost full. The stats trail the ◊ like
+# typed input, keeping the visual anchor at the cursor position even as
+# the harness data scrolls past. Every koad:io entity wearing this
+# statusline paints its own identity at that anchor — juno's ◊ is
+# magenta-rose, vesta's is its own color, etc.
 #
 # Fallback: when starship isn't available (or cwd isn't a directory),
 # we synthesize a minimal row 1 with the same "user on host with entity
@@ -280,7 +283,7 @@ if [ -z "$_starship_rows" ]; then
   _starship_rows="${_bright_user}${USER:-koad}${_R} ${_muted}on${_R} ${_bright_user}${_host}${_R} ${_muted}with${_R} ${_bright_user}${_entity}${_R} ${_bright_user}${_display_cwd}${_R}"
 fi
 
-# --- Row 3: entity-colored timestamp + sensor + quota-if-close + ❯ -------
+# --- Row 3: entity-colored timestamp + sensor + quota-if-close + ◊ -------
 
 _sep="${_SEP_C} · ${_R}"
 
@@ -375,9 +378,12 @@ if [ -n "$_7d_quota" ]; then
   fi
 fi
 
-_char_glyph="${_FG}❯${_R}"
+# Entity glyph + entity color — replaces bash's green ❯ with the entity's
+# ◊ in the entity's outfit color. Every entity wearing a koad:io statusline
+# paints its own identity at the cursor anchor.
+_char_glyph="${_entity_color}◊${_R}"
 
-# Compose row 3: timestamp ❯ provider+model · ctx · cost [· quota]
+# Compose row 3: timestamp ◊ provider+model · ctx · cost [· quota]
 _row3=""
 append_row3() {
   local seg="$1"
@@ -389,7 +395,7 @@ append_row3() {
   fi
 }
 # Stats first (provider · ctx · cost · quota), then prepend
-# "timestamp ❯ " so the ❯ sits where bash would leave the cursor and
+# "timestamp ◊ " so the ◊ sits where bash would leave the cursor and
 # the stats trail after like typed input.
 append_row3 "$_provider_seg"
 append_row3 "$_ctx_seg"
