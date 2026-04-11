@@ -20,6 +20,23 @@
 
 set -e
 
+# --- Flag filter ----------------------------------------------------------
+#
+# Extract --continue / -c before positional parsing so the flag can appear
+# anywhere. Env-var CONTINUE=1 is equivalent. Same pattern as the claude
+# sibling; opencode's own CLI uses the same -c/--continue spelling.
+
+_filtered=()
+for _arg in "$@"; do
+  case "$_arg" in
+    --continue|-c) CONTINUE=1 ;;
+    *)             _filtered+=("$_arg") ;;
+  esac
+done
+set -- "${_filtered[@]}"
+unset _arg _filtered
+CONTINUE="${CONTINUE:-0}"
+
 # --- Guard rails ----------------------------------------------------------
 
 if [ -z "$ENTITY" ]; then
@@ -140,13 +157,25 @@ if [ -n "$PROMPT" ]; then
 else
   echo "mode          : interactive"
 fi
+[ "$CONTINUE" = "1" ] && echo "continue      : yes (opencode -c — resume last session)"
 echo
 
 # --- Exec -----------------------------------------------------------------
+#
+# opencode 'run' is the one-shot. Both 'run' and the interactive TUI accept
+# -c/--continue. For rooted entities cwd is always $ENTITY_DIR, so there is
+# exactly one persistent session per entity; for roaming entities, one per
+# (entity × project-dir) pair.
 
 if [ -n "$PROMPT" ]; then
-  exec opencode run --model "$MODEL_RESOLVED" --dir "$WORK_DIR" "$PROMPT"
+  _args=(run --model "$MODEL_RESOLVED" --dir "$WORK_DIR")
+  [ "$CONTINUE" = "1" ] && _args+=(-c)
+  _args+=("$PROMPT")
+  exec opencode "${_args[@]}"
 else
-  # 'opencode' with positional = project dir; also explicit --dir for clarity.
-  exec opencode "$WORK_DIR"
+  if [ "$CONTINUE" = "1" ]; then
+    exec opencode -c "$WORK_DIR"
+  else
+    exec opencode "$WORK_DIR"
+  fi
 fi

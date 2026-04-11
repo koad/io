@@ -32,6 +32,27 @@
 
 set -e
 
+# --- Flag filter ----------------------------------------------------------
+#
+# Extract --continue / -c before any other parsing so the flag can appear
+# anywhere in the invocation (e.g. 'vesta harness default -c' or
+# 'vesta harness default -c "follow-up prompt"'). Env-var CONTINUE=1 is
+# equivalent. We export it so the delegate sub-command picks it up via its
+# own filter / env read.
+
+_filtered=()
+for _arg in "$@"; do
+  case "$_arg" in
+    --continue|-c) CONTINUE=1 ;;
+    *)             _filtered+=("$_arg") ;;
+  esac
+done
+set -- "${_filtered[@]}"
+unset _arg _filtered
+if [ "${CONTINUE:-0}" = "1" ]; then
+  export CONTINUE=1
+fi
+
 # --- Guard rails ----------------------------------------------------------
 
 if [ -z "$ENTITY" ]; then
@@ -84,6 +105,7 @@ if [ -n "$PROMPT" ]; then
 else
   echo "mode          : interactive"
 fi
+[ "${CONTINUE:-0}" = "1" ] && echo "continue      : yes (forward to $HARNESS)"
 echo
 
 # --- Delegate -------------------------------------------------------------

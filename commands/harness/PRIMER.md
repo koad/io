@@ -12,6 +12,8 @@ The koad:io `harness` built-in lets any entity be launched through any harness w
 
 `<harness>` can be the literal string **`default`** — a meta-harness that resolves `$ENTITY_DEFAULT_HARNESS` (from `~/.<entity>/.env`) and delegates. `<provider>` and `<model>` are optional at every call site; each sub-command cascades positional → `$ENTITY_DEFAULT_*` → `$KOAD_IO_DEFAULT_*` → hardcoded. Pin your preferences in `.env` once and use `<entity> harness default [prompt]` thereafter.
 
+**Session continuity:** `--continue` / `-c` (or `CONTINUE=1` env var) resumes the most recent session for the current project directory. Rooted entities always run from `$ENTITY_DIR`, so they get exactly **one** persistent session per entity — stable memory across invocations. Roaming entities get one session per `(entity × project-dir)` pair, which is the right behavior when they're invoked inside user projects.
+
 Every sub-directory here is one harness. Every sub-command is responsible for the same five things:
 
 1. Export `<HARNESS>_CONFIG_DIR=$ENTITY_DIR` (the SPEC-072 structural rule — mechanically it may be `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `PI_CONFIG_DIR`, etc., depending on what the underlying CLI respects)
@@ -50,6 +52,32 @@ For `juno harness claude anthropic opus-4-6 "hi"`:
 - exec `harness/claude/command.sh anthropic opus-4-6 hi`
 
 Word-splitting on exec means multi-word prompts arrive as separate positional args. Sub-commands must either `PROMPT="$*"` to reassemble, or honor an env-var `PROMPT` override for callers who want to sidestep the splitting.
+
+## Session continuity (`--continue` / `-c`)
+
+Every shipped sub-command filters `--continue` / `-c` out of the positional args (same pattern as koad-io's `--quiet` filter) and also honors the `CONTINUE=1` env var. When set, the flag is forwarded to the underlying CLI — `claude -c`, `opencode -c`, etc. The underlying CLI resumes the most recent session for the current working directory.
+
+Three things fall out of that simple mechanism for free:
+
+- **Rooted entities: one persistent session per entity.** `$CWD` is always `$ENTITY_DIR`, so `-c` always resumes the same session. Vesta remembers the last thing Juno said to her regardless of where Juno dispatched from.
+- **Roaming entities: one persistent session per project.** `$CWD` is the caller's project dir, so `-c` resumes whichever session belongs to that project. Vulcan invoked inside `~/code/foo` resumes the `foo` session; invoked inside `~/code/bar` resumes the `bar` session.
+- **Cross-harness independence.** `claude -c` and `opencode -c` key sessions independently; switching harnesses means a fresh session. That's not a bug — it's the natural consequence of each harness owning its own session store at `$ENTITY_DIR/<harness>-state/`.
+
+Canonical shapes:
+
+```bash
+# Continue the entity's session on its default harness, new one-shot message
+PROMPT="follow-up message" vesta harness default -c
+
+# Continue and enter interactive
+vesta harness default -c
+
+# Continue on a specific harness, overriding default
+vesta harness claude -c
+
+# Env-var form (matches PROMPT= convention)
+CONTINUE=1 PROMPT="..." vesta harness default
+```
 
 ## The `default` meta-harness
 

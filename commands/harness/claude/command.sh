@@ -17,6 +17,25 @@
 
 set -e
 
+# --- Flag filter ----------------------------------------------------------
+#
+# Extract --continue / -c before positional parsing so the flag can appear
+# anywhere (e.g. 'vesta harness claude -c' or 'vesta harness claude anthropic
+# sonnet-4-6 -c "follow-up"'). Env-var CONTINUE=1 is equivalent and lets
+# callers set it without touching positional args. This is the same pattern
+# koad-io itself uses for --quiet.
+
+_filtered=()
+for _arg in "$@"; do
+  case "$_arg" in
+    --continue|-c) CONTINUE=1 ;;
+    *)             _filtered+=("$_arg") ;;
+  esac
+done
+set -- "${_filtered[@]}"
+unset _arg _filtered
+CONTINUE="${CONTINUE:-0}"
+
 # --- Guard rails ----------------------------------------------------------
 
 if [ -z "$ENTITY" ]; then
@@ -117,12 +136,21 @@ if [ -n "$PROMPT" ]; then
 else
   echo "mode          : interactive"
 fi
+[ "$CONTINUE" = "1" ] && echo "continue      : yes (claude -c — resume last session in this cwd)"
 echo
 
 # --- Exec -----------------------------------------------------------------
+#
+# Build argv explicitly. --continue (-c) resumes the most recent session for
+# the current project directory. For rooted entities cwd is always
+# $ENTITY_DIR, so there is exactly one persistent session per entity. For
+# roaming entities there is one per (entity × project-dir) pair, which is
+# the behavior you want when an entity is invoked inside a user project.
 
+_args=(--model "$MODEL_RESOLVED")
+[ "$CONTINUE" = "1" ] && _args+=(-c)
 if [ -n "$PROMPT" ]; then
-  exec claude --model "$MODEL_RESOLVED" -p "$PROMPT"
-else
-  exec claude --model "$MODEL_RESOLVED"
+  _args+=(-p "$PROMPT")
 fi
+
+exec claude "${_args[@]}"

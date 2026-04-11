@@ -37,6 +37,25 @@ Multi-word prompts can also be passed via environment variable to sidestep shell
 PROMPT="review SPEC-072 and list gaps" vesta harness default
 ```
 
+### Session continuity
+
+Add `--continue` or `-c` to resume the most recent session for the current working directory (or set `CONTINUE=1` as an env var).
+
+```bash
+# New message to the same running conversation
+PROMPT="follow-up question" vesta harness default -c
+
+# Resume interactively
+vesta harness default -c
+
+# Env-var form
+CONTINUE=1 vesta harness default
+```
+
+**Rooted entities get exactly one persistent session per entity.** Because `$CWD` is always `$ENTITY_DIR` for a rooted entity (Juno, Vesta), `claude -c` / `opencode -c` always resumes the same session — stable memory across invocations, from any caller location.
+
+**Roaming entities get one session per `(entity × project-dir)` pair.** A roaming entity (Vulcan, Mercury) invoked inside `~/code/foo` will resume its `foo` session; invoked inside `~/code/bar` will resume its `bar` session. This is the right behavior when builders are dispatched inside user projects.
+
 ## Directory shape
 
 ```
