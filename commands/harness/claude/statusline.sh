@@ -195,6 +195,10 @@ _lines_add=""
 _lines_del=""
 _cc_version=""
 
+_5h_resets=""
+_7d_resets=""
+_payload_cwd=""
+
 if [ -n "$PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
   # Tab-separated single-call extraction; avoids per-field jq invocations.
   _line_tsv=$(printf '%s' "$PAYLOAD" | jq -r '[
@@ -203,15 +207,14 @@ if [ -n "$PAYLOAD" ] && command -v jq >/dev/null 2>&1; then
     (.context_window.used_percentage // ""),
     (.rate_limits.five_hour.used_percentage // ""),
     (.rate_limits.seven_day.used_percentage // ""),
-    (.cost.total_duration_ms // ""),
-    (.cost.total_api_duration_ms // ""),
-    (.cost.total_lines_added // ""),
-    (.cost.total_lines_removed // ""),
-    (.version // "")
+    (.rate_limits.five_hour.resets_at // ""),
+    (.rate_limits.seven_day.resets_at // ""),
+    (.cwd // .workspace.current_dir // "")
   ] | @tsv' 2>/dev/null)
 
-  IFS=$'\t' read -r _model_display _cost_usd _ctx_pct _5h_pct _7d_pct _dur_ms _api_ms _lines_add _lines_del _cc_version <<<"$_line_tsv"
+  IFS=$'\t' read -r _model_display _cost_usd _ctx_pct _5h_pct _7d_pct _5h_resets _7d_resets _payload_cwd <<<"$_line_tsv"
 fi
+[ -z "$_payload_cwd" ] && _payload_cwd="$PWD"
 
 # --- Model short name (opus / sonnet / haiku) ----------------------------
 
@@ -231,53 +234,87 @@ if [ -n "$_cost_usd" ]; then
   _cost_display=$(awk -v c="$_cost_usd" 'BEGIN{printf "$%.2f", c}' 2>/dev/null)
 fi
 
-# --- Duration display (humanized) ----------------------------------------
+# --- Rows 1 + 2: delegate to starship ------------------------------------
+#
+# koad's kingdom shell prompt (~/.config/starship.toml) renders:
+#   Row 1: user on host with entity CWD       (muted "on"/"with" connectors)
+#   Row 2: origin-url 🌱branch 📝×N 🏎️💨×M ... (git-state emoji glyphs)
+#   Row 3: YY:MM:DD:HH:MM:SS ❯                 (timestamp + character)
+#
+# We reuse starship verbatim for rows 1 and 2 so the Claude Code statusline
+# is visually identical to what koad sees at the shell — same identity
+# tuple, same muted connectors, same emoji git state, same truncation,
+# same colors. STARSHIP_SHELL=plain tells starship to skip zsh/bash prompt
+# escape markers so the ANSI we get is directly emittable.
+#
+# Row 3 is ours: entity-colored-colon timestamp + sensor telemetry
+# (provider, model, ctx, cost) + optional quota warning when any rate
+# limit window is almost full + green ❯. This expands the shell prompt's
+# row 3 (timestamp + character) with Claude-specific harness data,
+# keeping the same visual anchor — the ❯ glyph where bash would leave
+# the cursor.
+#
+# Fallback: when starship isn't available (or cwd isn't a directory),
+# we synthesize a minimal row 1 with the same "user on host with entity
+# cwd" grammar manually.
 
-humanize_ms() {
-  local ms="$1"
-  [ -z "$ms" ] || [ "$ms" = "0" ] && return
-  local sec
-  sec=$(awk -v m="$ms" 'BEGIN{printf "%d", m/1000}' 2>/dev/null)
-  [ -z "$sec" ] || [ "$sec" -lt 1 ] 2>/dev/null && return
-  if [ "$sec" -lt 60 ]; then
-    printf '%ds' "$sec"
-  elif [ "$sec" -lt 3600 ]; then
-    printf '%dm' "$((sec / 60))"
-  else
-    printf '%dh%dm' "$((sec / 3600))" "$(((sec % 3600) / 60))"
-  fi
-}
-
-_dur_display="$(humanize_ms "$_dur_ms")"
-_api_display="$(humanize_ms "$_api_ms")"
-# Combined "api/wall" form: 13m/56m
-_time_display=""
-if [ -n "$_dur_display" ] && [ -n "$_api_display" ]; then
-  _time_display="${_api_display}/${_dur_display}"
-elif [ -n "$_dur_display" ]; then
-  _time_display="$_dur_display"
+_starship_rows=""
+if command -v starship >/dev/null 2>&1 && [ -d "$_payload_cwd" ]; then
+  _starship_raw=$(
+    cd "$_payload_cwd" 2>/dev/null || exit 0
+    ENTITY="${ENTITY:-$_entity}" \
+    COLUMNS="$_cols" \
+    STARSHIP_SHELL=plain \
+      starship prompt 2>/dev/null
+  )
+  # Drop leading newline (starship's format starts with \n)
+  _starship_raw="${_starship_raw#$'\n'}"
+  # Drop the final line (starship's own timestamp + ❯ character row) —
+  # we replace it with our sensor-enriched row 3.
+  _starship_rows=$(printf '%s' "$_starship_raw" | sed '$d')
 fi
 
-# --- Build segments (each colored, separator-free) -----------------------
+if [ -z "$_starship_rows" ]; then
+  _muted=$'\033[2;37m'
+  _bright_user=$'\033[1;97m'
+  _display_cwd="${_payload_cwd/#$HOME/~}"
+  _starship_rows="${_bright_user}${USER:-koad}${_R} ${_muted}on${_R} ${_bright_user}${_host}${_R} ${_muted}with${_R} ${_bright_user}${_entity}${_R} ${_bright_user}${_display_cwd}${_R}"
+fi
+
+# --- Row 3: entity-colored timestamp + sensor + quota-if-close + ❯ -------
 
 _sep="${_SEP_C} · ${_R}"
 
-# Row 1 — identity and brand (always prominent). The ◊ glyph wears the
-# entity's outfit color (hsv from passenger.json → truecolor), so the
-# brand tag visually IS the entity.
-_brand="${_entity_color}◊${_R} ${_FB}koad:io${_R}"
-_ident="${_FM}${_entity}${_R}${_FW}@${_R}${_FL}${_host}${_R}"
-_model_seg="${_FY}${_model_short}${_R}"
-_version_seg=""
-[ -n "$_cc_version" ] && _version_seg="${_FW}v${_cc_version}${_R}"
+# Timestamp — kingdom format YY:MM:DD:HH:MM:SS, matching starship's
+# time_format. Colons pick up the entity's outfit color so the separator
+# IS the identity; digits stay in default white. Each ':' becomes a
+# reset → entity-color → ':' → reset → white sequence so the next digit
+# starts clean.
+_ts_now="$(date '+%y:%m:%d:%H:%M:%S' 2>/dev/null)"
+_ts_colored=""
+if [ -n "$_ts_now" ]; then
+  _colon="${_R}${_entity_color}:${_R}${_FW}"
+  _ts_colored="${_FW}${_ts_now//:/$_colon}${_R}"
+fi
 
-# Timestamp — YYYY:MM:DD:HH:MM:SS local time. Always visible; anchors
-# the per-turn capture moment (statusline refreshes every turn).
-_ts_now="$(date '+%Y:%m:%d:%H:%M:%S' 2>/dev/null)"
-_ts_seg=""
-[ -n "$_ts_now" ] && _ts_seg="${_FW}${_ts_now}${_R}"
+# Provider — read from entity .env if not already in process env.
+# For Claude Code this is effectively always "anthropic" but the hook
+# is framework-shared; opencode-dispatched sessions wiring the same
+# script will get their correct provider.
+_provider="${ENTITY_DEFAULT_PROVIDER:-}"
+if [ -z "$_provider" ] && [ -n "$_entity_dir_for_outfit" ] && [ -r "$_entity_dir_for_outfit/.env" ]; then
+  _prov_line=$(grep -E '^[[:space:]]*ENTITY_DEFAULT_PROVIDER[[:space:]]*=' "$_entity_dir_for_outfit/.env" 2>/dev/null | tail -1)
+  if [ -n "$_prov_line" ]; then
+    _prov_val="${_prov_line#*=}"
+    _prov_val="${_prov_val#\"}"; _prov_val="${_prov_val%\"}"
+    _prov_val="${_prov_val#\'}"; _prov_val="${_prov_val%\'}"
+    _provider="$_prov_val"
+  fi
+fi
+[ -z "$_provider" ] && _provider="anthropic"
 
-# Row 2 — session telemetry
+_provider_seg="${_FB}${_provider}${_R} ${_FB}${_model_short}${_R}"
+
 _ctx_seg=""
 if [ -n "$_ctx_pct" ]; then
   _c=$(pct_color "$_ctx_pct")
@@ -285,87 +322,84 @@ if [ -n "$_ctx_pct" ]; then
 fi
 
 _cost_seg=""
-[ -n "$_cost_display" ] && _cost_seg="${_FW}${_cost_display}${_R}"
+[ -n "$_cost_display" ] && _cost_seg="${_FB}${_cost_display}${_R}"
 
-_5h_seg=""
-if [ -n "$_5h_pct" ]; then
-  _c=$(pct_color "$_5h_pct")
-  _5h_seg="${_FW}5h${_R} ${_c}${_5h_pct}%${_R}"
-fi
+# Quota warning — shown only when a window is >= 75% used. Pairs the
+# percentage with a countdown to reset, because "87%" alone doesn't
+# say whether to slow down or burn through (it depends on how long
+# until the window dies). Both windows shown if both are close;
+# neither shown if both are comfortable.
+_now_epoch=$(date +%s 2>/dev/null || echo 0)
 
-_7d_seg=""
-if [ -n "$_7d_pct" ]; then
-  _c=$(pct_color "$_7d_pct")
-  _7d_seg="${_FW}7d${_R} ${_c}${_7d_pct}%${_R}"
-fi
+fmt_countdown() {
+  local epoch="$1"
+  [ -z "$epoch" ] || [ "$epoch" = "0" ] && return
+  local delta=$(( epoch - _now_epoch ))
+  [ "$delta" -le 0 ] && return
+  local mins=$(( delta / 60 ))
+  if [ "$mins" -ge 1440 ]; then
+    printf '%dd%dh' "$(( mins / 1440 ))" "$(( (mins % 1440) / 60 ))"
+  elif [ "$mins" -ge 60 ]; then
+    printf '%dh%dm' "$(( mins / 60 ))" "$(( mins % 60 ))"
+  else
+    printf '%dm' "$mins"
+  fi
+}
 
-_time_seg=""
-[ -n "$_time_display" ] && _time_seg="${_FW}${_time_display}${_R}"
+quota_seg() {
+  local label="$1" pct="$2" resets="$3"
+  [ -z "$pct" ] && return
+  local pint="${pct%.*}"
+  [ -z "$pint" ] && return
+  [ "$pint" -lt 75 ] 2>/dev/null && return
+  local c
+  c=$(pct_color "$pct")
+  local cd
+  cd=$(fmt_countdown "$resets")
+  if [ -n "$cd" ]; then
+    printf '%s%s %s%%%s %s⏳%s%s' "$c" "$label" "$pint" "$_R" "$_FW" "$cd" "$_R"
+  else
+    printf '%s%s %s%%%s' "$c" "$label" "$pint" "$_R"
+  fi
+}
 
-_diff_seg=""
-if [ -n "$_lines_add" ] && [ -n "$_lines_del" ]; then
-  if [ "${_lines_add:-0}" -gt 0 ] 2>/dev/null || [ "${_lines_del:-0}" -gt 0 ] 2>/dev/null; then
-    _diff_seg="${_FG}+${_lines_add}${_R}${_FW}/${_R}${_FR}-${_lines_del}${_R}"
+_5h_quota=$(quota_seg "5h" "$_5h_pct" "$_5h_resets")
+_7d_quota=$(quota_seg "7d" "$_7d_pct" "$_7d_resets")
+
+_quota_all=""
+if [ -n "$_5h_quota" ]; then _quota_all="$_5h_quota"; fi
+if [ -n "$_7d_quota" ]; then
+  if [ -n "$_quota_all" ]; then
+    _quota_all="${_quota_all}${_sep}${_7d_quota}"
+  else
+    _quota_all="$_7d_quota"
   fi
 fi
 
-# --- Compose — two rows, each width-adaptive -----------------------------
-#
-# Row 1 (identity):   brand · entity@host · model [· version at >=110] · timestamp
-# Row 2 (telemetry):  ctx% · cost · 5h% [· 7d% at >=95] [· dur at >=115] [· diff at >=135]
-#
-# Timestamp (YYYY:MM:DD:HH:MM:SS — koad's canonical kingdom format) always
-# renders on row 1 when available. It anchors each turn in wall time — the
-# statusline refreshes per turn, so this doubles as a per-turn clock.
-#
-# Thresholds are lower than single-row because each row has its own width
-# budget. A 14" zoomed laptop (~90 cols) sees a rich two-row line; wider
-# monitors pick up version + 7d + duration + diff cleanly.
-#
-# Row 3 is reserved for the soft-error channel (harness-warnings.jsonl)
-# and renders only when warnings are present.
+_char_glyph="${_FG}❯${_R}"
 
-_row1="${_brand}${_sep}${_ident}${_sep}${_model_seg}"
-if [ "$_cols" -ge 110 ] && [ -n "$_version_seg" ]; then
-  _row1="${_row1}${_sep}${_version_seg}"
-fi
-if [ -n "$_ts_seg" ]; then
-  _row1="${_row1}${_sep}${_ts_seg}"
-fi
+# Compose row 3: timestamp · provider+model · ctx · cost [· quota]  ❯
+_row3=""
+append_row3() {
+  local seg="$1"
+  [ -z "$seg" ] && return
+  if [ -z "$_row3" ]; then
+    _row3="$seg"
+  else
+    _row3="${_row3}${_sep}${seg}"
+  fi
+}
+append_row3 "$_ts_colored"
+append_row3 "$_provider_seg"
+append_row3 "$_ctx_seg"
+append_row3 "$_cost_seg"
+append_row3 "$_quota_all"
+_row3="${_row3}  ${_char_glyph}"
 
-_row2=""
-[ -n "$_ctx_seg"  ] && _row2="${_ctx_seg}"
-if [ -n "$_cost_seg" ]; then
-  [ -n "$_row2" ] && _row2="${_row2}${_sep}${_cost_seg}" || _row2="${_cost_seg}"
-fi
-if [ -n "$_5h_seg" ]; then
-  [ -n "$_row2" ] && _row2="${_row2}${_sep}${_5h_seg}" || _row2="${_5h_seg}"
-fi
-if [ "$_cols" -ge 95 ] && [ -n "$_7d_seg" ]; then
-  _row2="${_row2}${_sep}${_7d_seg}"
-fi
-if [ "$_cols" -ge 115 ] && [ -n "$_time_seg" ]; then
-  _row2="${_row2}${_sep}${_time_seg}"
-fi
-if [ "$_cols" -ge 135 ] && [ -n "$_diff_seg" ]; then
-  _row2="${_row2}${_sep}${_diff_seg}"
-fi
+# --- Emit ----------------------------------------------------------------
+# Starship rows first (1 or 2 of them, depending on git context), then
+# a newline, then our sensor row 3. Claude Code renders each \n as a
+# new statusline row.
 
-# Context pressure → row 2 gets a yellow/red background so koad sees the
-# warning at a glance before auto-compact lands. Inline resets inside the
-# row's segments would wipe the background, so we re-apply it after each
-# reset and pad the ends with a space for visual weight.
-_row2_bg="$(ctx_bg "$_ctx_pct")"
-if [ -n "$_row2_bg" ] && [ -n "$_row2" ]; then
-  _row2="${_row2_bg} ${_row2//${_R}/${_R}${_row2_bg}} ${_R}"
-fi
-
-# --- Emit (newline-separated rows) ---------------------------------------
-# Claude Code renders each \n as a new statusline row. Row 2 omitted if
-# nothing populated it (no jq / no payload / first-ever probe).
-
-printf '%s' "$_row1"
-if [ -n "$_row2" ]; then
-  printf '\n%s' "$_row2"
-fi
+printf '%s\n%s' "$_starship_rows" "$_row3"
 exit 0
