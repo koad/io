@@ -247,12 +247,11 @@ fi
 # same colors. STARSHIP_SHELL=plain tells starship to skip zsh/bash prompt
 # escape markers so the ANSI we get is directly emittable.
 #
-# Row 3 is ours: entity-colored-colon timestamp + sensor telemetry
-# (provider, model, ctx, cost) + optional quota warning when any rate
-# limit window is almost full + green ❯. This expands the shell prompt's
-# row 3 (timestamp + character) with Claude-specific harness data,
-# keeping the same visual anchor — the ❯ glyph where bash would leave
-# the cursor.
+# Row 3 is ours: entity-colored-colon timestamp + green ❯ (where the
+# shell cursor would sit) + sensor telemetry (provider, model, ctx,
+# cost) + optional quota warning when any rate limit window is almost
+# full. The stats trail the ❯ like typed input, keeping the visual
+# anchor at the cursor position even as the harness data scrolls past.
 #
 # Fallback: when starship isn't available (or cwd isn't a directory),
 # we synthesize a minimal row 1 with the same "user on host with entity
@@ -378,7 +377,7 @@ fi
 
 _char_glyph="${_FG}❯${_R}"
 
-# Compose row 3: timestamp · provider+model · ctx · cost [· quota]  ❯
+# Compose row 3: timestamp ❯ provider+model · ctx · cost [· quota]
 _row3=""
 append_row3() {
   local seg="$1"
@@ -389,12 +388,20 @@ append_row3() {
     _row3="${_row3}${_sep}${seg}"
   fi
 }
-append_row3 "$_ts_colored"
+# Stats first (provider · ctx · cost · quota), then prepend
+# "timestamp ❯ " so the ❯ sits where bash would leave the cursor and
+# the stats trail after like typed input.
 append_row3 "$_provider_seg"
 append_row3 "$_ctx_seg"
 append_row3 "$_cost_seg"
 append_row3 "$_quota_all"
-_row3="${_row3}  ${_char_glyph}"
+if [ -n "$_ts_colored" ]; then
+  if [ -n "$_row3" ]; then
+    _row3="${_ts_colored} ${_char_glyph} ${_row3}"
+  else
+    _row3="${_ts_colored} ${_char_glyph}"
+  fi
+fi
 
 # --- Emit ----------------------------------------------------------------
 # Starship rows first (1 or 2 of them, depending on git context), then
