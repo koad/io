@@ -11,6 +11,8 @@
 !commit
 !deploy
 !gestate
+!harness
+!harness/**
 !init
 !io
 !probe
