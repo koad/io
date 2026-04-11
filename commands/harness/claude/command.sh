@@ -62,7 +62,17 @@ MODEL="${1:-${ENTITY_DEFAULT_MODEL:-${KOAD_IO_DEFAULT_MODEL:-opus-4-6}}}"
 [ $# -gt 0 ] && shift
 
 # Remaining positional args become the prompt (word-split by the koad-io
-# dispatcher, so we rejoin with single spaces). Env-var PROMPT wins if set.
+# dispatcher, so we rejoin with single spaces). Precedence:
+#   1. $PROMPT env var     — explicit override, heredoc-friendly
+#   2. stdin pipe          — `cat brief.md | ...` or heredoc with no env var
+#   3. positional args     — legacy `... harness default "hi there"`
+#
+# Reading stdin when it's not a TTY (`[ ! -t 0 ]`) lets callers sidestep
+# shell quoting entirely — nested quotes, dollar signs, backticks, newlines,
+# all pass through literally because they never touch shell word-splitting.
+if [ -z "$PROMPT" ] && [ ! -t 0 ]; then
+  PROMPT="$(cat)"
+fi
 PROMPT="${PROMPT:-$*}"
 
 # --- Provider validation --------------------------------------------------

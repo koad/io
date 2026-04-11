@@ -37,6 +37,25 @@ Multi-word prompts can also be passed via environment variable to sidestep shell
 PROMPT="review SPEC-072 and list gaps" vesta harness default
 ```
 
+**Quoting-free form — pipe via stdin.** When the prompt contains nested quotes, `$vars`, backticks, or newlines, pipe it in. Stdin is read when it's not a TTY, and the content bypasses shell word-splitting entirely:
+
+```bash
+# Heredoc — the canonical form for anything non-trivial
+cat <<'EOF' | vesta harness default -c
+Here's a prompt with 'single' and "double" quotes,
+$variables, `backticks`, and
+multiple lines — all literal.
+EOF
+
+# File
+cat brief.md | vesta harness default
+
+# Command output
+gh issue view 42 | vesta harness default -c
+```
+
+Precedence is `$PROMPT` env var → stdin pipe → positional args. The first one populated wins.
+
 ### Session continuity
 
 Add `--continue` or `-c` to resume the most recent session for the current working directory (or set `CONTINUE=1` as an env var).

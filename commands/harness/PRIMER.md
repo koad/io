@@ -53,6 +53,25 @@ For `juno harness claude anthropic opus-4-6 "hi"`:
 
 Word-splitting on exec means multi-word prompts arrive as separate positional args. Sub-commands must either `PROMPT="$*"` to reassemble, or honor an env-var `PROMPT` override for callers who want to sidestep the splitting.
 
+## Prompt input precedence
+
+Three ways to feed a prompt, checked in order:
+
+1. **`$PROMPT` env var** — `PROMPT="..." vesta harness default`
+2. **stdin pipe** — any non-TTY stdin is read via `cat`. Heredocs, `cat file |`, command output piped in. This is the **quoting-free** path: content never touches shell word-splitting, so nested `'single'` + `"double"` quotes, `$vars`, and `` `backticks` `` all pass through literally.
+3. **Positional args** — legacy `harness default "hi there"`, word-split by the koad-io dispatcher and rejoined with single spaces.
+
+The `default` meta-harness consumes stdin itself (before `exec`) and exports the result as `$PROMPT` so the delegate sees a clean env var rather than a spent pipe. Individual sub-commands (claude, opencode) also read stdin directly when invoked without `default`.
+
+**Canonical heredoc form** — use this for any prompt with quoting concerns:
+
+```bash
+cat <<'EOF' | vesta harness default -c
+Multi-line prompt with 'quotes' and "quotes" and $vars,
+all literal, all fine.
+EOF
+```
+
 ## Session continuity (`--continue` / `-c`)
 
 Every shipped sub-command filters `--continue` / `-c` out of the positional args (same pattern as koad-io's `--quiet` filter) and also honors the `CONTINUE=1` env var. When set, the flag is forwarded to the underlying CLI — `claude -c`, `opencode -c`, etc. The underlying CLI resumes the most recent session for the current working directory.

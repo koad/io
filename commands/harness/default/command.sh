@@ -85,14 +85,28 @@ fi
 
 # --- Prompt hand-off ------------------------------------------------------
 #
-# Remaining positional args (post-dispatcher word-split) become the prompt.
-# We rejoin with single spaces and export so the delegate sees PROMPT in env.
-# This lets us pass zero positional args to the delegate — otherwise the
-# delegate's $1 would be interpreted as provider, $2 as model, which is
-# exactly what this meta-harness exists to avoid.
+# Precedence for the delegate's PROMPT:
+#   1. $PROMPT env var     — explicit override from the caller
+#   2. stdin pipe          — heredoc / `cat brief.md | ...` (quoting-free path)
+#   3. positional args     — legacy `harness default "hi there"`
+#
+# We rejoin positional args with single spaces and export so the delegate
+# sees PROMPT in env. This lets us pass zero positional args to the delegate
+# — otherwise the delegate's $1 would be interpreted as provider, $2 as
+# model, which is exactly what this meta-harness exists to avoid.
+#
+# stdin is consumed HERE (not in the delegate) because `exec` would pass a
+# spent pipe to the delegate anyway — better to own the read and export the
+# resolved PROMPT cleanly.
 
-if [ $# -gt 0 ]; then
-  export PROMPT="${PROMPT:-$*}"
+if [ -z "$PROMPT" ] && [ ! -t 0 ]; then
+  PROMPT="$(cat)"
+fi
+if [ -z "$PROMPT" ] && [ $# -gt 0 ]; then
+  PROMPT="$*"
+fi
+if [ -n "$PROMPT" ]; then
+  export PROMPT
 fi
 
 # --- Announce -------------------------------------------------------------
