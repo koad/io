@@ -174,6 +174,37 @@ else
   echo "mode          : interactive"
 fi
 [ "$CONTINUE" = "1" ] && echo "continue      : yes (claude -c — resume last session in this cwd)"
+
+# --- Context readout (continue mode only) --------------------------------
+#
+# When resuming, peek the session JSONL that `claude -c` is about to pick
+# up and report the last assistant turn's token usage. Context size =
+# input + cache_creation + cache_read (what Claude actually sees on the
+# next turn, minus the delta from that turn's reply). Silent on any
+# failure — this is a convenience readout, not a gate.
+
+if [ "$CONTINUE" = "1" ] && command -v jq >/dev/null 2>&1; then
+  _proj_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
+  _proj_slug=$(printf '%s' "$WORK_DIR" | sed 's|[/.]|-|g')
+  _sess=$(ls -t "$_proj_root/$_proj_slug"/*.jsonl 2>/dev/null | head -1)
+  if [ -n "$_sess" ] && [ -r "$_sess" ]; then
+    _usage=$(tac "$_sess" 2>/dev/null \
+      | jq -c 'select(.message.usage != null) | .message.usage' 2>/dev/null \
+      | head -1)
+    if [ -n "$_usage" ]; then
+      printf '%s' "$_usage" | jq -r '
+        (.input_tokens // 0) as $in
+        | (.cache_creation_input_tokens // 0) as $cc
+        | (.cache_read_input_tokens // 0) as $cr
+        | ($in + $cc + $cr) as $ctx
+        | "context       : \($ctx) tokens  (cached \($cr), fresh \($cc + $in))"'
+      _turns=$(wc -l < "$_sess" 2>/dev/null)
+      _bytes=$(stat -c%s "$_sess" 2>/dev/null)
+      echo "session       : $(basename "$_sess" .jsonl)  (${_turns:-?} lines, ${_bytes:-?} bytes)"
+    fi
+  fi
+  unset _proj_root _proj_slug _sess _usage _turns _bytes
+fi
 echo
 
 # --- Exec -----------------------------------------------------------------
