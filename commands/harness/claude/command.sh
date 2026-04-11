@@ -106,15 +106,34 @@ case "$MODEL" in
   *)        MODEL_RESOLVED="claude-$MODEL" ;;
 esac
 
-# --- SPEC-072 invariants --------------------------------------------------
+# --- SPEC-072 invariants (three modes) ------------------------------------
 #
-# Entity directory IS the harness config directory. Claude state
-# (.claude.json, settings.json, history.jsonl, projects/<ws>/) lives at the
-# entity root alongside ENTITY.md, memories/, trust/, id/, etc.
+# CLAUDE_CONFIG_DIR resolves to one of three modes, in priority order:
 #
-# Export so child processes (hooks, bash tool subshells) can find it.
+#   1. Caller-pinned room  — if KOAD_IO_ROOM is set, use $KOAD_IO_ROOM as
+#      the config dir. The room is then a sealed portable workspace: its
+#      own chat history lives at $KOAD_IO_ROOM/projects/.../<uuid>.jsonl
+#      and travels with the room when you tar it up. Multiple roaming
+#      entities visiting the same room with the same --session-id share
+#      the same conversation file naturally.
+#
+#   2. Rooted entity       — if KOAD_IO_ROOTED=true, use $ENTITY_DIR. This
+#      is the original SPEC-072 axiom for protocol keepers (Juno, Vesta):
+#      sealed entity, portable, session log lives inside the entity tarball.
+#
+#   3. Roaming entity      — neither set, so EXPLICITLY unset
+#      CLAUDE_CONFIG_DIR (inherited from the caller's env otherwise) and
+#      let claude fall back to the system default ~/.claude/. The system
+#      db is shared across roaming entities by default — they can join
+#      common rooms via --session-id with no extra configuration.
 
-export CLAUDE_CONFIG_DIR="$ENTITY_DIR"
+if [ -n "$KOAD_IO_ROOM" ] && [ -d "$KOAD_IO_ROOM" ]; then
+  export CLAUDE_CONFIG_DIR="$KOAD_IO_ROOM"
+elif [ "${KOAD_IO_ROOTED:-false}" = "true" ]; then
+  export CLAUDE_CONFIG_DIR="$ENTITY_DIR"
+else
+  unset CLAUDE_CONFIG_DIR
+fi
 
 # --- Rooted vs roaming cwd ------------------------------------------------
 #
@@ -139,7 +158,15 @@ echo "entity_dir    : $ENTITY_DIR"
 echo "work_dir      : $WORK_DIR"
 echo "provider      : $PROVIDER"
 echo "model         : $MODEL_RESOLVED"
-echo "config_dir    : $CLAUDE_CONFIG_DIR"
+if [ -n "$CLAUDE_CONFIG_DIR" ]; then
+  if [ -n "$KOAD_IO_ROOM" ]; then
+    echo "config_dir    : $CLAUDE_CONFIG_DIR  (sealed portable room)"
+  else
+    echo "config_dir    : $CLAUDE_CONFIG_DIR  (sealed portable entity — SPEC-072)"
+  fi
+else
+  echo "config_dir    : (system default ~/.claude — roaming, room-shareable)"
+fi
 if [ -n "$PROMPT" ]; then
   echo "mode          : one-shot"
   echo "prompt        : $PROMPT"

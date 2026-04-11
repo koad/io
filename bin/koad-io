@@ -17,6 +17,44 @@
 ## the process and the decision-making logic. Hopefully our approach seems to be a reasonable trade-off
 ## between readability and conciseness.
 
+# --- Pre-cascade env sanitization ----------------------------------------
+#
+# Wipe inherited entity-context and koad-io state vars BEFORE the .env
+# cascade waterfall runs. Each koad-io invocation must start with a clean
+# slate so the cascade is the single source of truth — preventing leakage
+# from parent processes (e.g. dispatching Vulcan from inside a Juno
+# session that already has KOAD_IO_ROOTED=true and ENTITY_DIR=/home/koad/.juno
+# in env, which would otherwise pollute Vulcan's invocation).
+#
+# Preserved (caller intent, not entity context):
+#   ENTITY            — set by the entity launcher (~/.koad-io/bin/<name>)
+#                       immediately before exec; the canonical fresh caller intent
+#   KOAD_IO_ROOM      — caller-pinned room for room-mode dispatch
+#   KOAD_IO_QUIET     — verbosity preference (also set by --quiet flag)
+#
+# Wiped:
+#   ENTITY_*          — entity context (DIR, HOME, HOST, KEYS, DEFAULT_*).
+#                       Re-established from the entity .env in the cascade.
+#   KOAD_IO_*         — kingdom flags and entity-context flags
+#                       (ROOTED, DEFAULT_*, etc). Re-established from
+#                       ~/.koad-io/.env and the entity .env in the cascade.
+#
+# Spec proposal: VESTA-SPEC-NNN — Pre-Cascade Env Sanitization (forthcoming).
+
+_koad_io_room_pin="$KOAD_IO_ROOM"
+_koad_io_quiet_pin="$KOAD_IO_QUIET"
+
+while IFS= read -r _v; do
+  case "$_v" in
+    ENTITY) ;;  # entity launcher just set this — preserve
+    *)      unset "$_v" ;;
+  esac
+done < <(compgen -v | grep -E '^(KOAD_IO_|ENTITY)' || true)
+
+[ -n "$_koad_io_room_pin" ]  && export KOAD_IO_ROOM="$_koad_io_room_pin"
+[ -n "$_koad_io_quiet_pin" ] && export KOAD_IO_QUIET="$_koad_io_quiet_pin"
+unset _koad_io_room_pin _koad_io_quiet_pin _v
+
 # we want to save CWD as the directory which the command was fired from, and pass this into the regular command.
 export CWD=$PWD
 [[ $DEBUG ]] && echo "PWD=$PWD";

@@ -128,18 +128,30 @@ case "$MODEL" in
   *)   MODEL_RESOLVED="$PROVIDER/$MODEL" ;;
 esac
 
-# --- SPEC-072 invariants --------------------------------------------------
+# --- SPEC-072 invariants (three modes) ------------------------------------
 #
-# opencode uses XDG_CONFIG_HOME for its global config lookup
-# ($XDG_CONFIG_HOME/opencode/). Pointing it at the entity root means
-# opencode's global config dir becomes $ENTITY_DIR/opencode/ — per-entity
-# sovereign config that coexists with entity identity files at the same
-# root, exactly as SPEC-072 prescribes.
+# XDG_CONFIG_HOME resolves to one of three modes, in priority order:
 #
-# Workspace-local 'opencode.jsonc' at $ENTITY_DIR is the project-level
-# config layer and is picked up automatically by cwd.
+#   1. Caller-pinned room  — KOAD_IO_ROOM set → use it as the config dir.
+#      Sealed portable room: opencode's session db lives in the room and
+#      travels with it. Multiple roaming entities visiting the same room
+#      can share conversations naturally.
+#
+#   2. Rooted entity       — KOAD_IO_ROOTED=true → use $ENTITY_DIR.
+#      Original SPEC-072 axiom for protocol keepers; sealed portable entity.
+#
+#   3. Roaming entity      — neither set, EXPLICITLY unset XDG_CONFIG_HOME
+#      (inherited from caller's env otherwise) so opencode falls back to
+#      the system default ~/.config/. Roaming entities share the system
+#      db by default, room-friendly with no configuration.
 
-export XDG_CONFIG_HOME="$ENTITY_DIR"
+if [ -n "$KOAD_IO_ROOM" ] && [ -d "$KOAD_IO_ROOM" ]; then
+  export XDG_CONFIG_HOME="$KOAD_IO_ROOM"
+elif [ "${KOAD_IO_ROOTED:-false}" = "true" ]; then
+  export XDG_CONFIG_HOME="$ENTITY_DIR"
+else
+  unset XDG_CONFIG_HOME
+fi
 
 # --- Rooted vs roaming cwd ------------------------------------------------
 
@@ -160,7 +172,15 @@ echo "entity_dir    : $ENTITY_DIR"
 echo "work_dir      : $WORK_DIR"
 echo "provider      : $PROVIDER"
 echo "model         : $MODEL_RESOLVED"
-echo "xdg_config    : $XDG_CONFIG_HOME  (opencode global config → \$ENTITY_DIR/opencode/)"
+if [ -n "$XDG_CONFIG_HOME" ]; then
+  if [ -n "$KOAD_IO_ROOM" ]; then
+    echo "xdg_config    : $XDG_CONFIG_HOME  (sealed portable room)"
+  else
+    echo "xdg_config    : $XDG_CONFIG_HOME  (sealed portable entity — SPEC-072)"
+  fi
+else
+  echo "xdg_config    : (system default ~/.config — roaming, room-shareable)"
+fi
 if [ -n "$PROMPT" ]; then
   echo "mode          : one-shot"
   echo "prompt        : $PROMPT"
