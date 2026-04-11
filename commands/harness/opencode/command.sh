@@ -56,10 +56,10 @@ fi
 
 # --- Argument parsing -----------------------------------------------------
 
-PROVIDER="${1:-${ENTITY_DEFAULT_PROVIDER:-${KOAD_IO_DEFAULT_PROVIDER:-anthropic}}}"
+PROVIDER="${1:-${ENTITY_DEFAULT_PROVIDER:-${KOAD_IO_DEFAULT_PROVIDER:-opencode}}}"
 [ $# -gt 0 ] && shift
 
-MODEL="${1:-${ENTITY_DEFAULT_MODEL:-${KOAD_IO_DEFAULT_MODEL:-claude-sonnet-4-6}}}"
+MODEL="${1:-${ENTITY_DEFAULT_MODEL:-${KOAD_IO_DEFAULT_MODEL:-big-pickle}}}"
 [ $# -gt 0 ] && shift
 
 # Remaining positional args become the prompt (word-split by the koad-io
