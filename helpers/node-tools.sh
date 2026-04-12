@@ -101,6 +101,16 @@ fi
   fi
 }
 
-cd() {
-  builtin cd "$@" && nvm_use_project
-}
+# Register with the cd reflex registry if it's loaded (cd-reflex.sh
+# loads alphabetically before node-tools.sh so this is normally true).
+# Fallback: if the registry isn't around, preserve the original direct
+# wrap so node-tools.sh still works standalone.
+if [ "${KOAD_IO_NVM_REFLEX:-1}" != "0" ]; then
+  if declare -F koad_io_cd_register >/dev/null 2>&1; then
+    koad_io_cd_register nvm_use_project
+  else
+    cd() {
+      builtin cd "$@" && nvm_use_project
+    }
+  fi
+fi
