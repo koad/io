@@ -122,10 +122,29 @@ esac
 # opencode expects --model in 'provider/model' format (e.g.
 # 'anthropic/claude-opus-4-6', 'ollama/deepseek-r1'). If the user already
 # supplied a slash, trust them; otherwise assemble provider/model.
+#
+# Per-provider short-name normalization: anthropic's model IDs in
+# opencode's registry are spelled 'claude-<name>' (e.g. 'claude-opus-4-6',
+# 'claude-sonnet-4-6'). Kingdom defaults and examples use the short form
+# ('opus-4-6') mirroring the claude harness. Prefix 'claude-' if the
+# caller passed a short name. Other providers pass through unchanged —
+# ollama, openrouter, google, etc. use their own conventions.
 
 case "$MODEL" in
   */*) MODEL_RESOLVED="$MODEL" ;;
-  *)   MODEL_RESOLVED="$PROVIDER/$MODEL" ;;
+  *)
+    case "$PROVIDER" in
+      anthropic)
+        case "$MODEL" in
+          claude-*) MODEL_RESOLVED="$PROVIDER/$MODEL" ;;
+          *)        MODEL_RESOLVED="$PROVIDER/claude-$MODEL" ;;
+        esac
+        ;;
+      *)
+        MODEL_RESOLVED="$PROVIDER/$MODEL"
+        ;;
+    esac
+    ;;
 esac
 
 # --- SPEC-072 invariants (three modes) ------------------------------------
