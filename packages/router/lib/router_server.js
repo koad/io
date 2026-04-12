@@ -3,6 +3,30 @@ var assert = Iron.utils.assert;
 var env = process.env.NODE_ENV || 'development';
 
 /**
+ * Extract subdomain from host header.
+ * If bare domain (no subdomain), returns 'www'.
+ * @param {String} host - e.g. "alice.kingofalldata.com" or "kingofalldata.com"
+ * @returns {String} subdomain or 'www' for bare domain
+ */
+Router.prototype.getSubdomain = function (host) {
+  if (!host) return null;
+  
+  // Remove port if present
+  var hostname = host.split(':')[0];
+  
+  // Split by dots
+  var parts = hostname.split('.');
+  
+  // If 2 parts (e.g. "kingofalldata.com"), it's bare - return 'www'
+  // If more than 2 parts, first part is subdomain
+  if (parts.length <= 2) {
+    return 'www';
+  }
+  
+  return parts[0];
+};
+
+/**
  * Server specific initialization.
  */
 Router.prototype.init = function (options) {};
@@ -37,6 +61,11 @@ Router.prototype.dispatch = function (url, context, done) {
   // XXX need to initialize controller either from the context itself or if the
   // context already has a controller on it, just use that one.
   var controller = this.createController(url, context);
+
+  // Extract subdomain from request host header and set on controller
+  if (context.request && context.request.headers && context.request.headers.host) {
+    controller.subdomain = this.getSubdomain(context.request.headers.host);
+  }
 
   controller.dispatch(this._stack, url, function (err) {
     var res = this.response;
