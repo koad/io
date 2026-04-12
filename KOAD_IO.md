@@ -33,6 +33,14 @@ Commands are the primitive. Everything flows through bash scripts in `commands/`
 
 Commands are not scripts. They are distilled solutions from lived experience. Human and AI invoke the same bash primitives — there is no separate API.
 
+## Bash Is the Substrate
+
+Every harness — Claude Code, opencode, pi, the human at a terminal — transpires on bash. They are bash processes. The framework itself is bash scripts: `commands/`, `hooks/`, `helpers/`, the env cascade, the bin launchers. The dependency stack is bash, starship, and the filesystem. Nothing else is required.
+
+This is not an implementation detail. It is the architecture. The articulation chain runs from human stream of consciousness, through markdown on disk, through bash reflexes and dispatch, into entity action, and out as committed reality. Bash is the resonating chamber. The AI harnesses are one resonance mode; the human at a prompt is another. Both enter through the same door.
+
+Because it's bash all the way down, the sovereignty claim is structural, not aspirational. You cannot be locked into a vendor because there is no vendor in the stack. A `$200 laptop` with bash and a filesystem runs a full kingdom.
+
 ## Entity Structure
 
 Every entity directory follows this layout:

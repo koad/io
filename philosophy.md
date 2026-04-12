@@ -104,6 +104,30 @@ PRIMER.md is not documentation. It is ambient intelligence infrastructure. The w
 **How to apply:** Every project directory that gets entity attention should have a PRIMER.md. Keep it current. The entity reads it cold — write for someone who has never seen this project but needs to be productive in thirty seconds.
 
 
+### 10. Bash Resonates
+
+Bash is not the plumbing underneath the real thing. Bash IS the real thing.
+
+Every harness — Claude Code, opencode, pi, the human at a terminal — is a bash process. They transpire on bash. The framework itself is bash scripts: `commands/`, `hooks/`, `helpers/`, `.env` cascades, bin launchers. The dependency stack is bash, starship, and the filesystem. That's it. No Docker. No Kubernetes. No cloud runtime. No vendor SDK.
+
+The articulation chain:
+
+```
+human stream of consciousness
+  → markdown file on disk (the thought, captured)
+    → bash reflex (surfaces it when you arrive)
+      → bash dispatch (one word to act on it)
+        → bash harness (any model, any provider — all bash processes)
+          → entity action (the work)
+            → git commit (the form)
+```
+
+Every link is bash. The human breathes intent into the system. Bash is the resonating chamber — it receives the articulation and resonates it into form. The AI is one resonance mode. The human at a terminal is another. Both use the same commands, the same files, the same door.
+
+This is why sovereignty is structural, not aspirational. You cannot be locked into a vendor because there is no vendor in the stack. A $200 laptop with bash and a filesystem runs a full kingdom. The requirements are what ships with every Unix machine on earth.
+
+Context injection in-flow — the `cd` reflex — is the lived proof: you change directories, bash checks what's relevant, and makes it ambient without you asking. The same pattern that `nvm` uses for Node versions, koad:io uses for next actions, project state, and team coordination. The shell is not a tool you use to reach the real system. The shell IS the system, articulating.
+
 ## The Vision
 
 > A stage for your kingdom to act upon.
