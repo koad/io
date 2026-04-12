@@ -83,6 +83,15 @@ PROMPT="${PROMPT:-$*}"
 # ones and let opencode handle the rest via its own 'opencode auth'.
 
 case "$PROVIDER" in
+  opencode)
+    # opencode's own hosted aggregator ("opencode zen"). Paid tier; routes
+    # through the caller's opencode-account credentials in
+    # ~/.local/share/opencode/auth.json (XDG_DATA_HOME, NOT rewritten by
+    # this harness — lives outside the SPEC-072 sealed-config dir, so
+    # rooted entities still see the operator's zen auth without per-entity
+    # key plumbing). Canonical free-ish default for dispatched entities
+    # when anthropic-direct keys aren't available per-entity.
+    ;;
   anthropic)
     if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
       echo "Warning: no ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in environment." >&2
