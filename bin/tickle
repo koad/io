@@ -1,0 +1,298 @@
+#!/usr/bin/env bash
+#
+# tickle — surface and dispatch entity tickles with express context
+#
+# A system-level command. Lives on PATH at ~/.koad-io/bin/tickle.
+#
+# Usage:
+#   tickle               list all entities' due tickles (no dispatch)
+#   tickle <entity>      dispatch entity to handle its due tickles
+#   tickle --help        this message
+#
+# "tickle juno" scans Juno's tickler for time- and space-due items, builds
+# an express prompt containing ONLY the tickle content and minimal identity,
+# and dispatches to Juno's default harness. The entity doesn't get full
+# session context — just enough to act on the tickles and stamp completion.
+#
+# This is the active counterpart to the cd reflex (which surfaces tickles
+# passively). cd shows you the tickle; `tickle <entity>` handles it.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  echo
+  echo "tickle — surface and dispatch entity tickles with express context"
+  echo
+  echo "Usage:"
+  echo "  tickle               list all entities' due tickles"
+  echo "  tickle <entity>      dispatch entity to handle its due tickles"
+  echo "  tickle --help        this message"
+  echo
+  echo "The entity gets an express prompt with ONLY the tickle content"
+  echo "and minimal identity — no full session context, no issue scan,"
+  echo "no general work. Handle the tickles, stamp completion, commit."
+  echo
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Date math (shared across modes)
+# ---------------------------------------------------------------------------
+
+HOST="$(hostname -s)"
+TODAY_Y=$(date +%Y)
+TODAY_M=$(date +%m)
+TODAY_D=$(date +%d)
+TODAY_YMD="${TODAY_Y}${TODAY_M}${TODAY_D}"
+CURRENT_WEEK=$(date +%V)
+CURRENT_YW="${TODAY_Y}${CURRENT_WEEK}"
+CURRENT_YM="${TODAY_Y}${TODAY_M}"
+
+# ---------------------------------------------------------------------------
+# Frontmatter helpers
+# ---------------------------------------------------------------------------
+
+# is_open FILE — returns 0 if no non-empty completion: field
+is_open() {
+  awk '
+    BEGIN { fm=0; closed=0 }
+    /^---[[:space:]]*$/ {
+      fm++
+      if (fm == 2) { exit }
+      next
+    }
+    fm == 1 && /^completion:[[:space:]]*[^[:space:]]/ { closed=1; exit }
+    END { exit closed }
+  ' "$1"
+}
+
+# get_subject FILE — prints subject: value, or filename stem
+get_subject() {
+  local subject
+  subject=$(awk '
+    BEGIN { fm=0 }
+    /^---[[:space:]]*$/ { fm++; if (fm == 2) exit; next }
+    fm == 1 && /^subject:[[:space:]]*/ {
+      sub(/^subject:[[:space:]]*/, "")
+      gsub(/^["'\''`]|["'\''`]$/, "")
+      print
+      exit
+    }
+  ' "$1")
+  if [[ -z "$subject" ]]; then
+    subject=$(basename "$1" .md)
+  fi
+  printf "%s" "$subject"
+}
+
+# ---------------------------------------------------------------------------
+# scan_entity ENTITY_DIR — print due tickle paths, one per line
+# ---------------------------------------------------------------------------
+
+scan_entity() {
+  local tickler_dir="$1/tickler"
+  [[ -d "$tickler_dir" ]] || return 0
+
+  # Space dimension: current host (all paths under space/<host>/)
+  if [[ -d "$tickler_dir/space/$HOST" ]]; then
+    while IFS= read -r -d '' f; do
+      is_open "$f" && echo "$f"
+    done < <(find "$tickler_dir/space/$HOST" -name '*.md' -type f -print0 2>/dev/null)
+  fi
+
+  # Time dimension
+  if [[ -d "$tickler_dir/time" ]]; then
+    while IFS= read -r -d '' f; do
+      local rel="${f#"$tickler_dir"/time/}"
+      IFS='/' read -r year kind p1 p2 _ <<< "$rel"
+
+      case "$kind" in
+        days)
+          local month="$p1" day="$p2"
+          [[ -z "${month:-}" || -z "${day:-}" ]] && continue
+          local file_ymd="${year}${month}${day}"
+          [[ "$file_ymd" -gt "$TODAY_YMD" ]] && continue
+          is_open "$f" && echo "$f"
+          ;;
+        weeks)
+          local week="$p1"
+          [[ -z "${week:-}" ]] && continue
+          local file_yw="${year}${week}"
+          [[ "$file_yw" -gt "$CURRENT_YW" ]] && continue
+          is_open "$f" && echo "$f"
+          ;;
+        months)
+          local month="$p1"
+          [[ -z "${month:-}" ]] && continue
+          local file_ym="${year}${month}"
+          [[ "$file_ym" -gt "$CURRENT_YM" ]] && continue
+          is_open "$f" && echo "$f"
+          ;;
+      esac
+    done < <(find "$tickler_dir/time" -name '*.md' -type f -print0 2>/dev/null)
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# discover_entities — print entity names that have a tickler/ dir
+# ---------------------------------------------------------------------------
+
+discover_entities() {
+  for d in "$HOME"/.*/tickler; do
+    [[ -d "$d" ]] || continue
+    local entity_root="${d%/tickler}"
+    local entity="${entity_root#$HOME/.}"
+    # Skip framework/meta dirs
+    case "$entity" in
+      koad-io|claude|cache|config|local|nvm|npm|ssh|gnupg|\
+      cargo|rustup|mozilla|thunderbird|docker|pki|icons|fonts|\
+      java|aws|azure|gcloud|vscode*|subl*|kube)
+        continue
+        ;;
+    esac
+    echo "$entity"
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Mode: list (no entity arg)
+# ---------------------------------------------------------------------------
+
+if [[ $# -eq 0 ]]; then
+  echo
+  echo "tickle — due tickles across all entities"
+  echo "host: $HOST | date: $TODAY_Y-$TODAY_M-$TODAY_D"
+  echo
+
+  total=0
+  while IFS= read -r entity; do
+    entity_dir="$HOME/.$entity"
+    tickle_files=()
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && tickle_files+=("$f")
+    done < <(scan_entity "$entity_dir")
+
+    count=${#tickle_files[@]}
+    [[ "$count" -eq 0 ]] && continue
+
+    echo "$entity: $count due"
+    for f in "${tickle_files[@]}"; do
+      subject=$(get_subject "$f")
+      relpath="${f#$entity_dir/tickler/}"
+      echo "  - $subject ($relpath)"
+    done
+    echo
+    total=$((total + count))
+  done < <(discover_entities)
+
+  if [[ "$total" -eq 0 ]]; then
+    echo "no tickles due for any entity right now"
+  else
+    echo "total: $total due"
+    echo "dispatch with: tickle <entity>"
+  fi
+  echo
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Mode: dispatch (entity arg given)
+# ---------------------------------------------------------------------------
+
+TARGET="$1"
+TARGET_LOWER="$(echo "$TARGET" | tr '[:upper:]' '[:lower:]')"
+TARGET_DIR="$HOME/.$TARGET_LOWER"
+
+if [[ ! -d "$TARGET_DIR" ]]; then
+  echo "Error: entity dir not found at $TARGET_DIR" >&2
+  exit 64
+fi
+
+echo
+echo "tickle · scanning $TARGET"
+echo "host: $HOST | date: $TODAY_Y-$TODAY_M-$TODAY_D"
+echo
+
+# Scan for due tickles
+tickle_files=()
+while IFS= read -r f; do
+  [[ -n "$f" ]] && tickle_files+=("$f")
+done < <(scan_entity "$TARGET_DIR")
+
+count=${#tickle_files[@]}
+
+if [[ "$count" -eq 0 ]]; then
+  echo "no tickles due for $TARGET right now"
+  exit 0
+fi
+
+echo "$count due tickle(s) found"
+for f in "${tickle_files[@]}"; do
+  subject=$(get_subject "$f")
+  echo "  - $subject ($(basename "$f"))"
+done
+echo
+
+# ---------------------------------------------------------------------------
+# Build express prompt
+# ---------------------------------------------------------------------------
+
+# Minimal identity: first line of ENTITY.md or memories/001-identity.md
+identity_line=""
+if [[ -f "$TARGET_DIR/ENTITY.md" ]]; then
+  identity_line=$(grep -m1 '^>' "$TARGET_DIR/ENTITY.md" 2>/dev/null || head -3 "$TARGET_DIR/ENTITY.md" | tail -1)
+fi
+if [[ -z "$identity_line" ]] && [[ -f "$TARGET_DIR/memories/001-identity.md" ]]; then
+  identity_line=$(head -5 "$TARGET_DIR/memories/001-identity.md" | tail -1)
+fi
+
+# Assemble tickle content
+tickle_content=""
+idx=0
+for f in "${tickle_files[@]}"; do
+  idx=$((idx + 1))
+  tickle_content+="
+--- Tickle $idx of $count: $(basename "$f") ---
+
+$(cat "$f")
+
+--- end tickle $idx ---
+"
+done
+
+# The express prompt
+EXPRESS_PROMPT="Express context — tickle processing mode.
+
+You are ${TARGET}. ${identity_line}
+Entity dir: ${TARGET_DIR}
+Host: ${HOST}
+Working directory: ${PWD}
+
+You have ${count} due tickle(s). This is a focused session — handle
+these tickles, commit when done, report what you did. Do NOT load full
+context, scan issues, or start general work. Process tickles only.
+
+${tickle_content}
+
+For each tickle:
+1. Read it and understand what is being asked
+2. Follow references if you need additional context
+3. Do the work described
+4. Stamp completion: set the completion field to the current ISO 8601 timestamp
+5. Commit your changes to the entity repo
+
+When done, print a brief summary of what you handled."
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+echo "dispatching $TARGET to handle $count tickle(s)..."
+echo
+
+export PROMPT="$EXPRESS_PROMPT"
+exec "$TARGET_LOWER" harness default
