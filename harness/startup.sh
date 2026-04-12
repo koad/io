@@ -107,6 +107,30 @@ cat <<'EOF'
 EOF
 _ls "$ENTITY_DIR/skills" | sed 's/^/- /'
 
+# --- Pending tickles ---------------------------------------------------------
+# If the entity has a tickler loader (commands/tickler/scan/command.sh), run
+# it and splice its report into the system prompt. Read-only by design. The
+# loader is invoked directly — not via the `<entity> tickler scan` wrapper —
+# to skip the cascade banner and keep the injected context clean.
+#
+# Entities without a tickler loader skip silently. Loaders that report "no
+# tickles right now" also skip (nothing to surface, no wasted tokens).
+#
+# Rollout pattern: drop `commands/tickler/scan/command.sh` into any entity
+# that wants automatic session-start tickler injection across any harness
+# that consumes startup.sh (claude, opencode, pi, hermez, ...). One wiring,
+# kingdom-wide continuity.
+_tickler_scan="$ENTITY_DIR/commands/tickler/scan/command.sh"
+if [ -x "$_tickler_scan" ]; then
+  _tickler_out="$("$_tickler_scan" 2>/dev/null || true)"
+  if [ -n "$_tickler_out" ] && [ "$_tickler_out" != "Tickler: no tickles right now" ]; then
+    echo "[startup] tickler: spliced into system prompt" >&2
+    printf '\n### Pending Tickles\n\n```\n%s\n```\n' "$_tickler_out"
+  else
+    echo "[startup] tickler: loader present, nothing due" >&2
+  fi
+fi
+
 # If roaming, show what's in the working directory too
 if [ "$HARNESS_WORK_DIR" != "$ENTITY_DIR" ]; then
   cat <<EOF
