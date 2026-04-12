@@ -125,6 +125,11 @@ if [ -x "$_tickler_scan" ]; then
   _tickler_out="$("$_tickler_scan" 2>/dev/null || true)"
   if [ -n "$_tickler_out" ] && [ "$_tickler_out" != "Tickler: no tickles right now" ]; then
     echo "[startup] tickler: spliced into system prompt" >&2
+    # Tickle party — the human at the CLI sees the same surface the entity
+    # sees in its system prompt. startup.sh's stderr passes through to the
+    # terminal (the hook only captures stdout into $SYSTEM_PROMPT), so
+    # echoing here reaches both parties with a single source of truth.
+    printf '\n%s\n\n' "$_tickler_out" >&2
     printf '\n### Pending Tickles\n\n```\n%s\n```\n' "$_tickler_out"
   else
     echo "[startup] tickler: loader present, nothing due" >&2
