@@ -14,8 +14,25 @@ else
   HARNESS_WORK_DIR="$CALL_DIR"
 fi
 
-KOAD_IO_ENTITY_HARNESS="${KOAD_IO_ENTITY_HARNESS:-opencode}"
+# Resolve harness × provider × model via the canonical cascade:
+#
+#   ENTITY_DEFAULT_*      (~/.<entity>/.env)
+#     → KOAD_IO_DEFAULT_*   (~/.koad-io/.env — framework defaults)
+#     → hardcoded fallback  (last-resort, so a bare install Just Works)
+#
+# This matches the dispatch path (`<entity> harness default`) so the
+# interactive entry and the dispatch entry resolve identically from the
+# same .env pins. Legacy $KOAD_IO_ENTITY_HARNESS is still honored as a
+# harness-name fallback for entities (veritas, faber) whose .env has not
+# been migrated to the canonical name yet.
+
+HARNESS="${ENTITY_DEFAULT_HARNESS:-${KOAD_IO_ENTITY_HARNESS:-${KOAD_IO_DEFAULT_HARNESS:-opencode}}}"
+PROVIDER="${ENTITY_DEFAULT_PROVIDER:-${KOAD_IO_DEFAULT_PROVIDER:-}}"
+MODEL="${ENTITY_DEFAULT_MODEL:-${KOAD_IO_DEFAULT_MODEL:-}}"
+
 KOAD_IO_OPENCODE_BIN="$HOME/.koad-io/bin/opencode"
+
+echo "[startup] harness=$HARNESS provider=${PROVIDER:-<harness default>} model=${MODEL:-<harness default>}" >&2
 
 # VESTA-SPEC-067: context assembly (stdout = system prompt, stderr = log)
 SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh" | tee "$ENTITY_DIR/.context")"
@@ -45,12 +62,29 @@ _set_title "$ENTITY on $_HOST in $HARNESS_WORK_DIR"
 _cleanup() { _set_title "$_HOST:$HARNESS_WORK_DIR"; }
 trap _cleanup EXIT
 
-case "$KOAD_IO_ENTITY_HARNESS" in
+case "$HARNESS" in
   claude)
-    claude . --model sonnet --add-dir "$ENTITY_DIR" \
+    # claude defaults: provider=anthropic, model=opus-4-6. Accept short
+    # names ('opus-4-6') or full IDs ('claude-opus-4-6') — prefix when
+    # missing so the CLI sees the canonical form either way.
+    CLAUDE_MODEL="${MODEL:-opus-4-6}"
+    case "$CLAUDE_MODEL" in
+      claude-*) CLAUDE_MODEL_RESOLVED="$CLAUDE_MODEL" ;;
+      *)        CLAUDE_MODEL_RESOLVED="claude-$CLAUDE_MODEL" ;;
+    esac
+    claude . --model "$CLAUDE_MODEL_RESOLVED" --add-dir "$ENTITY_DIR" \
       --append-system-prompt "$SYSTEM_PROMPT"
     ;;
   opencode)
+    # opencode defaults: provider=opencode, model=big-pickle. opencode
+    # expects '--model provider/model'; if the entity's .env supplied a
+    # bare model name, prefix it with the provider.
+    OPENCODE_PROVIDER="${PROVIDER:-opencode}"
+    OPENCODE_MODEL_NAME="${MODEL:-big-pickle}"
+    case "$OPENCODE_MODEL_NAME" in
+      */*) OPENCODE_MODEL_RESOLVED="$OPENCODE_MODEL_NAME" ;;
+      *)   OPENCODE_MODEL_RESOLVED="$OPENCODE_PROVIDER/$OPENCODE_MODEL_NAME" ;;
+    esac
     # --- Opencode: entity context via env, CWD is clean ---
     export OPENCODE_DISABLE_CLAUDE_CODE=true
     export OPENCODE_DISABLE_LSP_DOWNLOAD=true
@@ -117,10 +151,10 @@ case "$KOAD_IO_ENTITY_HARNESS" in
         }')
     fi
 
-    "$KOAD_IO_OPENCODE_BIN" --agent "$ENTITY" --model "${OPENCODE_MODEL:-}" ./
+    "$KOAD_IO_OPENCODE_BIN" --agent "$ENTITY" --model "$OPENCODE_MODEL_RESOLVED" ./
     ;;
   *)
-    echo "[error] Unknown harness: $KOAD_IO_ENTITY_HARNESS" >&2
+    echo "[error] Unknown harness: $HARNESS" >&2
     exit 1
     ;;
 esac
