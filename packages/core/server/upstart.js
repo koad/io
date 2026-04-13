@@ -26,13 +26,13 @@ koad={
 };
 
 
-if(!process.env.ENTITY || process.env.ENTITY === false) {
+if(!process.env.ENTITY || process.env.ENTITY === "false") {
   log.warning('Application spawned without entity: no database is saved/stored/connected!');
   koad.entity = null;
   koad.mongo.connection = null;
 };
 
-if(!process.env.MONGO_URL || process.env.MONGO_URL === false){ 
+if(!process.env.MONGO_URL || process.env.MONGO_URL === "false"){
   log.warning('Application spawned in-memory only: no database is saved/stored/connected!');
   koad.mongo.connection = null;
 } 
