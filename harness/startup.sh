@@ -93,13 +93,13 @@ cat <<'EOF'
 
 ### Trust Bonds
 EOF
-_ls "$ENTITY_DIR/trust/bonds" 2>/dev/null | grep -v '\.asc$' | sed 's/\.md$//' | sed 's/^/- /'
+_ls "$ENTITY_DIR/trust/bonds" 2>/dev/null | { grep -v '\.asc$' || true; } | sed 's/\.md$//' | sed 's/^/- /'
 
 cat <<'EOF'
 
 ### Memories
 EOF
-_ls "$ENTITY_DIR/memories" | grep '\.md$' | sed 's/\.md$//' | sed 's/^/- /'
+_ls "$ENTITY_DIR/memories" | { grep '\.md$' || true; } | sed 's/\.md$//' | sed 's/^/- /'
 
 cat <<'EOF'
 
@@ -170,7 +170,7 @@ EOF
         [ -f "$_party_dir/session" ] && _session_id="$(cat "$_party_dir/session")"
         echo "- **$_party_name** (session: ${_session_id:-unknown})"
         # Show first few lines of the PRIMER for context
-        head -8 "$_party_dir/PRIMER.md" | grep -E '^\- ' | sed 's/^/  /'
+        head -8 "$_party_dir/PRIMER.md" | { grep -E '^\- ' || true; } | sed 's/^/  /'
       fi
     done
     cat <<'EOF'
@@ -200,9 +200,36 @@ else
   echo "[startup] layer2: ENTITY.md not found, skipped" >&2
 fi
 
+# --- Layer 2b: Role primers ---
+# An entity declares its role via KOAD_IO_ENTITY_ROLE in ~/.<entity>/.env.
+# The framework maintains a library at ~/.koad-io/harness/primers/<role>/.
+# Every .md in the role directory is loaded — drop a primer in the folder,
+# every entity with that role gets it on next session start.
+# No role declared = no primers loaded. Missing role dir = logged, not fatal.
+PRIMERS_BASE="$KOAD_IO_DIR/harness/primers"
+if [ -n "${KOAD_IO_ENTITY_ROLE:-}" ]; then
+  _role_dir="$PRIMERS_BASE/$KOAD_IO_ENTITY_ROLE"
+  if [ -d "$_role_dir" ]; then
+    _primer_count=0
+    for _primer_file in "$_role_dir"/*.md; do
+      [ -f "$_primer_file" ] || continue
+      _primer_name="$(basename "$_primer_file" .md)"
+      printf '\n---\n\n# Role Primer: %s\n\n' "$_primer_name"
+      cat "$_primer_file"
+      echo "[startup] role primer: $KOAD_IO_ENTITY_ROLE/$_primer_name ($(wc -c < "$_primer_file") bytes)" >&2
+      _primer_count=$((_primer_count + 1))
+    done
+    echo "[startup] role primers: $KOAD_IO_ENTITY_ROLE — $_primer_count loaded" >&2
+  else
+    echo "[startup] role primers: dir not found for role '$KOAD_IO_ENTITY_ROLE', skipped" >&2
+  fi
+else
+  echo "[startup] role primers: no KOAD_IO_ENTITY_ROLE declared" >&2
+fi
+
 # Layers 3-6 loaded by the harness:
 #   3. Implement — CLAUDE.md auto-loaded from HARNESS_WORK_DIR
-#   4. Location  — PRIMER.md injected by framework hook
+#   4. Location  — PRIMER.md injected by framework hook (roaming only)
 #   5. Memory    — harness memory system
 #   6. Guardrails — hardcoded in portal harness, implicit in CLI
 

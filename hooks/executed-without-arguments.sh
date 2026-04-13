@@ -32,22 +32,46 @@ MODEL="${ENTITY_DEFAULT_MODEL:-${KOAD_IO_DEFAULT_MODEL:-}}"
 
 KOAD_IO_OPENCODE_BIN="$HOME/.koad-io/bin/opencode"
 
+echo "[startup] entity=$ENTITY entity_dir=$ENTITY_DIR" >&2
 echo "[startup] harness=$HARNESS provider=${PROVIDER:-<harness default>} model=${MODEL:-<harness default>}" >&2
+echo "[startup] work_dir=$HARNESS_WORK_DIR call_dir=$CALL_DIR" >&2
+
+# Verify entity directory exists
+if [ ! -d "$ENTITY_DIR" ]; then
+  echo "[error] entity directory does not exist: $ENTITY_DIR" >&2
+  exit 1
+fi
 
 # VESTA-SPEC-067: context assembly (stdout = system prompt, stderr = log)
-SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh" | tee "$ENTITY_DIR/.context")"
+if [ ! -f "$HOME/.koad-io/harness/startup.sh" ]; then
+  echo "[error] startup.sh not found: $HOME/.koad-io/harness/startup.sh" >&2
+  exit 1
+fi
+
+SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh" | tee "$ENTITY_DIR/.context")" || {
+  echo "[error] startup.sh failed (exit $?)" >&2
+  exit 1
+}
 
 # Layer 4: Location — append PRIMER.md from working directory (case-insensitive)
-PRIMER_FILE=""
-for _p in "$HARNESS_WORK_DIR"/[Pp][Rr][Ii][Mm][Ee][Rr].[Mm][Dd]; do
-  if [ -f "$_p" ]; then
-    PRIMER_FILE="$_p"
-    break
+# A PRIMER.md is a sign on the door — orientation for whoever walks into that
+# directory. The entity that lives there already knows; it wrote the sign.
+# Rooted entities never read their own PRIMER. Roaming entities read the
+# PRIMER of wherever they've been sent — that's the whole point of roaming.
+if [ "${KOAD_IO_ROOTED:-}" = "true" ]; then
+  echo "[startup] primer: skipped (rooted entity — CWD primers don't apply)" >&2
+else
+  PRIMER_FILE=""
+  for _p in "$HARNESS_WORK_DIR"/[Pp][Rr][Ii][Mm][Ee][Rr].[Mm][Dd]; do
+    if [ -f "$_p" ]; then
+      PRIMER_FILE="$_p"
+      break
+    fi
+  done
+  if [ -n "$PRIMER_FILE" ]; then
+    echo "[startup] primer: $PRIMER_FILE ($(wc -c < "$PRIMER_FILE") bytes)" >&2
+    SYSTEM_PROMPT="$(printf '%s\n\n---\n\n# Location Context (%s)\n\n%s' "$SYSTEM_PROMPT" "$HARNESS_WORK_DIR" "$(cat "$PRIMER_FILE")")"
   fi
-done
-if [ -n "$PRIMER_FILE" ]; then
-  echo "[startup] primer: $PRIMER_FILE ($(wc -c < "$PRIMER_FILE") bytes)" >&2
-  SYSTEM_PROMPT="$(printf '%s\n\n---\n\n# Location Context (%s)\n\n%s' "$SYSTEM_PROMPT" "$HARNESS_WORK_DIR" "$(cat "$PRIMER_FILE")")"
 fi
 
 cd "$HARNESS_WORK_DIR"
@@ -62,6 +86,8 @@ _set_title "$ENTITY on $_HOST in $HARNESS_WORK_DIR"
 _cleanup() { _set_title "$_HOST:$HARNESS_WORK_DIR"; }
 trap _cleanup EXIT
 
+echo "[startup] launching harness: $HARNESS" >&2
+
 case "$HARNESS" in
   claude)
     # claude defaults: provider=anthropic, model=opus-4-6. Accept short
@@ -72,6 +98,11 @@ case "$HARNESS" in
       claude-*) CLAUDE_MODEL_RESOLVED="$CLAUDE_MODEL" ;;
       *)        CLAUDE_MODEL_RESOLVED="claude-$CLAUDE_MODEL" ;;
     esac
+    if ! command -v claude &>/dev/null; then
+      echo "[error] claude binary not found in PATH" >&2
+      exit 1
+    fi
+    echo "[startup] exec: claude . --model $CLAUDE_MODEL_RESOLVED --add-dir $ENTITY_DIR" >&2
     claude . --model "$CLAUDE_MODEL_RESOLVED" --add-dir "$ENTITY_DIR" \
       --append-system-prompt "$SYSTEM_PROMPT"
     ;;
@@ -85,6 +116,10 @@ case "$HARNESS" in
       */*) OPENCODE_MODEL_RESOLVED="$OPENCODE_MODEL_NAME" ;;
       *)   OPENCODE_MODEL_RESOLVED="$OPENCODE_PROVIDER/$OPENCODE_MODEL_NAME" ;;
     esac
+    if [ ! -x "$KOAD_IO_OPENCODE_BIN" ]; then
+      echo "[error] opencode binary not found or not executable: $KOAD_IO_OPENCODE_BIN" >&2
+      exit 1
+    fi
     # --- Opencode: entity context via env, CWD is clean ---
     export OPENCODE_DISABLE_CLAUDE_CODE=true
     export OPENCODE_DISABLE_LSP_DOWNLOAD=true
@@ -151,10 +186,12 @@ case "$HARNESS" in
         }')
     fi
 
+    echo "[startup] exec: opencode --agent $ENTITY --model $OPENCODE_MODEL_RESOLVED ./" >&2
     "$KOAD_IO_OPENCODE_BIN" --agent "$ENTITY" --model "$OPENCODE_MODEL_RESOLVED" ./
     ;;
   *)
-    echo "[error] Unknown harness: $HARNESS" >&2
+    echo "[error] unknown harness: $HARNESS (expected 'claude' or 'opencode')" >&2
+    echo "[error] set ENTITY_DEFAULT_HARNESS in ~/.$ENTITY/.env to fix" >&2
     exit 1
     ;;
 esac
