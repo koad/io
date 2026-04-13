@@ -44,9 +44,18 @@
 _koad_io_room_pin="$KOAD_IO_ROOM"
 _koad_io_quiet_pin="$KOAD_IO_QUIET"
 
+# Detect whether we were called from an entity launcher or directly as koad-io.
+# Entity launchers set KOAD_IO_VIA_LAUNCHER=1 before calling us.
+# If called directly (no launcher), ENTITY is stale env from a parent shell —
+# wipe it so the daemon and framework commands run entity-free.
+if [[ "$KOAD_IO_VIA_LAUNCHER" != "1" ]]; then
+  unset ENTITY
+fi
+unset KOAD_IO_VIA_LAUNCHER
+
 while IFS= read -r _v; do
   case "$_v" in
-    ENTITY) ;;  # entity launcher just set this — preserve
+    ENTITY) ;;  # already handled above — preserve if set by launcher
     *)      unset "$_v" ;;
   esac
 done < <(compgen -v | grep -E '^(KOAD_IO_|ENTITY)' || true)

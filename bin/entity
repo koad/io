@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 
 export ENTITY='alice'
+export KOAD_IO_VIA_LAUNCHER=1
 koad-io "$@";
