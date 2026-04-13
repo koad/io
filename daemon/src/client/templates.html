@@ -11,7 +11,11 @@
 </head>
 
 <body>
-	{{> WidgetQuickLaunch}}
+	{{#if isOverview}}
+		{{> KingdomOverview}}
+	{{else}}
+		{{> WidgetQuickLaunch}}
+	{{/if}}
 </body>
 
 <template name="WidgetQuickLaunch">
@@ -29,13 +33,34 @@
 			{{/with}}
 
 			<div class="container">
-				<div id="navMenu" class="diamond main-diamond small">
-					<div id="mainRotCorrect" class="rotCorrect draggable"><img title="Hold shift while clicking to expand the menu" class="entity-icon" src="{{image}}"></div>
+				<div id="navMenu" class="diamond main-diamond small {{alertClass}}">
+					<div id="mainRotCorrect" class="rotCorrect draggable">
+						<img title="Hold shift while clicking to expand the menu" class="entity-icon" src="{{image}}" style="opacity: {{avatarOpacity}}">
+						{{#if hasAlerts}}
+						<div class="alert-overlay">
+							{{#with firstAlert}}
+							<span class="alert-text">{{body}}</span>
+							{{/with}}
+						</div>
+						{{/if}}
+					</div>
 				</div>
 				{{#each buttons}}
 
 					<a href="{{target}}"><div id="nav{{@index}}" class="nav nav{{@index}} diamond btn-nav small"><div class="rotCorrect"><i class="fa fa-{{key}} fa-2x" aria-hidden="true"></i></div></div></a>
-					
+
+				{{/each}}
+			</div>
+
+			<div class="notification-stack">
+				{{#each allNotificationItems}}
+					<div class="notification-card {{source}}" data-entity="{{entity}}" data-index="{{index}}">
+						<img class="notification-avatar" src="{{avatar}}" title="{{entity}}">
+						<div class="notification-content">
+							<span class="notification-entity">{{entity}}</span>
+							<span class="notification-body">{{body}}</span>
+						</div>
+					</div>
 				{{/each}}
 			</div>
 

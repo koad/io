@@ -2,10 +2,25 @@ import { Meteor } from 'meteor/meteor';
 
 import { Template } from 'meteor/templating';
 Passengers = new Mongo.Collection('Passengers');
+Alerts = new Mongo.Collection('Alerts');
+
+// Global helper: route /overview to the KingdomOverview template
+Template.registerHelper('isOverview', function () {
+  return window.location.pathname === '/overview';
+});
 Template.WidgetQuickLaunch.onCreated(function() {
   // Subscribe to the 'current' publication
   this.subscribe('current');
+  this.subscribe('alerts');
+  this.subscribe('all'); // all passengers — needed for notification avatars
 });
+
+// Get alert records for the currently selected entity
+function getEntityAlerts() {
+  const entity = Passengers.findOne({selected: {$exists: true}});
+  if (!entity) return [];
+  return Alerts.find({ entity: entity.handle }).fetch();
+}
 
 Template.WidgetQuickLaunch.helpers({
   Entity() {
@@ -13,11 +28,78 @@ Template.WidgetQuickLaunch.helpers({
   },
   fullIconClass() {
     return `fa fa-${this.key}`;
-  }
+  },
+  entityAlerts() {
+    return getEntityAlerts();
+  },
+  hasAlerts() {
+    const records = getEntityAlerts();
+    return records.some(r => r.items && r.items.length > 0);
+  },
+  alertLevel() {
+    const records = getEntityAlerts();
+    const hasAlertSource = records.some(r => r.source === 'alerts' && r.items && r.items.length > 0);
+    const hasNotifSource = records.some(r => r.source === 'notifications' && r.items && r.items.length > 0);
+    if (hasAlertSource) return 'alert';
+    if (hasNotifSource) return 'notification';
+    return null;
+  },
+  alertClass() {
+    const records = getEntityAlerts();
+    const hasAlertSource = records.some(r => r.source === 'alerts' && r.items && r.items.length > 0);
+    const hasNotifSource = records.some(r => r.source === 'notifications' && r.items && r.items.length > 0);
+    if (hasAlertSource) return 'has-alerts';
+    if (hasNotifSource) return 'has-notifications';
+    return '';
+  },
+  avatarOpacity() {
+    const records = getEntityAlerts();
+    const hasAny = records.some(r => r.items && r.items.length > 0);
+    return hasAny ? '0.69' : '1';
+  },
+  firstAlert() {
+    const records = getEntityAlerts();
+    // Alerts take priority over notifications
+    const alertRecord = records.find(r => r.source === 'alerts' && r.items && r.items.length > 0);
+    if (alertRecord) return alertRecord.items[0];
+    const notifRecord = records.find(r => r.source === 'notifications' && r.items && r.items.length > 0);
+    if (notifRecord) return notifRecord.items[0];
+    return null;
+  },
+  allNotificationItems() {
+    const items = [];
+    const allAlerts = Alerts.find().fetch();
+    for (const record of allAlerts) {
+      if (!record.items || record.items.length === 0) continue;
+      const passenger = Passengers.findOne({ handle: record.entity });
+      const avatar = passenger ? passenger.image : '';
+      for (let i = 0; i < record.items.length; i++) {
+        items.push({
+          entity: record.entity,
+          source: record.source,
+          avatar: avatar,
+          body: record.items[i].body,
+          type: record.items[i].type,
+          timestamp: record.items[i].timestamp,
+          index: i
+        });
+      }
+    }
+    items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    return items;
+  },
 });
 
 
 Template.WidgetQuickLaunch.events({
+  'dblclick .main-diamond'(event, instance) {
+    event.preventDefault();
+    if (event.shiftKey) {
+      // Shift-double-click: open kingdom overview
+      window.open('http://10.10.10.10:28282/overview', 'kingdom-overview');
+    }
+  },
+
   'click .main-diamond'(event, instance) {
     event.preventDefault();
 
@@ -49,11 +131,20 @@ Template.WidgetQuickLaunch.events({
           setTimeout(() => {
             logo.removeClass('pulse');
           }, 600);
-          
+
           firstButton.trigger('click');
         }
       }
     }
+  },
+
+  'click .notification-card'(event, instance) {
+    event.preventDefault();
+    event.stopPropagation();
+    const entity = this.entity;
+    const source = this.source;
+    const index = this.index;
+    Meteor.call('alerts.dismiss', { entity, source, index });
   },
 
   'click .btn-nav'(event, instance) {

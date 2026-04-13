@@ -1,0 +1,106 @@
+<template name="KingdomOverview">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #121212 !important; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: auto !important; }
+    .overview-header {
+      padding: 24px 32px 16px;
+      border-bottom: 1px solid #2a2a2a;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .overview-header .glyph { font-size: 28px; color: #888; }
+    .overview-header h1 { font-size: 18px; font-weight: 400; color: #aaa; letter-spacing: 1px; }
+    .overview-header h1 span { color: #e0e0e0; font-weight: 600; }
+
+    .overview-body { display: flex; gap: 0; height: calc(100vh - 70px); }
+    .entity-panel { flex: 1; padding: 24px 32px; overflow-y: auto; }
+    .emissions-panel { width: 420px; min-width: 320px; border-left: 1px solid #2a2a2a; padding: 16px 20px; overflow-y: auto; }
+
+    .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #666; margin-bottom: 16px; }
+
+    /* Entity grid */
+    .entity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    .entity-card {
+      background: #1a1a1a; border-radius: 6px; padding: 14px 16px;
+      border-left: 3px solid #444; display: flex; align-items: center; gap: 12px;
+      transition: background 0.15s;
+    }
+    .entity-card:hover { background: #222; }
+    .entity-avatar {
+      width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 600; color: #fff;
+      background: #333; overflow: hidden;
+    }
+    .entity-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .entity-info { flex: 1; min-width: 0; }
+    .entity-handle { font-size: 14px; font-weight: 600; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .entity-stats { display: flex; gap: 10px; margin-top: 4px; }
+    .entity-stat { font-size: 11px; color: #777; }
+    .entity-stat .stat-val { color: #aaa; font-weight: 600; }
+
+    /* Emissions */
+    .emission-item { padding: 10px 0; border-bottom: 1px solid #1e1e1e; }
+    .emission-item:last-child { border-bottom: none; }
+    .emission-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .emission-entity { font-size: 12px; font-weight: 600; }
+    .emission-type {
+      font-size: 10px; padding: 1px 6px; border-radius: 3px;
+      text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+    }
+    .emission-type.notice { background: #1a3a5c; color: #5b9bd5; }
+    .emission-type.warning { background: #4a3a1a; color: #d4a535; }
+    .emission-type.error { background: #4a1a1a; color: #d55b5b; }
+    .emission-type.request { background: #3a1a4a; color: #a55bd5; }
+    .emission-time { font-size: 10px; color: #555; margin-left: auto; }
+    .emission-body { font-size: 13px; color: #999; line-height: 1.4; }
+    .empty-state { color: #555; font-size: 13px; font-style: italic; padding: 20px 0; }
+  </style>
+
+  <div class="overview-header">
+    <span class="glyph">&#9674;</span>
+    <h1>koad:io kingdom &mdash; <span>{{hostname}}</span></h1>
+  </div>
+
+  <div class="overview-body">
+    <div class="entity-panel">
+      <div class="section-label">Entities</div>
+      <div class="entity-grid">
+        {{#each entities}}
+          <div class="entity-card" style="border-left-color: {{accentColor}};">
+            <div class="entity-avatar" style="background: {{accentColor}};">
+              {{#if avatarImage}}
+                <img src="{{avatarImage}}" alt="{{handle}}">
+              {{else}}
+                {{firstLetter}}
+              {{/if}}
+            </div>
+            <div class="entity-info">
+              <div class="entity-handle">{{handle}}</div>
+              <div class="entity-stats">
+                {{#if keyCount}}<span class="entity-stat"><span class="stat-val">{{keyCount}}</span> keys</span>{{/if}}
+                {{#if bondCount}}<span class="entity-stat"><span class="stat-val">{{bondCount}}</span> bonds</span>{{/if}}
+                {{#if tickleCount}}<span class="entity-stat"><span class="stat-val">{{tickleCount}}</span> tickles</span>{{/if}}
+              </div>
+            </div>
+          </div>
+        {{/each}}
+      </div>
+    </div>
+
+    <div class="emissions-panel">
+      <div class="section-label">Emissions</div>
+      {{#each emissions}}
+        <div class="emission-item">
+          <div class="emission-header">
+            <span class="emission-entity" style="color: {{entityColor}};">{{entity}}</span>
+            <span class="emission-type {{type}}">{{type}}</span>
+            <span class="emission-time">{{relativeTime}}</span>
+          </div>
+          <div class="emission-body">{{body}}</div>
+        </div>
+      {{else}}
+        <div class="empty-state">No emissions yet.</div>
+      {{/each}}
+    </div>
+  </div>
+</template>
