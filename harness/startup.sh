@@ -93,6 +93,65 @@ cat <<EOF
 - **today:** $_DATE_HUMAN
 - **started:** $_DATE
 
+## Git Status
+
+EOF
+
+# Entity repo status (always available, fast)
+if [ -d "$ENTITY_DIR/.git" ]; then
+  _branch="$(git -C "$ENTITY_DIR" branch --show-current 2>/dev/null || echo unknown)"
+  _status="$(git -C "$ENTITY_DIR" status --porcelain 2>/dev/null)"
+  _ahead="$(git -C "$ENTITY_DIR" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 0)"
+  _last_commit="$(git -C "$ENTITY_DIR" log --oneline -1 2>/dev/null || echo 'no commits')"
+  echo "**Entity repo** (\`$ENTITY_DIR\`):"
+  echo "- branch: \`$_branch\`"
+  if [ -z "$_status" ]; then
+    echo "- working tree: clean"
+  else
+    echo "- working tree: dirty"
+    echo '```'
+    echo "$_status"
+    echo '```'
+  fi
+  [ "$_ahead" -gt 0 ] && echo "- **$_ahead commits ahead of origin** (unpushed)"
+  echo "- last commit: \`$_last_commit\`"
+  echo
+fi
+
+# Working dir repo status (if different from entity dir and is a git repo)
+if [ "$HARNESS_WORK_DIR" != "$ENTITY_DIR" ] && [ -d "$HARNESS_WORK_DIR/.git" ]; then
+  _wbranch="$(git -C "$HARNESS_WORK_DIR" branch --show-current 2>/dev/null || echo unknown)"
+  _wstatus="$(git -C "$HARNESS_WORK_DIR" status --porcelain 2>/dev/null)"
+  _wahead="$(git -C "$HARNESS_WORK_DIR" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 0)"
+  _wlast="$(git -C "$HARNESS_WORK_DIR" log --oneline -1 2>/dev/null || echo 'no commits')"
+  echo "**Working dir** (\`$HARNESS_WORK_DIR\`):"
+  echo "- branch: \`$_wbranch\`"
+  if [ -z "$_wstatus" ]; then
+    echo "- working tree: clean"
+  else
+    echo "- working tree: dirty"
+    echo '```'
+    echo "$_wstatus"
+    echo '```'
+  fi
+  [ "$_wahead" -gt 0 ] && echo "- **$_wahead commits ahead of origin** (unpushed)"
+  echo "- last commit: \`$_wlast\`"
+  echo
+fi
+
+# Active briefs (symlinks = dispatched work orders)
+_briefs_count=0
+if [ -d "$ENTITY_DIR/briefs" ]; then
+  _briefs_count=$(ls -1 "$ENTITY_DIR/briefs/" 2>/dev/null | wc -l)
+fi
+if [ "$_briefs_count" -gt 0 ]; then
+  echo "### Active Briefs ($_briefs_count)"
+  echo
+  ls -1 "$ENTITY_DIR/briefs/" 2>/dev/null | sed 's/^/- /'
+  echo
+fi
+
+cat <<'EOF'
 ## Pre-emptive Primitives
 
 A look around yourself. This is what you have on disk right now.
