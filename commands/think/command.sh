@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# think — raw one-liner for quick local inference via ollama on fourty4
+# think — raw one-liner for quick local inference via ollama
 #
 # NOTE: Not for entity work. Use OpenClaw (port 18789) for anything identity-aware
 # or session-context-aware. This hits ollama directly with no harness integration.
@@ -14,7 +14,11 @@
 
 set -euo pipefail
 
-FOURTY4_OLLAMA="${OLLAMA_HOST:-http://10.10.10.11:11434}"
+# KOAD_IO_INFERENCE_HOST — hostname of the ollama inference machine (default: fourty4).
+# Set in ~/.koad-io/.env or entity .env to override kingdom-wide.
+# OLLAMA_HOST — full URL override (takes precedence when set).
+_INFERENCE_HOST="${KOAD_IO_INFERENCE_HOST:-fourty4}"
+FOURTY4_OLLAMA="${OLLAMA_HOST:-http://${_INFERENCE_HOST}:11434}"
 DEFAULT_MODEL="${THINK_MODEL:-llama3.2:latest}"
 
 MODEL="$DEFAULT_MODEL"
@@ -25,7 +29,7 @@ NO_STREAM=false
 
 usage() {
   cat >&2 <<EOF
-think — local inference via ollama on fourty4
+think — local inference via ollama (host: \${KOAD_IO_INFERENCE_HOST:-fourty4})
 
 Usage:
   think [options] "prompt"
@@ -36,7 +40,7 @@ Options:
   -s, --system <prompt>   System prompt
   -r, --raw               Raw JSON output
       --no-stream         Wait for full response instead of streaming
-      --list              List available models on fourty4
+      --list              List available models on inference host
   -h, --help              Show this help
 
 Models:
@@ -47,8 +51,9 @@ Models:
   gemma3:1b           32k context, lightweight
 
 Environment:
-  OLLAMA_HOST    Override ollama endpoint (default: http://10.10.10.11:11434)
-  THINK_MODEL    Override default model
+  KOAD_IO_INFERENCE_HOST  Ollama inference hostname (default: fourty4)
+  OLLAMA_HOST             Override full ollama URL (overrides KOAD_IO_INFERENCE_HOST)
+  THINK_MODEL             Override default model
 
 Examples:
   think "explain DDP handshakes"
@@ -60,7 +65,7 @@ EOF
 }
 
 list_models() {
-  echo "Models available on fourty4 ($FOURTY4_OLLAMA):"
+  echo "Models available on ${_INFERENCE_HOST} ($FOURTY4_OLLAMA):"
   curl -sf "$FOURTY4_OLLAMA/api/tags" \
     | jq -r '.models[] | "  \(.name)\t\(.size | . / 1073741824 | floor)GB"' 2>/dev/null \
     || echo "  (could not reach $FOURTY4_OLLAMA)" >&2
