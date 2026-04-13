@@ -14,14 +14,28 @@ The `start` command, part of the `koad:io` suite, is a versatile script designed
 
 ## Usage
 
-Run the script with:
-
 ```bash
-# [entity] start [local]
-alice start [local]
+# Production (from built bundle):
+alice start
+
+# Local development (Meteor compiler):
+alice start --local
+alice start local          # positional form also works
+
+# Local dev, stay attached to screen (see output live):
+alice start --local --attach
 ```
 
-- `local`: Optional argument that can be passed to the script that ensures it starts in local development mode rather than from a built bundle.
+### Flags
+
+| Flag | Effect |
+|------|--------|
+| `--local` | Start in local development mode (Meteor compiler) instead of built bundle |
+| `--attach` | Keep the screen session attached (foreground) instead of detaching |
+
+### Screen lifecycle
+
+The `start` command always runs inside a `screen` session. Use `screen -list` to check if it's running, `screen -r <name>` to attach, and `screen -S <name> -X quit` to stop it. To restart: kill the screen and re-invoke through the launcher.
 
 ## Script Breakdown
 

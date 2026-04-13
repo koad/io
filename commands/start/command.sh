@@ -7,7 +7,24 @@ CURRENTDATETIME=$(date +"%Y-%m-%d-%H-%M-%S")
 source "$HOME/.koad-io/commands/assert/datadir/command.sh"
 
 cd $DATADIR
-[[ -n "$1" ]] && KOAD_IO_TYPE=$1
+
+# Parse positional and flag arguments.
+# Positional: build type (e.g. "local"). Flags: --local, --attach.
+# The dispatcher exports KOAD_IO_FLAGS with any --flag args stripped from $@,
+# but commands can also receive flags directly for backwards compatibility.
+for _arg in "$@" $KOAD_IO_FLAGS; do
+  case "$_arg" in
+    --local)  LOCAL_BUILD=true ;;
+    --attach) KOAD_IO_ATTACH=true ;;
+    --*)      ;; # ignore unknown flags
+    *)        [[ -z "$KOAD_IO_TYPE" ]] && KOAD_IO_TYPE="$_arg" ;;
+  esac
+done
+unset _arg
+
+# "local" as a positional arg also sets LOCAL_BUILD, and vice versa
+[[ "$KOAD_IO_TYPE" == "local" ]] && LOCAL_BUILD=true
+[[ "$LOCAL_BUILD" == "true" ]] && [[ -z "$KOAD_IO_TYPE" ]] && KOAD_IO_TYPE=local
 
 # Array of required variables
 required_vars=("KOAD_IO_BIND_IP" "KOAD_IO_PORT" "KOAD_IO_APP_NAME" "KOAD_IO_TYPE")
@@ -72,17 +89,31 @@ fi
 # Set the terminal title
 echo -ne "\033]0;$ENTITY $KOAD_IO_APP_NAME on $HOSTNAME\007"
 
-# Set up log file in the build's folder
-LOGDIR="$DATADIR/builds/latest"
+# Set up log directory.
+# Production: logs live alongside the built bundle in builds/latest/
+# Local dev: logs go to logs/ at project root (no build exists yet)
+if [[ "$LOCAL_BUILD" == "true" ]]; then
+    LOGDIR="$DATADIR/logs"
+else
+    LOGDIR="$DATADIR/builds/latest"
+fi
+mkdir -p "$LOGDIR"
 LOGFILE="$LOGDIR/$CURRENTDATETIME.log"
 echo "Screen: $SCREEN_NAME"
 echo "Log: $LOGFILE"
 
-# Check if the built koad/io application exists
-if [[ -f ./builds/latest/bundle/main.js ]] && [[ $LOCAL_BUILD != "true" || ! -v LOCAL_BUILD ]] ; then
+# Decide screen mode: detached by default, attached with --attach
+if [[ "$KOAD_IO_ATTACH" == "true" ]]; then
+    SCREEN_CMD="screen -S"
+else
+    SCREEN_CMD="screen -dmS"
+fi
 
-    [[ -z "$KOAD_IO_DOMAIN" ]] && echo "KOAD_IO_DOMAIN not set, cannot continue"
-    [[ -z "$MONGO_URL" ]] && echo "MONGO_URL not set, cannot continue"
+# Check if the built koad/io application exists
+if [[ -f ./builds/latest/bundle/main.js ]] && [[ "$LOCAL_BUILD" != "true" ]]; then
+
+    [[ -z "$KOAD_IO_DOMAIN" ]] && echo "KOAD_IO_DOMAIN not set, cannot continue" && exit 1
+    [[ -z "$MONGO_URL" ]] && echo "MONGO_URL not set, cannot continue" && exit 1
 
     # Built version exists: set environment variables
     export METEOR_SETTINGS=$(cat $SETTINGS_FILE)
@@ -91,22 +122,21 @@ if [[ -f ./builds/latest/bundle/main.js ]] && [[ $LOCAL_BUILD != "true" || ! -v 
     # Start the service
     echo "Starting service $KOAD_IO_DOMAIN"
     cd builds/latest/bundle
-    screen -dmS "$SCREEN_NAME" bash -c "BIND_IP=$KOAD_IO_BIND_IP PORT=$KOAD_IO_PORT node main.js 2>&1 | tee \"$LOGFILE\""
-    echo "Started in screen: $SCREEN_NAME"
+    $SCREEN_CMD "$SCREEN_NAME" bash -c "BIND_IP=$KOAD_IO_BIND_IP PORT=$KOAD_IO_PORT node main.js 2>&1 | tee \"$LOGFILE\""
+    [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME"
 
 elif [[ -f ./src/.meteor/release ]]; then
 
-    # Developing mode: start the Meteor compiler
+    # Development mode: start the Meteor compiler inside a screen
     echo "Starting koad-io developer fixture"
-    echo "Data directory: $PWD";
-    echo "Source: $PWD/src";
+    echo "Data directory: $PWD"
+    echo "Source: $PWD/src"
     echo "-"
 
-    # Start Meteor application in development mode
     cd $PWD/src
     meteor npm install
-    meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE
-    echo "Started in screen: $SCREEN_NAME"
+    $SCREEN_CMD "$SCREEN_NAME" bash -c "cd \"$PWD\" && meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
+    [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME" && echo "Tail log: tail -f $LOGFILE"
 
 else
     echo -e "\033[31mkoad/io application not found.\033[0m"

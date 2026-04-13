@@ -33,6 +33,16 @@ Commands are the primitive. Everything flows through bash scripts in `commands/`
 
 Commands are not scripts. They are distilled solutions from lived experience. Human and AI invoke the same bash primitives — there is no separate API.
 
+### The Cascade Is Load-Bearing
+
+Always invoke commands through the entity launcher — `<entity> <command> [args]`. Never bypass it by running the underlying tool directly (e.g. running `meteor` instead of `vulcan start local`, or `node main.js` instead of `alice start`).
+
+The launcher runs an environment cascade before your command executes: framework `.env` → entity `.env` → entity `.credentials` → command-local `.env`. By the time `command.sh` runs, every variable — ports, bind addresses, database URLs, domains, settings paths, screen names — is already resolved from the cascade. Running the tool directly skips all of this. The command will either fail silently, bind wrong, miss settings, or lose its identity context.
+
+This applies to restarts too. If a service needs restarting, kill the managed process (e.g. the screen session) and re-invoke through the launcher. The cascade re-establishes the full environment every time. That is the point.
+
+**Flags:** Commands accept `--flag` arguments. The dispatcher separates flags from positional sub-command names automatically — `--local` is passed through to the command, not used for directory resolution.
+
 ## Bash Is the Substrate
 
 Every harness — Claude Code, opencode, pi, the human at a terminal — transpires on bash. They are bash processes. The framework itself is bash scripts: `commands/`, `hooks/`, `helpers/`, the env cascade, the bin launchers. The dependency stack is bash, starship, and the filesystem. Nothing else is required.

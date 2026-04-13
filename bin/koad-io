@@ -82,6 +82,23 @@ if [[ "$KOAD_IO_QUIET" == "1" ]]; then
   unset _filtered_args _arg
 fi
 
+# Separate --flag arguments from positional command arguments.
+# Positional args (start, local, dev, etc.) are used for directory-based command
+# resolution. Flag args (--local, --attach, --dry-run, etc.) are NOT directory
+# names — they pass through to the final command unchanged.
+_positional_args=()
+_flag_args=()
+for _arg in "$@"; do
+  if [[ "$_arg" == --* ]]; then
+    _flag_args+=("$_arg")
+  else
+    _positional_args+=("$_arg")
+  fi
+done
+set -- "${_positional_args[@]}"
+export KOAD_IO_FLAGS="${_flag_args[*]}"
+unset _positional_args _flag_args _arg
+
 [[ $9 ]] && echo 'You have reached the limits here, sorry -- too many arguments.' && exit 68
 
 # Cascade environments BEFORE hook dispatch — hooks need entity env vars
@@ -221,18 +238,17 @@ export COMMAND_LOCATION=$COMMAND_LOCATION
 [[ $DEBUG ]] && echo "EXEC_ARGS=$EXEC_ARGS";
 [[ $DEBUG ]] && echo
 
-# Check if the --dry-run flag is set
-if [[ "$@" == *"--dry-run"* ]]; then
-  # If the flag is set, export DRY_RUN=true
+# Check if the --dry-run flag is set (now in KOAD_IO_FLAGS, not $@)
+if [[ "$KOAD_IO_FLAGS" == *"--dry-run"* ]]; then
   export DRY_RUN=true
 fi
 
-echo "--exec $EXEC_FILE $EXEC_ARGS"
+echo "--exec $EXEC_FILE $EXEC_ARGS $KOAD_IO_FLAGS"
 
 
 if [ "$DRY_RUN" = true ]; then
 	echo "Dry run, stopped..."
 else
 	# All is well, lets go!
-	exec $EXEC_FILE $EXEC_ARGS
+	exec $EXEC_FILE $EXEC_ARGS $KOAD_IO_FLAGS
 fi
