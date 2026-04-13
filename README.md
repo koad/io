@@ -88,11 +88,12 @@ Each entity has its own world:
 
 ## 📦 Local Meteor Packages
 
-koad:io supports local Meteor packages via `METEOR_PACKAGE_DIRS`.
+koad:io supports local Meteor packages via `KOAD_IO_PACKAGE_DIRS`.
 
 Set in `~/.koad-io/.env`:
 ```bash
-METEOR_PACKAGE_DIRS=$HOME/.ecoincore/packages:$HOME/.koad-io/packages
+KOAD_IO_PACKAGE_DIRS=$HOME/.ecoincore/packages:$HOME/.koad-io/packages
+METEOR_PACKAGE_DIRS=$KOAD_IO_PACKAGE_DIRS  # DEPRECATED: Meteor compat shim
 ```
 
 This allows:

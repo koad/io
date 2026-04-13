@@ -9,7 +9,8 @@ This guide is written for agents arriving cold. It explains what the packages di
 `~/.koad-io/packages/` contains the **Meteor package layer** of the koad:io framework. These are local Meteor packages — not published to Atmosphere, not installed via npm — loaded directly by any Meteor application that sets:
 
 ```bash
-export METEOR_PACKAGE_DIRS="$HOME/.koad-io/packages"
+KOAD_IO_PACKAGE_DIRS="$HOME/.koad-io/packages"
+METEOR_PACKAGE_DIRS=$KOAD_IO_PACKAGE_DIRS  # DEPRECATED: Meteor compat shim
 ```
 
 They provide the shared UI toolkit, data layer, and runtime infrastructure that all koad:io Meteor apps use. A developer building a new koad:io app starts with `meteor add koad:io` and gets all of this.
@@ -72,7 +73,7 @@ These packages form the base. Everything else depends on them.
 | `io-router/` | `koad:io-router` | Earlier version of the same router (v3.3.0). Two directories, same package name — `router/` is the current one. |
 | `io-router-progress/` | `koad:io-router-progress` | Progress bar and spinner UI for route transitions. Pure CSS with JS configuration. Implies `koad:io-router`. |
 
-**Note on `router/` vs `io-router/`:** Both declare `koad:io-router`. Meteor resolves packages in `METEOR_PACKAGE_DIRS` order. `router/` is the maintained version (v3.6.9); `io-router/` is an older fork (v3.3.0). In a single `METEOR_PACKAGE_DIRS`, whichever appears first wins. Verify your setup uses `router/`.
+**Note on `router/` vs `io-router/`:** Both declare `koad:io-router`. Meteor resolves packages in `KOAD_IO_PACKAGE_DIRS` order (set `METEOR_PACKAGE_DIRS=$KOAD_IO_PACKAGE_DIRS` for Meteor compat). `router/` is the maintained version (v3.6.9); `io-router/` is an older fork (v3.3.0). In a single `KOAD_IO_PACKAGE_DIRS`, whichever appears first wins. Verify your setup uses `router/`.
 
 ### Session & State
 

@@ -18,16 +18,18 @@ This system allows small, single-use apps (focused and simple) to collectively f
 
 To use these packages:
 
-1. Point `METEOR_PACKAGE_DIRS` to include this directory:
+1. Point `KOAD_IO_PACKAGE_DIRS` to include this directory (set in `~/.koad-io/.env`):
 
    ```bash
-   export METEOR_PACKAGE_DIRS="$HOME/.koad-io/packages"
+   KOAD_IO_PACKAGE_DIRS="$HOME/.koad-io/packages"
+   METEOR_PACKAGE_DIRS=$KOAD_IO_PACKAGE_DIRS  # DEPRECATED: Meteor compat shim
    ```
 
    Or, combine it with entity-specific packages:
 
    ```bash
-   export METEOR_PACKAGE_DIRS="$HOME/.alice/packages:$HOME/.ecoincore/packages:$HOME/.koad-io/packages"
+   KOAD_IO_PACKAGE_DIRS="$HOME/.alice/packages:$HOME/.ecoincore/packages:$HOME/.koad-io/packages"
+   METEOR_PACKAGE_DIRS=$KOAD_IO_PACKAGE_DIRS  # DEPRECATED: Meteor compat shim
    ```
 
 2. Add the package(s) to your app:

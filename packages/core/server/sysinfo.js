@@ -193,6 +193,7 @@ async function processUpstart() {
 	let entity = {
 		name: process.env.ENTITY,
 		commands: process.env.ENTITY_COMMANDS_DIR,
+		packageDirs: process.env.KOAD_IO_PACKAGE_DIRS,
 	};
 
 	let meteor = {
