@@ -47,18 +47,34 @@ _koad_io_quiet_pin="$KOAD_IO_QUIET"
 # Detect whether we were called from an entity launcher or directly as koad-io.
 # Entity launchers set KOAD_IO_VIA_LAUNCHER=1 before calling us.
 # If called directly (no launcher), ENTITY is stale env from a parent shell —
-# wipe it so the daemon and framework commands run entity-free.
+# wipe it and all entity context so framework commands run entity-free.
 if [[ "$KOAD_IO_VIA_LAUNCHER" != "1" ]]; then
   unset ENTITY
+  # Wipe ALL entity and kingdom env vars — clean slate for framework-only cascade
+  while IFS= read -r _v; do
+    unset "$_v"
+  done < <(compgen -v | grep -E '^(KOAD_IO_|ENTITY)' || true)
+  # Re-source kingdom-level env only (no entity).
+  # ~/.koad-io/.env if it's a directory, or ~/.koad-io itself if it's a file.
+  set -a
+  if [ -d "$HOME/.koad-io" ]; then
+    [ -f "$HOME/.koad-io/.env" ] && source "$HOME/.koad-io/.env"
+    [ -f "$HOME/.koad-io/.credentials" ] && source "$HOME/.koad-io/.credentials"
+  elif [ -f "$HOME/.koad-io" ]; then
+    source "$HOME/.koad-io"
+    [ -f "$HOME/.credentials" ] && source "$HOME/.credentials"
+  fi
+  set +a
+else
+  unset KOAD_IO_VIA_LAUNCHER
+  # Entity launcher path — wipe everything except ENTITY, re-established by cascade
+  while IFS= read -r _v; do
+    case "$_v" in
+      ENTITY) ;;  # set by launcher — preserve
+      *)      unset "$_v" ;;
+    esac
+  done < <(compgen -v | grep -E '^(KOAD_IO_|ENTITY)' || true)
 fi
-unset KOAD_IO_VIA_LAUNCHER
-
-while IFS= read -r _v; do
-  case "$_v" in
-    ENTITY) ;;  # already handled above — preserve if set by launcher
-    *)      unset "$_v" ;;
-  esac
-done < <(compgen -v | grep -E '^(KOAD_IO_|ENTITY)' || true)
 
 [ -n "$_koad_io_room_pin" ]  && export KOAD_IO_ROOM="$_koad_io_room_pin"
 [ -n "$_koad_io_quiet_pin" ] && export KOAD_IO_QUIET="$_koad_io_quiet_pin"
