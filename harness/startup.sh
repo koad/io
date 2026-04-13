@@ -46,12 +46,30 @@ export HARNESS_WORK_DIR
 _HOST="$(hostname -s 2>/dev/null || echo unknown)"
 _USER="$(whoami 2>/dev/null || echo unknown)"
 _DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+_DATE_HUMAN="$(date '+%A %B %-d, %Y')"  # e.g. "Monday April 13, 2026"
 
 # --- Helper: list a directory if it exists, one item per line ---
 _ls() {
   if [ -d "$1" ]; then
     ls -1 "$1" 2>/dev/null
   fi
+}
+
+# --- Helper: variable substitution on context files ---
+# Resolves $ENTITY, $ENTITY_DIR, $HOST, $USER, $DATE, $DATE_HUMAN
+# in primer/identity files as they're assembled. One source file,
+# every entity sees their own name.
+_subst() {
+  sed \
+    -e "s|\\\$ENTITY_DIR|$ENTITY_DIR|g" \
+    -e "s|\\\$ENTITY|$ENTITY|g" \
+    -e "s|\\\$HOST|$_HOST|g" \
+    -e "s|\\\$USER|$_USER|g" \
+    -e "s|\\\$DATE|$_DATE_HUMAN|g" \
+    -e "s|\\\$PURPOSE|${PURPOSE:-}|g" \
+    -e "s|\\\$ROLE|${ROLE:-}|g" \
+    -e "s|~/\.\$ENTITY|$ENTITY_DIR|g" \
+    -e "s|~/\.\\<$ENTITY\\>|$ENTITY_DIR|g"
 }
 
 # --- Diagnostic log (stderr) ---
@@ -72,6 +90,7 @@ cat <<EOF
 - **entity_dir:** $ENTITY_DIR
 - **work_dir:** $HARNESS_WORK_DIR
 - **call_dir:** $CALL_DIR
+- **today:** $_DATE_HUMAN
 - **started:** $_DATE
 
 ## Pre-emptive Primitives
@@ -185,7 +204,7 @@ printf '\n---\n\n'
 
 # --- Layer 1: Kingdom ---
 if [ -f "$KOAD_IO_DIR/KOAD_IO.md" ]; then
-  cat "$KOAD_IO_DIR/KOAD_IO.md"
+  _subst < "$KOAD_IO_DIR/KOAD_IO.md"
   printf '\n\n---\n\n'
   echo "[startup] layer1: KOAD_IO.md ($(wc -c < "$KOAD_IO_DIR/KOAD_IO.md") bytes)" >&2
 else
@@ -194,7 +213,7 @@ fi
 
 # --- Layer 2: Entity ---
 if [ -f "$ENTITY_DIR/ENTITY.md" ]; then
-  cat "$ENTITY_DIR/ENTITY.md"
+  _subst < "$ENTITY_DIR/ENTITY.md"
   echo "[startup] layer2: ENTITY.md ($(wc -c < "$ENTITY_DIR/ENTITY.md") bytes)" >&2
 else
   echo "[startup] layer2: ENTITY.md not found, skipped" >&2
@@ -215,7 +234,7 @@ if [ -n "${KOAD_IO_ENTITY_ROLE:-}" ]; then
       [ -f "$_primer_file" ] || continue
       _primer_name="$(basename "$_primer_file" .md)"
       printf '\n---\n\n# Role Primer: %s\n\n' "$_primer_name"
-      cat "$_primer_file"
+      _subst < "$_primer_file"
       echo "[startup] role primer: $KOAD_IO_ENTITY_ROLE/$_primer_name ($(wc -c < "$_primer_file") bytes)" >&2
       _primer_count=$((_primer_count + 1))
     done
@@ -246,7 +265,8 @@ else
   done
   if [ -n "$PRIMER_FILE" ]; then
     echo "[startup] primer: $PRIMER_FILE ($(wc -c < "$PRIMER_FILE") bytes)" >&2
-    printf '\n---\n\n# Location Context (%s)\n\n%s\n' "$HARNESS_WORK_DIR" "$(cat "$PRIMER_FILE")"
+    printf '\n---\n\n# Location Context (%s)\n\n' "$HARNESS_WORK_DIR"
+    _subst < "$PRIMER_FILE"
   fi
 fi
 
