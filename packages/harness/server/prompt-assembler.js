@@ -24,34 +24,45 @@ HARD CONSTRAINTS — violating these breaks the interface:
 // VESTA-SPEC-067: Context load order
 // Layer 1: Kingdom (KOAD_IO.md) → Layer 2: Entity (ENTITY.md) → Layer 3: Implement (CLAUDE.md)
 // → Layer 4: Location (PRIMER.md) → Layer 5: Memory → Layer 6: Guardrails (safety cap)
-function buildSystemPrompt(entity) {
+//
+// contextLayers config (optional array) controls which layers are included.
+// Valid layer names: "kingdom", "entity", "implement", "primer", "memory", "guardrails"
+// Default (no config): all layers included.
+// Example: ["entity", "primer", "guardrails"] — skips kingdom, implement, memory.
+
+const ALL_LAYERS = ['kingdom', 'entity', 'implement', 'primer', 'memory', 'guardrails'];
+
+function buildSystemPrompt(entity, contextLayers) {
+  const layers = contextLayers && contextLayers.length > 0 ? contextLayers : ALL_LAYERS;
   const parts = [];
 
-  if (entity.koadIoMd) {
+  if (layers.includes('kingdom') && entity.koadIoMd) {
     parts.push(entity.koadIoMd.trim());
   }
 
-  if (entity.entityMd) {
+  if (layers.includes('entity') && entity.entityMd) {
     parts.push(entity.entityMd.trim());
   }
 
-  if (entity.claudeMd) {
+  if (layers.includes('implement') && entity.claudeMd) {
     parts.push(entity.claudeMd.trim());
   }
 
-  if (entity.primerMd) {
+  if (layers.includes('primer') && entity.primerMd) {
     parts.push('## Current State\n');
     parts.push(entity.primerMd.trim());
   }
 
-  if (entity.memories.length > 0) {
+  if (layers.includes('memory') && entity.memories.length > 0) {
     parts.push('## Self-Knowledge\n');
     for (const mem of entity.memories) {
       parts.push(mem.trim());
     }
   }
 
-  parts.push(GUARDRAILS);
+  if (layers.includes('guardrails')) {
+    parts.push(GUARDRAILS);
+  }
 
   return parts.join('\n\n');
 }

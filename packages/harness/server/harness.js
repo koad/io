@@ -174,7 +174,13 @@ class HarnessInstance {
       return this.json(res, 400, { error: err.message });
     }
 
-    const { entity: entityHandle, message, sessionId } = body;
+    const { entity: entityHandle, message, sessionId, ddpToken } = body;
+
+    // DDP gate: require a valid token issued via Meteor method (proves DDP session)
+    if (!KoadHarnessDdpGate.validateToken(ddpToken)) {
+      this.log(`chat blocked: no valid DDP token ip=${req.headers['x-forwarded-for'] || req.socket.remoteAddress}`);
+      return this.json(res, 403, { error: 'DDP session required' });
+    }
 
     if (!entityHandle || !this.config.entities.includes(entityHandle)) {
       return this.json(res, 400, { error: 'Unknown entity' });
@@ -259,7 +265,7 @@ class HarnessInstance {
     const cleanMessage = inputCheck.message;
 
     // Build prompts
-    const systemPrompt = KoadHarnessPrompt.buildSystemPrompt(entity);
+    const systemPrompt = KoadHarnessPrompt.buildSystemPrompt(entity, this.config.contextLayers);
     const history = this.sessions.getHistory(session.id);
     const prompt = KoadHarnessPrompt.buildPrompt(history, cleanMessage);
 

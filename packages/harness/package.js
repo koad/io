@@ -17,6 +17,7 @@ Package.onUse(function (api) {
   api.addFiles('server/utils/parse-env.js', 'server');
 
   // Core modules
+  api.addFiles('server/ddp-gate.js', 'server');
   api.addFiles('server/entity-loader.js', 'server');
   api.addFiles('server/prompt-assembler.js', 'server');
   api.addFiles('server/session-store.js', 'server');
