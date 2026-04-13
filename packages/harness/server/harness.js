@@ -179,7 +179,7 @@ class HarnessInstance {
     // DDP gate: require a valid token issued via Meteor method (proves DDP session)
     if (!KoadHarnessDdpGate.validateToken(ddpToken)) {
       this.log(`chat blocked: no valid DDP token ip=${req.headers['x-forwarded-for'] || req.socket.remoteAddress}`);
-      return this.json(res, 403, { error: 'DDP session required' });
+      return this.json(res, 403, { error: 'there is nothing here for you' });
     }
 
     if (!entityHandle || !this.config.entities.includes(entityHandle)) {
