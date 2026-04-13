@@ -43,6 +43,10 @@ function indexEntity(handle, entityPath) {
     const doc = {
       handle,
       vars,
+      // Promote key identity fields for easy querying
+      role: vars.KOAD_IO_ENTITY_ROLE || null,
+      purpose: vars.PURPOSE || null,
+      harness: vars.ENTITY_DEFAULT_HARNESS || null,
       scannedAt: new Date(),
     };
     if (existing) {

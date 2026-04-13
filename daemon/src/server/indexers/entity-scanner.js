@@ -56,14 +56,27 @@ function syncEntities() {
     const handle = handleFromFolder(folder);
     foundHandles.add(handle);
 
+    // Extract role from .env (KOAD_IO_ENTITY_ROLE=<word>)
+    const entityEnvPath = path.join(homePath, folder, '.env');
+    let role = null;
+    try {
+      const envContent = fs.readFileSync(entityEnvPath, 'utf8');
+      const roleMatch = envContent.match(/^KOAD_IO_ENTITY_ROLE=(.+)$/m);
+      if (roleMatch) role = roleMatch[1].trim();
+    } catch (e) { /* no .env or unreadable — role stays null */ }
+
     if (!knownHandles.has(handle)) {
       Entities.insert({
         handle,
         folder,
         path: path.join(homePath, folder),
+        role,
         detectedAt: new Date(),
       });
-      console.log(`[ENTITIES] + ${handle}`);
+      console.log(`[ENTITIES] + ${handle} (${role || 'no role'})`);
+    } else {
+      // Update role if it changed (entity already known)
+      Entities.update({ handle }, { $set: { role } });
     }
   }
 
@@ -102,6 +115,11 @@ Meteor.startup(() => {
 // Publications
 Meteor.publish('entities', function () {
   return Entities.find();
+});
+
+Meteor.publish('entities.byRole', function (role) {
+  check(role, String);
+  return Entities.find({ role });
 });
 
 // Export for other indexers
