@@ -4,20 +4,18 @@ LOCAL_BUILD=false
 
 [[ -v KOAD_IO_LOCAL_ONLY ]] && echo "Local build specified with KOAD_IO_LOCAL_ONLY" && LOCAL_BUILD=true
 
-# Get the total number of arguments
-TOTAL_ARGS=$#
-
-# Get the last argument
-LAST_ARG=${!TOTAL_ARGS}
-
-# Check if the last argument is "local"
-if [[ "$LAST_ARG" == "local" ]]; then
-  # Remove the last argument from the list of arguments
-  set -- "${@:1:$((TOTAL_ARGS - 1))}"
-  LOCAL_BUILD=true
-fi
-
-# Now the arguments in "${@}" don't include the last "local" argument, if it existed.
+# Strip flags and legacy "local" positional from args before resolving DATADIR.
+_positional=()
+for _arg in "$@"; do
+  case "$_arg" in
+    --local)  LOCAL_BUILD=true ;;
+    --*)      ;;  # skip flags — they're for the calling command, not for us
+    local)    LOCAL_BUILD=true ;;
+    *)        _positional+=("$_arg") ;;
+  esac
+done
+set -- "${_positional[@]}"
+unset _positional _arg
 
 echo "asserting valid datadir"
 
