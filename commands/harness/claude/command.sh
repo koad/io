@@ -207,6 +207,20 @@ if [ "$CONTINUE" = "1" ] && command -v jq >/dev/null 2>&1; then
 fi
 echo
 
+# --- Context assembly (VESTA-SPEC-067) ------------------------------------
+#
+# Identity always loads. Run startup.sh to assemble KOAD_IO.md → ENTITY.md →
+# role primers → pre-emptive primitives into SYSTEM_PROMPT. This happens
+# unconditionally — the entity wakes up knowing who it is regardless of
+# whether a prompt was given or how dispatch reached this script.
+
+if [ -f "$HOME/.koad-io/harness/startup.sh" ]; then
+  SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh")" || {
+    echo "Warning: startup.sh failed (exit $?), proceeding without context assembly" >&2
+  }
+  export SYSTEM_PROMPT
+fi
+
 # --- Exec -----------------------------------------------------------------
 #
 # Build argv explicitly. --continue (-c) resumes the most recent session for
@@ -217,6 +231,12 @@ echo
 
 _args=(--model "$MODEL_RESOLVED")
 [ "$CONTINUE" = "1" ] && _args+=(-c)
+
+# Inject identity context via --append-system-prompt and add entity dir for file access.
+if [ -n "$SYSTEM_PROMPT" ]; then
+  _args+=(--append-system-prompt "$SYSTEM_PROMPT" --add-dir "$ENTITY_DIR")
+fi
+
 if [ -n "$PROMPT" ]; then
   _args+=(-p "$PROMPT")
 fi

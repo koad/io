@@ -227,13 +227,36 @@ else
   echo "[startup] role primers: no KOAD_IO_ENTITY_ROLE declared" >&2
 fi
 
-# Layers 3-6 loaded by the harness:
-#   3. Implement — CLAUDE.md auto-loaded from HARNESS_WORK_DIR
-#   4. Location  — PRIMER.md injected by framework hook (roaming only)
+# --- Layer 4: Location — PRIMER.md (roaming entities only) ----------------
+#
+# A PRIMER.md is a sign on the door — orientation for whoever walks into
+# that directory. Rooted entities never read their own PRIMER (they wrote
+# the sign). Roaming entities read the PRIMER of wherever they've been
+# sent — that's the whole point of roaming.
+
+if [ "${KOAD_IO_ROOTED:-}" = "true" ]; then
+  echo "[startup] primer: skipped (rooted entity — CWD primers don't apply)" >&2
+else
+  PRIMER_FILE=""
+  for _p in "$HARNESS_WORK_DIR"/[Pp][Rr][Ii][Mm][Ee][Rr].[Mm][Dd]; do
+    if [ -f "$_p" ]; then
+      PRIMER_FILE="$_p"
+      break
+    fi
+  done
+  if [ -n "$PRIMER_FILE" ]; then
+    echo "[startup] primer: $PRIMER_FILE ($(wc -c < "$PRIMER_FILE") bytes)" >&2
+    printf '\n---\n\n# Location Context (%s)\n\n%s\n' "$HARNESS_WORK_DIR" "$(cat "$PRIMER_FILE")"
+  fi
+fi
+
+# Layers loaded by the harness itself (not here):
+#   3. Implement — CLAUDE.md auto-loaded from HARNESS_WORK_DIR (claude-specific)
 #   5. Memory    — harness memory system
 #   6. Guardrails — hardcoded in portal harness, implicit in CLI
 
-# --- Write .context for static harnesses (opencode, etc.) ---
-# We tee stdout as we go would complicate the script. Instead, the calling hook
-# can redirect: startup.sh | tee $ENTITY_DIR/.context
-# Or: the .context is just a snapshot — redirect a second run if needed.
+# --- End of assembly ---
+# stdout is captured by the calling harness as SYSTEM_PROMPT.
+# Each leaf harness consumes it in its own native way:
+#   claude   → --append-system-prompt
+#   opencode → OPENCODE_CONFIG_CONTENT (JSON injection)

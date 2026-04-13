@@ -109,22 +109,6 @@ if [ -n "$PROMPT" ]; then
   export PROMPT
 fi
 
-# --- Context assembly (VESTA-SPEC-067) ------------------------------------
-#
-# Identity always loads. The entity wakes up knowing who it is regardless
-# of whether a prompt was given, whether this is a fresh or continued
-# session, or whether the caller came through the naked-entity hook or
-# `harness default` directly. startup.sh assembles KOAD_IO.md → ENTITY.md
-# → role primers → pre-emptive primitives. The SYSTEM_PROMPT rides under
-# the user's PROMPT, not instead of it.
-
-if [ -f "$HOME/.koad-io/harness/startup.sh" ]; then
-  SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh" | tee "$ENTITY_DIR/.context")" || {
-    echo "Warning: startup.sh failed (exit $?), proceeding without context assembly" >&2
-  }
-  export SYSTEM_PROMPT
-fi
-
 # --- Announce -------------------------------------------------------------
 
 echo

@@ -49,8 +49,13 @@ if [ -z "$ENTITY_DIR" ] || [ ! -d "$ENTITY_DIR" ]; then
   exit 64
 fi
 
-if ! command -v opencode >/dev/null 2>&1; then
-  echo "Error: 'opencode' CLI not found on PATH. Install opencode first." >&2
+# Prefer the kingdom-managed binary, fall back to system PATH
+if [ -x "$HOME/.koad-io/bin/opencode" ]; then
+  OPENCODE_BIN="$HOME/.koad-io/bin/opencode"
+elif command -v opencode >/dev/null 2>&1; then
+  OPENCODE_BIN="$(command -v opencode)"
+else
+  echo "Error: 'opencode' CLI not found at ~/.koad-io/bin/opencode or on PATH." >&2
   exit 69
 fi
 
@@ -156,30 +161,37 @@ case "$MODEL" in
     ;;
 esac
 
-# --- SPEC-072 invariants (three modes) ------------------------------------
+# --- SPEC-072 invariants (two modes) --------------------------------------
 #
-# XDG_CONFIG_HOME resolves to one of three modes, in priority order:
+# XDG_CONFIG_HOME resolves to one of two modes, in priority order:
 #
 #   1. Caller-pinned room  — KOAD_IO_ROOM set → use it as the config dir.
 #      Sealed portable room: opencode's session db lives in the room and
 #      travels with it. Multiple roaming entities visiting the same room
 #      can share conversations naturally.
 #
-#   2. Rooted entity       — KOAD_IO_ROOTED=true → use $ENTITY_DIR.
-#      Original SPEC-072 axiom for protocol keepers; sealed portable entity.
-#
-#   3. Roaming entity      — neither set, EXPLICITLY unset XDG_CONFIG_HOME
-#      (inherited from caller's env otherwise) so opencode falls back to
-#      the system default ~/.config/. Roaming entities share the system
-#      db by default, room-friendly with no configuration.
+#   2. Entity dir          — default for both rooted and roaming entities.
+#      Every entity carries its own opencode config (tui.json, opencode.jsonc,
+#      etc.) in $ENTITY_DIR/opencode/. The entity's identity config follows
+#      them regardless of where they're invoked from.
 
 if [ -n "$KOAD_IO_ROOM" ] && [ -d "$KOAD_IO_ROOM" ]; then
   export XDG_CONFIG_HOME="$KOAD_IO_ROOM"
-elif [ "${KOAD_IO_ROOTED:-false}" = "true" ]; then
-  export XDG_CONFIG_HOME="$ENTITY_DIR"
 else
-  unset XDG_CONFIG_HOME
+  export XDG_CONFIG_HOME="$ENTITY_DIR"
 fi
+
+# --- Entity config file overrides -----------------------------------------
+#
+# opencode respects OPENCODE_CONFIG and OPENCODE_TUI_CONFIG env vars to
+# point directly at config files. This lets every entity carry its own
+# tui.json at the entity root — no .opencode/ subdirectory needed,
+# no reliance on project-dir discovery.
+
+[ -f "$ENTITY_DIR/opencode.json" ]  && export OPENCODE_CONFIG="$ENTITY_DIR/opencode.json"
+[ -f "$ENTITY_DIR/opencode.jsonc" ] && export OPENCODE_CONFIG="$ENTITY_DIR/opencode.jsonc"
+[ -f "$ENTITY_DIR/tui.json" ]       && export OPENCODE_TUI_CONFIG="$ENTITY_DIR/tui.json"
+[ -f "$ENTITY_DIR/tui.jsonc" ]      && export OPENCODE_TUI_CONFIG="$ENTITY_DIR/tui.jsonc"
 
 # --- Rooted vs roaming cwd ------------------------------------------------
 
@@ -200,14 +212,10 @@ echo "entity_dir    : $ENTITY_DIR"
 echo "work_dir      : $WORK_DIR"
 echo "provider      : $PROVIDER"
 echo "model         : $MODEL_RESOLVED"
-if [ -n "$XDG_CONFIG_HOME" ]; then
-  if [ -n "$KOAD_IO_ROOM" ]; then
-    echo "xdg_config    : $XDG_CONFIG_HOME  (sealed portable room)"
-  else
-    echo "xdg_config    : $XDG_CONFIG_HOME  (sealed portable entity — SPEC-072)"
-  fi
+if [ -n "$KOAD_IO_ROOM" ]; then
+  echo "xdg_config    : $XDG_CONFIG_HOME  (sealed portable room)"
 else
-  echo "xdg_config    : (system default ~/.config — roaming, room-shareable)"
+  echo "xdg_config    : $XDG_CONFIG_HOME  (entity — SPEC-072)"
 fi
 if [ -n "$PROMPT" ]; then
   echo "mode          : one-shot"
@@ -218,22 +226,132 @@ fi
 [ "$CONTINUE" = "1" ] && echo "continue      : yes (opencode -c — resume last session)"
 echo
 
+# --- Opencode env flags ---------------------------------------------------
+
+export OPENCODE_DISABLE_CLAUDE_CODE=true
+export OPENCODE_DISABLE_LSP_DOWNLOAD=true
+export OPENCODE_DISABLE_TERMINAL_TITLE=true
+
+# --- Context assembly (VESTA-SPEC-067) ------------------------------------
+#
+# Identity always loads. Run startup.sh to assemble KOAD_IO.md → ENTITY.md →
+# role primers → pre-emptive primitives into SYSTEM_PROMPT. This happens
+# unconditionally — the entity wakes up knowing who it is regardless of
+# whether a prompt was given or how dispatch reached this script.
+#
+# Then build OPENCODE_CONFIG_CONTENT with the prompt injected into the agent
+# config. If OPENCODE_CONFIG_CONTENT is already set (caller knows what
+# they're doing), leave it alone.
+
+if [ -f "$HOME/.koad-io/harness/startup.sh" ]; then
+  SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh")" || {
+    echo "Warning: startup.sh failed (exit $?), proceeding without context assembly" >&2
+  }
+  export SYSTEM_PROMPT
+fi
+
+# Read outfit color from passenger.json (if present)
+OUTFIT_COLOR=""
+if [ -f "$ENTITY_DIR/passenger.json" ] && command -v jq >/dev/null 2>&1; then
+  OUTFIT_COLOR=$(jq -r '.outfit.color // empty' "$ENTITY_DIR/passenger.json" 2>/dev/null)
+fi
+
+if [ -n "$SYSTEM_PROMPT" ] && [ -z "$OPENCODE_CONFIG_CONTENT" ]; then
+  # Load entity's opencode.jsonc as template
+  OPENCODE_TEMPLATE=""
+  for _candidate in \
+    "$ENTITY_DIR/opencode.jsonc" \
+    "$ENTITY_DIR/opencode/opencode.jsonc" \
+    "$HOME/.koad-io/config/opencode.jsonc"; do
+    if [ -f "$_candidate" ]; then
+      OPENCODE_TEMPLATE="$_candidate"
+      break
+    fi
+  done
+
+  if [ -n "$OPENCODE_TEMPLATE" ]; then
+    # Shell-expand $ENTITY, $ENTITY_DIR, $PURPOSE in the template
+    # Strip jsonc line comments (only leading // not inside strings)
+    # Then jq injects the assembled prompt safely (handles escaping)
+    OPENCODE_CONFIG_CONTENT=$(
+      sed '/^[[:space:]]*\/\//d' "$OPENCODE_TEMPLATE" \
+      | sed "s|\\\$ENTITY_DIR|$ENTITY_DIR|g" \
+      | sed "s|\\\$ENTITY|$ENTITY|g" \
+      | sed "s|\\\$PURPOSE|${PURPOSE:-$ENTITY entity}|g" \
+      | jq --arg prompt "$SYSTEM_PROMPT" \
+          --arg entity "$ENTITY" \
+          --arg color "$OUTFIT_COLOR" \
+          '
+          if .agent[$entity] then
+            .agent[$entity].prompt = $prompt
+            | if $color != "" then .agent[$entity].color = $color else . end
+          elif .mode[$entity] then
+            .mode[$entity].prompt = $prompt
+            | if $color != "" then .mode[$entity].color = $color else . end
+          else . end
+          '
+    )
+    export OPENCODE_CONFIG_CONTENT
+  else
+    # No template — build minimal config inline
+    export OPENCODE_CONFIG_CONTENT
+    OPENCODE_CONFIG_CONTENT=$(jq -n \
+      --arg entity "$ENTITY" \
+      --arg desc "${PURPOSE:-$ENTITY entity}" \
+      --arg prompt "$SYSTEM_PROMPT" \
+      --arg entity_dir "$ENTITY_DIR" \
+      --arg color "$OUTFIT_COLOR" \
+      '{
+        agent: {
+          ($entity): {
+            description: $desc,
+            mode: "primary",
+            prompt: $prompt,
+            permission: {
+              external_directory: { ($entity_dir + "/**"): "allow" },
+              read:  { ($entity_dir + "/**"): "allow" },
+              write: { ($entity_dir + "/**"): "allow" },
+              bash: "allow", glob: "allow", grep: "allow",
+              edit: "allow", skill: "allow", task: "allow"
+            }
+          }
+        }
+      }
+      | if $color != "" then .agent[$entity].color = $color else . end
+      ')
+  fi
+fi
+
 # --- Exec -----------------------------------------------------------------
 #
 # opencode 'run' is the one-shot. Both 'run' and the interactive TUI accept
 # -c/--continue. For rooted entities cwd is always $ENTITY_DIR, so there is
 # exactly one persistent session per entity; for roaming entities, one per
 # (entity × project-dir) pair.
+#
+# --agent $ENTITY selects the entity's agent definition from the config.
+
+_args=()
 
 if [ -n "$PROMPT" ]; then
-  _args=(run --model "$MODEL_RESOLVED" --dir "$WORK_DIR")
+  _args+=(run)
+fi
+
+_args+=(--model "$MODEL_RESOLVED")
+
+if [ -n "$OPENCODE_CONFIG_CONTENT" ]; then
+  _args+=(--agent "$ENTITY")
+fi
+
+if [ -n "$PROMPT" ]; then
+  _args+=(--dir "$WORK_DIR")
   [ "$CONTINUE" = "1" ] && _args+=(-c)
   _args+=("$PROMPT")
-  exec opencode "${_args[@]}"
+  exec "$OPENCODE_BIN" "${_args[@]}"
 else
   if [ "$CONTINUE" = "1" ]; then
-    exec opencode -c "$WORK_DIR"
-  else
-    exec opencode "$WORK_DIR"
+    _args+=(-c)
   fi
+  _args+=("$WORK_DIR")
+  exec "$OPENCODE_BIN" "${_args[@]}"
 fi
