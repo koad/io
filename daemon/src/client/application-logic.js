@@ -96,7 +96,8 @@ Template.WidgetQuickLaunch.events({
     event.preventDefault();
     if (event.shiftKey) {
       // Shift-double-click: open kingdom overview
-      window.open('http://10.10.10.10:28282/overview', 'kingdom-overview');
+      const rootUrl = Meteor.absoluteUrl('overview');
+      window.open(rootUrl, 'kingdom-overview');
     }
   },
 

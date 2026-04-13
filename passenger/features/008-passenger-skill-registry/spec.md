@@ -50,7 +50,7 @@ System for detecting passengers, managing their configuration, and providing ski
     }
   ],
   "ddp": {
-    "host": "10.10.10.10",
+    "host": "KOAD_IO_BIND_IP",
     "port": 3000,
     "ssl": false
   },

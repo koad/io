@@ -24,7 +24,7 @@ UI component for selecting which passenger (entity) accompanies the user while b
   },
   buttons: [...],              // skill buttons
   ddp: {
-    host: "10.10.10.10",
+    host: "KOAD_IO_BIND_IP",
     port: 3000,
     ssl: false
   }
