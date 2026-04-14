@@ -47,6 +47,32 @@ trap _cleanup EXIT
 
 cd "$HARNESS_WORK_DIR"
 
+# --- CWD PRIMER auto-injection --------------------------------------------
+#
+# If the caller's $CWD has a PRIMER.md, prepend it to PROMPT so the entity
+# wakes up oriented to the project it was invoked inside. Auto-detect by
+# file presence — no env var needed. Consumes stdin here if PROMPT isn't
+# already set, since we need a concrete value to prepend to.
+#
+# This runs BEFORE delegation so every downstream harness (claude, opencode,
+# pi, hermez) gets the injected prompt for free via the PROMPT export.
+
+# Skip if CALL_DIR is the entity's own dir — that PRIMER already loads via
+# the identity cascade in startup.sh; re-injecting would double-context.
+if [ -f "$CALL_DIR/PRIMER.md" ] && [ "$CALL_DIR" != "$ENTITY_DIR" ]; then
+  if [ -z "${PROMPT:-}" ] && [ ! -t 0 ]; then
+    PROMPT="$(cat)"
+  fi
+  _primer="$(cat "$CALL_DIR/PRIMER.md")"
+  if [ -n "${PROMPT:-}" ]; then
+    PROMPT="$(printf 'Project context (from %s/PRIMER.md):\n%s\n\n---\n\n%s' "$CALL_DIR" "$_primer" "$PROMPT")"
+  else
+    PROMPT="$(printf 'Project context (from %s/PRIMER.md):\n%s' "$CALL_DIR" "$_primer")"
+  fi
+  export PROMPT
+  unset _primer
+fi
+
 # --- Delegate to harness default ------------------------------------------
 #
 # Each leaf harness (claude, opencode, pi, ...) runs startup.sh itself and
