@@ -233,6 +233,16 @@ fi
 _args=(--model "$MODEL_RESOLVED")
 [ "$CONTINUE" = "1" ] && _args+=(-c)
 
+# --- Skip permissions (Juno-only by convention) ---------------------------
+#
+# ENTITY_SKIP_PERMISSIONS=true in the entity's .env bypasses the interactive
+# permission prompt. Per feedback_permissions memory this is Juno-only —
+# orchestrator entities can't pause mid-flight to ask for approval. Every
+# other entity leaves this unset so the harness stays the safety net.
+if [ "${ENTITY_SKIP_PERMISSIONS:-false}" = "true" ]; then
+  _args+=(--dangerously-skip-permissions)
+fi
+
 # Inject identity context via --append-system-prompt and add entity dir for file access.
 if [ -n "$SYSTEM_PROMPT" ]; then
   _args+=(--append-system-prompt "$SYSTEM_PROMPT" --add-dir "$ENTITY_DIR")

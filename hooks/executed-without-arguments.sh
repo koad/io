@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 set -euo pipefail
 
 # executed-without-arguments.sh — the "just type the entity name" entry point.
@@ -6,6 +7,20 @@ set -euo pipefail
 # Delegates to `harness default`. Context assembly (startup.sh, PRIMER
 # layering) is owned by each leaf harness — not here. This hook is just
 # the door.
+#
+# Behavior is driven entirely by the entity's .env cascade — this script
+# is identical for every entity. See ~/.koad-io/hooks/PRIMER.md for the
+# env-var contract:
+#
+#   ENTITY_DEFAULT_HARNESS       claude | opencode | pi | hermez
+#   ENTITY_DEFAULT_PROVIDER      anthropic | opencode | ollama | ...
+#   ENTITY_DEFAULT_MODEL         opus-4-6 | big-pickle | ...
+#   ENTITY_SKIP_PERMISSIONS      true (Juno-only) — --dangerously-skip-permissions
+#   KOAD_IO_ROOTED               true → works from $ENTITY_DIR, unset → from $CWD
+#   ENTITY_HOST                  rooted entity's home host (ssh'd into by framework)
+#
+# Entity .env values win over framework ~/.koad-io/.env defaults. Hardcoded
+# fallbacks live inside the leaf harness scripts (commands/harness/<name>/).
 
 ENTITY_DIR="${ENTITY_DIR:-$HOME/.$ENTITY}"
 export CALL_DIR="${CWD:-$PWD}"
