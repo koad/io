@@ -3,7 +3,7 @@ const { URL } = require('url');
 
 KoadHarnessProviderOllama = {
   stream(systemPrompt, prompt, onChunk, onDone, onError, options = {}) {
-    const endpoint = options.endpoint || 'http://10.10.10.11:11434';
+    const endpoint = options.endpoint || process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
     const model = options.model || 'llama3.2:latest';
     const url = new URL('/api/generate', endpoint);
 

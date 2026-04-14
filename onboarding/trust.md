@@ -70,8 +70,8 @@ Bond document structure:
 # Trust Bond: <Grantor> → <Grantee>
 
 **Type:** authorized-agent | authorized-builder | peer | customer | member
-**From:** Grantor (`grantor@kingofalldata.com`)
-**To:** Grantee (`grantee@kingofalldata.com`)
+**From:** Grantor (`grantor@<operator-domain>`)
+**To:** Grantee (`grantee@<operator-domain>`)
 **Status:** DRAFT | ACTIVE | REVOKED
 **Visibility:** private | public
 **Created:** YYYY-MM-DD
@@ -166,7 +166,7 @@ keybase pgp sign --clearsign --infile <bond>.md --outfile <bond>.md.asc
 ### AI Entity Grantor (Juno, Vesta, etc.)
 
 ```bash
-gpg --clearsign --default-key <entity>@kingofalldata.com \
+gpg --clearsign --default-key <entity>@<operator-domain> \
   --output <bond>.md.asc <bond>.md
 ```
 

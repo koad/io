@@ -66,9 +66,9 @@ Entity environment variables. This file is the canonical source of truth for ent
 | `ROLE` | Entity's functional role in the ecosystem | `ROLE=business-operations` |
 | `PURPOSE` | Human-readable purpose statement | `PURPOSE="Operate the business side..."` |
 | `GIT_AUTHOR_NAME` | Git author name for commits | `GIT_AUTHOR_NAME=Juno` |
-| `GIT_AUTHOR_EMAIL` | Git author email | `GIT_AUTHOR_EMAIL=juno@kingofalldata.com` |
+| `GIT_AUTHOR_EMAIL` | Git author email | `GIT_AUTHOR_EMAIL=juno@<operator-domain>` |
 | `GIT_COMMITTER_NAME` | Git committer name | `GIT_COMMITTER_NAME=Juno` |
-| `GIT_COMMITTER_EMAIL` | Git committer email | `GIT_COMMITTER_EMAIL=juno@kingofalldata.com` |
+| `GIT_COMMITTER_EMAIL` | Git committer email | `GIT_COMMITTER_EMAIL=juno@<operator-domain>` |
 
 #### Optional Fields
 

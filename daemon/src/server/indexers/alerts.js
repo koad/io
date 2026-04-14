@@ -142,7 +142,8 @@ Meteor.methods({
 
   'alerts.dismiss'(data) {
     check(data, { entity: String, source: String, index: Match.Integer });
-    const homePath = process.env.HOME || '/home/koad';
+    const homePath = process.env.HOME;
+    if (!homePath) return;
     const filePath = path.join(homePath, '.' + data.entity, data.source + '.json');
 
     const items = readJsonArray(filePath);
