@@ -20,6 +20,7 @@
           "~/.*/ARCHITECTURE/**": "allow",
           "~/.*/dist/**": "allow",
           "~/.*/posts/**": "allow",
+          "~/.*/drafts/**": "allow",
           "~/.*/ENTITY.md": "allow",
           "~/.sensitive/**": "deny",
           "~/.secrets/**": "deny"
