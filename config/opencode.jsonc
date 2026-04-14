@@ -14,6 +14,13 @@
           "$ENTITY_DIR/**": "allow",
           "~/.koad-io/**": "allow",
           "~/.ecoincore/packages/**": "allow",
+          "~/.*/specs/**": "allow",
+          "~/.*/research/**": "allow",
+          "~/.*/briefs/**": "allow",
+          "~/.*/ARCHITECTURE/**": "allow",
+          "~/.*/dist/**": "allow",
+          "~/.*/posts/**": "allow",
+          "~/.*/ENTITY.md": "allow",
           "~/.sensitive/**": "deny",
           "~/.secrets/**": "deny"
         },
