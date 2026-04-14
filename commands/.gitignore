@@ -23,6 +23,8 @@
 !spawn
 !ssh
 !start
+!stop
+!restart
 !test
 !think
 !sign
