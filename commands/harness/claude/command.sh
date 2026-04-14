@@ -76,6 +76,18 @@ if [ -z "$PROMPT" ] && [ ! -t 0 ]; then
 fi
 PROMPT="${PROMPT:-$*}"
 
+# --- Auto-continue on interactive startup (ENTITY_CONTINUE) ---------------
+#
+# When ENTITY_CONTINUE=true AND the launch is interactive (no PROMPT),
+# force CONTINUE=1 so the entity resumes its last session automatically.
+# Opt-in per-entity via .env. One-shot (-p) mode is unaffected — continuity
+# there is an explicit caller choice, not an entity trait. See the
+# feedback_continue_vs_fresh memory for when a reflexive -c is the right
+# default (identity-stable entities that think across sittings).
+if [ "${ENTITY_CONTINUE:-false}" = "true" ] && [ -z "$PROMPT" ]; then
+  CONTINUE=1
+fi
+
 # --- Provider validation --------------------------------------------------
 
 case "$PROVIDER" in
@@ -250,6 +262,69 @@ fi
 
 if [ -n "$PROMPT" ]; then
   _args+=(-p "$PROMPT")
+fi
+
+# --- Lockfile busy-guard (ENTITY_LOCKFILE) --------------------------------
+#
+# When ENTITY_LOCKFILE=true AND this is -p one-shot mode, refuse to launch
+# if another one-shot is already running for this entity. Prevents
+# orchestrators from racing two dispatches into the same entity's
+# conversation. Stale locks (PID exited without cleanup) are auto-reclaimed.
+# Lock lives at $ENTITY_DIR/.lock/harness-claude.pid — a dot-dir inside the
+# entity so it travels with sealed-portable entities.
+#
+# Interactive mode is intentionally unguarded: terminal windows are already
+# human-serialized, and locking them would strand a session if the shell
+# died without trap. Opt-in per-entity because most entities (roaming,
+# party-lined) are explicitly built for concurrent sessions.
+_lock_cleanup() { :; }
+if [ "${ENTITY_LOCKFILE:-false}" = "true" ] && [ -n "$PROMPT" ]; then
+  _lockdir="$ENTITY_DIR/.lock"
+  _lockfile="$_lockdir/harness-claude.pid"
+  mkdir -p "$_lockdir"
+  if [ -f "$_lockfile" ]; then
+    _locked_pid=$(cat "$_lockfile" 2>/dev/null || echo "")
+    if [ -n "$_locked_pid" ] && kill -0 "$_locked_pid" 2>/dev/null; then
+      echo "$ENTITY is busy (pid $_locked_pid). Try again shortly." >&2
+      exit 75  # EX_TEMPFAIL
+    fi
+    # stale lock — previous process died without cleanup
+    rm -f "$_lockfile"
+  fi
+  echo $$ > "$_lockfile"
+  _lock_cleanup() { rm -f "$_lockfile"; }
+  trap _lock_cleanup EXIT INT TERM
+fi
+
+# --- JSON .result extraction (ENTITY_EXTRACT_RESULT) ----------------------
+#
+# When ENTITY_EXTRACT_RESULT=true AND this is -p one-shot mode, force
+# --output-format=json and pipe stdout through python3 to emit just the
+# .result field. Gives orchestrators a clean string to parse without the
+# JSON envelope noise. Interactive launches are unaffected.
+#
+# Trade-off: we can't `exec` when we need to pipe, so the script stays
+# resident during the claude run. Acceptable — a one-shot is bounded.
+if [ "${ENTITY_EXTRACT_RESULT:-false}" = "true" ] && [ -n "$PROMPT" ]; then
+  # Inject --output-format=json ahead of the -p pair (only if not already set).
+  _has_json=0
+  for _a in "${_args[@]}"; do
+    case "$_a" in --output-format=*|--output-format) _has_json=1 ;; esac
+  done
+  [ "$_has_json" = "0" ] && _args=(--output-format json "${_args[@]}")
+  unset _a _has_json
+
+  claude "${_args[@]}" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))"
+  _rc=${PIPESTATUS[0]}
+  _lock_cleanup
+  exit "$_rc"
+fi
+
+# If we're holding a lockfile, run (don't exec) so the EXIT trap can clean
+# it up. Otherwise exec for zero overhead.
+if [ "${ENTITY_LOCKFILE:-false}" = "true" ] && [ -n "$PROMPT" ]; then
+  claude "${_args[@]}"
+  exit $?
 fi
 
 exec claude "${_args[@]}"

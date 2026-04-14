@@ -17,7 +17,10 @@ Current overrides in the field (as of 2026-04-14):
 | Entity | File | Reason | Retire when |
 |--------|------|--------|------------|
 | juno   | `executed-without-arguments.sh` | pre-cascade fork, `--dangerously-skip-permissions` | `ENTITY_SKIP_PERMISSIONS=true` added to `.env`, delete fork |
-| chiron | `executed-without-arguments.sh` | pre-cascade fork, injects CWD PRIMER.md into PROMPT | move CWD-primer injection into framework default (or let harness/claude handle it) |
+
+Chiron's fork was retired 2026-04-14 (vulcan#17) once lockfile /
+result-extraction / continue landed as env-gated behaviors in
+`harness/claude`.
 
 ---
 
@@ -65,6 +68,9 @@ Read in this precedence (first hit wins):
 | `ENTITY_DEFAULT_PROVIDER` | harness-specific | Provider inside the harness (e.g. `anthropic`, `ollama`). |
 | `ENTITY_DEFAULT_MODEL` | harness-specific | Model name (e.g. `opus-4-6`, `big-pickle`). |
 | `ENTITY_SKIP_PERMISSIONS` | `false` | If `true`, pass `--dangerously-skip-permissions` (claude harness only). Juno-only by convention. |
+| `ENTITY_LOCKFILE` | `false` | If `true`, one-shot (`-p`) claude launches check `$ENTITY_DIR/.lock/harness-claude.pid` and refuse (exit 75) if a live PID holds it. Stale locks auto-reclaim. Prevents orchestrator races into a single conversation. Interactive mode unguarded. Opt-in. |
+| `ENTITY_EXTRACT_RESULT` | `false` | If `true`, one-shot (`-p`) claude launches force `--output-format=json` and pipe stdout through `python3` to emit just the `.result` field. Gives dispatchers a clean string to parse. Interactive unaffected. Opt-in. |
+| `ENTITY_CONTINUE` | `false` | If `true`, interactive claude launches (no prompt) default to `-c` so the entity resumes its last session automatically. Equivalent to always typing `<entity> -c`. One-shot mode unaffected — continuity there stays an explicit caller choice (`CONTINUE=1`). Opt-in per-entity in `.env`. |
 | `KOAD_IO_ROOTED` | unset | If `true`, entity works from `$ENTITY_DIR`. Unset = roaming (works from `$CWD`). |
 | `KOAD_IO_ROOM` | unset | Sealed portable room — overrides `CLAUDE_CONFIG_DIR` when set. |
 | `ENTITY_HOST` | unset | Rooted entity's home host. Framework ssh's here before launch. |
@@ -143,3 +149,4 @@ Sessions that shaped this file.
 |------|-------|-------|
 | 2026-04-04 | Juno (claude-sonnet-4-6) | Wrote the original PRIMER. Established `KOAD_IO_ENTITY_HARNESS` — opencode as framework default (free LLMs, try before buy), claude as explicit opt-in for team entities. Renamed `REMOTE_CLAUDE_BIN` → `REMOTE_HARNESS_BIN`. Documented upstart pattern. |
 | 2026-04-14 | Vulcan (claude-opus-4-6) | koad/vulcan#17. Rewrote for cascade-driven global hook. `KOAD_IO_ENTITY_HARNESS` is gone — replaced by `ENTITY_DEFAULT_HARNESS` (entity) and `KOAD_IO_DEFAULT_HARNESS` (framework), resolved by `commands/harness/default`. Added `ENTITY_SKIP_PERMISSIONS` knob to `harness/claude` so Juno's fork can retire. Documented field overrides (juno, chiron) and the retire-when criteria. Hook itself now has SPDX header. Did NOT delete entity copies in this flight — migration is a follow-up. |
+| 2026-04-14 | Vulcan (claude-opus-4-6) | koad/vulcan#17 closeout. Promoted Chiron's three fork behaviors into `harness/claude` as env-gated knobs: `ENTITY_LOCKFILE` (PID busy-guard at `$ENTITY_DIR/.lock/harness-claude.pid`, one-shot only), `ENTITY_EXTRACT_RESULT` (force `--output-format=json` and pipe through `python3` `.result` extractor on `-p`), `ENTITY_CONTINUE` (reflexive `-c` on interactive no-prompt launches). All three default off so nobody inherits new behavior by surprise. Chiron's `hooks/executed-without-arguments.sh` fork retired same day; Chiron's `.env` now carries the three flags. |
