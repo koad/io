@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
 #
 # statusline-probe — koad:io statusline for Claude Code (discovery phase)
 #

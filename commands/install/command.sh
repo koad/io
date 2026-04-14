@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # koad-io install — post-clone setup
 # Checks dependencies, adds ~/.koad-io/bin to PATH, prints success signal.
 # No external network calls. Everything runs from the cloned repo.

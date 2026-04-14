@@ -1,0 +1,157 @@
+KINGDOM LICENSE
+Version 1.0
+
+Copyright (c) 2026 Jason (koad) Zvaniga
+All Rights Reserved for the license text itself.
+Covered Works may be freely used under the terms below.
+
+---
+
+PREAMBLE
+
+A kingdom is a sovereign digital environment operated by a single natural
+person for their personal use. Kingdoms are not corporate products, managed
+platforms, or enterprise deployments. This license governs software,
+templates, and artifacts whose purpose is to instantiate and operate
+individual kingdoms. The terms below protect that purpose.
+
+---
+
+DEFINITIONS
+
+"The Software" means any file, directory, or artifact covered by this license.
+
+"Kingdom" means a deployment of The Software operated directly by a single
+Natural Person as the primary and sovereign operator of that deployment.
+
+"Natural Person" means an individual human being. It does not include
+corporations, limited liability companies, partnerships, trusts, nonprofit
+organizations, government entities, or any other legal construct. A Natural
+Person acting in their individual capacity (not as an agent of an
+organization) is a Natural Person for purposes of this license.
+
+"Sovereign Operator" means the Natural Person who holds the cryptographic
+keys associated with a Kingdom's identity infrastructure and who exercises
+direct personal control over that Kingdom.
+
+"Managed Service" means offering The Software, or a product substantially
+derived from The Software, to third parties as a hosted or embedded offering
+where the primary value derives from the functionality of The Software.
+
+"Kingdom Framework" means the core software infrastructure provided under
+AGPL-3.0 at github.com/koad/koad-io.
+
+---
+
+GRANT OF RIGHTS
+
+Subject to the terms of this license, each Natural Person is granted a
+worldwide, royalty-free, non-exclusive, perpetual license to:
+
+1. USE The Software to operate one or more Kingdoms for personal use.
+
+2. COPY and ADAPT The Software for use within their own Kingdom.
+
+3. DISTRIBUTE unmodified or adapted copies of The Software to other
+   Natural Persons, provided:
+   (a) This license notice is included, and
+   (b) The distribution is not part of a Managed Service.
+
+4. INCORPORATE portions of The Software into works licensed under the
+   Kingdom Framework (AGPL-3.0), provided the Kingdom Framework's terms
+   are also satisfied.
+
+---
+
+RESTRICTIONS
+
+You may not:
+
+1. OPERATE A MANAGED SERVICE. You may not use The Software, or any
+   substantial portion of it, to offer a Managed Service without a
+   separate written commercial license from the copyright holder.
+
+2. DEPLOY ON BEHALF OF ORGANIZATIONS. You may not deploy or operate
+   The Software primarily for the benefit of a corporation, partnership,
+   or other organization rather than for your own personal sovereignty.
+   
+   EXCEPTION: Natural Persons may use The Software in their capacity as
+   employees or contractors, provided their kingdom remains under their
+   own personal cryptographic control and the organization cannot
+   administratively override their Sovereign Operator status.
+
+3. REMOVE OR FALSIFY IDENTITY. You may not strip, replace, or falsify
+   the cryptographic identity artifacts (keys, trust bonds, signed
+   commitments) that identify a Kingdom's Sovereign Operator.
+
+4. TRADEMARK CLAIMS. The name "kingdom," "koad:io," and associated
+   terminology may not be used to endorse or market derivative works
+   without written permission.
+
+---
+
+TRUST BOND INTEGRATION
+
+Trust bonds, as implemented in the Kingdom Framework, represent
+cryptographic consent between Natural Persons. This license does not
+supersede trust bond obligations; it provides the legal layer underlying
+them. A Sovereign Operator who has issued trust bonds to other persons
+remains the Sovereign Operator for purposes of this license.
+
+Receiving a trust bond from another kingdom does not grant that kingdom
+authority over your Kingdom for licensing purposes. Each Kingdom has one
+Sovereign Operator.
+
+---
+
+DERIVATIVE KINGDOMS (FORKS)
+
+You may fork The Software and create derivative works ("derivative
+kingdoms"), provided:
+
+1. The derivative kingdom is operated under this same license or a
+   compatible license that preserves the Natural Person and Managed
+   Service restrictions.
+
+2. The derivative kingdom's documentation clearly identifies it as
+   derived from koad:io and preserves the attribution in section 3.1
+   of the Kingdom Framework.
+
+3. The fork is not used to create a Managed Service.
+
+Commercial licensing for forks that cannot comply with the above terms
+is available from the copyright holder.
+
+---
+
+OUTSKIRTS EXCEPTION
+
+Individual commands, skills, shell scripts, and configuration files
+explicitly marked with the identifier "SPDX-License-Identifier: 0BSD"
+are released under the Zero-Clause BSD License and are not subject to
+the restrictions above. Copy-pasta of these components requires no
+compliance with the Kingdom License. Trust bonds handle consent;
+0BSD handles legality.
+
+---
+
+NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR ITS USE.
+
+---
+
+ATTRIBUTION
+
+This license was drafted for the koad:io sovereign entity framework.
+Its design acknowledges L. Kyle Mitchell (PolyForm, Parity, Prosperity
+licenses), the PolyForm Project, and the Human Only Public License
+(HOPL) as precedents for non-standard license design in the era of
+human-operator sovereignty.
+
+For commercial licensing inquiries: jason@kingofalldata.com

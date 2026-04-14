@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
 
 echo -e "\e[31mWHOA THERE! Slow down!\e[0m"
 echo -e "\e[33mCommitting bulk changes blindly is a terrible idea!\e[0m"

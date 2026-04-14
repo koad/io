@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
 
 # start the runtimer
 start=$(date +%s)

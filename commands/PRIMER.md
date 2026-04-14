@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+
 # PRIMER — `~/.koad-io/commands/`
 
 > The framework command set. Every entity in the kingdom inherits these as last-resort fallbacks; individual entities override by dropping a same-named command in `~/.<entity>/commands/`.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # harness/zsh — launch an entity through a plain zsh shell
 #

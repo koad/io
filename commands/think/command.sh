@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
 # think — raw one-liner for quick local inference via ollama
 #
 # NOTE: Not for entity work. Use OpenClaw (port 18789) for anything identity-aware

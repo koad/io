@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+
 
 > ⚠️ **Please note:** This app is under active development.  
 > It is riddled with bugs. Everything is subject to change.

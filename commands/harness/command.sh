@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # harness — koad:io built-in
 # Launch an entity through a chosen harness / provider / model.

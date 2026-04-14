@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
 
 required_vars=("DB_USER_NAME" "DB_USER_PASS" "DB_HOST" "DB_PORT" "DB_NAME")
 for var in "${required_vars[@]}"; do

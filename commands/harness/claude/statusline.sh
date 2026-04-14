@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
 #
 # statusline — koad:io Claude Code statusline
 #

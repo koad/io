@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
 
 PROMPT="
 Review the currently staged files and craft a git commit message that is meaningful. 

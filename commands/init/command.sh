@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 
 check_entity_folders() {
     local WORKING_DIRECTORY=$1

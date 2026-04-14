@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Function to find the right DATADIR based on the command and its parameters
 
 LOCAL_BUILD=false

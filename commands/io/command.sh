@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 
 # koad-io io — .io container format for sovereign identity capsules
 # Creates and extracts portable identity capsules for entities and humans

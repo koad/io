@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
 # ~/.koad-io/commands/shell/command.sh
 
 # Parse arguments

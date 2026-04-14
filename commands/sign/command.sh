@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # sign — clearsign-style wrapper for keybase saltpack
 #
 # Produces human-readable plaintext intent with saltpack signature attached.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # harness/default — meta-harness: resolve and delegate to the entity's
 # configured default harness.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
 
 # Get the current date and time (down to seconds for log uniqueness)
 CURRENTDATETIME=$(date +"%Y-%m-%d-%H-%M-%S")

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+
 # hooks/
 
 This directory contains framework-level hook defaults. Each file here is a template —
