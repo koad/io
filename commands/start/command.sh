@@ -114,7 +114,7 @@ fi
 # Meteor.absoluteUrl() returns the correct value in all run modes.
 # Without this, dev mode falls back to the passenger/.env default of
 # http://<bind-ip>:<port>/, which breaks GitHub OAuth redirect_uri.
-[[ -n "$KOAD_IO_DOMAIN" ]] && export ROOT_URL=https://$KOAD_IO_DOMAIN/
+[[ -n "$KOAD_IO_DOMAIN" ]] && export ROOT_URL=https://$KOAD_IO_DOMAIN
 
 # Check if the built koad/io application exists
 if [[ -f ./builds/latest/bundle/main.js ]] && [[ "$LOCAL_BUILD" != "true" ]]; then
