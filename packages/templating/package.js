@@ -35,6 +35,8 @@ Package.onUse(function(api) {
     'client/helpers/cursors.js',
     'client/helpers/misc.js',
     'client/helpers/events.js',
+    'client/helpers/outfit.js',
+    'client/helpers/outfit/outfit.css',
 
     'client/layout/templates.html',
     'client/layout/logic.js',
