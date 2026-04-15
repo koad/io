@@ -110,6 +110,12 @@ else
     SCREEN_CMD="screen -dmS"
 fi
 
+# If KOAD_IO_DOMAIN is set, fix ROOT_URL to the canonical HTTPS domain so
+# Meteor.absoluteUrl() returns the correct value in all run modes.
+# Without this, dev mode falls back to the passenger/.env default of
+# http://<bind-ip>:<port>/, which breaks GitHub OAuth redirect_uri.
+[[ -n "$KOAD_IO_DOMAIN" ]] && export ROOT_URL=https://$KOAD_IO_DOMAIN/
+
 # Check if the built koad/io application exists
 if [[ -f ./builds/latest/bundle/main.js ]] && [[ "$LOCAL_BUILD" != "true" ]]; then
 
@@ -118,7 +124,6 @@ if [[ -f ./builds/latest/bundle/main.js ]] && [[ "$LOCAL_BUILD" != "true" ]]; th
 
     # Built version exists: set environment variables
     export METEOR_SETTINGS=$(cat $SETTINGS_FILE)
-    export ROOT_URL=https://$KOAD_IO_DOMAIN/
 
     # Start the service
     echo "Starting service $KOAD_IO_DOMAIN"
