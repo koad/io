@@ -36,12 +36,16 @@ Package.onUse(function (api) {
   api.addFiles('server/providers/xai.js', 'server');
   api.addFiles('server/providers/index.js', 'server');
 
+  // OG / oembed injector (juno#90)
+  api.addFiles('server/og-injector.js', 'server');
+
   // Main harness (mounts routes on WebApp)
   api.addFiles('server/harness.js', 'server');
 
   api.export('KoadHarness', 'server');
-  // Tests reach into the entity loader's pure functions via this global.
+  // Tests reach into pure functions via these globals.
   api.export('KoadHarnessEntityLoader', 'server', { testOnly: true });
+  api.export('KoadHarnessOgInjector', 'server', { testOnly: true });
 });
 
 Package.onTest(function (api) {
@@ -50,4 +54,5 @@ Package.onTest(function (api) {
   api.use('tinytest');
   api.use('koad:io-harness');
   api.addFiles('test/entity-loader-test.js', 'server');
+  api.addFiles('test/og-injector-test.js', 'server');
 });

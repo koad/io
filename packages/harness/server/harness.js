@@ -404,6 +404,10 @@ KoadHarness = {
       const instance = new HarnessInstance(config);
       this.instances.push(instance);
       console.log(`[harness] Registered: ${instance.prefix} → entities: [${config.entities.join(', ')}] provider: ${config.provider.default}`);
+      // juno#90: install per-host OG/oembed meta-tag injector if configured.
+      if (typeof KoadHarnessOgInjector !== 'undefined') {
+        KoadHarnessOgInjector.install(instance);
+      }
     }
 
     // Use rawConnectHandlers for SSE (bypasses Meteor's body parser)
