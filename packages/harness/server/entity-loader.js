@@ -11,6 +11,11 @@ function normalizeOutfit(raw) {
   if (raw.greeting) outfit.greeting = raw.greeting;
   if (raw.personality) outfit.personality = raw.personality;
   if (raw.motion) outfit.motion = raw.motion;
+  // VESTA-SPEC-099: LOD-3 visual (2D assets) and LOD-4 spatial (3D mesh + pipeline)
+  if (raw.visual) outfit.visual = raw.visual;
+  if (raw.spatial) outfit.spatial = raw.spatial;
+  // Legacy Level-4 `model` placeholder (pre SPEC-099). Preserved for back-compat
+  // reads; new entities should use `spatial` per SPEC-099 §3.
   if (raw.model) outfit.model = raw.model;
   return outfit;
 }
@@ -26,9 +31,16 @@ function filterOutfitByLevel(outfit, level) {
     if (outfit.personality) filtered.personality = outfit.personality;
   }
   if (level >= 3) {
+    // SPEC-063 Level 3 (motion) and SPEC-099 Level 3 (visual) coexist in the
+    // same LOD tier — independent keys, either may be present.
     if (outfit.motion) filtered.motion = outfit.motion;
+    if (outfit.visual) filtered.visual = outfit.visual;
   }
   if (level >= 4) {
+    // VESTA-SPEC-099 §3: LOD-4 is `spatial` (3D mesh + pipeline metadata).
+    // SPEC-063's former `model` placeholder is retired; we still read it
+    // through for any unmigrated entity so the consumer sees it at level 4.
+    if (outfit.spatial) filtered.spatial = outfit.spatial;
     if (outfit.model) filtered.model = outfit.model;
   }
   return filtered;
@@ -92,7 +104,12 @@ async function loadEntity(handle, baseDir) {
   return data;
 }
 
-function getClientInfo(entity, level) {
+function getClientInfo(entity, level, prefix) {
+  // prefix is the harness mount prefix (e.g. "/harness/jesus"). It must be
+  // supplied by the caller so the avatar URL resolves under whatever namespace
+  // the harness is deployed at. Falls back to "/harness" only for callers that
+  // predate the prefix argument — new callers should always pass it.
+  const mount = (prefix || '/harness').replace(/\/+$/, '');
   return {
     handle: entity.handle,
     name: entity.name,
@@ -100,7 +117,7 @@ function getClientInfo(entity, level) {
     outfit: filterOutfitByLevel(entity.outfit, level),
     buttons: entity.buttons || [],
     landing: entity.landingMd || null,
-    avatarUrl: entity.avatarPath ? `/harness/entities/${entity.handle}/avatar` : null,
+    avatarUrl: entity.avatarPath ? `${mount}/entities/${entity.handle}/avatar` : null,
   };
 }
 
@@ -136,4 +153,4 @@ async function getEntity(handle, baseDir, ttl) {
   return data;
 }
 
-KoadHarnessEntityLoader = { loadAll, getEntity, getClientInfo, filterOutfitByLevel, clearCache };
+KoadHarnessEntityLoader = { loadAll, getEntity, getClientInfo, filterOutfitByLevel, normalizeOutfit, clearCache };

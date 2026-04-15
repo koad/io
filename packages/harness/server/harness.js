@@ -131,7 +131,7 @@ class HarnessInstance {
     const entities = await KoadHarnessEntityLoader.loadAll(
       this.config.entities, this.config.entityBaseDir, this.config.cacheTTL || 300000
     );
-    const list = Object.values(entities).map(e => KoadHarnessEntityLoader.getClientInfo(e, level));
+    const list = Object.values(entities).map(e => KoadHarnessEntityLoader.getClientInfo(e, level, this.prefix));
     this.json(res, 200, list);
   }
 
@@ -144,7 +144,7 @@ class HarnessInstance {
     );
     if (!entity) return this.json(res, 404, { error: 'Not found' });
     const level = query && query.level !== undefined ? parseInt(query.level, 10) : undefined;
-    this.json(res, 200, KoadHarnessEntityLoader.getClientInfo(entity, level));
+    this.json(res, 200, KoadHarnessEntityLoader.getClientInfo(entity, level, this.prefix));
   }
 
   async handleAvatar(req, res, handle) {

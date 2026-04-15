@@ -40,4 +40,14 @@ Package.onUse(function (api) {
   api.addFiles('server/harness.js', 'server');
 
   api.export('KoadHarness', 'server');
+  // Tests reach into the entity loader's pure functions via this global.
+  api.export('KoadHarnessEntityLoader', 'server', { testOnly: true });
+});
+
+Package.onTest(function (api) {
+  api.versionsFrom(['3.0', '3.3']);
+  api.use('ecmascript');
+  api.use('tinytest');
+  api.use('koad:io-harness');
+  api.addFiles('test/entity-loader-test.js', 'server');
 });
