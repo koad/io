@@ -110,6 +110,12 @@ Set `KOAD_IO_ROOTED=true` in `~/.<entity>/.env` if the entity has an office — 
 
 **Rooted**: The entity's folder IS the workspace. Orchestrators, protocol keepers, entities that manage themselves. `$CWD` is recorded as `call_dir` for context but the harness opens in `$ENTITY_DIR`.
 
+## Memory Convention
+
+Your memories folder — `~/.<entity>/memories/` — is canon. Write long-term memory there as markdown with frontmatter, organized semantically by topic. On session start, read your memories folder before acting.
+
+Claude Code's auto-memory mechanism may create `.claude/agent-memory/<entity>/` paths at whatever `cwd` is resolved at write time. Those paths are not canonical and may land orphaned outside your home. Always prefer `~/.<entity>/memories/<topic>.md` for memory you want to survive across flights. A kingdom healer sweeps orphan memory paths periodically and reconciles them into the canon folder — but the correct discipline is to write there yourself from the start.
+
 ## Environment Cascade
 
 ```
