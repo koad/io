@@ -43,9 +43,12 @@ Package.onUse(function (api) {
   api.addFiles('server/harness.js', 'server');
 
   api.export('KoadHarness', 'server');
-  // Tests reach into pure functions via these globals.
+  // OG injector is a public API in phase 2: apps call
+  // `KoadHarnessOgInjector.registerPattern({ path, resolve, toOg })` at boot
+  // to wire `/parties/:id`, `/posts/:slug`, etc. into the OG pipeline.
+  api.export('KoadHarnessOgInjector', 'server');
+  // Tests reach into the entity loader's pure functions via this global.
   api.export('KoadHarnessEntityLoader', 'server', { testOnly: true });
-  api.export('KoadHarnessOgInjector', 'server', { testOnly: true });
 });
 
 Package.onTest(function (api) {
