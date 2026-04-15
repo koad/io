@@ -140,7 +140,7 @@ koad (human sovereign)
 
 Bonds are GPG-clearsigned, dual-filed (authorizer + recipient repos), and auditable. The recipient never self-files their incoming bond.
 
-Bond types: `authorized-agent`, `authorized-builder`, `peer`, `family`, `friend`, `employee`, `member`, `vendor`, `customer`.
+Bond types: `authorized-agent`, `authorized-builder`, `authorized-specialist`, `peer`, `family`, `friend`, `employee`, `member`, `vendor`, `customer`.
 
 ## Infrastructure
 
