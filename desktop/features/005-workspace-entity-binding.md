@@ -114,9 +114,9 @@ Store workspace-entity bindings:
 - Widget can show current workspace context
 
 ## Status
-- [ ] Not started
-- [ ] In progress
-- [ ] Complete
+- [x] Not started
+- [x] In progress — Phase 1 shipped: xdotool polling, workspace-entities.json mapping, entity discovery, tray tooltip, IPC channels (vulcan, 2026-04-15)
+- [ ] Complete — Phase 2 follow-ons filed as koad/vulcan issues
 
 ## Related Features
 - Feature: 002-name-workspace-shortcut.md - How workspaces get named
