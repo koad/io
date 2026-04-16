@@ -61,16 +61,22 @@ Meteor.startup(async () => {
   if (!mode) return;
 
   if (mode === 'true') {
-    await koad.workers.start({
-      service: 'index-tickler',
-      type: 'indexer',
-      interval: 2,
-      runImmediately: true,
-      task: async () => {
-        scanAll();
-        console.log(`[TICKLER] Scan complete: ${TicklerIndex.find().count()} entities with tickles`);
-      }
-    });
+    if (typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
+      await koad.workers.start({
+        service: 'index-tickler',
+        type: 'indexer',
+        interval: 2,
+        runImmediately: true,
+        task: async () => {
+          scanAll();
+          console.log(`[TICKLER] Scan complete: ${TicklerIndex.find().count()} entities with tickles`);
+        }
+      });
+    } else {
+      console.warn('[TICKLER] koad.workers unavailable (koad:io-worker-processes not resolved) — falling back to one-shot scan');
+      scanAll();
+      console.log(`[TICKLER] Initial scan complete: ${TicklerIndex.find().count()} entities with tickles`);
+    }
   } else {
     // One-shot scan only
     scanAll();

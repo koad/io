@@ -46,16 +46,22 @@ Meteor.startup(async () => {
   if (!mode) return;
 
   if (mode === 'true') {
-    await koad.workers.start({
-      service: 'index-keys',
-      type: 'indexer',
-      interval: 2,
-      runImmediately: true,
-      task: async () => {
-        scanAll();
-        console.log(`[KEYS] Scan complete: ${KeysIndex.find().count()} entities with keys`);
-      }
-    });
+    if (typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
+      await koad.workers.start({
+        service: 'index-keys',
+        type: 'indexer',
+        interval: 2,
+        runImmediately: true,
+        task: async () => {
+          scanAll();
+          console.log(`[KEYS] Scan complete: ${KeysIndex.find().count()} entities with keys`);
+        }
+      });
+    } else {
+      console.warn('[KEYS] koad.workers unavailable (koad:io-worker-processes not resolved) — falling back to one-shot scan');
+      scanAll();
+      console.log(`[KEYS] Initial scan complete: ${KeysIndex.find().count()} entities with keys`);
+    }
   } else {
     // One-shot scan only
     scanAll();
