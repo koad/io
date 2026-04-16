@@ -38,3 +38,8 @@
 !outfit/**
 !generate
 !generate/**
+!entity
+!entity/**
+!party
+!upstart
+!upload
