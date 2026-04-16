@@ -1,86 +1,36 @@
 // workspace-entity-selector.js
 //
-// Per-workspace entity selection for the koad:io desktop.
+// Thin X11 workspace reporter for the koad:io desktop.
 //
-// Polls the current X11 workspace via `xdotool get_desktop`, looks up the
-// entity assignment in config/workspace-entities.json (per-device), and
-// maintains an "active entity" in the main-process globalThis.Application
-// state. Emits IPC events so renderer windows can reflect the change.
+// Polls the current X11 workspace via `xdotool get_desktop` and reports the
+// workspace number to the daemon via DDP (workspace.setState). The daemon owns
+// all state: the workspace→entity mapping, entity discovery, and the reactive
+// "which entity is active right now" — published via the 'current' DDP publication.
+//
+// This module holds NO local state beyond the polling timer and the last-seen
+// workspace number (used only to skip redundant DDP calls).
 //
 // Framework infrastructure — uses KOAD_IO_* env vars only, no entity vars.
 
 'use strict';
 
-const { execSync, spawnSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const { spawnSync } = require('child_process');
 const { logger } = require('../library/logger.js');
 
-// ── Config ───────────────────────────────────────────────────────────────────
-
-const CONFIG_PATH = path.join(
-  process.env.HOME || os.homedir(),
-  '.koad-io', 'desktop', 'config', 'workspace-entities.json'
-);
-
-// How often (ms) to poll for workspace changes. 500 ms is fast enough to
-// feel responsive without hammering xdotool.
+// How often (ms) to poll for workspace changes.
 const POLL_INTERVAL_MS = 500;
 
 // ── Internal state ───────────────────────────────────────────────────────────
 
 let _pollingTimer = null;
 let _lastWorkspace = null;
-let _changeListeners = []; // callbacks registered by other modules
+let _onChangeCbs = []; // optional local listeners (e.g. tray tooltip update)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Read the workspace→entity mapping from disk. Re-reads each call so the
- * operator can hot-edit the file without restarting the app.
- *
- * Returns { "0": "juno", "1": "vulcan", "default": "juno" } shape.
- */
-function loadMapping() {
-  try {
-    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    logger.warn(`workspace-entity-selector: cannot read ${CONFIG_PATH}: ${err.message}`);
-    return { default: 'juno' };
-  }
-}
-
-/**
- * Scan ~/.<entity>/ENTITY.md to discover which entities the operator has on
- * disk. Returns an array of lower-case entity names.
- */
-function discoverEntities() {
-  const home = process.env.HOME || os.homedir();
-  const found = [];
-  try {
-    const entries = fs.readdirSync(home, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const name = entry.name;
-      // Entity dirs are dotfiles: .juno, .vulcan, .muse, etc.
-      if (!name.startsWith('.') || name.length < 2) continue;
-      const entityName = name.slice(1); // strip leading dot
-      const markerPath = path.join(home, name, 'ENTITY.md');
-      if (fs.existsSync(markerPath)) {
-        found.push(entityName);
-      }
-    }
-  } catch (err) {
-    logger.warn(`workspace-entity-selector: entity discovery failed: ${err.message}`);
-  }
-  return found;
-}
-
-/**
  * Get the current X11 workspace number as a string.
- * Returns null if xdotool is not available or the call fails.
+ * Returns null if xdotool is unavailable or the call fails.
  */
 function getCurrentWorkspace() {
   try {
@@ -92,110 +42,69 @@ function getCurrentWorkspace() {
   }
 }
 
-/**
- * Resolve the entity name for a given workspace number string.
- * Falls back to `default`, then to `'juno'`.
- */
-function resolveEntity(workspaceStr, mapping) {
-  const entityName = mapping[workspaceStr] || mapping['default'] || 'juno';
-  return entityName;
-}
-
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Return the currently active entity name (string).
- * Guaranteed to always return something — worst case `'juno'`.
+ * Register a callback that fires whenever the workspace changes.
+ * Callback receives (workspaceNumber) as a string.
+ * Useful for tray tooltip updates — the entity name must be fetched from the
+ * daemon, not resolved locally.
  */
-function getActiveEntity() {
-  return (globalThis.Application && globalThis.Application.activeEntity) || 'juno';
+function onWorkspaceChange(callback) {
+  _onChangeCbs.push(callback);
 }
 
 /**
- * Return the list of discovered entities.
+ * Single poll tick. Reads current workspace; if changed, calls
+ * `workspace.setState` on the daemon via the daemonCall helper.
  */
-function getAvailableEntities() {
-  return (globalThis.Application && globalThis.Application.availableEntities) || [];
-}
-
-/**
- * Register a callback that fires whenever the active entity changes.
- * Callback receives (entityName, workspaceNumber) both as strings.
- */
-function onEntityChange(callback) {
-  _changeListeners.push(callback);
-}
-
-/**
- * Apply an entity change: update Application state, fire listeners.
- * Idempotent — skips the update if entity is already the same.
- */
-function applyEntityChange(entityName, workspaceStr) {
-  const previous = getActiveEntity();
-  if (previous === entityName) return; // no change
-
-  globalThis.Application.activeEntity = entityName;
-  globalThis.Application.activeWorkspace = workspaceStr;
-
-  logger.info(`workspace-entity-selector: workspace ${workspaceStr} → entity "${entityName}" (was "${previous}")`);
-
-  for (const cb of _changeListeners) {
-    try { cb(entityName, workspaceStr); } catch (e) {
-      logger.warn(`workspace-entity-selector: listener error: ${e.message}`);
-    }
-  }
-}
-
-/**
- * Single poll tick. Reads current workspace, resolves entity, applies change
- * if needed.
- */
-function tick() {
+function tick(daemonCall) {
   const workspaceStr = getCurrentWorkspace();
 
-  // If xdotool is unavailable (non-X11 env), bail silently after first warning.
   if (workspaceStr === null) {
     if (_lastWorkspace !== 'unavailable') {
-      logger.warn('workspace-entity-selector: xdotool get_desktop unavailable — workspace tracking disabled');
+      logger.warn('workspace-entity-selector: xdotool unavailable — workspace reporting disabled');
       _lastWorkspace = 'unavailable';
     }
     return;
   }
 
-  if (workspaceStr === _lastWorkspace) return; // workspace unchanged
+  if (workspaceStr === _lastWorkspace) return; // no change
   _lastWorkspace = workspaceStr;
 
-  const mapping = loadMapping();
-  const entityName = resolveEntity(workspaceStr, mapping);
-  applyEntityChange(entityName, workspaceStr);
+  logger.info(`workspace-entity-selector: workspace changed → ${workspaceStr}`);
+
+  // Report to daemon. Daemon owns the mapping and updates the Passengers collection.
+  daemonCall('workspace.setState', workspaceStr)
+    .then((result) => {
+      if (result && result.handle) {
+        logger.info(`workspace-entity-selector: daemon confirmed ws${workspaceStr} → ${result.handle}`);
+        for (const cb of _onChangeCbs) {
+          try { cb(workspaceStr, result.handle); } catch (e) {
+            logger.warn(`workspace-entity-selector: listener error: ${e.message}`);
+          }
+        }
+      }
+    })
+    .catch((err) => {
+      logger.warn(`workspace-entity-selector: workspace.setState failed: ${err && err.message || err}`);
+    });
 }
 
 /**
- * Start polling. Wires into globalThis.Application, discovers entities,
- * runs an immediate tick, then starts the interval.
- *
- * Safe to call multiple times — subsequent calls are no-ops.
+ * Start polling. Requires a `daemonCall` function from tray.js (the live DDP
+ * connection proxy). Safe to call multiple times — subsequent calls are no-ops.
  */
-function startWorkspaceEntitySelector() {
-  if (_pollingTimer !== null) return; // already running
+function startWorkspaceEntitySelector(daemonCall) {
+  if (_pollingTimer !== null) return;
 
-  logger.info('workspace-entity-selector: starting');
-
-  // Seed Application state
-  if (!globalThis.Application) globalThis.Application = {};
-  if (!globalThis.Application.activeEntity) globalThis.Application.activeEntity = 'juno';
-  if (!globalThis.Application.activeWorkspace) globalThis.Application.activeWorkspace = '0';
-
-  // Discover entities on disk once at startup
-  const available = discoverEntities();
-  globalThis.Application.availableEntities = available;
-  logger.info(`workspace-entity-selector: discovered entities: [${available.join(', ')}]`);
+  logger.info('workspace-entity-selector: starting (thin reporter — state lives in daemon)');
 
   // Immediate first tick
-  tick();
+  tick(daemonCall);
 
   // Then poll
-  _pollingTimer = setInterval(tick, POLL_INTERVAL_MS);
+  _pollingTimer = setInterval(() => tick(daemonCall), POLL_INTERVAL_MS);
 
   logger.info('workspace-entity-selector: polling active');
 }
@@ -214,12 +123,7 @@ function stopWorkspaceEntitySelector() {
 module.exports = {
   startWorkspaceEntitySelector,
   stopWorkspaceEntitySelector,
-  getActiveEntity,
-  getAvailableEntities,
-  onEntityChange,
+  onWorkspaceChange,
   // exposed for testing
-  discoverEntities,
-  resolveEntity,
-  loadMapping,
   getCurrentWorkspace,
 };

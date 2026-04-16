@@ -204,7 +204,15 @@ const systemTray = async () => {
   logger.info('system tray is ready');
 };
 
+/**
+ * Proxy to call any Meteor method on the daemon via the shared DDP connection.
+ * Returns a Promise. Resolves when the daemon acknowledges the call.
+ * Safe to call before connection is established — simpleDDP queues calls.
+ */
+const daemonCall = (method, ...args) => Daemon.call(method, ...args);
+
 module.exports = {
   systemTray,
   entitySelect,
+  daemonCall,
 };

@@ -8,13 +8,13 @@ const electron = require('electron');
 const path = require("path");
 const env = require("env");
 
-const { systemTray } = require('./system/tray.js');
+const { systemTray, daemonCall } = require('./system/tray.js');
 const { setupIPC, broadcastToRenderers, IPC_CHANNELS } = require('./system/inter-process-communication');
 const { registerShortcuts, unregisterShortcuts } = require('./system/keyboard-shortcuts');
 const {
   startWorkspaceEntitySelector,
   stopWorkspaceEntitySelector,
-  onEntityChange,
+  onWorkspaceChange,
 } = require('./system/workspace-entity-selector');
 const { logger, chuck, clearConsole } = require("./library/logger");
 const { SECONDS, MINUTES, HOURS, DAYS } = require("./library/helpers");
@@ -80,15 +80,15 @@ app.on("ready", () => {
   setupIPC(mainWindow);
 
   // Start per-workspace entity selection.
-  // When workspace changes, push the new entity name to all renderer windows
-  // and update the tray tooltip.
-  startWorkspaceEntitySelector();
-  onEntityChange((entityName, workspaceStr) => {
-    // Push to renderers
-    broadcastToRenderers(IPC_CHANNELS.ACTIVE_ENTITY_CHANGED, { entity: entityName, workspace: workspaceStr });
-    // Update tray tooltip — Application.tray is set by systemTray()
-    if (Application.tray) {
-      Application.tray.setToolTip(`koad:io — ${entityName}`);
+  // The selector polls xdotool and reports the workspace number to the daemon
+  // via DDP. The daemon owns the mapping and updates the Passengers collection
+  // reactively. The widget reads the active entity via DDP subscription — no
+  // local state held here.
+  startWorkspaceEntitySelector(daemonCall);
+  onWorkspaceChange((workspaceStr, entityHandle) => {
+    // Update tray tooltip from daemon-confirmed entity handle.
+    if (Application.tray && entityHandle) {
+      Application.tray.setToolTip(`koad:io — ${entityHandle}`);
     }
   });
 

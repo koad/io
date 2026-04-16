@@ -10,10 +10,10 @@ const yOffset = 1438; // Adjust vertical position based on default height
 // Define your IPC channels here
 const IPC_CHANNELS = {
   EXAMPLE_CHANNEL: 'example-channel',
-  // Workspace entity selection
-  ACTIVE_ENTITY_CHANGED: 'active-entity-changed',   // main → renderer push
-  GET_ACTIVE_ENTITY: 'get-active-entity',           // renderer request
-  GET_AVAILABLE_ENTITIES: 'get-available-entities', // renderer request
+  // Workspace entity selection — renderer can query the daemon directly via DDP.
+  // ACTIVE_ENTITY_CHANGED kept as a named constant for any legacy renderer code
+  // that may still listen; the daemon's 'current' publication is the authoritative source.
+  ACTIVE_ENTITY_CHANGED: 'active-entity-changed',   // kept for compat (no longer pushed from main)
 };
 
 // Broadcast a message to all renderer windows.
@@ -90,16 +90,9 @@ const setupIPC = (mainWindow) => {
     mainWindow.setPosition(xOffset, yOffset - 227);
   });
 
-  // Workspace entity selection — renderer can query current state synchronously
-  ipcMain.handle(IPC_CHANNELS.GET_ACTIVE_ENTITY, () => {
-    const { getActiveEntity } = require('./workspace-entity-selector.js');
-    return { entity: getActiveEntity(), workspace: globalThis.Application && globalThis.Application.activeWorkspace };
-  });
-
-  ipcMain.handle(IPC_CHANNELS.GET_AVAILABLE_ENTITIES, () => {
-    const { getAvailableEntities } = require('./workspace-entity-selector.js');
-    return getAvailableEntities();
-  });
+  // Active entity state is owned by the daemon — renderers query it via DDP
+  // subscription ('current' publication on the Passengers collection).
+  // No IPC handles needed here for entity state.
 
 };
 

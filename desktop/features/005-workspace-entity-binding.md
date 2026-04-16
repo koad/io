@@ -115,7 +115,7 @@ Store workspace-entity bindings:
 
 ## Status
 - [x] Not started
-- [x] In progress — Phase 1 shipped: xdotool polling, workspace-entities.json mapping, entity discovery, tray tooltip, IPC channels (vulcan, 2026-04-15)
+- [x] In progress — Phase 1 (desktop-side state, refactored): desktop polls xdotool, reports workspace number to daemon via DDP (`workspace.setState`). Daemon owns mapping, entity discovery, and Passengers `selected` state. Config at `~/.koad-io/daemon/config/workspace-entities.json`. Widget subscribes to daemon's `current` publication reactively. (vulcan, 2026-04-16)
 - [ ] Complete — Phase 2 follow-ons filed as koad/vulcan issues
 
 ## Related Features
