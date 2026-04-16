@@ -111,18 +111,51 @@ fi
 # Positional args (start, local, dev, etc.) are used for directory-based command
 # resolution. Flag args (--local, --attach, --dry-run, etc.) are NOT directory
 # names — they pass through to the final command unchanged.
+#
+# Fix A: preserve --flag value pairs. When a --flag token is followed by a
+# token that does not start with --, absorb the next token as the flag's value.
+# This keeps --entity juno and --note "some text" paired together rather than
+# splitting the value into positionals.
+#
+# Fix B: _flag_args is kept as a bash array (not flattened to a string) so
+# the exec at the bottom can expand it with "${_flag_args[@]}" — preserving
+# whitespace inside flag values through to the command's argv.
+#
+# Backwards compat: KOAD_IO_FLAGS (word-split string) is still exported for
+# commands that read it directly (start/stop/restart use it for boolean flags
+# like --local and --attach). Boolean flags have no following value token so
+# Fix A does not affect them.
 _positional_args=()
 _flag_args=()
-for _arg in "$@"; do
-  if [[ "$_arg" == --* ]]; then
+_i=1
+while [[ $_i -le $# ]]; do
+  _arg="${!_i}"
+  if [[ "$_arg" == --*=* ]]; then
+    # --key=value form: already self-contained, no lookahead needed
     _flag_args+=("$_arg")
+  elif [[ "$_arg" == --* ]]; then
+    _next_i=$((_i + 1))
+    _next="${!_next_i:-}"
+    if [[ -n "$_next" && "$_next" != --* ]]; then
+      # Absorb the next token as this flag's value
+      _flag_args+=("$_arg" "$_next")
+      _i=$((_i + 1))
+    else
+      # Boolean flag (no value follows, or next token is another flag)
+      _flag_args+=("$_arg")
+    fi
   else
     _positional_args+=("$_arg")
   fi
+  _i=$((_i + 1))
 done
 set -- "${_positional_args[@]}"
 export KOAD_IO_FLAGS="${_flag_args[*]}"
-unset _positional_args _flag_args _arg
+# _flag_args array is kept alive (not unset here) so the exec at the bottom
+# of this script can expand it with "${_flag_args[@]}" and preserve whitespace
+# in flag values. KOAD_IO_FLAGS (word-split string) is exported for backwards
+# compat with commands that read it directly (e.g. start/stop for boolean flags).
+unset _positional_args _arg _i _next_i _next
 
 [[ $9 ]] && echo 'You have reached the limits here, sorry -- too many arguments.' && exit 68
 
@@ -275,5 +308,10 @@ if [ "$DRY_RUN" = true ]; then
 	echo "Dry run, stopped..."
 else
 	# All is well, lets go!
-	exec $EXEC_FILE $EXEC_ARGS $KOAD_IO_FLAGS
+	# EXEC_ARGS is a space-separated string built from positional $N vars — word-split
+	# intentionally (these are sub-command names, never contain spaces).
+	# _flag_args is the bash array from the separation loop above; quoted expansion
+	# preserves whitespace inside flag values (Fix B).
+	# shellcheck disable=SC2086
+	exec $EXEC_FILE $EXEC_ARGS "${_flag_args[@]}"
 fi
