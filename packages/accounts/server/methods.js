@@ -166,23 +166,12 @@ Meteor.methods({
 				throw new Error('User has no username');
 			}
 
-			// Check if generateLoginToken function exists
-			if (!koad || !koad.generateLoginToken || typeof koad.generateLoginToken !== 'function') {
-				throw new Error('koad.generateLoginToken function not available');
-			}
-
-			// Generate login token
-			const loginToken = await koad.generateLoginToken(user.username);
-			
-			if (!loginToken || !loginToken.token) {
-				throw new Error('Token generation returned invalid result');
-			}
-
-			if (DEBUG) {
-				console.log(`[enroll.device] Generated token for user ${this.userId}`);
-			}
-
-			return loginToken.token;
+			// NOTE: koad.generateLoginToken is not yet implemented anywhere in the packages tree.
+			// Device enrollment via this path is non-functional until it is defined.
+			// Use Accounts._generateStampedLoginToken() + Accounts._insertLoginToken() directly
+			// when implementing — see authorize.session for the reference pattern.
+			// TODO: implement koad.generateLoginToken or replace this method body.
+			throw new Error('koad.generateLoginToken not yet implemented — device enrollment is not functional');
 
 		} catch (error) {
 			console.error(`[enroll.device] Error for user ${this.userId}:`, error.message);
@@ -249,7 +238,7 @@ Meteor.methods({
 
 		// Generate login token for this user
 		const stampedLoginToken = Accounts._generateStampedLoginToken();
-		await Accounts._insertLoginTokenAsync(this.userId, stampedLoginToken);
+		await Accounts._insertLoginToken(this.userId, stampedLoginToken);
 
 		if (DEBUG) {
 			console.log(`[authorize.session] Generated login token for user ${this.userId}`);

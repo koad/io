@@ -178,7 +178,7 @@ if (!config.enabled) {
 	 */
 	DDPRateLimiter.addRule({
 		type: 'method',
-		name: 'consume.authorization',
+		name: 'gather.consumable',
 		connectionId() { return true; }
 	}, 30, 10 * 60 * 1000); // 10 minutes
 

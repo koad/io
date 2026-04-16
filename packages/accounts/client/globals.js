@@ -74,7 +74,7 @@ const manageUserAuthenticationState = (id, state) => {
 	if (state.consumable) {
 		if (DEBUG) console.log('[auth-state] Consumable token received:', state.consumable);
 
-		Meteor.call('consume.authorization', state.consumable, (error, token) => {
+		Meteor.call('gather.consumable', state.consumable, (error, token) => {
 			if (error) {
 				console.error('[auth-state] Failed to consume token:', error.reason);
 				return;

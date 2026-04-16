@@ -73,7 +73,7 @@ Meteor.methods({
 
 		// Generate login token for the invitation
 		const stampedLoginToken = Accounts._generateStampedLoginToken();
-		await Accounts._insertLoginTokenAsync(currentUser, stampedLoginToken);
+		await Accounts._insertLoginToken(currentUser, stampedLoginToken);
 
 		// Find the token we just inserted
 		const hashedToken = Accounts._hashLoginToken(stampedLoginToken.token);
@@ -106,7 +106,7 @@ Meteor.methods({
 			creator: currentUser,
 			creatorUsername: user.username,
 			status: 'pending',
-			loginToken: stampedLoginToken.token,
+			loginToken: Accounts._hashLoginToken(stampedLoginToken.token), // store hashed, never raw
 			tokenId: tokenId,
 			recipientName: recipientName || null,
 			recipientEmail: recipientEmail || null,
@@ -244,9 +244,9 @@ Meteor.methods({
 			throw new Meteor.Error('invalid-user', 'User not found');
 		}
 
-		// Find the invitation by token
+		// Find the invitation by hashed token (we store hashed, never raw)
 		const invitation = await ApplicationInvitations.findOneAsync({
-			loginToken: token,
+			loginToken: Accounts._hashLoginToken(token),
 			status: 'pending'
 		});
 
@@ -296,8 +296,19 @@ Accounts.onLogin(async (loginInfo) => {
 		);
 
 		if (matchingToken?.type === 'invitation') {
-			// This is an invitation token, mark it as redeemed
-			await Meteor.call('invitation.redeem', resumeToken);
+			// Directly mark the invitation as redeemed — no reason to go through the method layer from a server hook
+			const hashedResumeToken = Accounts._hashLoginToken(resumeToken);
+			await ApplicationInvitations.updateAsync(
+				{ loginToken: hashedResumeToken, status: 'pending' },
+				{
+					$set: {
+						status: 'redeemed',
+						redeemedAt: new Date(),
+						redeemedBy: user._id,
+						redeemedByUsername: user.username
+					}
+				}
+			);
 		}
 	} catch (error) {
 		console.error('[onLogin] Error processing invitation redemption:', error);

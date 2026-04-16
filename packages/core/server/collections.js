@@ -115,4 +115,17 @@ if(Package["matb33:collection-hooks"] && Meteor.users) {
 	});
 };
 
+// TTL index: unconsumed consumables expire after 1 hour
+// Application logic enforces per-document TTL; this is the MongoDB-level safety net.
+Meteor.startup(async () => {
+	try {
+		await ApplicationConsumables.createIndexAsync(
+			{ when: 1 },
+			{ expireAfterSeconds: 3600, name: 'consumables_ttl' }
+		);
+	} catch (error) {
+		log.error('[collections] Failed to create ApplicationConsumables TTL index:', error.message);
+	}
+});
+
 log.success('loaded koad-io-core/collections');

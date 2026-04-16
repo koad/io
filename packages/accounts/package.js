@@ -43,7 +43,6 @@ Package.onUse(function(api) {
 Package.onTest(function(api) {
 });
 
-Npm.depends({
-	"node-fetch": "2.6.7",
-	"body-parser": "1.20.2"
-});
+// node-fetch and body-parser were removed — neither is imported anywhere in the accounts package.
+// Meteor 3.x (Node 18) has native fetch. If fetch is needed, use it directly.
+
