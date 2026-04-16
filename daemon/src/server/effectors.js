@@ -12,6 +12,12 @@ Meteor.methods({
   'harness.launch'(entityHandle) {
     check(entityHandle, String);
 
+    // Sanitize: only lowercase alphanumeric and hyphens are valid entity handles.
+    // Reject anything else to prevent shell injection via execSync interpolation.
+    if (!/^[a-z0-9-]+$/.test(entityHandle)) {
+      throw new Meteor.Error('invalid-handle', 'entityHandle must match [a-z0-9-]');
+    }
+
     const screenName = `harness-${entityHandle}`;
 
     // Check if a screen with this name is already running
