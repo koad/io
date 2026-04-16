@@ -18,7 +18,8 @@ koad  (creator, root authority)
         ├── Sibyl  (peer)
         ├── Argus  (peer)
         ├── Salus  (peer)
-        └── Janus  (peer)
+        ├── Janus  (peer)
+        └── Cacula  (peer, games master)
 ```
 
 **Trust Bonds (as of 2026-04-02):**
@@ -36,8 +37,10 @@ koad  (creator, root authority)
 | Juno → Argus | ACTIVE | peer |
 | Juno → Salus | ACTIVE | peer |
 | Juno → Janus | ACTIVE | peer |
+| Juno → Cacula | ACTIVE | peer (games master) |
 
 All 8 depth-1 entities passed bootcamp (23/23 calls via big-pickle) on 2026-04-01.
+Cacula gestated 2026-04-09, keys populated 2026-04-16.
 
 Authority flows downward. koad has root authority over everything. Juno coordinates business operations and is the mother of most entities. Vesta owns the protocol — her specs are the canonical reference. Entities downstream of Vesta (Doc, Vulcan, others) build on what Vesta defines.
 
@@ -84,6 +87,7 @@ The following 8 entities completed bootcamp on 2026-04-01 (23/23 calls passed vi
 | Argus | diagnostician | ACTIVE |
 | Salus | healer | ACTIVE |
 | Janus | stream-watcher | ACTIVE |
+| Cacula | games-master | ACTIVE (gestated 2026-04-09) |
 
 Their roles and scopes are being defined. Coordination happens through GitHub Issues tagged with the entity name.
 
