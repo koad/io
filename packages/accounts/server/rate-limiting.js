@@ -155,6 +155,34 @@ if (!config.enabled) {
 	}, 20, 60 * 60 * 1000); // 1 hour
 
 	// =========================================================================
+	// OAuth Methods Rate Limiting
+	// =========================================================================
+
+	/**
+	 * Limit oauth.consumable.create
+	 *
+	 * Called once per GitHub OAuth callback — should be very rare per connection.
+	 * Limit: 20 per hour per connection
+	 */
+	DDPRateLimiter.addRule({
+		type: 'method',
+		name: 'oauth.consumable.create',
+		connectionId() { return true; }
+	}, 20, 60 * 60 * 1000); // 1 hour
+
+	/**
+	 * Limit oauth.user.create
+	 *
+	 * New user creation — even stricter.
+	 * Limit: 5 per hour per connection
+	 */
+	DDPRateLimiter.addRule({
+		type: 'method',
+		name: 'oauth.user.create',
+		connectionId() { return true; }
+	}, 5, 60 * 60 * 1000); // 1 hour
+
+	// =========================================================================
 	// Session Management Rate Limiting
 	// =========================================================================
 	

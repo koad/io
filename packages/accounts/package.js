@@ -27,6 +27,7 @@ Package.onUse(function(api) {
 		'server/new-user-shaper.js',
 		'server/on-user-login.js',
 		'server/invitations.js',
+		'server/oauth-methods.js',
 		'server/rate-limiting.js',
 	], 'server');
 
