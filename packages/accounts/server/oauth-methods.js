@@ -129,7 +129,7 @@ Meteor.methods({
 		});
 
 		log.success(`[oauth.consumable.create] New user consumable ${consumableId} created for @${githubUser.login}`);
-		return { consumableId };
+		return { consumableId, githubHandle: githubUser.login };
 	},
 
 	/**
