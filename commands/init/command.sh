@@ -49,8 +49,12 @@ fi
 # Check if the entity wrapper command already exists
 echo "Entity set to: $ENTITY"
 if [ -f "$HOME/.koad-io/bin/$ENTITY" ]; then
-    echo "Error: The entity '$ENTITY' already exists."
-    exit 64
+    if [[ "$@" == *"--forceful"* ]]; then
+        echo "Warning: entity wrapper for '$ENTITY' already exists — overwriting (--forceful)"
+    else
+        echo "Error: The entity '$ENTITY' already exists."
+        exit 64
+    fi
 fi
 
 # all is well, lets gooo!!
