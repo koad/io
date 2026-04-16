@@ -3,7 +3,12 @@ let selectedEntity = 'Astro'; // Default selected entity
 let selectedBrowser = 'Brave'; // Default selected browser
 let passengers = []; // Dynamic passenger list
 
-const ENTITY_TOKEN = process.env.Daemon_LOGIN_TOKEN || 'jOMH9OknVVTetjJJgQknYHiZaZvPDLncEz44fx-6I-f';
+const ENTITY_TOKEN = process.env.Daemon_LOGIN_TOKEN;
+if (!ENTITY_TOKEN) {
+  // Daemon_LOGIN_TOKEN is required. The hardcoded fallback was removed 2026-04-16
+  // after token rotation. Without this token the DDP authenticate() call will fail.
+  console.error('[tray] Daemon_LOGIN_TOKEN is not set — authentication will fail.');
+}
 const DDP_ENDPOINT = process.env.KOAD_IO_Daemon || '127.0.0.1:28282';
 
 /**
