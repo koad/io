@@ -109,12 +109,48 @@ Meteor.startup(() => {
   }, 1000);
 });
 
+// Keys matching these patterns contain credentials and must never be published.
+const SENSITIVE_KEY_PATTERNS = [/SECRET/i, /TOKEN/i, /PASSWORD/i, /CREDENTIAL/i];
+
+function isSensitiveKey(key) {
+  return SENSITIVE_KEY_PATTERNS.some(re => re.test(key));
+}
+
+// Strip sensitive keys from a vars object before publishing.
+function redactVars(vars) {
+  if (!vars || typeof vars !== 'object') return vars;
+  const safe = {};
+  for (const [k, v] of Object.entries(vars)) {
+    if (!isSensitiveKey(k)) safe[k] = v;
+  }
+  return safe;
+}
+
+// Publish a cursor with sensitive keys redacted from the `vars` field.
+// Uses low-level added/changed/removed so the transform happens at publish time,
+// not at storage time (storage keeps full vars for local server use).
+function publishEnvRedacted(sub, cursor) {
+  const handle = cursor.observe({
+    added(doc) {
+      sub.added('EnvIndex', doc._id, Object.assign({}, doc, { vars: redactVars(doc.vars) }));
+    },
+    changed(doc) {
+      sub.changed('EnvIndex', doc._id, Object.assign({}, doc, { vars: redactVars(doc.vars) }));
+    },
+    removed(doc) {
+      sub.removed('EnvIndex', doc._id);
+    },
+  });
+  sub.ready();
+  sub.onStop(() => handle.stop());
+}
+
 // Publications
 Meteor.publish('env', function () {
-  return EnvIndex.find();
+  publishEnvRedacted(this, EnvIndex.find());
 });
 
 Meteor.publish('env.entity', function (handle) {
   check(handle, String);
-  return EnvIndex.find({ handle });
+  publishEnvRedacted(this, EnvIndex.find({ handle }));
 });
