@@ -185,7 +185,44 @@ cat <<'EOF'
 EOF
 _ls "$ENTITY_DIR/skills" | sed 's/^/- /'
 
-# --- Pending tickles ---------------------------------------------------------
+# --- Active Flights (Section 5a — VESTA-SPEC-110) ----------------------------
+# If the entity has a control flight scanner, run it with --active and splice
+# the output into the system prompt. Read-only. Non-zero exit or empty output
+# skips silently — session never blocks on a missing or broken control layer.
+#
+# Entity scope: only entities with a control layer at the required path emit
+# this section. All others skip silently with no config changes required.
+_flight_scan="$ENTITY_DIR/commands/control/flight/status/command.sh"
+if [ -x "$_flight_scan" ]; then
+  _flight_out="$("$_flight_scan" --active 2>/dev/null || true)"
+  if [ -n "$_flight_out" ]; then
+    echo "[startup] control/flight: active flights found, splicing" >&2
+    printf '\n### Active Flights\n\n```\n%s\n```\n' "$_flight_out"
+  else
+    echo "[startup] control/flight: no active flights" >&2
+  fi
+else
+  echo "[startup] control/flight: scanner absent, skipped" >&2
+fi
+
+# --- Bookmarked Questions (Section 5b — VESTA-SPEC-110) ----------------------
+# If the entity has a control questions scanner, run it and splice questions
+# into the system prompt. Sentinel "q: no bookmarked questions" → skip.
+# Same degradation contract as flights: any failure → skip silently.
+_q_scan="$ENTITY_DIR/commands/control/q/list/command.sh"
+if [ -x "$_q_scan" ]; then
+  _q_out="$("$_q_scan" 2>/dev/null || true)"
+  if [ -n "$_q_out" ] && [ "$_q_out" != "q: no bookmarked questions" ]; then
+    echo "[startup] control/q: bookmarked questions found, splicing" >&2
+    printf '\n### Bookmarked Questions\n\n```\n%s\n```\n' "$_q_out"
+  else
+    echo "[startup] control/q: no bookmarked questions" >&2
+  fi
+else
+  echo "[startup] control/q: scanner absent, skipped" >&2
+fi
+
+# --- Pending tickles (Section 5 — VESTA-SPEC-097) ----------------------------
 # If the entity has a tickler loader (commands/tickler/scan/command.sh), run
 # it and splice its report into the system prompt. Read-only by design. The
 # loader is invoked directly — not via the `<entity> tickler scan` wrapper —
