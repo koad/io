@@ -9,6 +9,7 @@
 //   echo '{"op":"verify","entryPath":"/path/to/entry.json","pubkeyPath":"/path/to/key.pub"}' | node sign.js
 //   echo '{"op":"pubkey","keyPath":"/path/to/key.pub"}' | node sign.js
 //   echo '{"op":"cid","bytes":"hex-encoded-bytes"}' | node sign.js
+//   echo '{"op":"deviceKeyAdd","entry":{...},"deviceKeyPath":"/path/to/device.key","authKeyPath":"/path/to/root.key"}' | node sign.js
 //
 // Returns JSON on stdout. On error: {"error": "message", "code": "ERROR_CODE"}
 // On success: {"ok": true, ...result fields}
@@ -448,6 +449,102 @@ function opCid(req) {
   ok({ cid: computeCID(bytes) });
 }
 
+/**
+ * deviceKeyAdd — implement the SPEC-111 §5.4.1 reverse_sig two-step protocol.
+ *
+ * Input:
+ *   req.entry         — the koad.device-key-add entry WITHOUT reverse_sig and WITHOUT signature
+ *   req.deviceKeyPath — path to the new device's private key (signs first → reverse_sig)
+ *   req.authKeyPath   — path to the authorizing key (root or authorized device key)
+ *
+ * Protocol (per SPEC-111 §5.4.1):
+ *   1. Build entry with payload sans reverse_sig
+ *   2. Device key signs canonical pre-image → reverse_sig
+ *   3. Add reverse_sig to payload
+ *   4. Authorizing key signs full pre-image → signature
+ *   5. Compute final CID
+ *
+ * Output (ok):
+ *   signedEntry        — complete signed koad.device-key-add entry
+ *   cid                — CIDv1 of the final entry
+ *   reverseSig         — the reverse_sig value (for inspection)
+ *   devicePubkeyB64Url — device public key (base64url)
+ *   authPubkeyB64Url   — authorizing public key (base64url)
+ */
+async function opDeviceKeyAdd(req) {
+  if (!req.entry) {
+    fatal('MISSING_PARAM', 'deviceKeyAdd requires "entry" object');
+  }
+  if (!req.deviceKeyPath) {
+    fatal('MISSING_PARAM', 'deviceKeyAdd requires "deviceKeyPath"');
+  }
+  if (!req.authKeyPath) {
+    fatal('MISSING_PARAM', 'deviceKeyAdd requires "authKeyPath"');
+  }
+
+  // Validate entry type
+  if (req.entry.type !== 'koad.device-key-add') {
+    fatal('WRONG_ENTRY_TYPE', `Expected type koad.device-key-add, got: ${req.entry.type}`);
+  }
+
+  // Load keys
+  const { seed: deviceSeed, pubkey: devicePubkey } = loadPrivateKey(req.deviceKeyPath);
+  const { seed: authSeed,   pubkey: authPubkey   } = loadPrivateKey(req.authKeyPath);
+
+  // Step 1: build entry WITHOUT reverse_sig in payload
+  const payloadWithoutReverseSig = { ...req.entry.payload };
+  delete payloadWithoutReverseSig.reverse_sig;
+
+  const entryWithoutReverseSig = {
+    entity:    req.entry.entity,
+    payload:   payloadWithoutReverseSig,
+    previous:  req.entry.previous,
+    timestamp: req.entry.timestamp,
+    type:      req.entry.type,
+    version:   req.entry.version,
+  };
+
+  // Step 2: device key signs the pre-image (signature field absent via canonicalPreImage)
+  const preImageForDevice = canonicalPreImage(entryWithoutReverseSig);
+  const reverseSigBytes   = await ed.sign(preImageForDevice, deviceSeed);
+  const reverseSig        = toBase64Url(reverseSigBytes);
+
+  // Step 3: add reverse_sig to payload
+  const fullPayload = {
+    ...payloadWithoutReverseSig,
+    reverse_sig: reverseSig,
+  };
+
+  const fullEntry = {
+    entity:    req.entry.entity,
+    payload:   fullPayload,
+    previous:  req.entry.previous,
+    timestamp: req.entry.timestamp,
+    type:      req.entry.type,
+    version:   req.entry.version,
+  };
+
+  // Step 4: authorizing key signs full pre-image (reverse_sig present, signature absent)
+  const preImageForAuth = canonicalPreImage(fullEntry);
+  const sigBytes        = await ed.sign(preImageForAuth, authSeed);
+  const signature       = toBase64Url(sigBytes);
+
+  // Build final signed entry
+  const signedEntry = { ...fullEntry, signature };
+
+  // Step 5: compute CID
+  const entryBytes = Buffer.from(JSON.stringify(sortKeysDeep(signedEntry)));
+  const cid        = computeCID(entryBytes);
+
+  ok({
+    signedEntry,
+    cid,
+    reverseSig,
+    devicePubkeyB64Url: toBase64Url(devicePubkey),
+    authPubkeyB64Url:   toBase64Url(authPubkey),
+  });
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 let input = '';
@@ -478,7 +575,10 @@ process.stdin.on('end', () => {
     case 'cid':
       opCid(req);
       break;
+    case 'deviceKeyAdd':
+      opDeviceKeyAdd(req).catch(e => fatal('INTERNAL', e.message));
+      break;
     default:
-      fatal('UNKNOWN_OP', `Unknown op: ${req.op}. Valid: sign | verify | pubkey | cid`);
+      fatal('UNKNOWN_OP', `Unknown op: ${req.op}. Valid: sign | verify | pubkey | cid | deviceKeyAdd`);
   }
 });
