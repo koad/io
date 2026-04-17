@@ -222,4 +222,22 @@ if (typeof koad !== 'undefined') {
   koad.sovereign.profile = SovereignProfile;
 }
 
-export { SovereignProfile, canonicalPreImage, computeCid, toBase64Url, fromBase64Url };
+// ── Ed25519 utility — also exported for Passenger key-store ──────────────────
+
+/**
+ * Derive an Ed25519 public key from a 32-byte seed (private key scalar).
+ * Exported so that koad.passenger.key-store can use the same noble dependency.
+ *
+ * @param {Uint8Array} seedBytes — 32-byte private key seed
+ * @returns {Promise<Uint8Array>} — 32-byte public key
+ */
+const ed25519GetPublicKey = async function(seedBytes) {
+  return ed.getPublicKeyAsync(seedBytes);
+};
+
+if (typeof koad !== 'undefined') {
+  koad.sovereign = koad.sovereign || {};
+  koad.sovereign.ed25519GetPublicKey = ed25519GetPublicKey;
+}
+
+export { SovereignProfile, canonicalPreImage, computeCid, toBase64Url, fromBase64Url, ed25519GetPublicKey };

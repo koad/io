@@ -24,6 +24,9 @@ Template.profileEditor.onCreated(function() {
   // Local social proofs list (reactive so add/remove updates UI)
   tpl.socialProofs = new ReactiveVar([]);
 
+  // Active device key — populated from koad.passenger.activeDeviceKey()
+  tpl.deviceKey = new ReactiveVar(null);
+
   // Current profile data — loaded from sigchain tip on startup
   tpl.currentProfile = new ReactiveVar({
     name: '',
@@ -31,6 +34,13 @@ Template.profileEditor.onCreated(function() {
     avatar: null,
     socialProofs: [],
   });
+
+  // Populate active device key from Passenger key store.
+  // koad.passenger.activeDeviceKey() is synchronous — returns { id, description, publicKey }
+  // or null when no key is unlocked. Re-checks whenever the template is recreated.
+  if (koad && koad.passenger && typeof koad.passenger.activeDeviceKey === 'function') {
+    tpl.deviceKey.set(koad.passenger.activeDeviceKey());
+  }
 
   // TODO: load current profile from the entity's sigchain tip CID.
   // Pattern:
@@ -78,9 +88,9 @@ Template.profileEditor.helpers({
   },
 
   deviceKey() {
-    // TODO: return active device key info from Passenger key storage
-    // Pattern: koad.passenger.activeDeviceKey() → { id, description, pubkey, privateKey }
-    return null;
+    // Returns { id, description, publicKey } from Passenger key storage, or null.
+    // The reactive var is set in onCreated and updated by koad.passenger.unlock().
+    return Template.instance().deviceKey.get();
   },
 
   // Live preview data for the profileCard sub-template
@@ -202,28 +212,35 @@ Template.profileEditor.events({
 
       if (!name) throw new Error('Name is required');
 
-      // TODO: retrieve private key from Passenger key storage
-      // const { entity, privateKey, pubkeyBytes, tipCid } = koad.passenger.signingContext();
-      //
-      // For scaffold: throw a clear TODO error rather than silently no-op
-      throw new Error('TODO: connect to Passenger key storage. Retrieve entity, privateKey, pubkeyBytes, tipCid from koad.passenger.signingContext()');
+      // Retrieve signing context from Passenger key store.
+      // signingContext() throws if no key is unlocked — surfaced to the user below.
+      if (!koad || !koad.passenger || typeof koad.passenger.signingContext !== 'function') {
+        throw new Error(
+          'Passenger key storage not available. ' +
+          'Ensure koad.passenger is initialized before publishing.'
+        );
+      }
 
-      // ── Below is the intended flow once key storage is wired ──
+      const { entity, privateKey, pubkeyBytes, sigchainTip } =
+        await koad.passenger.signingContext();
 
-      // const entry = SovereignProfile.create({
-      //   entity,
-      //   previousCid: tipCid,
-      //   profile: { name, bio, avatar, socialProofs },
-      // });
+      const entry = SovereignProfile.create({
+        entity,
+        previousCid: sigchainTip,
+        profile: { name, bio, avatar, socialProofs },
+      });
 
-      // const signedEntry = await SovereignProfile.sign(entry, privateKey);
-      // const cid = await SovereignProfile.publish(signedEntry);
+      const signedEntry = await SovereignProfile.sign(entry, privateKey);
+      const cid = await SovereignProfile.publish(signedEntry);
 
-      // // Update local sigchain tip pointer
-      // koad.passenger.updateSigchainTip(cid);
+      // Update local sigchain tip pointer so next publish chains correctly
+      await koad.passenger.updateSigchainTip(cid);
 
-      // tpl.publishedCid.set(cid);
-      // tpl.publishSuccess.set(true);
+      // Refresh the deviceKey reactive var (unlock state may have changed)
+      tpl.deviceKey.set(koad.passenger.activeDeviceKey());
+
+      tpl.publishedCid.set(cid);
+      tpl.publishSuccess.set(true);
 
     } catch (err) {
       tpl.publishError.set(err.message);
