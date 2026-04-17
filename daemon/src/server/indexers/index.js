@@ -6,6 +6,7 @@
 
 Meteor.startup(() => {
   const indexers = [
+    ['KINGDOMS', process.env.KOAD_IO_INDEX_KINGDOMS],
     ['PASSENGERS', process.env.KOAD_IO_INDEX_PASSENGERS],
     ['ENV', process.env.KOAD_IO_INDEX_ENV],
     ['BONDS', process.env.KOAD_IO_INDEX_BONDS],
