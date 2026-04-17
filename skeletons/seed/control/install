@@ -208,7 +208,7 @@ seed:
   operator_entity: ${OPERATOR_ENTITY}
   datacenter: ${DATACENTER}
   primary_ip_name: ${PRIMARY_IP_NAME}
-  # dh_mode: per-box   # set to "per-box" if generating DH params on-box (adds 10-15 min)
+  # dh_mode: custom    # set to "custom" if generating DH params on-box (adds 10-15 min)
   dh_mode: static       # default: RFC 7919 ffdhe3072 shipped via write_files; pull-dh-back no-ops
 
 services:

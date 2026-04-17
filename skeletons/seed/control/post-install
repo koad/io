@@ -19,7 +19,7 @@ echo -e "  2. Reserve your IP:      ${CYN}${SEED_WORKDIR}/control/provision-ip${
 echo -e "  3. Deploy seed:          ${CYN}${SEED_WORKDIR}/control/deploy${NC}"
 echo -e "  4. Verify:               ${CYN}${SEED_WORKDIR}/control/verify${NC}"
 echo -e "  5. Install hook:         ${CYN}${SEED_WORKDIR}/control/install-device-hook${NC}"
-echo -e "  6. Pull DH params back:  ${CYN}${SEED_WORKDIR}/control/pull-dh-back${NC}   (only if seed.dh_mode: per-box — no-op for default static)"
+echo -e "  6. Pull DH params back:  ${CYN}${SEED_WORKDIR}/control/pull-dh-back${NC}   (only if seed.dh_mode: custom — no-op for default static)"
 echo ""
 echo "All control scripts read manifest.yaml — edit it there before deploying."
 echo ""
