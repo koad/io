@@ -16,6 +16,7 @@ mcp-needs-auth-cache.json
 
 # Runtime state
 var/
+tmp/
 
 # npm cache artifacts inside packages
 .npm/
