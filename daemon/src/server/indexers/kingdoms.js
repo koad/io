@@ -34,12 +34,15 @@ function upsertKingdom(k) {
     return;
   }
 
+  const memberHandles = Array.isArray(k.members) ? k.members : [];
+
   const doc = {
     name: k.name || id,
     domain: k.domain || null,
     sovereign: k.sovereign || null,
     sovereigntyModel: k.sovereigntyModel || k.sovereignty_model || null,
-    memberHandles: Array.isArray(k.members) ? k.members : [],
+    memberHandles,
+    memberCount: memberHandles.length,
     rootSigchainCid: k.rootSigchainCid || k.root_sigchain_cid || null,
     updatedAt: new Date(),
   };
