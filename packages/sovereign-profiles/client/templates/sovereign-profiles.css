@@ -999,6 +999,562 @@
   white-space: nowrap;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   KEY MANAGEMENT SURFACE
+   Shared by: keyPassphraseModal, keyManagement, keyImportForm,
+              keyGenerateForm
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Extend custom property scope to key management roots ─────────────────── */
+
+.key-management-surface,
+.km-overlay {
+  --sp-bg:          #0D0D0D;
+  --sp-surface:     #111111;
+  --sp-raised:      #171717;
+  --sp-text:        #E8E6E1;
+  --sp-text-dim:    #A09E9A;
+  --sp-subtle:      #555555;
+  --sp-accent:      var(--entity-accent, #C9A84C);
+  --sp-accent-dim:  var(--entity-accent-light, #9B7D35);
+  --sp-border:      rgba(255, 255, 255, 0.07);
+  --sp-border-acc:  rgba(201, 168, 76, 0.22);
+  --sp-green:       #3EAF6A;
+  --sp-red:         #E05252;
+  --sp-blue:        #4A90D9;
+  --sp-orange:      #E8A738;
+  --sp-font-body:   'Inter', system-ui, -apple-system, sans-serif;
+  --sp-font-mono:   'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --sp-radius:      3px;
+  --sp-radius-lg:   6px;
+
+  box-sizing: border-box;
+  color: var(--sp-text);
+  font-family: var(--sp-font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Modal overlay ────────────────────────────────────────────────────────── */
+
+.km-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+  padding: 20px;
+}
+
+.km-modal {
+  background: #111111;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--sp-radius-lg);
+  padding: 32px;
+  width: 100%;
+  max-width: 440px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  position: relative;
+}
+
+.km-modal--passphrase {
+  /* Modal is compact and focused — passphrase moment deserves quiet */
+  max-width: 400px;
+}
+
+/* ── Modal header ─────────────────────────────────────────────────────────── */
+
+.km-modal-header {
+  margin-bottom: 24px;
+}
+
+.km-modal-heading {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--sp-text);
+  margin: 0 0 8px;
+}
+
+.km-modal-subhead {
+  font-size: 13px;
+  color: var(--sp-text-dim);
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* ── Key hint row (inside passphrase modal) ───────────────────────────────── */
+
+.km-key-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--sp-surface);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.km-key-hint-label {
+  font-family: var(--sp-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--sp-subtle);
+  white-space: nowrap;
+}
+
+.km-key-hint-id {
+  font-family: var(--sp-font-mono);
+  font-size: 11px;
+  color: var(--sp-accent);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 1px 6px;
+  border-radius: 2px;
+  word-break: break-all;
+}
+
+.km-key-hint-desc {
+  font-size: 12px;
+  color: var(--sp-text-dim);
+}
+
+/* ── Page header (key management full surface) ────────────────────────────── */
+
+.km-page-header {
+  margin-bottom: 32px;
+}
+
+.km-page-heading {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--sp-text);
+  margin: 0 0 8px;
+}
+
+.km-page-subhead {
+  font-size: 13px;
+  color: var(--sp-text-dim);
+  margin: 0;
+  line-height: 1.6;
+  max-width: 520px;
+}
+
+/* ── Sections ─────────────────────────────────────────────────────────────── */
+
+.km-section {
+  border-top: 1px solid var(--sp-border);
+  padding-top: 24px;
+  margin-bottom: 32px;
+}
+
+.km-section--warning {
+  border-top-color: rgba(232, 167, 56, 0.3);
+}
+
+.km-section--danger {
+  border-top-color: rgba(224, 82, 82, 0.3);
+}
+
+.km-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 16px;
+}
+
+.km-section-heading {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--sp-text);
+  margin: 0;
+}
+
+/* ── Key list ─────────────────────────────────────────────────────────────── */
+
+.km-key-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.km-key-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--sp-surface);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  transition: border-color 0.15s;
+}
+
+.km-key-row--active {
+  border-color: rgba(62, 175, 106, 0.25);
+  background: rgba(62, 175, 106, 0.04);
+}
+
+.km-key-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.km-key-row-id-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.km-key-id {
+  font-family: var(--sp-font-mono);
+  font-size: 12px;
+  color: var(--sp-accent);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 6px;
+  border-radius: 2px;
+  word-break: break-all;
+}
+
+.km-key-badge--locked {
+  font-family: var(--sp-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--sp-subtle);
+  border: 1px solid var(--sp-border);
+}
+
+.km-key-desc {
+  font-size: 12px;
+  color: var(--sp-text-dim);
+}
+
+.km-key-pubkey {
+  font-family: var(--sp-font-mono);
+  font-size: 10px;
+  color: var(--sp-subtle);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.km-key-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Buttons in key management context ────────────────────────────────────── */
+
+.km-btn-action {
+  background: transparent;
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  color: var(--sp-text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--sp-font-body);
+  padding: 4px 10px;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.km-btn-action:hover {
+  border-color: var(--sp-accent);
+  color: var(--sp-accent);
+}
+
+.km-btn-action--secondary {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.km-btn-action--secondary:hover {
+  border-color: var(--sp-text-dim);
+  color: var(--sp-text);
+}
+
+.km-btn-action--danger:hover {
+  border-color: rgba(224, 82, 82, 0.5);
+  color: var(--sp-red);
+}
+
+.km-btn-lock {
+  background: transparent;
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  color: var(--sp-text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--sp-font-body);
+  padding: 4px 12px;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.km-btn-lock:hover {
+  border-color: var(--sp-orange);
+  color: var(--sp-orange);
+}
+
+.km-btn-cancel {
+  background: transparent;
+  border: none;
+  color: var(--sp-text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--sp-font-body);
+  padding: 4px 2px;
+  transition: color 0.15s;
+}
+
+.km-btn-cancel:hover {
+  color: var(--sp-text);
+}
+
+.km-btn-delete {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(224, 82, 82, 0.1);
+  border: 1px solid rgba(224, 82, 82, 0.35);
+  border-radius: var(--sp-radius);
+  color: #F08080;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--sp-font-body);
+  font-weight: 600;
+  padding: 9px 20px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.km-btn-delete:hover {
+  background: rgba(224, 82, 82, 0.16);
+  border-color: rgba(224, 82, 82, 0.55);
+}
+
+/* ── Warning and danger banners ───────────────────────────────────────────── */
+
+.km-warning-banner {
+  font-size: 13px;
+  color: var(--sp-orange);
+  background: rgba(232, 167, 56, 0.08);
+  border: 1px solid rgba(232, 167, 56, 0.2);
+  border-radius: var(--sp-radius);
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  line-height: 1.55;
+}
+
+.km-danger-banner {
+  font-size: 13px;
+  color: #F08080;
+  background: rgba(224, 82, 82, 0.08);
+  border: 1px solid rgba(224, 82, 82, 0.22);
+  border-radius: var(--sp-radius);
+  padding: 12px 16px;
+  line-height: 1.55;
+}
+
+.km-danger-banner code {
+  font-family: var(--sp-font-mono);
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+/* ── Export block ─────────────────────────────────────────────────────────── */
+
+.km-export-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.km-export-textarea {
+  background: #0A0A0A;
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  color: var(--sp-text-dim);
+  font-family: var(--sp-font-mono);
+  font-size: 11px;
+  padding: 12px 14px;
+  width: 100%;
+  resize: none;
+  outline: none;
+  line-height: 1.5;
+  /* No user-select-all on purpose — user clicks Copy button */
+}
+
+.km-export-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Forms ────────────────────────────────────────────────────────────────── */
+
+.km-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.km-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.km-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--sp-text-dim);
+}
+
+.km-label-optional {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--sp-subtle);
+}
+
+.km-input {
+  background: var(--sp-surface);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  color: var(--sp-text);
+  font-family: var(--sp-font-body);
+  font-size: 14px;
+  padding: 10px 14px;
+  width: 100%;
+  transition: border-color 0.15s;
+  outline: none;
+}
+
+.km-input:focus {
+  border-color: var(--sp-accent);
+}
+
+.km-textarea {
+  resize: vertical;
+  font-family: var(--sp-font-mono);
+  font-size: 12px;
+  min-height: 100px;
+}
+
+.km-field-hint {
+  font-size: 11px;
+  color: var(--sp-subtle);
+  line-height: 1.5;
+}
+
+/* ── Form actions row ─────────────────────────────────────────────────────── */
+
+.km-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+/* ── Status messages (shared) ─────────────────────────────────────────────── */
+
+.km-error {
+  background: rgba(224, 82, 82, 0.08);
+  border: 1px solid rgba(224, 82, 82, 0.28);
+  border-radius: var(--sp-radius);
+  color: #F08080;
+  font-size: 13px;
+  padding: 10px 14px;
+  line-height: 1.5;
+}
+
+.km-success {
+  background: rgba(62, 175, 106, 0.08);
+  border: 1px solid rgba(62, 175, 106, 0.22);
+  border-radius: var(--sp-radius);
+  color: var(--sp-green);
+  font-size: 13px;
+  padding: 10px 14px;
+  line-height: 1.5;
+}
+
+/* ── Empty state ──────────────────────────────────────────────────────────── */
+
+.km-empty-state {
+  font-size: 13px;
+  color: var(--sp-text-dim);
+  padding: 16px 0;
+  margin: 0;
+}
+
+/* ── Loading row ─────────────────────────────────────────────────────────── */
+
+.km-loading-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0;
+  font-size: 13px;
+  color: var(--sp-text-dim);
+}
+
+/* ── Responsive: key management ───────────────────────────────────────────── */
+
+@media (max-width: 540px) {
+  .km-modal {
+    padding: 24px 18px;
+  }
+
+  .km-key-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .km-key-row-actions {
+    align-self: flex-start;
+  }
+
+  .km-export-actions {
+    flex-direction: column;
+  }
+
+  .km-form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .km-form-actions .btn-primary,
+  .km-form-actions .km-btn-delete {
+    text-align: center;
+    justify-content: center;
+  }
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 
 @media (max-width: 540px) {
