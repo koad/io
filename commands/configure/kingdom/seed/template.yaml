@@ -82,6 +82,19 @@ EOF'
       export PATH="$HOME/.koad-io/bin:$PATH"
       export NVM_DIR="$HOME/.nvm"
       . "$NVM_DIR/nvm.sh"
-      KOAD_IO_QUIET=1 KOAD_IO_DOMAIN=kingdom.local KOAD_IO_HOME_MACHINE=kingdom-seed \
+      KOAD_IO_QUIET=1 KOAD_IO_DOMAIN=<KOAD_IO_DOMAIN> KOAD_IO_HOME_MACHINE=kingdom-seed \
         koad-io gestate <ENTITY_USER>
     '
+
+  # TLS via certbot — only run when a real public domain was provided.
+  # nginx must be installed (already in packages list) and port 80 must be open.
+  - |
+    DOMAIN="<KOAD_IO_DOMAIN>"
+    if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "kingdom.local" ]; then
+      systemctl enable nginx
+      systemctl start nginx
+      certbot --non-interactive --agree-tos \
+        --email <CERTBOT_EMAIL> \
+        -d "$DOMAIN" \
+        --nginx
+    fi
