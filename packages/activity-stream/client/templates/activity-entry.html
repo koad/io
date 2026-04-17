@@ -1,0 +1,37 @@
+{{!-- SPDX-License-Identifier: AGPL-3.0-or-later --}}
+{{!--
+  activityEntry — single entry rendering.
+
+  Data context: a rendered entry object as produced by ActivityStream.render().
+  Expected fields: _icon, _label, _description, _timestamp, _date, _link, type, entity.
+
+  Usage:
+    {{> activityEntry entry}}       — from a loop
+    {{> activityEntry thisEntry}}   — direct
+--}}
+
+<template name="activityEntry">
+  <li class="activity-entry activity-entry--{{entryTypeClass}}">
+
+    <span class="activity-entry__icon" title="{{_label}}">{{_icon}}</span>
+
+    <div class="activity-entry__body">
+      <div class="activity-entry__label">{{_label}}</div>
+
+      <div class="activity-entry__description">
+        {{#if _link}}
+          <a href="{{_link}}" rel="noopener">{{_description}}</a>
+        {{else}}
+          {{_description}}
+        {{/if}}
+      </div>
+
+      {{#if _timestamp}}
+        <div class="activity-entry__timestamp" title="{{_timestamp}}">
+          {{formattedDate}}
+        </div>
+      {{/if}}
+    </div>
+
+  </li>
+</template>

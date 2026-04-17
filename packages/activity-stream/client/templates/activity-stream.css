@@ -1,0 +1,126 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/*
+ * activity-stream.css — Base styles for the activity stream component.
+ * Intentionally minimal — consumer themes override via koad:io-theme-engine.
+ */
+
+.activity-stream {
+  width: 100%;
+}
+
+.activity-stream--loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* ── Loading state ─────────────────────────────────────────────────────────── */
+
+.activity-stream__loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0;
+  color: var(--color-muted, #888);
+  font-size: 0.9rem;
+}
+
+.activity-stream__spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: activity-stream-spin 0.6s linear infinite;
+}
+
+@keyframes activity-stream-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Error state ───────────────────────────────────────────────────────────── */
+
+.activity-stream__error {
+  padding: 1rem 0;
+  color: var(--color-error, #c00);
+  font-size: 0.9rem;
+}
+
+/* ── Empty state ───────────────────────────────────────────────────────────── */
+
+.activity-stream__empty {
+  padding: 1rem 0;
+  color: var(--color-muted, #888);
+  font-size: 0.9rem;
+}
+
+/* ── Entry list ────────────────────────────────────────────────────────────── */
+
+.activity-stream__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* ── Single entry ──────────────────────────────────────────────────────────── */
+
+.activity-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--color-border, #eee);
+}
+
+.activity-entry:last-child {
+  border-bottom: none;
+}
+
+.activity-entry__icon {
+  flex: 0 0 2rem;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  background: var(--color-surface, #f5f5f5);
+  border-radius: 50%;
+  color: var(--color-accent, #333);
+}
+
+.activity-entry__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-entry__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted, #888);
+  margin-bottom: 0.2rem;
+}
+
+.activity-entry__description {
+  font-size: 0.95rem;
+  color: var(--color-text, #222);
+  line-height: 1.4;
+}
+
+.activity-entry__description a {
+  color: var(--color-link, #0066cc);
+  text-decoration: none;
+}
+
+.activity-entry__description a:hover {
+  text-decoration: underline;
+}
+
+.activity-entry__timestamp {
+  font-size: 0.75rem;
+  color: var(--color-muted, #888);
+  margin-top: 0.2rem;
+  white-space: nowrap;
+}

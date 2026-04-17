@@ -1,0 +1,42 @@
+{{!-- SPDX-License-Identifier: AGPL-3.0-or-later --}}
+{{!--
+  activityStream — main list template.
+
+  Data context: a Stream instance (or anything with .isLoading(), .error(), .entries()).
+  Usage:
+    {{> activityStream stream=myStream}}
+    {{> activityStream stream=myStream opts=filterOpts}}
+
+  For a static array, pass inline=true and entries=[...].
+--}}
+
+<template name="activityStream">
+  <div class="activity-stream {{#if isLoading}}activity-stream--loading{{/if}}">
+
+    {{#if isLoading}}
+      <div class="activity-stream__loading">
+        <span class="activity-stream__spinner"></span>
+        <span>Loading activity stream...</span>
+      </div>
+    {{else if streamError}}
+      <div class="activity-stream__error">
+        <span>Failed to load stream: {{streamError}}</span>
+      </div>
+    {{else if hasEntries}}
+      <ol class="activity-stream__list" reversed>
+        {{#each renderedEntries}}
+          {{> activityEntry this}}
+        {{/each}}
+      </ol>
+    {{else}}
+      {{> activityStreamEmpty}}
+    {{/if}}
+
+  </div>
+</template>
+
+<template name="activityStreamEmpty">
+  <div class="activity-stream__empty">
+    <p>No activity yet.</p>
+  </div>
+</template>
