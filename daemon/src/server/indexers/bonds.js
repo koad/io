@@ -1,31 +1,159 @@
 // Bonds indexer — worker (periodic re-scan)
 // Scans ~/.<entity>/trust/bonds/, indexes bond filenames and types
-// Never reads file contents beyond what's needed for type detection
+// Cross-kingdom bonds (per VESTA-SPEC-115 §7.2) are routed to CrossKingdomBonds collection
 
 const fs = Npm.require('fs');
 const path = Npm.require('path');
 
 const BondsIndex = new Mongo.Collection('BondsIndex', { connection: null });
 
+// Parse minimal YAML frontmatter from a bond file
+// Returns an object with any frontmatter fields found, or {} on failure
+// Only reads up to the closing '---' to stay lightweight
+function parseFrontmatter(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    if (!content.startsWith('---')) return {};
+    const end = content.indexOf('\n---', 3);
+    if (end === -1) return {};
+    const block = content.slice(3, end).trim();
+    const result = {};
+    for (const line of block.split('\n')) {
+      const colon = line.indexOf(':');
+      if (colon === -1) continue;
+      const key = line.slice(0, colon).trim();
+      const val = line.slice(colon + 1).trim();
+      // Parse booleans and bare strings
+      if (val === 'true') result[key] = true;
+      else if (val === 'false') result[key] = false;
+      else result[key] = val;
+    }
+    return result;
+  } catch (e) {
+    return {};
+  }
+}
+
+// Determine if a bond crosses kingdom boundaries
+// Returns { crossKingdom, fromKingdomId, toKingdomId } or null if no kingdoms configured
+function detectCrossKingdom(issuerHandle, bondFilename, bondFilePath) {
+  // Kingdoms must be indexed; lazy reference (kingdoms.js may load after bonds.js)
+  if (typeof Kingdoms === 'undefined') return null;
+
+  // Check explicit frontmatter flag first (only for .md files)
+  let frontmatter = {};
+  const ext = path.extname(bondFilename);
+  if (ext === '.md' || ext === '.asc') {
+    frontmatter = parseFrontmatter(bondFilePath);
+  }
+
+  // Derive issuer's kingdom from Entities collection
+  const issuerEntity = EntityScanner.Entities.findOne({ handle: issuerHandle });
+  const fromKingdomId = (issuerEntity && issuerEntity.kingdomId) || null;
+
+  // Explicit cross_kingdom flag in frontmatter → always route to CrossKingdomBonds
+  if (frontmatter.cross_kingdom === true) {
+    // Try to read recipient handle from frontmatter (field: 'to' or 'recipient')
+    const recipientHandle = frontmatter.to || frontmatter.recipient || null;
+    const recipientEntity = recipientHandle
+      ? EntityScanner.Entities.findOne({ handle: recipientHandle })
+      : null;
+    const toKingdomId = (recipientEntity && recipientEntity.kingdomId) || null;
+
+    return {
+      crossKingdom: true,
+      fromKingdomId,
+      toKingdomId,
+      recipientHandle,
+      bondType: frontmatter.type || frontmatter.bond_type || null,
+      sigStatus: ext === '.asc' ? 'signed' : 'unsigned',
+    };
+  }
+
+  // No explicit flag — try membership-based detection
+  // Need both issuer kingdom and a readable 'to' field to make the call
+  if (!fromKingdomId) return null; // Issuer has no kingdom — can't determine cross-kingdom
+
+  const recipientHandle = frontmatter.to || frontmatter.recipient || null;
+  if (!recipientHandle) return null; // No recipient in frontmatter — can't determine
+
+  const recipientEntity = EntityScanner.Entities.findOne({ handle: recipientHandle });
+  const toKingdomId = (recipientEntity && recipientEntity.kingdomId) || null;
+
+  if (!toKingdomId || toKingdomId === fromKingdomId) return null; // Same kingdom or unresolvable
+
+  return {
+    crossKingdom: true,
+    fromKingdomId,
+    toKingdomId,
+    recipientHandle,
+    bondType: frontmatter.type || frontmatter.bond_type || null,
+    sigStatus: ext === '.asc' ? 'signed' : 'unsigned',
+  };
+}
+
+// Upsert a cross-kingdom bond record
+function upsertCrossKingdomBond(issuerHandle, filename, bondFilePath, detection) {
+  // Stable ID: issuerHandle + filename (bonds are per-file)
+  const id = `${issuerHandle}::${filename}`;
+  const doc = {
+    fromEntity: issuerHandle,
+    toEntity: detection.recipientHandle || null,
+    fromKingdomId: detection.fromKingdomId,
+    toKingdomId: detection.toKingdomId,
+    bondType: detection.bondType,
+    bondFile: filename,
+    sigStatus: detection.sigStatus,
+    scannedAt: new Date(),
+  };
+
+  const existing = CrossKingdomBonds.findOne({ _id: id });
+  if (existing) {
+    CrossKingdomBonds.update(id, { $set: doc });
+  } else {
+    CrossKingdomBonds.insert(Object.assign({ _id: id }, doc));
+    console.log(`[BONDS] cross-kingdom: ${issuerHandle} (${detection.fromKingdomId}) → ${detection.toKingdomId} [${filename}]`);
+  }
+}
+
 // Scan a single entity's trust/bonds/ directory
 function indexEntity(handle, entityPath) {
   const bondsDir = path.join(entityPath, 'trust', 'bonds');
   try {
     const files = fs.readdirSync(bondsDir);
-    const bonds = files
-      .filter(f => !f.startsWith('.'))
-      .map(filename => {
-        const ext = path.extname(filename);
-        const base = path.basename(filename, ext);
-        return {
+    const intraBonds = [];
+    const crossBondFilenames = new Set();
+
+    for (const filename of files) {
+      if (filename.startsWith('.')) continue;
+
+      const ext = path.extname(filename);
+      const base = path.basename(filename, ext);
+      const bondFilePath = path.join(bondsDir, filename);
+
+      const detection = detectCrossKingdom(handle, filename, bondFilePath);
+      if (detection && detection.crossKingdom) {
+        upsertCrossKingdomBond(handle, filename, bondFilePath, detection);
+        crossBondFilenames.add(filename);
+      } else {
+        intraBonds.push({
           filename,
           type: ext === '.asc' ? 'signed' : ext === '.md' ? 'bond' : 'other',
           base,
-        };
-      });
+        });
+      }
+    }
 
+    // Remove stale cross-kingdom bond records for this entity that are no longer on disk
+    CrossKingdomBonds.find({ fromEntity: handle }).fetch().forEach(rec => {
+      if (!crossBondFilenames.has(rec.bondFile)) {
+        CrossKingdomBonds.remove(rec._id);
+      }
+    });
+
+    // Update BondsIndex with intra-kingdom bonds
     const existing = BondsIndex.findOne({ handle });
-    const doc = { handle, bonds, count: bonds.length, scannedAt: new Date() };
+    const doc = { handle, bonds: intraBonds, count: intraBonds.length, scannedAt: new Date() };
 
     if (existing) {
       BondsIndex.update(existing._id, { $set: doc });
@@ -33,8 +161,9 @@ function indexEntity(handle, entityPath) {
       BondsIndex.insert(doc);
     }
   } catch (e) {
-    // No bonds directory — remove stale entry if any
+    // No bonds directory — remove stale entries
     BondsIndex.remove({ handle });
+    CrossKingdomBonds.remove({ fromEntity: handle });
   }
 }
 
@@ -60,18 +189,18 @@ Meteor.startup(async () => {
         runImmediately: true,
         task: async () => {
           scanAll();
-          console.log(`[BONDS] Scan complete: ${BondsIndex.find().count()} entities with bonds`);
+          console.log(`[BONDS] Scan complete: ${BondsIndex.find().count()} entities with bonds, ${CrossKingdomBonds.find().count()} cross-kingdom`);
         }
       });
     } else {
       console.warn('[BONDS] koad.workers unavailable (koad:io-worker-processes not resolved) — falling back to one-shot scan');
       scanAll();
-      console.log(`[BONDS] Initial scan complete: ${BondsIndex.find().count()} entities with bonds`);
+      console.log(`[BONDS] Initial scan complete: ${BondsIndex.find().count()} entities with bonds, ${CrossKingdomBonds.find().count()} cross-kingdom`);
     }
   } else {
     // One-shot scan only
     scanAll();
-    console.log(`[BONDS] Initial scan complete: ${BondsIndex.find().count()} entities with bonds`);
+    console.log(`[BONDS] Initial scan complete: ${BondsIndex.find().count()} entities with bonds, ${CrossKingdomBonds.find().count()} cross-kingdom`);
   }
 });
 
@@ -83,4 +212,13 @@ Meteor.publish('bonds', function () {
 Meteor.publish('bonds.entity', function (handle) {
   check(handle, String);
   return BondsIndex.find({ handle });
+});
+
+Meteor.publish('crossKingdomBonds', function () {
+  return CrossKingdomBonds.find();
+});
+
+Meteor.publish('crossKingdomBonds.involving', function (handle) {
+  check(handle, String);
+  return CrossKingdomBonds.find({ $or: [{ fromEntity: handle }, { toEntity: handle }] });
 });

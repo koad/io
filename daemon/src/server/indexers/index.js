@@ -3,6 +3,12 @@
 // Entity scanner loads first (entity-scanner.js < env.js alphabetically).
 // Each indexer self-gates on its own KOAD_IO_INDEX_* env var.
 // This file just prints the active/inactive summary.
+//
+// Kingdom-aware features (VESTA-SPEC-115):
+//   KOAD_IO_INDEX_KINGDOMS — seeds Kingdoms collection, stamps kingdomId/sovereignKingdom
+//                            on Entities, enables kingdoms.entities publication
+//   KOAD_IO_INDEX_BONDS    — now also detects cross-kingdom bonds → CrossKingdomBonds
+//                            (detection is automatic when KINGDOMS is also active)
 
 Meteor.startup(() => {
   const indexers = [

@@ -53,17 +53,88 @@ function upsertKingdom(k) {
   }
 }
 
-// Full scan: read config, upsert all kingdoms
+// Build lookup maps from kingdoms config for entity stamping
+// Returns { memberToKingdomId, sovereignMap } or null if no config
+function buildKingdomMaps(kingdoms) {
+  if (!kingdoms || kingdoms.length === 0) return null;
+
+  const memberToKingdomId = {}; // handle → kingdomId
+  const sovereignMap = {};      // handle → kingdomId (for sovereigns only)
+
+  for (const k of kingdoms) {
+    const id = k.id || k.slug;
+    if (!id) continue;
+    if (k.sovereign) {
+      sovereignMap[k.sovereign] = id;
+    }
+    const members = Array.isArray(k.members) ? k.members : [];
+    for (const member of members) {
+      memberToKingdomId[member] = id;
+    }
+    // Sovereign is implicitly a member
+    if (k.sovereign && !memberToKingdomId[k.sovereign]) {
+      memberToKingdomId[k.sovereign] = id;
+    }
+  }
+
+  return { memberToKingdomId, sovereignMap };
+}
+
+// Stamp kingdomId and sovereignKingdom onto all Entities records
+// Called after kingdoms are loaded so Entities already exist
+function stampEntities(kingdoms) {
+  const maps = buildKingdomMaps(kingdoms);
+  if (!maps) {
+    // No kingdoms configured — ensure fields are present with defaults
+    EntityScanner.Entities.find().fetch().forEach(entity => {
+      if (entity.kingdomId === undefined || entity.sovereignKingdom === undefined) {
+        EntityScanner.Entities.update(entity._id, {
+          $set: { kingdomId: null, sovereignKingdom: null }
+        });
+      }
+    });
+    return;
+  }
+
+  const { memberToKingdomId, sovereignMap } = maps;
+  let stamped = 0;
+
+  EntityScanner.Entities.find().fetch().forEach(entity => {
+    const kingdomId = memberToKingdomId[entity.handle] || null;
+    const sovereignKingdom = sovereignMap[entity.handle] || null;
+
+    const current = {
+      kingdomId: entity.kingdomId,
+      sovereignKingdom: entity.sovereignKingdom,
+    };
+
+    // Only update if something changed (avoid noisy writes)
+    if (current.kingdomId !== kingdomId || current.sovereignKingdom !== sovereignKingdom) {
+      EntityScanner.Entities.update(entity._id, {
+        $set: { kingdomId, sovereignKingdom }
+      });
+      stamped++;
+    }
+  });
+
+  if (stamped > 0) {
+    console.log(`[KINGDOMS] Stamped ${stamped} entity record(s) with kingdom fields`);
+  }
+}
+
+// Full scan: read config, upsert all kingdoms, stamp entities
 function scanAll() {
   const kingdoms = loadConfig();
 
   if (kingdoms === null) {
     console.log('[KINGDOMS] no kingdoms configured — operating in flat namespace mode');
+    stampEntities(null);
     return;
   }
 
   if (kingdoms.length === 0) {
     console.log('[KINGDOMS] kingdoms.json present but empty — no kingdoms to index');
+    stampEntities(null);
     return;
   }
 
@@ -85,6 +156,9 @@ function scanAll() {
   });
 
   console.log(`[KINGDOMS] Scan complete: ${Kingdoms.find().count()} kingdom(s)`);
+
+  // Stamp entities with kingdom membership data
+  stampEntities(kingdoms);
 }
 
 // Start watching kingdoms.json for hot-reload
@@ -142,5 +216,11 @@ Meteor.publish('kingdoms.byId', function (id) {
   return Kingdoms.find({ _id: id });
 });
 
-// Export for other indexers (Day-2+ will use this to stamp kingdomId onto Entities)
-KingdomsIndexer = { Kingdoms, scanAll, loadConfig };
+// Entities scoped to a specific kingdom
+Meteor.publish('kingdoms.entities', function (kingdomId) {
+  check(kingdomId, String);
+  return EntityScanner.Entities.find({ kingdomId });
+});
+
+// Export for other indexers
+KingdomsIndexer = { Kingdoms, scanAll, loadConfig, buildKingdomMaps, stampEntities };

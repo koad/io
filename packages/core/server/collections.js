@@ -133,12 +133,28 @@ Meteor.startup(async () => {
 // _id is the kingdom slug (e.g. 'koad-io') — CID will be added when sigchains are established
 Kingdoms = new Mongo.Collection('Kingdoms', { connection: null });
 
+// CrossKingdomBonds collection — bonds that cross kingdom boundaries
+// Schema per VESTA-SPEC-115 §7.2: cross-kingdom trust relationships
+// Detection: bond's issuer and recipient belong to different kingdoms per kingdoms.json
+CrossKingdomBonds = new Mongo.Collection('CrossKingdomBonds', { connection: null });
+
 // Indexes added at startup
 Meteor.startup(async () => {
 	try {
 		await Kingdoms.createIndexAsync({ domain: 1 }, { name: 'kingdoms_domain' });
 	} catch (error) {
 		log.error('[collections] Failed to create Kingdoms domain index:', error.message);
+	}
+
+	try {
+		await CrossKingdomBonds.createIndexAsync(
+			{ fromKingdomId: 1, toKingdomId: 1 },
+			{ name: 'crossbonds_from_to' }
+		);
+		await CrossKingdomBonds.createIndexAsync({ fromEntity: 1 }, { name: 'crossbonds_from_entity' });
+		await CrossKingdomBonds.createIndexAsync({ toEntity: 1 }, { name: 'crossbonds_to_entity' });
+	} catch (error) {
+		log.error('[collections] Failed to create CrossKingdomBonds indexes:', error.message);
 	}
 });
 
