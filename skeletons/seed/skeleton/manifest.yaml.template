@@ -10,8 +10,8 @@ services:
   netbird_management: <NETBIRD_MGMT_ENABLED>
   ipfs_gateway: <IPFS_GATEWAY_ENABLED>
   stun_turn: <STUN_TURN_ENABLED>
-  nginx: true
-  certbot: true
+  nginx: <NGINX_ENABLED>
+  certbot: <CERTBOT_ENABLED>
 
 provider:
   name: hetzner

@@ -210,6 +210,15 @@ if [ -z "$SERVER_IP" ]; then
     | jq -r --arg name "$PRIMARY_IP_NAME" '.[] | select(.name == $name) | .ip' 2>/dev/null || true)
 fi
 
+# --- SPEC-120 v1.4 §12.5: fail loudly if IP or ID unresolvable ---
+if [ -z "$SERVER_IP" ] || [ -z "$SERVER_ID" ]; then
+  echo "deploy: failed to resolve server IP or ID from hcloud response." >&2
+  echo "  SERVER_IP=${SERVER_IP:-<empty>}" >&2
+  echo "  SERVER_ID=${SERVER_ID:-<empty>}" >&2
+  echo "  Check 'hcloud server list' and reconcile manually before retrying." >&2
+  exit 1
+fi
+
 # --- Write device record (SPEC-120 §12) ---
 SERVICES_JSON=$(cat <<SVCS
 {
@@ -226,10 +235,10 @@ cat > "$DEVICE_RECORD" <<RECORD
 {
   "hostname": "$SEED_DOMAIN",
   "role": "seed",
-  "ip": "${SERVER_IP:-unknown}",
+  "ip": "$SERVER_IP",
   "primary_ip_name": "$PRIMARY_IP_NAME",
   "provider": "$PROVIDER_NAME",
-  "server_id": "${SERVER_ID:-unknown}",
+  "server_id": "$SERVER_ID",
   "datacenter": "$DATACENTER",
   "image": "$IMAGE",
   "server_type": "$SEED_TYPE",
