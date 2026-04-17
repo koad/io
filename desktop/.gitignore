@@ -3,7 +3,6 @@ config
 commands
 parked-utilities
 resources
-src
 temp
 trash
 
