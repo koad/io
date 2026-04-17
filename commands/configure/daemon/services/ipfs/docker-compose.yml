@@ -1,0 +1,54 @@
+version: '3.8'
+
+volumes:
+  kubo_data:
+  cluster_data:
+
+services:
+
+  kubo:
+    image: ipfs/kubo:latest
+    container_name: koad-ipfs-kubo
+    restart: unless-stopped
+    environment:
+      - IPFS_PROFILE=server
+      - IPFS_ROUTING_TYPE=dhtclient
+      - IPFS_REPROVIDER_STRATEGY=pinned
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:8080:8080"   # HTTP gateway
+      - "${BIND_ADDRESS:-127.0.0.1}:5001:5001"   # RPC API
+      - "${BIND_ADDRESS:-127.0.0.1}:4001:4001"   # Swarm
+      - "${BIND_ADDRESS:-127.0.0.1}:4001:4001/udp" # Swarm QUIC
+    volumes:
+      - kubo_data:/data/ipfs
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:5001/api/v0/id"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ipfs-cluster-service:
+    image: ipfs/ipfs-cluster:latest
+    container_name: koad-ipfs-cluster
+    restart: unless-stopped
+    depends_on:
+      - kubo
+    environment:
+      - CLUSTER_SECRET=${CLUSTER_SECRET}
+      - CLUSTER_IPFSHTTP_NODEMULTIADDRESS=/dns4/kubo/tcp/5001
+      - CLUSTER_CRDT_TRUSTEDPEERS=*
+      - CLUSTER_REPLICATIONFACTORMIN=${REPLICATION_FACTOR_MIN:-3}
+      - CLUSTER_REPLICATIONFACTORMAX=${REPLICATION_FACTOR_MAX:-3}
+      - CLUSTER_MONITORPINGINTERVAL=2s
+      - CLUSTER_BOOTSTRAPPEERS=${BOOTSTRAP_PEERS:-}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:9094:9094"   # REST API
+      - "${BIND_ADDRESS:-127.0.0.1}:9095:9095"   # IPFS proxy
+      - "${BIND_ADDRESS:-127.0.0.1}:9096:9096"   # Cluster swarm
+    volumes:
+      - cluster_data:/data/ipfs-cluster
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:9094/id"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
