@@ -128,4 +128,18 @@ Meteor.startup(async () => {
 	}
 });
 
+// Kingdoms collection — one record per kingdom the daemon participates in
+// Schema per VESTA-SPEC-115: kingdom as sovereign participation unit
+// _id is the kingdom slug (e.g. 'koad-io') — CID will be added when sigchains are established
+Kingdoms = new Mongo.Collection('Kingdoms', { connection: null });
+
+// Indexes added at startup
+Meteor.startup(async () => {
+	try {
+		await Kingdoms.createIndexAsync({ domain: 1 }, { name: 'kingdoms_domain' });
+	} catch (error) {
+		log.error('[collections] Failed to create Kingdoms domain index:', error.message);
+	}
+});
+
 log.success('loaded koad-io-core/collections');
