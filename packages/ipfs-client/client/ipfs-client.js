@@ -17,6 +17,8 @@
  * Lazy-initializes on first use. Does not block app startup.
  *
  * API surface:
+ *   IPFSClient.put(data)             → Promise<string>   CIDv1 dag-json sha2-256
+ *   IPFSClient.get(cid)             → Promise<object>   decoded dag-json object
  *   IPFSClient.resolve(cid)          → Promise<Uint8Array>
  *   IPFSClient.pin(cid)              → Promise<void>
  *   IPFSClient.unpin(cid)            → Promise<void>
@@ -189,6 +191,50 @@ const IPFSClient = {
     const { CID } = await import('multiformats/cid');
     const parsedCID = CID.parse(cid);
     await _heliaNode.pins.rm(parsedCID);
+  },
+
+  /**
+   * put(data) — encode a JS object as dag-json, store in local blockstore,
+   * return the CIDv1 string (dag-json codec 0x0129, sha2-256).
+   *
+   * Per SPEC-111 §3.1: codec dag-json (0x0129), hash sha2-256.
+   * This is how sigchain entries get written to IPFS — the returned CID is
+   * the content-address used as `previous` in subsequent entries.
+   *
+   * @param {object|Uint8Array} data — JS object (will be dag-json encoded) or
+   *   pre-encoded Uint8Array of dag-json bytes
+   * @returns {Promise<string>} — base32upper CIDv1 string e.g. "bagu..."
+   */
+  async put(data) {
+    await this.ready();
+    const { CID } = await import('multiformats/cid');
+    const { sha256 } = await import('multiformats/hashes/sha2');
+    const { encode: dagJsonEncode } = await import('@ipld/dag-json');
+
+    const bytes = (data instanceof Uint8Array) ? data : dagJsonEncode(data);
+
+    const hash = await sha256.digest(bytes);
+    const cid = CID.createV1(0x0129, hash);
+
+    await _heliaNode.blockstore.put(cid, bytes);
+
+    return cid.toString();
+  },
+
+  /**
+   * get(cid) — fetch dag-json bytes from IPFS (local cache first, then network),
+   * decode to a JS object, and return it.
+   *
+   * This is the structured read side — resolve() returns raw bytes,
+   * get() returns the decoded object.
+   *
+   * @param {string} cid — CIDv1 string
+   * @returns {Promise<object>} — decoded JS object
+   */
+  async get(cid) {
+    const bytes = await this.resolve(cid);
+    const { decode: dagJsonDecode } = await import('@ipld/dag-json');
+    return dagJsonDecode(bytes);
   },
 
   /**

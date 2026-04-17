@@ -18,6 +18,8 @@ Tinytest.add('IPFSClient - is defined', function(test) {
 
 Tinytest.add('IPFSClient - has expected API methods', function(test) {
   test.equal(typeof IPFSClient.ready,   'function', 'ready() should be a function');
+  test.equal(typeof IPFSClient.put,     'function', 'put() should be a function');
+  test.equal(typeof IPFSClient.get,     'function', 'get() should be a function');
   test.equal(typeof IPFSClient.resolve, 'function', 'resolve() should be a function');
   test.equal(typeof IPFSClient.pin,     'function', 'pin() should be a function');
   test.equal(typeof IPFSClient.unpin,   'function', 'unpin() should be a function');

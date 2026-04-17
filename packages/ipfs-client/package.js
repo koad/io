@@ -12,7 +12,8 @@ Npm.depends({
   '@helia/verified-fetch': '2.1.0',
   'blockstore-opfs': '2.0.1',
   'blockstore-idb': '1.1.3',
-  'multiformats': '13.3.0'
+  'multiformats': '13.3.0',
+  '@ipld/dag-json': '10.2.2'
 });
 
 Package.onUse(function(api) {
