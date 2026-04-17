@@ -111,19 +111,26 @@ function pause() {
 
 # Resolve domain — use KOAD_IO_DOMAIN from env, fall back to prompt
 if [ -z "${KOAD_IO_DOMAIN}" ]; then
-  read -p "Enter your domain (e.g. kingofalldata.com): " KOAD_IO_DOMAIN
-  KOAD_IO_DOMAIN=${KOAD_IO_DOMAIN:-kingofalldata.com}
+  if [ -t 0 ]; then
+    read -p "Enter your domain (e.g. kingofalldata.com): " KOAD_IO_DOMAIN
+    KOAD_IO_DOMAIN=${KOAD_IO_DOMAIN:-kingofalldata.com}
+  else
+    echo "ERROR: KOAD_IO_DOMAIN is not set and stdin is not a terminal. Cannot prompt for domain." >&2
+    exit 1
+  fi
 fi
 ENTITY_DOMAIN="${KOAD_IO_DOMAIN}"
 
-# Ask which machine is home for this entity
-if [ -z "${KOAD_IO_HOME_MACHINE}" ]; then
-  DEFAULT_HOST="${HOSTNAME}"
+# Resolve home machine — use KOAD_IO_HOME_MACHINE from env, fall back to prompt
+if [ -n "${KOAD_IO_HOME_MACHINE}" ]; then
+  ENTITY_HOST="${KOAD_IO_HOME_MACHINE}"
+elif [ -t 0 ]; then
+  read -p "Enter the home machine (hostname) for $ENTITY [${HOSTNAME}]: " ENTITY_HOST
+  ENTITY_HOST=${ENTITY_HOST:-${HOSTNAME}}
 else
-  DEFAULT_HOST="${KOAD_IO_HOME_MACHINE}"
+  echo "ERROR: KOAD_IO_HOME_MACHINE is not set and stdin is not a terminal. Cannot prompt for home machine." >&2
+  exit 1
 fi
-read -p "Enter the home machine (hostname) for $ENTITY [${DEFAULT_HOST}]: " ENTITY_HOST
-ENTITY_HOST=${ENTITY_HOST:-${DEFAULT_HOST}}
 
 echo "About to gestate a new koad:io entity called $ENTITY, if you wish to abort this press CTRL+C now."
 if [[ "$KOAD_IO_QUIET" != "1" ]]; then
