@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+# install — embed garden skeleton into a target entity dir (non-destructively)
+# Runs after pre-install. $TARGET (target entity dir), $ENTITY, $SKELETON are in scope.
+# Accepts flags: --path, --name, --purpose, --operator, --doors, --devices
+#
+# Non-interactive: if all required fields are provided via flags, runs silently.
+# Interactive: missing required fields trigger whiptail walkthrough.
+# SPEC: VESTA-SPEC-119 §4, §5, §10
+
+set -e
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}$*${NC}"; }
+warn() { echo -e "${YEL}WARN: $*${NC}" >&2; }
+
+# --- Parse flags ---
+FLAG_PATH=""
+FLAG_NAME=""
+FLAG_PURPOSE=""
+FLAG_OPERATOR=""
+FLAG_DOORS=""
+FLAG_DEVICES=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --path)        FLAG_PATH="$2";      shift 2 ;;
+    --path=*)      FLAG_PATH="${1#*=}"; shift ;;
+    --name)        FLAG_NAME="$2";      shift 2 ;;
+    --name=*)      FLAG_NAME="${1#*=}"; shift ;;
+    --purpose)     FLAG_PURPOSE="$2";   shift 2 ;;
+    --purpose=*)   FLAG_PURPOSE="${1#*=}"; shift ;;
+    --operator)    FLAG_OPERATOR="$2";  shift 2 ;;
+    --operator=*)  FLAG_OPERATOR="${1#*=}"; shift ;;
+    --doors)       FLAG_DOORS="$2";     shift 2 ;;
+    --doors=*)     FLAG_DOORS="${1#*=}"; shift ;;
+    --devices)     FLAG_DEVICES="$2";   shift 2 ;;
+    --devices=*)   FLAG_DEVICES="${1#*=}"; shift ;;
+    *)             shift ;;
+  esac
+done
+
+# --- Resolve target ---
+TARGET="${FLAG_PATH:-${TARGET:-$WORKDIR}}"
+[ -n "$TARGET" ] || fail "Target path is required. Pass --path <entity-dir>."
+[ -d "$TARGET" ] || fail "Target directory does not exist: $TARGET"
+[ -f "$TARGET/ENTITY.md" ] || fail "Target is not an entity dir — ENTITY.md missing at $TARGET"
+
+# Guard: idempotency
+if [ -f "$TARGET/manifest.yaml" ]; then
+  echo "Garden already present at $TARGET (manifest.yaml exists)."
+  echo "To re-embed, remove manifest.yaml and re-run."
+  exit 0
+fi
+
+# --- Derive defaults ---
+ENTITY_NAME=$(basename "$TARGET")
+GARDEN_NAME="${FLAG_NAME:-${ENTITY_NAME}-production}"
+GARDEN_PURPOSE="${FLAG_PURPOSE:-production garden for ${ENTITY_NAME}}"
+OPERATOR_ENTITY="${FLAG_OPERATOR:-${ENTITY:-$ENTITY_NAME}}"
+INITIAL_DOORS="${FLAG_DOORS:-}"
+INITIAL_DEVICES="${FLAG_DEVICES:-}"
+
+# --- Interactive walkthrough for missing required fields ---
+IS_INTERACTIVE=0
+if [ -t 0 ] && command -v whiptail >/dev/null 2>&1; then
+  IS_INTERACTIVE=1
+fi
+
+if [ -z "$FLAG_NAME" ] && [ "$IS_INTERACTIVE" -eq 1 ]; then
+  GARDEN_NAME=$(whiptail --inputbox "Garden name" 10 60 "$GARDEN_NAME" 3>&1 1>&2 2>&3) || fail "Cancelled."
+fi
+
+if [ -z "$FLAG_PURPOSE" ] && [ "$IS_INTERACTIVE" -eq 1 ]; then
+  GARDEN_PURPOSE=$(whiptail --inputbox "Garden purpose (one-line description)" 10 60 "$GARDEN_PURPOSE" 3>&1 1>&2 2>&3) || fail "Cancelled."
+fi
+
+if [ -z "$FLAG_OPERATOR" ] && [ "$IS_INTERACTIVE" -eq 1 ]; then
+  OPERATOR_ENTITY=$(whiptail --inputbox "Operator entity name" 10 60 "$OPERATOR_ENTITY" 3>&1 1>&2 2>&3) || fail "Cancelled."
+fi
+
+[ -n "$GARDEN_NAME" ]   || fail "Garden name is required. Pass --name <name>."
+[ -n "$OPERATOR_ENTITY" ] || fail "Operator entity is required. Pass --operator <entity>."
+
+# Validate garden name (lowercase alphanumeric + hyphens)
+if ! echo "$GARDEN_NAME" | grep -qE '^[a-z0-9][a-z0-9-]*$'; then
+  fail "Garden name must be lowercase alphanumeric with hyphens only: $GARDEN_NAME"
+fi
+
+# --- Determine skeleton dir ---
+# $SKELETON env var = skeleton root (e.g. ~/.koad-io/skeletons/garden/).
+# The actual tree to copy lives in $SKELETON/skeleton/.
+# Fallback: derive from script location (this script lives at control/install).
+if [ -n "$SKELETON" ]; then
+  SKELETON_DIR="${SKELETON}/skeleton"
+else
+  SKELETON_DIR="$(dirname "$(dirname "$0")")/skeleton"
+fi
+[ -d "$SKELETON_DIR" ] || fail "Skeleton directory not found at $SKELETON_DIR"
+
+# --- Protected files: NEVER touch these (SPEC-119 §4.3) ---
+PROTECTED=("ENTITY.md" "GOVERNANCE.md" "PRIMER.md" "id" "trust" "memories" "commands")
+
+is_protected() {
+  local relpath="$1"
+  local base
+  base=$(echo "$relpath" | cut -d'/' -f1)
+  for p in "${PROTECTED[@]}"; do
+    [ "$base" = "$p" ] && return 0
+  done
+  return 1
+}
+
+# --- Non-destructive merge (SPEC-119 §4.2) ---
+WRITTEN=0
+SKIPPED_EXISTING=0
+SKIPPED_CONFLICT=0
+
+while IFS= read -r -d '' src; do
+  # Strip skeleton dir prefix; skip the root itself
+  if [ "$src" = "$SKELETON_DIR" ]; then
+    continue
+  fi
+  relpath="${src#$SKELETON_DIR/}"
+  # If relpath is still the full absolute path, the prefix strip failed — skip
+  if [ "$relpath" = "$src" ]; then
+    continue
+  fi
+  dst="$TARGET/$relpath"
+
+  # Skip top-level .template files that install handles directly
+  # (manifest.yaml and GARDEN.md are written explicitly; nginx/door.conf.template IS copied)
+  case "$relpath" in
+    manifest.yaml.template|GARDEN.md.template) continue ;;
+  esac
+
+  # Skip protected paths
+  if is_protected "$relpath"; then
+    warn "SKIP (protected): $relpath — entity-authority file, never overwritten."
+    continue
+  fi
+
+  # Handle directories
+  if [ -d "$src" ]; then
+    mkdir -p "$dst"
+    continue
+  fi
+
+  # Handle files
+  if [ ! -e "$dst" ]; then
+    # Destination does not exist — write it
+    parent=$(dirname "$dst")
+    mkdir -p "$parent"
+    cp "$src" "$dst"
+    WRITTEN=$((WRITTEN + 1))
+  else
+    # Destination exists — check if identical
+    if cmp -s "$src" "$dst"; then
+      SKIPPED_EXISTING=$((SKIPPED_EXISTING + 1))
+    else
+      echo "SKIP (conflict): $relpath — local file differs from skeleton. Review manually."
+      SKIPPED_CONFLICT=$((SKIPPED_CONFLICT + 1))
+    fi
+  fi
+done < <(find "$SKELETON_DIR" -print0 | sort -z)
+
+# --- Make runtime control scripts executable ---
+if [ -d "$TARGET/control" ]; then
+  chmod +x "$TARGET/control/"*
+fi
+
+# --- Write manifest.yaml ---
+CREATED_DATE=$(date +%Y-%m-%d)
+
+# Build doors list
+DOORS_YAML=""
+if [ -n "$INITIAL_DOORS" ]; then
+  while IFS=',' read -ra DOOR_LIST; do
+    for door in "${DOOR_LIST[@]}"; do
+      door=$(echo "$door" | tr -d '[:space:]')
+      [ -z "$door" ] && continue
+      DOORS_YAML="${DOORS_YAML}  - fqdn: ${door}
+    service: nginx
+    protocol: https
+    description: \"\"
+    enabled: true
+"
+    done
+  done <<< "$INITIAL_DOORS"
+fi
+
+# Build devices list
+DEVICES_YAML=""
+if [ -n "$INITIAL_DEVICES" ]; then
+  while IFS=',' read -ra DEVICE_LIST; do
+    for device in "${DEVICE_LIST[@]}"; do
+      device=$(echo "$device" | tr -d '[:space:]')
+      [ -z "$device" ] && continue
+      shortname=$(echo "$device" | cut -d'.' -f1)
+      DEVICES_YAML="${DEVICES_YAML}  - name: ${shortname}
+    fqdn: ${device}
+    role: seed
+    record_path: devices/${device}.json
+"
+    done
+  done <<< "$INITIAL_DEVICES"
+fi
+
+cat > "$TARGET/manifest.yaml" <<MANIFEST
+garden:
+  name: ${GARDEN_NAME}
+  purpose: "${GARDEN_PURPOSE}"
+  operator_entity: ${OPERATOR_ENTITY}
+  created: ${CREATED_DATE}
+  version: "1.0"
+
+doors:${DOORS_YAML:+
+${DOORS_YAML}}
+
+devices:${DEVICES_YAML:+
+${DEVICES_YAML}}
+
+# doors:
+#   - fqdn: example.domain.tld
+#     service: nginx
+#     protocol: https
+#     description: "Example door"
+#     enabled: true
+# devices:
+#   - name: zero
+#     fqdn: zero.example.tld
+#     role: seed
+#     record_path: devices/zero.example.tld.json
+MANIFEST
+
+# --- Write GARDEN.md ---
+cat > "$TARGET/GARDEN.md" <<GARDEN_MD
+# ${GARDEN_NAME}
+
+**Operator:** ${OPERATOR_ENTITY}
+**Purpose:** ${GARDEN_PURPOSE}
+**Created:** ${CREATED_DATE}
+**Spec:** VESTA-SPEC-119
+
+---
+
+## What This Garden Is
+
+This garden is the production workspace for **${OPERATOR_ENTITY}**. It embeds into the entity
+directory, making \`~/.${OPERATOR_ENTITY}/\` a complete operational unit: identity, memory, commands,
+and the production surface (doors, devices, projects) all in one place.
+
+## Doors
+
+Doors are the public entry points this entity serves. See \`doors/\` for per-door configuration
+and \`manifest.yaml\` for the active door list.
+
+To add a door:
+1. Create \`doors/<fqdn>/config.yaml\`
+2. Run \`control/deploy-door <fqdn>\`
+
+## Devices
+
+Devices are the seeds (VPS/nodes) this entity operates. See \`devices/\` for device records and
+\`manifest.yaml\` for the active device list.
+
+Destroyed seeds are archived to \`devices/.archive/\` per VESTA-SPEC-119 §15.
+
+## Projects
+
+\`projects/\` holds the actual work — services, research, tools. Freeform structure; the operator
+fills this in.
+
+## Operating
+
+\`\`\`bash
+# Check garden status
+./control/status
+
+# Deploy a door
+./control/deploy-door <fqdn>
+
+# Sync all doors to match manifest
+./control/sync-doors
+
+# List devices and their state
+./control/list-seeds
+
+# Verify door reachability
+./control/verify-doors
+\`\`\`
+
+---
+
+*Garden managed per VESTA-SPEC-119. All control scripts read \`manifest.yaml\`.*
+GARDEN_MD
+
+# --- Ensure devices/.archive exists ---
+mkdir -p "$TARGET/devices/.archive"
+if [ ! -f "$TARGET/devices/.archive/.gitkeep" ]; then
+  touch "$TARGET/devices/.archive/.gitkeep"
+fi
+
+ok "Garden embedded at: $TARGET"
+echo ""
+echo "Written:          $WRITTEN file(s)"
+echo "Skipped (same):   $SKIPPED_EXISTING file(s)"
+echo "Skipped (conflict): $SKIPPED_CONFLICT file(s) — review manually"
+echo ""
+
+export TARGET
+export GARDEN_NAME
+export OPERATOR_ENTITY

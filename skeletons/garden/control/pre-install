@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# pre-install — spawn-time checks for garden skeleton
+# Runs before install. $TARGET (target entity dir), $ENTITY, $SKELETON are in scope.
+# Exit 1 to abort spawn.
+# SPEC: VESTA-SPEC-119 §10.1
+
+set -e
+
+RED='\033[0;31m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+warn() { echo -e "${YEL}WARN: $*${NC}" >&2; }
+
+# TARGET must be set (target entity dir)
+TARGET="${TARGET:-$WORKDIR}"
+if [ -z "$TARGET" ]; then
+  fail "TARGET is not set — cannot proceed. Set TARGET to the entity dir to embed into."
+fi
+
+# Target must exist
+if [ ! -d "$TARGET" ]; then
+  fail "Target directory does not exist: $TARGET"
+fi
+
+# Target must be an entity dir (has ENTITY.md)
+if [ ! -f "$TARGET/ENTITY.md" ]; then
+  fail "Target is not an entity dir — ENTITY.md missing at $TARGET"
+fi
+
+# Guard: do not re-embed if garden already present
+if [ -f "$TARGET/manifest.yaml" ]; then
+  echo "Garden already present at $TARGET (manifest.yaml exists)."
+  echo "To re-embed, remove manifest.yaml and re-run."
+  exit 0
+fi
+
+# whiptail check (soft: non-interactive mode works without it)
+if ! command -v whiptail >/dev/null 2>&1; then
+  warn "whiptail not found — interactive TUI will be unavailable. Non-interactive (--flag) mode required."
+fi
+
+echo "pre-install checks passed."

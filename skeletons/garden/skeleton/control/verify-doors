@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# verify-doors — HTTP(S) reachability check for each enabled door
+# Read-only. Idempotent.
+# SPEC: VESTA-SPEC-119 §9.2
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GARDEN_ROOT="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$GARDEN_ROOT/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: verify-doors — $*${NC}" >&2; exit 1; }
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $GARDEN_ROOT"
+
+passed=0
+failed=0
+skipped=0
+
+echo ""
+echo "Door reachability check:"
+echo ""
+
+# Parse doors from manifest
+in_doors=0
+current_fqdn=""
+current_enabled="true"
+current_protocol="https"
+
+process_door() {
+  local fqdn="$1"
+  local enabled="$2"
+  local protocol="$3"
+  [ -n "$fqdn" ] || return
+
+  if [ "$enabled" = "false" ]; then
+    echo -e "  ${YEL}SKIP${NC}  $fqdn  (disabled)"
+    skipped=$((skipped + 1))
+    return
+  fi
+
+  local url="${protocol}://${fqdn}"
+  local http_code
+  http_code=$(curl -o /dev/null -s -w "%{http_code}" --max-time 10 "$url" 2>/dev/null || echo "000")
+
+  if [ "$http_code" = "000" ]; then
+    echo -e "  ${RED}FAIL${NC}  $fqdn  (connection refused or timeout)"
+    failed=$((failed + 1))
+  elif echo "$http_code" | grep -qE "^[23]"; then
+    echo -e "  ${GRN}OK${NC}    $fqdn  HTTP $http_code"
+    passed=$((passed + 1))
+  else
+    echo -e "  ${YEL}WARN${NC}  $fqdn  HTTP $http_code"
+    failed=$((failed + 1))
+  fi
+}
+
+while IFS= read -r line; do
+  if echo "$line" | grep -q "^doors:"; then
+    in_doors=1; continue
+  fi
+  if [ "$in_doors" -eq 1 ] && echo "$line" | grep -qE "^[a-zA-Z]" && ! echo "$line" | grep -q "^doors:"; then
+    if [ -n "$current_fqdn" ]; then
+      process_door "$current_fqdn" "$current_enabled" "$current_protocol"
+    fi
+    in_doors=0
+    current_fqdn=""
+    current_enabled="true"
+    current_protocol="https"
+  fi
+  [ "$in_doors" -eq 0 ] && continue
+
+  if echo "$line" | grep -qE "^\s*-\s+fqdn:"; then
+    if [ -n "$current_fqdn" ]; then
+      process_door "$current_fqdn" "$current_enabled" "$current_protocol"
+    fi
+    current_fqdn=$(echo "$line" | sed 's/.*fqdn: *//' | tr -d '"')
+    current_enabled="true"
+    current_protocol="https"
+  fi
+  if [ -n "$current_fqdn" ]; then
+    if echo "$line" | grep -qE "^\s+enabled:"; then
+      current_enabled=$(echo "$line" | awk '{print $2}' | tr -d '"')
+    fi
+    if echo "$line" | grep -qE "^\s+protocol:"; then
+      current_protocol=$(echo "$line" | awk '{print $2}' | tr -d '"')
+    fi
+  fi
+done < "$MANIFEST"
+
+# Flush last entry
+if [ -n "$current_fqdn" ]; then
+  process_door "$current_fqdn" "$current_enabled" "$current_protocol"
+fi
+
+echo ""
+echo "Results: passed=${passed} failed=${failed} skipped=${skipped}"
+echo ""
+
+if [ "$failed" -gt 0 ]; then
+  echo -e "${RED}ERROR: verify-doors — ${failed} door(s) unreachable${NC}" >&2
+  exit 1
+fi
+
+echo -e "${GRN}OK: verify-doors — all ${passed} door(s) reachable${NC}"

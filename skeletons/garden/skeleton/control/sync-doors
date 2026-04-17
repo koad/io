@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# sync-doors — idempotent: make nginx state match manifest
+# Deploys enabled doors, removes disabled doors, reloads nginx once.
+# SPEC: VESTA-SPEC-119 §6.6, §9.2
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GARDEN_ROOT="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$GARDEN_ROOT/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: sync-doors — $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}OK: sync-doors — $*${NC}"; }
+warn() { echo -e "${YEL}WARN: sync-doors — $*${NC}" >&2; }
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $GARDEN_ROOT"
+
+NGINX_CONF_DIR="/etc/nginx/sites-available"
+NGINX_CONF_ENABLED="/etc/nginx/sites-enabled"
+
+deployed=0
+removed=0
+skipped=0
+
+# --- Process each door in manifest ---
+# Parse doors section: collect fqdn + enabled pairs
+in_doors=0
+current_fqdn=""
+current_enabled=""
+
+while IFS= read -r line; do
+  # Detect start of doors: section
+  if echo "$line" | grep -q "^doors:"; then
+    in_doors=1
+    continue
+  fi
+  # Detect end of doors section (top-level key)
+  if [ "$in_doors" -eq 1 ] && echo "$line" | grep -qE "^[a-zA-Z]"; then
+    in_doors=0
+  fi
+  [ "$in_doors" -eq 0 ] && continue
+
+  # New door entry
+  if echo "$line" | grep -qE "^\s*-\s+fqdn:"; then
+    # Flush previous door if any
+    if [ -n "$current_fqdn" ]; then
+      _sync_door "$current_fqdn" "$current_enabled"
+    fi
+    current_fqdn=$(echo "$line" | sed 's/.*fqdn: *//' | tr -d '"')
+    current_enabled="true"
+  fi
+
+  if [ -n "$current_fqdn" ] && echo "$line" | grep -qE "^\s+enabled:"; then
+    current_enabled=$(echo "$line" | awk '{print $2}' | tr -d '"')
+  fi
+done < "$MANIFEST"
+
+# Flush last door
+if [ -n "$current_fqdn" ]; then
+  :
+fi
+
+# --- Helper: sync a single door ---
+# (define before the loop — we process via a two-pass approach for simplicity)
+
+FQDNS_ENABLED=()
+FQDNS_DISABLED=()
+
+while IFS= read -r line; do
+  if echo "$line" | grep -q "^doors:"; then
+    in_doors=1; continue
+  fi
+  if [ "$in_doors" -eq 1 ] && echo "$line" | grep -qE "^[a-zA-Z]" && ! echo "$line" | grep -q "^doors:"; then
+    in_doors=0
+  fi
+  [ "${in_doors:-0}" -eq 0 ] && continue
+  if echo "$line" | grep -qE "^\s*-\s+fqdn:"; then
+    current_fqdn=$(echo "$line" | sed 's/.*fqdn: *//' | tr -d '"')
+    current_enabled="true"
+  fi
+  if [ -n "$current_fqdn" ] && echo "$line" | grep -qE "^\s+enabled:"; then
+    current_enabled=$(echo "$line" | awk '{print $2}' | tr -d '"')
+    if [ "$current_enabled" = "false" ]; then
+      FQDNS_DISABLED+=("$current_fqdn")
+    else
+      FQDNS_ENABLED+=("$current_fqdn")
+    fi
+    current_fqdn=""
+    current_enabled=""
+  fi
+done < "$MANIFEST"
+
+# --- Deploy enabled doors ---
+for fqdn in "${FQDNS_ENABLED[@]}"; do
+  CONF="$NGINX_CONF_DIR/$fqdn.conf"
+  if [ -f "$CONF" ]; then
+    echo "  OK (already deployed): $fqdn"
+    skipped=$((skipped + 1))
+  else
+    echo "  Deploying: $fqdn"
+    "$SCRIPT_DIR/deploy-door" "$fqdn" && deployed=$((deployed + 1)) || warn "deploy-door failed for $fqdn — continuing"
+  fi
+done
+
+# --- Remove disabled doors ---
+for fqdn in "${FQDNS_DISABLED[@]}"; do
+  CONF="$NGINX_CONF_ENABLED/$fqdn.conf"
+  if [ -f "$CONF" ] || [ -L "$CONF" ]; then
+    echo "  Removing (disabled): $fqdn"
+    "$SCRIPT_DIR/remove-door" "$fqdn" && removed=$((removed + 1)) || warn "remove-door failed for $fqdn — continuing"
+  else
+    echo "  OK (already absent): $fqdn"
+  fi
+done
+
+# --- Final nginx test + reload ---
+if [ "$deployed" -gt 0 ] || [ "$removed" -gt 0 ]; then
+  sudo nginx -t || fail "nginx config test failed after sync. Check configs manually."
+  sudo nginx -s reload
+  echo "nginx reloaded."
+fi
+
+ok "deployed=${deployed} removed=${removed} already-current=${skipped}"

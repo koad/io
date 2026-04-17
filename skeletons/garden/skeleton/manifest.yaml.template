@@ -1,0 +1,21 @@
+garden:
+  name: <GARDEN_NAME>
+  purpose: "<GARDEN_PURPOSE>"
+  operator_entity: <OPERATOR_ENTITY>
+  created: <CREATED_DATE>
+  version: "1.0"
+
+doors: []
+# doors:
+#   - fqdn: trading.astro.brokerage
+#     service: nginx
+#     protocol: https
+#     description: "Astro trading interface"
+#     enabled: true
+
+devices: []
+# devices:
+#   - name: zero
+#     fqdn: zero.koad.sh
+#     role: seed
+#     record_path: devices/zero.koad.sh.json

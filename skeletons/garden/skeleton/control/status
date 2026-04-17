@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# status — show garden state: name, operator, doors, devices, recent archives
+# Reads manifest.yaml at garden root.
+# SPEC: VESTA-SPEC-119 §9.2
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GARDEN_ROOT="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$GARDEN_ROOT/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+CYN='\033[0;36m'
+YEL='\033[1;33m'
+BLD='\033[1m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $GARDEN_ROOT — has this garden been spawned?"
+
+# --- Parse manifest ---
+read_garden() { grep -A10 "^garden:" "$MANIFEST" | grep "^\s*$1:" | head -1 | sed 's/^[^:]*: *//' | tr -d '"'; }
+
+GARDEN_NAME=$(read_garden "name")
+GARDEN_PURPOSE=$(read_garden "purpose")
+GARDEN_OPERATOR=$(read_garden "operator_entity")
+GARDEN_CREATED=$(read_garden "created")
+
+echo ""
+echo -e "${BLD}Garden: ${GARDEN_NAME}${NC}"
+echo -e "  Operator:  ${GARDEN_OPERATOR}"
+echo -e "  Purpose:   ${GARDEN_PURPOSE}"
+echo -e "  Created:   ${GARDEN_CREATED}"
+echo -e "  Root:      ${GARDEN_ROOT}"
+echo ""
+
+# --- Doors ---
+echo -e "${BLD}Doors${NC}"
+DOORS_DIR="$GARDEN_ROOT/doors"
+door_count=0
+if [ -d "$DOORS_DIR" ]; then
+  for door_dir in "$DOORS_DIR"/*/; do
+    [ -d "$door_dir" ] || continue
+    fqdn=$(basename "$door_dir")
+    config="$door_dir/config.yaml"
+    if [ -f "$config" ]; then
+      enabled=$(grep "^\s*enabled:" "$config" | awk '{print $2}' | tr -d '"')
+      service=$(grep "^\s*service:" "$config" | awk '{print $2}' | tr -d '"')
+      upstream=$(grep "^\s*upstream:" "$config" | awk '{print $2}' | tr -d '"')
+      status_str="${enabled:-unknown}"
+      if [ "$enabled" = "true" ]; then
+        status_color="$GRN"
+      else
+        status_color="$YEL"
+      fi
+      echo -e "  ${status_color}${fqdn}${NC}  service=${service:-nginx}  enabled=${status_str}  upstream=${upstream:-<none>}"
+    else
+      echo -e "  ${YEL}${fqdn}${NC}  (no config.yaml)"
+    fi
+    door_count=$((door_count + 1))
+  done
+fi
+if [ "$door_count" -eq 0 ]; then
+  echo -e "  ${YEL}(no doors configured)${NC}"
+fi
+echo ""
+
+# --- Devices ---
+echo -e "${BLD}Devices${NC}"
+DEVICES_DIR="$GARDEN_ROOT/devices"
+device_count=0
+if [ -d "$DEVICES_DIR" ]; then
+  for record in "$DEVICES_DIR"/*.json; do
+    [ -f "$record" ] || continue
+    hostname=$(basename "$record" .json)
+    status_val=$(python3 -c "import json,sys; d=json.load(open('$record')); print(d.get('status','unknown'))" 2>/dev/null || grep '"status"' "$record" | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/')
+    ip_val=$(python3 -c "import json,sys; d=json.load(open('$record')); print(d.get('ip',''))" 2>/dev/null || grep '"ip"' "$record" | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/')
+    datacenter_val=$(python3 -c "import json,sys; d=json.load(open('$record')); print(d.get('datacenter',''))" 2>/dev/null || grep '"datacenter"' "$record" | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/')
+    if [ "$status_val" = "running" ]; then
+      status_color="$GRN"
+    elif [ "$status_val" = "destroyed" ]; then
+      status_color="$RED"
+    else
+      status_color="$YEL"
+    fi
+    echo -e "  ${status_color}${hostname}${NC}  status=${status_val}  ip=${ip_val:-?}  dc=${datacenter_val:-?}"
+    device_count=$((device_count + 1))
+  done
+fi
+if [ "$device_count" -eq 0 ]; then
+  echo -e "  ${YEL}(no active devices)${NC}"
+fi
+echo ""
+
+# --- Recent archives ---
+ARCHIVE_DIR="$DEVICES_DIR/.archive"
+if [ -d "$ARCHIVE_DIR" ]; then
+  archive_count=$(find "$ARCHIVE_DIR" -name "*.json" 2>/dev/null | wc -l)
+  if [ "$archive_count" -gt 0 ]; then
+    echo -e "${BLD}Recent Archives (destroyed devices)${NC}"
+    find "$ARCHIVE_DIR" -name "*.json" -printf "%T@ %f\n" 2>/dev/null | sort -rn | head -5 | while read -r ts fname; do
+      echo -e "  ${CYN}${fname}${NC}"
+    done
+    echo ""
+  fi
+fi
+
+echo -e "OK: status — garden ${GARDEN_NAME} on ${GARDEN_OPERATOR}"

@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# deploy-door <fqdn> — render nginx vhost, request cert, reload nginx
+# Reads manifest.yaml and doors/<fqdn>/config.yaml for all values.
+# Idempotent: safe to re-run.
+# SPEC: VESTA-SPEC-119 §6, §9.2, §9.3
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GARDEN_ROOT="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$GARDEN_ROOT/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: deploy-door — $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}OK: deploy-door — $*${NC}"; }
+warn() { echo -e "${YEL}WARN: deploy-door — $*${NC}" >&2; }
+
+FQDN="${1:-}"
+[ -n "$FQDN" ] || fail "Usage: control/deploy-door <fqdn>"
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $GARDEN_ROOT"
+
+DOOR_DIR="$GARDEN_ROOT/doors/$FQDN"
+DOOR_CONFIG="$DOOR_DIR/config.yaml"
+[ -d "$DOOR_DIR" ] || fail "Door directory not found: $DOOR_DIR — create it with config.yaml first."
+[ -f "$DOOR_CONFIG" ] || fail "config.yaml not found at $DOOR_CONFIG"
+
+# --- Parse door config ---
+read_door() { grep "^\s*$1:" "$DOOR_CONFIG" | head -1 | sed 's/^[^:]*: *//' | tr -d '"'; }
+read_garden() { grep -A10 "^garden:" "$MANIFEST" | grep "^\s*$1:" | head -1 | sed 's/^[^:]*: *//' | tr -d '"'; }
+
+DOOR_FQDN=$(read_door "fqdn")
+SERVICE=$(read_door "service")
+UPSTREAM=$(read_door "upstream")
+CERT_PROVIDER=$(read_door "cert_provider")
+ENABLED=$(read_door "enabled")
+OPERATOR=$(read_garden "operator_entity")
+
+# Defaults
+SERVICE="${SERVICE:-nginx}"
+CERT_PROVIDER="${CERT_PROVIDER:-certbot}"
+ENABLED="${ENABLED:-true}"
+DOOR_FQDN="${DOOR_FQDN:-$FQDN}"
+
+if [ "$ENABLED" = "false" ]; then
+  warn "Door $FQDN is marked enabled: false in config.yaml — skipping deploy. Use control/remove-door to deactivate."
+  exit 0
+fi
+
+[ -n "$DOOR_FQDN" ] || fail "config.yaml must contain fqdn field."
+
+# --- Cert handling ---
+NGINX_CONF_DIR="/etc/nginx/sites-available"
+NGINX_CONF_ENABLED="/etc/nginx/sites-enabled"
+NGINX_CONF_PATH="$NGINX_CONF_DIR/$DOOR_FQDN.conf"
+
+case "$CERT_PROVIDER" in
+  certbot)
+    if ! command -v certbot >/dev/null 2>&1; then
+      fail "certbot not found. Install: sudo apt-get install certbot python3-certbot-nginx"
+    fi
+    # Issue cert if not already present
+    CERT_PATH="/etc/letsencrypt/live/$DOOR_FQDN/fullchain.pem"
+    if [ ! -f "$CERT_PATH" ]; then
+      echo "Requesting TLS cert for $DOOR_FQDN via certbot..."
+      sudo certbot certonly --nginx -d "$DOOR_FQDN" || fail "certbot failed for $DOOR_FQDN"
+    fi
+    SSL_CERT_LINE="ssl_certificate /etc/letsencrypt/live/${DOOR_FQDN}/fullchain.pem;"
+    SSL_KEY_LINE="ssl_certificate_key /etc/letsencrypt/live/${DOOR_FQDN}/privkey.pem;"
+    ;;
+  self-signed)
+    CERT_DIR="/etc/ssl/garden/$DOOR_FQDN"
+    sudo mkdir -p "$CERT_DIR"
+    if [ ! -f "$CERT_DIR/fullchain.pem" ]; then
+      echo "Generating self-signed cert for $DOOR_FQDN..."
+      sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout "$CERT_DIR/privkey.pem" \
+        -out "$CERT_DIR/fullchain.pem" \
+        -subj "/CN=$DOOR_FQDN" 2>/dev/null
+    fi
+    SSL_CERT_LINE="ssl_certificate ${CERT_DIR}/fullchain.pem;"
+    SSL_KEY_LINE="ssl_certificate_key ${CERT_DIR}/privkey.pem;"
+    ;;
+  manual)
+    # Operator provides cert paths via config; just read them
+    CERT_FILE=$(grep "^\s*cert_file:" "$DOOR_CONFIG" | head -1 | sed 's/^[^:]*: *//' | tr -d '"')
+    KEY_FILE=$(grep "^\s*key_file:" "$DOOR_CONFIG" | head -1 | sed 's/^[^:]*: *//' | tr -d '"')
+    [ -n "$CERT_FILE" ] || fail "cert_provider: manual requires cert_file field in config.yaml"
+    [ -n "$KEY_FILE" ]  || fail "cert_provider: manual requires key_file field in config.yaml"
+    SSL_CERT_LINE="ssl_certificate ${CERT_FILE};"
+    SSL_KEY_LINE="ssl_certificate_key ${KEY_FILE};"
+    ;;
+  *)
+    fail "Unknown cert_provider: $CERT_PROVIDER (expected: certbot, self-signed, manual)"
+    ;;
+esac
+
+# --- Generate nginx config ---
+# Use per-door override template if present; otherwise generate from config
+CUSTOM_TMPL="$DOOR_DIR/nginx.conf.tmpl"
+
+if [ -f "$CUSTOM_TMPL" ]; then
+  # Use operator-provided template; substitute known variables
+  NGINX_CONF_CONTENT=$(sed \
+    -e "s|{{fqdn}}|${DOOR_FQDN}|g" \
+    -e "s|{{upstream}}|${UPSTREAM}|g" \
+    -e "s|{{operator}}|${OPERATOR}|g" \
+    "$CUSTOM_TMPL")
+elif [ -n "$UPSTREAM" ]; then
+  # Standard proxy config
+  NGINX_CONF_CONTENT="server {
+    listen 443 ssl http2;
+    server_name ${DOOR_FQDN};
+
+    ${SSL_CERT_LINE}
+    ${SSL_KEY_LINE}
+    ssl_dhparam /etc/ssl/ffdhe3072.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    location / {
+        proxy_pass ${UPSTREAM};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+
+server {
+    listen 80;
+    server_name ${DOOR_FQDN};
+    return 301 https://\$host\$request_uri;
+}"
+else
+  # Static site config (no upstream)
+  NGINX_CONF_CONTENT="server {
+    listen 443 ssl http2;
+    server_name ${DOOR_FQDN};
+
+    ${SSL_CERT_LINE}
+    ${SSL_KEY_LINE}
+    ssl_dhparam /etc/ssl/ffdhe3072.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    root /var/www/${DOOR_FQDN};
+    index index.html;
+
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
+}
+
+server {
+    listen 80;
+    server_name ${DOOR_FQDN};
+    return 301 https://\$host\$request_uri;
+}"
+fi
+
+# --- Write nginx config ---
+echo "$NGINX_CONF_CONTENT" | sudo tee "$NGINX_CONF_PATH" > /dev/null
+sudo ln -sf "$NGINX_CONF_PATH" "$NGINX_CONF_ENABLED/$DOOR_FQDN.conf" 2>/dev/null || true
+
+# --- Test and reload nginx ---
+sudo nginx -t || fail "nginx config test failed — check $NGINX_CONF_PATH"
+sudo nginx -s reload
+
+ok "$DOOR_FQDN — deployed and nginx reloaded"

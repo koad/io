@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# remove-door <fqdn> [--revoke-cert] — take a door down, archive its config
+# Removes nginx vhost, optionally revokes cert, archives door config.
+# Idempotent: safe to re-run.
+# SPEC: VESTA-SPEC-119 §6.5, §9.2
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GARDEN_ROOT="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$GARDEN_ROOT/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: remove-door — $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}OK: remove-door — $*${NC}"; }
+warn() { echo -e "${YEL}WARN: remove-door — $*${NC}" >&2; }
+
+FQDN="${1:-}"
+REVOKE_CERT=0
+
+shift || true
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --revoke-cert) REVOKE_CERT=1; shift ;;
+    *) shift ;;
+  esac
+done
+
+[ -n "$FQDN" ] || fail "Usage: control/remove-door <fqdn> [--revoke-cert]"
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $GARDEN_ROOT"
+
+NGINX_CONF_DIR="/etc/nginx/sites-available"
+NGINX_CONF_ENABLED="/etc/nginx/sites-enabled"
+NGINX_CONF="$NGINX_CONF_DIR/$FQDN.conf"
+NGINX_ENABLED_LINK="$NGINX_CONF_ENABLED/$FQDN.conf"
+
+# Remove nginx vhost config and link
+if [ -L "$NGINX_ENABLED_LINK" ] || [ -f "$NGINX_ENABLED_LINK" ]; then
+  sudo rm -f "$NGINX_ENABLED_LINK"
+  echo "Removed: $NGINX_ENABLED_LINK"
+else
+  warn "nginx enabled link not found: $NGINX_ENABLED_LINK (may already be removed)"
+fi
+
+if [ -f "$NGINX_CONF" ]; then
+  sudo rm -f "$NGINX_CONF"
+  echo "Removed: $NGINX_CONF"
+else
+  warn "nginx config not found: $NGINX_CONF (may already be removed)"
+fi
+
+# Test nginx config before reloading
+if sudo nginx -t 2>/dev/null; then
+  sudo nginx -s reload
+  echo "nginx reloaded."
+else
+  warn "nginx config test failed after removing $FQDN. Check nginx config manually."
+fi
+
+# Optionally revoke cert
+if [ "$REVOKE_CERT" -eq 1 ]; then
+  if command -v certbot >/dev/null 2>&1; then
+    CERT_PATH="/etc/letsencrypt/live/$FQDN"
+    if [ -d "$CERT_PATH" ]; then
+      sudo certbot delete --cert-name "$FQDN" && echo "Cert revoked for $FQDN" || warn "certbot delete failed for $FQDN"
+    else
+      warn "No certbot cert found for $FQDN at $CERT_PATH"
+    fi
+  else
+    warn "--revoke-cert requested but certbot not found. Cert not revoked."
+  fi
+fi
+
+# Archive door config to doors/.archive/<fqdn>-<timestamp>/
+DOOR_DIR="$GARDEN_ROOT/doors/$FQDN"
+if [ -d "$DOOR_DIR" ]; then
+  TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
+  ARCHIVE_DIR="$GARDEN_ROOT/doors/.archive/${FQDN}-${TIMESTAMP}"
+  mkdir -p "$ARCHIVE_DIR"
+  cp -r "$DOOR_DIR"/. "$ARCHIVE_DIR/"
+  echo "Door config archived to: $ARCHIVE_DIR"
+fi
+
+# Note: doors/<fqdn>/ directory is NOT removed — operator decision.
+warn "doors/${FQDN}/ preserved — remove manually if permanently retiring this door."
+
+ok "$FQDN — door removed"

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# post-install — print next-steps after garden embed
+# Runs after install. $TARGET, $GARDEN_NAME, $OPERATOR_ENTITY are in scope.
+# SPEC: VESTA-SPEC-119 §10.1
+
+GRN='\033[0;32m'
+CYN='\033[0;36m'
+NC='\033[0m'
+
+GARDEN_TARGET="${TARGET:-$WORKDIR}"
+GNAME="${GARDEN_NAME:-<garden-name>}"
+ENTITY="${OPERATOR_ENTITY:-<entity>}"
+
+echo ""
+echo -e "${GRN}Garden embedded at: ${GARDEN_TARGET}${NC}"
+echo ""
+echo "Next steps:"
+echo ""
+echo -e "  1. Review manifest:   ${CYN}${GARDEN_TARGET}/manifest.yaml${NC}"
+echo -e "  2. Add a door:        ${CYN}${GARDEN_TARGET}/control/deploy-door <fqdn>${NC}"
+echo -e "  3. Check status:      ${CYN}${GARDEN_TARGET}/control/status${NC}"
+echo -e "  4. Spawn a seed:      ${CYN}alice spawn seed --path ${GARDEN_TARGET}/devices/<name> --operator ${ENTITY}${NC}"
+echo ""
+echo "All control scripts read manifest.yaml — edit it there to manage doors and devices."
+echo ""

@@ -1,0 +1,58 @@
+# <GARDEN_NAME>
+
+**Operator:** <OPERATOR_ENTITY>
+**Purpose:** <GARDEN_PURPOSE>
+**Created:** <CREATED_DATE>
+**Spec:** VESTA-SPEC-119
+
+---
+
+## What This Garden Is
+
+This garden is the production workspace for **<OPERATOR_ENTITY>**. It embeds into the entity
+directory, making `~/.<OPERATOR_ENTITY>/` a complete operational unit: identity, memory, commands,
+and the production surface (doors, devices, projects) all in one place.
+
+## Doors
+
+Doors are the public entry points this entity serves. See `doors/` for per-door configuration
+and `manifest.yaml` for the active door list.
+
+To add a door:
+1. Create `doors/<fqdn>/config.yaml`
+2. Run `control/deploy-door <fqdn>`
+
+## Devices
+
+Devices are the seeds (VPS/nodes) this entity operates. See `devices/` for device records and
+`manifest.yaml` for the active device list.
+
+Destroyed seeds are archived to `devices/.archive/` per VESTA-SPEC-119 §15.
+
+## Projects
+
+`projects/` holds the actual work — services, research, tools. Freeform structure; the operator
+fills this in.
+
+## Operating
+
+```bash
+# Check garden status
+./control/status
+
+# Deploy a door
+./control/deploy-door <fqdn>
+
+# Sync all doors to match manifest
+./control/sync-doors
+
+# List devices and their state
+./control/list-seeds
+
+# Verify door reachability
+./control/verify-doors
+```
+
+---
+
+*Garden managed per VESTA-SPEC-119. All control scripts read `manifest.yaml`.*

@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# list-seeds — enumerate devices/ (active and archived), print table
+# Read-only. Idempotent.
+# SPEC: VESTA-SPEC-119 §9.2
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GARDEN_ROOT="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$GARDEN_ROOT/manifest.yaml"
+DEVICES_DIR="$GARDEN_ROOT/devices"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+CYN='\033[0;36m'
+BLD='\033[1m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: list-seeds — $*${NC}" >&2; exit 1; }
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $GARDEN_ROOT"
+
+parse_json_field() {
+  local file="$1"
+  local field="$2"
+  python3 -c "import json,sys; d=json.load(open('$file')); print(d.get('$field',''))" 2>/dev/null \
+    || grep "\"$field\"" "$file" | head -1 | sed 's/.*: *"\([^"]*\)".*/\1/'
+}
+
+echo ""
+echo -e "${BLD}Active Devices${NC}"
+echo ""
+
+active_count=0
+if [ -d "$DEVICES_DIR" ]; then
+  for record in "$DEVICES_DIR"/*.json; do
+    [ -f "$record" ] || continue
+    hostname=$(parse_json_field "$record" "hostname")
+    status=$(parse_json_field "$record" "status")
+    ip=$(parse_json_field "$record" "ip")
+    datacenter=$(parse_json_field "$record" "datacenter")
+    role=$(parse_json_field "$record" "role")
+    operator=$(parse_json_field "$record" "operator_entity")
+
+    [ -z "$hostname" ] && hostname=$(basename "$record" .json)
+
+    if [ "$status" = "running" ]; then
+      sc="$GRN"
+    elif [ "$status" = "destroyed" ]; then
+      sc="$RED"
+    else
+      sc="$YEL"
+    fi
+
+    printf "  ${sc}%-30s${NC}  role=%-6s  status=%-10s  ip=%-15s  dc=%s\n" \
+      "$hostname" "${role:-?}" "${status:-?}" "${ip:-?}" "${datacenter:-?}"
+    active_count=$((active_count + 1))
+  done
+fi
+
+if [ "$active_count" -eq 0 ]; then
+  echo -e "  ${YEL}(no active device records)${NC}"
+fi
+
+echo ""
+
+# --- Archived devices ---
+ARCHIVE_DIR="$DEVICES_DIR/.archive"
+archive_count=0
+if [ -d "$ARCHIVE_DIR" ]; then
+  archive_count=$(find "$ARCHIVE_DIR" -name "*.json" 2>/dev/null | wc -l)
+fi
+
+if [ "$archive_count" -gt 0 ]; then
+  echo -e "${BLD}Archived Devices (destroyed)${NC}"
+  echo ""
+  find "$ARCHIVE_DIR" -name "*.json" -printf "%T@ %p\n" 2>/dev/null | sort -rn | while read -r ts filepath; do
+    fname=$(basename "$filepath")
+    hostname=$(parse_json_field "$filepath" "hostname")
+    terminated=$(parse_json_field "$filepath" "terminated")
+    [ -z "$hostname" ] && hostname="$fname"
+    printf "  ${CYN}%-45s${NC}  terminated=%s\n" "$hostname" "${terminated:-unknown}"
+  done
+  echo ""
+fi
+
+echo -e "OK: list-seeds — ${active_count} active, ${archive_count} archived"
