@@ -260,14 +260,55 @@ SovereignProfile.verifyChain = async function(tipCid) {
 };
 
 /**
+ * Derive relationship-annotated kingdom records for a given entity.
+ * Pure function — no DB access. Call this before render() to build
+ * the kingdomsPerspective argument.
+ *
+ * Relationship rules (per flight plan / VESTA-SPEC-115):
+ *   'sovereign' — entity is the kingdom's sovereign field
+ *   'member'    — entity appears in the kingdom's members array and is not sovereign
+ *   'peer'      — otherwise (indexed but no explicit membership)
+ *
+ * @param {string} entityName — entity handle to derive perspective for
+ * @param {Array}  kingdomsArray — array of kingdom records (from Kingdoms.find().fetch())
+ * @returns {Array<{ name, domain, sovereigntyModel, relationship }>}
+ */
+SovereignProfile.kingdomsFor = function(entityName, kingdomsArray) {
+  if (!entityName || !Array.isArray(kingdomsArray)) return [];
+
+  return kingdomsArray.map(k => {
+    let relationship;
+    if (k.sovereign === entityName) {
+      relationship = 'sovereign';
+    } else if (Array.isArray(k.memberHandles) && k.memberHandles.includes(entityName)) {
+      relationship = 'member';
+    } else {
+      relationship = 'peer';
+    }
+
+    return {
+      name: k.name || k._id,
+      domain: k.domain || null,
+      sovereigntyModel: k.sovereigntyModel || null,
+      relationship,
+    };
+  });
+};
+
+/**
  * Prepare profile data for template rendering.
  * Returns a structured object ready for Blaze template helpers.
  *
+ * kingdoms is returned as a top-level key (not nested under profile) because
+ * Muse's templates reference {{#if kingdoms.length}} / {{#each kingdoms}} at
+ * the top level of the template data object.
+ *
  * @param {object} profileData — raw profile data from resolve()
  * @param {object} [opts]
- * @param {boolean} [opts.verified] — whether chain verification passed
- * @param {string}  [opts.entity]   — entity name
- * @returns {object} — render-ready data
+ * @param {boolean} [opts.verified]            — whether chain verification passed
+ * @param {string}  [opts.entity]              — entity name
+ * @param {Array}   [opts.kingdomsPerspective] — output of kingdomsFor(); if absent, kingdoms is undefined
+ * @returns {object} — render-ready data ({ profile, kingdoms })
  */
 SovereignProfile.render = function(profileData, opts = {}) {
   if (!profileData) return null;
@@ -287,7 +328,15 @@ SovereignProfile.render = function(profileData, opts = {}) {
                         (opts.chainEntries ? opts.chainEntries.length : (profileData.chainDepth || 0));
   const lastUpdated   = opts.lastUpdated   || profileData.lastUpdated   || null;
 
-  return {
+  // kingdoms is included at the top level alongside the profile fields.
+  // Muse's profile-full.html references {{#if kingdoms.length}} / {{#each kingdoms}}
+  // at the template data root (not nested under profile). When kingdomsPerspective is
+  // absent, kingdoms is omitted entirely — {{#if kingdoms.length}} guards prevent rendering.
+  const kingdoms = Array.isArray(opts.kingdomsPerspective)
+    ? opts.kingdomsPerspective
+    : undefined;
+
+  const result = {
     name: profileData.name || opts.entity || 'Unknown',
     bio: profileData.bio || '',
     avatar: profileData.avatar || null,
@@ -305,6 +354,10 @@ SovereignProfile.render = function(profileData, opts = {}) {
     chainDepth,
     lastUpdated,
   };
+
+  if (kingdoms !== undefined) result.kingdoms = kingdoms;
+
+  return result;
 };
 
 // ── Attach to koad global ─────────────────────────────────────────────────────
