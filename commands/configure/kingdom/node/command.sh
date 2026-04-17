@@ -53,8 +53,16 @@ check_required_variables() {
 
 check_required_variables
 
-HUMAN_SSH_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
-ENTITY_SSH_KEY_PATH="$ENTITY_DIR/id/ed25519.pub"
+# One user per VPS. User name = invoker.
+# If $ENTITY is set (invoked via entity launcher), use entity identity.
+# Otherwise (invoked via koad-io directly), use the logged-in human.
+if [ -n "$ENTITY" ] && [ "$ENTITY" != "koad-io" ]; then
+    VPS_USER="$ENTITY"
+    VPS_SSH_KEY_PATH="$ENTITY_DIR/id/ed25519.pub"
+else
+    VPS_USER="$(whoami)"
+    VPS_SSH_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
+fi
 
 get_ssh_key() {
     if [ ! -f "$1" ]; then
@@ -64,20 +72,17 @@ get_ssh_key() {
     cat "$1"
 }
 
-HUMAN_SSH_KEY=$(get_ssh_key "$HUMAN_SSH_KEY_PATH")
-ENTITY_SSH_KEY=$(get_ssh_key "$ENTITY_SSH_KEY_PATH")
+VPS_SSH_KEY=$(get_ssh_key "$VPS_SSH_KEY_PATH")
 
-CLOUD_INIT_DIR="$ENTITY_DIR/.local"
+CLOUD_INIT_DIR="${ENTITY_DIR:-$HOME}/.local"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLOUD_INIT_TEMPLATE="$SCRIPT_DIR/template.yaml"
 CLOUD_INIT="$CLOUD_INIT_DIR/cloud-init-node.yaml"
 
 mkdir -p "$CLOUD_INIT_DIR"
 
-sed -e "s|<LOGGED_IN_HUMAN>|$(whoami)|g" \
-    -e "s|<HUMAN_SSH_KEY>|$HUMAN_SSH_KEY|g" \
-    -e "s|<ENTITY_USER>|$ENTITY|g" \
-    -e "s|<ENTITY_SSH_KEY>|$ENTITY_SSH_KEY|g" \
+sed -e "s|<VPS_USER>|$VPS_USER|g" \
+    -e "s|<VPS_SSH_KEY>|$VPS_SSH_KEY|g" \
     -e "s|<NETBIRD_SETUP_KEY>|$NETBIRD_SETUP_KEY|g" \
     -e "s|<NETBIRD_MGMT_URL>|$NETBIRD_MGMT_URL|g" \
     "$CLOUD_INIT_TEMPLATE" > "$CLOUD_INIT"

@@ -35,8 +35,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-HUMAN_SSH_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
-ENTITY_SSH_KEY_PATH="$ENTITY_DIR/id/ed25519.pub"
+# One user per VPS. User name = invoker.
+# If $ENTITY is set (invoked via entity launcher), use entity identity.
+# Otherwise (invoked via koad-io directly), use the logged-in human.
+if [ -n "$ENTITY" ] && [ "$ENTITY" != "koad-io" ]; then
+    VPS_USER="$ENTITY"
+    VPS_SSH_KEY_PATH="$ENTITY_DIR/id/ed25519.pub"
+else
+    VPS_USER="$(whoami)"
+    VPS_SSH_KEY_PATH="$HOME/.ssh/id_ed25519.pub"
+fi
 
 get_ssh_key() {
     if [ ! -f "$1" ]; then
@@ -46,8 +54,7 @@ get_ssh_key() {
     cat "$1"
 }
 
-HUMAN_SSH_KEY=$(get_ssh_key "$HUMAN_SSH_KEY_PATH")
-ENTITY_SSH_KEY=$(get_ssh_key "$ENTITY_SSH_KEY_PATH")
+VPS_SSH_KEY=$(get_ssh_key "$VPS_SSH_KEY_PATH")
 
 # Domain for the seed node — used in nginx config and certbot.
 # Source priority: --domain flag > env KOAD_IO_DOMAIN > interactive prompt.
@@ -62,17 +69,15 @@ fi
 # Source priority: env KOAD_IO_CERTBOT_EMAIL > creator default.
 CERTBOT_EMAIL="${KOAD_IO_CERTBOT_EMAIL:-koad@koad.sh}"
 
-CLOUD_INIT_DIR="$ENTITY_DIR/.local"
+CLOUD_INIT_DIR="${ENTITY_DIR:-$HOME}/.local"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLOUD_INIT_TEMPLATE="$SCRIPT_DIR/template.yaml"
 CLOUD_INIT="$CLOUD_INIT_DIR/cloud-init-seed.yaml"
 
 mkdir -p "$CLOUD_INIT_DIR"
 
-sed -e "s|<LOGGED_IN_HUMAN>|$(whoami)|g" \
-    -e "s|<HUMAN_SSH_KEY>|$HUMAN_SSH_KEY|g" \
-    -e "s|<ENTITY_USER>|$ENTITY|g" \
-    -e "s|<ENTITY_SSH_KEY>|$ENTITY_SSH_KEY|g" \
+sed -e "s|<VPS_USER>|$VPS_USER|g" \
+    -e "s|<VPS_SSH_KEY>|$VPS_SSH_KEY|g" \
     -e "s|<KOAD_IO_DOMAIN>|${CERTBOT_DOMAIN:-kingdom.local}|g" \
     -e "s|<CERTBOT_EMAIL>|$CERTBOT_EMAIL|g" \
     "$CLOUD_INIT_TEMPLATE" > "$CLOUD_INIT"
@@ -101,10 +106,11 @@ fi
 echo ""
 echo "After pasting into Hetzner and VPS boots:"
 echo "  1. Get the VPS IP from Hetzner dashboard"
-echo "  2. Point <KOAD_IO_DOMAIN> A record -> VPS IP  (if using a real domain)"
 if [ -n "$CERTBOT_DOMAIN" ] && [ "$CERTBOT_DOMAIN" != "kingdom.local" ]; then
     echo "  2. Point $CERTBOT_DOMAIN A record -> VPS IP"
+else
+    echo "  2. Point <KOAD_IO_DOMAIN> A record -> VPS IP  (if using a real domain)"
 fi
 echo "  3. Wait for DNS propagation"
-echo "  4. SSH in: ssh ${CERTBOT_DOMAIN:-zero.koad.sh}"
+echo "  4. SSH in: ssh $VPS_USER@${CERTBOT_DOMAIN:-<VPS_IP>}"
 echo "  5. Run:  koad-io configure daemon    (Netbird mgmt + IPFS + services)"

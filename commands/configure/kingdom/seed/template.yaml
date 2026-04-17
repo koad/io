@@ -3,19 +3,12 @@
 hostname: kingdom-seed
 
 users:
-  - name: <LOGGED_IN_HUMAN>
+  - name: <VPS_USER>
     groups: users, admin, docker
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     ssh_authorized_keys:
-      - <HUMAN_SSH_KEY>
-
-  - name: <ENTITY_USER>
-    groups: users, admin, docker
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/bash
-    ssh_authorized_keys:
-      - <ENTITY_SSH_KEY>
+      - <VPS_SSH_KEY>
 
 packages:
   - curl
@@ -54,36 +47,36 @@ runcmd:
   - ufw allow 49152:65535/udp
   - ufw --force enable
 
-  # nvm + node LTS for entity user
-  - su - <ENTITY_USER> -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash'
-  - su - <ENTITY_USER> -c 'export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && nvm install --lts'
+  # nvm + node LTS for VPS user
+  - su - <VPS_USER> -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash'
+  - su - <VPS_USER> -c 'export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && nvm install --lts'
 
-  # koad-io framework clone (already created by cloud-init users section)
-  - git clone https://github.com/koad/io.git /home/<ENTITY_USER>/.koad-io
-  - chown -R <ENTITY_USER>:<ENTITY_USER> /home/<ENTITY_USER>/.koad-io
+  # koad-io framework clone
+  - git clone https://github.com/koad/io.git /home/<VPS_USER>/.koad-io
+  - chown -R <VPS_USER>:<VPS_USER> /home/<VPS_USER>/.koad-io
 
-  # Wire ~/.koad-io/bin/ onto PATH for entity user
+  # Wire ~/.koad-io/bin/ onto PATH for VPS user
   - |
-    su - <ENTITY_USER> -c 'cat >> $HOME/.bashrc << '\''EOF'\''
+    su - <VPS_USER> -c 'cat >> $HOME/.bashrc << '\''EOF'\''
 # koad:io framework
 export PATH="$HOME/.koad-io/bin:$PATH"
 EOF'
 
   # Starship prompt
-  - su - <ENTITY_USER> -c 'curl -sS https://starship.rs/install.sh | sh -s -- --yes'
+  - su - <VPS_USER> -c 'curl -sS https://starship.rs/install.sh | sh -s -- --yes'
   - |
-    su - <ENTITY_USER> -c 'cat >> $HOME/.bashrc << '\''EOF'\''
+    su - <VPS_USER> -c 'cat >> $HOME/.bashrc << '\''EOF'\''
 eval "$(starship init bash)"
 EOF'
 
-  # Gestate entity (KOAD_IO_QUIET=1 skips interactive prompts; KOAD_IO_DOMAIN + KOAD_IO_HOME_MACHINE provide defaults)
+  # Gestate the invoker (KOAD_IO_QUIET=1 skips interactive prompts; KOAD_IO_DOMAIN + KOAD_IO_HOME_MACHINE provide defaults)
   - |
-    su - <ENTITY_USER> -c '
+    su - <VPS_USER> -c '
       export PATH="$HOME/.koad-io/bin:$PATH"
       export NVM_DIR="$HOME/.nvm"
       . "$NVM_DIR/nvm.sh"
       KOAD_IO_QUIET=1 KOAD_IO_DOMAIN=<KOAD_IO_DOMAIN> KOAD_IO_HOME_MACHINE=kingdom-seed \
-        koad-io gestate <ENTITY_USER>
+        koad-io gestate <VPS_USER>
     '
 
   # TLS via certbot — only run when a real public domain was provided.
