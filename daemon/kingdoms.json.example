@@ -1,0 +1,33 @@
+{
+  "kingdoms": [
+    {
+      "id": "koad-io",
+      "name": "koad:io",
+      "domain": "kingofalldata.com",
+      "sovereign": "koad",
+      "sovereigntyModel": "delegate",
+      "members": [
+        "juno", "vulcan", "vesta", "muse", "mercury", "sibyl",
+        "argus", "salus", "janus", "aegis", "veritas", "iris",
+        "atlas", "hestia", "diana", "apollo", "athena", "hermes",
+        "ares", "poseidon", "hades"
+      ]
+    },
+    {
+      "id": "churchofhappy",
+      "name": "Jesus",
+      "domain": "churchofhappy.com",
+      "sovereign": "jesus",
+      "sovereigntyModel": "solo",
+      "members": ["jesus"]
+    },
+    {
+      "id": "rooty",
+      "name": "Rooty",
+      "domain": "rooty.cc",
+      "sovereign": "rooty",
+      "sovereigntyModel": "community-stewarded",
+      "members": ["rooty"]
+    }
+  ]
+}
