@@ -47,7 +47,7 @@
         </div>
 
         <div class="km-form-actions">
-          <button type="submit" class="btn-primary js-km-unlock-btn" {{#if unlocking}}disabled{{/if}}>
+          <button type="submit" class="btn-primary js-km-unlock-btn" disabled={{unlocking}}>
             {{#if unlocking}}Decrypting…{{else}}Unlock &amp; Sign{{/if}}
           </button>
           <button type="button" class="km-btn-cancel js-km-cancel">Cancel</button>

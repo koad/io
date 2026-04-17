@@ -105,7 +105,7 @@
               <div class="km-error">{{exportError}}</div>
             {{/if}}
             <div class="km-form-actions">
-              <button type="submit" class="btn-primary js-km-export-submit" {{#if exporting}}disabled{{/if}}>
+              <button type="submit" class="btn-primary js-km-export-submit" disabled={{exporting}}>
                 {{#if exporting}}Decrypting…{{else}}Decrypt &amp; Show{{/if}}
               </button>
               <button type="button" class="km-btn-cancel js-km-close-export">Cancel</button>
