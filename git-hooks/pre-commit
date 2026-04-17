@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# pre-commit — kingdom-wide authorship guard
+#
+# Fires on every `git commit` in any repo on this machine (via global hooksPath).
+# If the commit is in an entity repo (/home/koad/.<entity>/), it checks that
+# GIT_AUTHOR_NAME (or git config user.name) matches that entity's expected name.
+#
+# On mismatch: prints a warning to stderr and BLOCKS the commit (exit 1).
+# This prevents accidental cross-entity authorship (e.g. Juno committing to
+# ~/.sibyl/ without setting GIT_AUTHOR_NAME=Sibyl).
+#
+# To override intentionally (e.g. Juno filing a cross-entity document where
+# Juno authorship is correct), set KOAD_IO_AUTHORSHIP_OVERRIDE=1:
+#
+#   KOAD_IO_AUTHORSHIP_OVERRIDE=1 git commit -m "..."
+#
+# Or pass a --no-verify flag (sparingly — creates an unverified commit).
+#
+# Part of the koad:io entity sovereignty protocol.
+# See: ~/.juno/briefs/authorship-leak-direct-bash.md
+
+set -uo pipefail
+
+# Bail early if override is set
+if [[ "${KOAD_IO_AUTHORSHIP_OVERRIDE:-0}" == "1" ]]; then
+  exit 0
+fi
+
+# Determine if we're inside a koad:io entity repo.
+# Entity dirs follow the pattern: /home/<user>/.<entity>/
+REPO_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+REPO_BASENAME="$(basename "$REPO_TOPLEVEL")"
+
+# Must start with a dot and be directly under a home dir
+# Pattern: /home/koad/.sibyl, /home/koad/.vulcan, etc.
+REPO_PARENT="$(dirname "$REPO_TOPLEVEL")"
+if [[ "$REPO_BASENAME" != .* ]]; then
+  # Not an entity dir (no leading dot) — skip check
+  exit 0
+fi
+
+ENTITY_NAME="${REPO_BASENAME#.}"  # strip leading dot
+
+# Check if this entity has a .env with authorship info
+ENTITY_ENV="$REPO_TOPLEVEL/.env"
+if [[ ! -f "$ENTITY_ENV" ]]; then
+  exit 0
+fi
+
+# Extract expected GIT_AUTHOR_NAME from entity's .env
+# Use || true so grep's exit-1-on-no-match doesn't abort the script under set -e
+EXPECTED_AUTHOR="$(grep '^GIT_AUTHOR_NAME=' "$ENTITY_ENV" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'" || true)"
+
+if [[ -z "$EXPECTED_AUTHOR" ]]; then
+  # Entity has no GIT_AUTHOR_NAME in .env — no enforcement possible
+  exit 0
+fi
+
+# Determine the effective author for this commit:
+# GIT_AUTHOR_NAME env var takes precedence over git config.
+EFFECTIVE_AUTHOR="${GIT_AUTHOR_NAME:-$(git config user.name 2>/dev/null || echo "")}"
+
+if [[ "$EFFECTIVE_AUTHOR" != "$EXPECTED_AUTHOR" ]]; then
+  echo "" >&2
+  echo "koad:io authorship guard: BLOCKED" >&2
+  echo "" >&2
+  echo "  Repo:      $REPO_TOPLEVEL" >&2
+  echo "  Expected:  $EXPECTED_AUTHOR" >&2
+  echo "  Effective: ${EFFECTIVE_AUTHOR:-<none>}" >&2
+  echo "" >&2
+  echo "To commit as $EXPECTED_AUTHOR, use inline env vars:" >&2
+  echo "" >&2
+  echo "  GIT_AUTHOR_NAME=\"$EXPECTED_AUTHOR\" \\" >&2
+  echo "  GIT_AUTHOR_EMAIL=\"${ENTITY_NAME}@kingofalldata.com\" \\" >&2
+  echo "  GIT_COMMITTER_NAME=\"$EXPECTED_AUTHOR\" \\" >&2
+  echo "  GIT_COMMITTER_EMAIL=\"${ENTITY_NAME}@kingofalldata.com\" \\" >&2
+  echo "  git commit -m \"...\"" >&2
+  echo "" >&2
+  echo "To override intentionally (e.g. cross-entity filing where your authorship is correct):" >&2
+  echo "" >&2
+  echo "  KOAD_IO_AUTHORSHIP_OVERRIDE=1 git commit -m \"...\"" >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0
