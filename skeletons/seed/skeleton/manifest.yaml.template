@@ -5,6 +5,10 @@ seed:
   operator_entity: <OPERATOR_ENTITY>
   datacenter: <DATACENTER>
   primary_ip_name: <PRIMARY_IP_NAME>
+  # dh_mode controls pull-dh-back behavior (SPEC-120 §4.3, §8.3):
+  #   static   — ffdhe3072 shipped via write_files; pull-dh-back no-ops (default)
+  #   per-box  — on-box DH generation; pull-dh-back copies params locally
+  dh_mode: static
 
 services:
   netbird_management: <NETBIRD_MGMT_ENABLED>
@@ -23,7 +27,3 @@ provider:
   # Override here after spawn if needed.
   seed_type: <SEED_SERVER_TYPE>
   node_type: <SEED_SERVER_TYPE>
-  # dh_mode controls pull-dh-back behavior:
-  #   static   — ffdhe3072 shipped via write_files; pull-dh-back no-ops (default)
-  #   per-box  — on-box DH generation; pull-dh-back copies params locally
-  dh_mode: static

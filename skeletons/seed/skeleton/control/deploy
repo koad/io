@@ -45,7 +45,9 @@ SEED_TYPE=$(read_provider "seed_type")
 # Defaults
 PROVIDER_NAME="${PROVIDER_NAME:-hetzner}"
 IMAGE="${IMAGE:-ubuntu-24.04}"
-SEED_TYPE="${SEED_TYPE:-cx23}"
+# cx23 is EU-only; cpx21 works in US (ash-dc1) and EU — use as safe default.
+# install always writes seed_type so this fallback fires only if manifest is hand-edited incomplete.
+SEED_TYPE="${SEED_TYPE:-cpx21}"
 
 [ -n "$SEED_NAME" ]   || fail "manifest.seed.name is empty."
 [ -n "$SEED_DOMAIN" ] || fail "manifest.seed.domain is empty."

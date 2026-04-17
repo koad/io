@@ -28,12 +28,13 @@ OPERATOR=$(read_seed "operator_entity")
 
 # Bug 3 fix: static DH no-op — if dh_mode is static (or unset, default is static),
 # there is no per-box DH to pull back. ffdhe3072.pem was shipped via cloud-init write_files.
-DH_MODE=$(read_provider "dh_mode")
+# SPEC-120 §4.3 / §8.3: dh_mode lives under seed: block.
+DH_MODE=$(read_seed "dh_mode")
 DH_MODE="${DH_MODE:-static}"
 if [ "$DH_MODE" = "static" ]; then
   ok "Static DH (ffdhe3072) in use — nothing to pull back."
   ok "ffdhe3072.pem was shipped via cloud-init write_files; no per-box generation occurred."
-  ok "To use per-box DH generation: set provider.dh_mode: per-box in manifest.yaml and redeploy."
+  ok "To use per-box DH generation: set seed.dh_mode: per-box in manifest.yaml and redeploy."
   exit 0
 fi
 

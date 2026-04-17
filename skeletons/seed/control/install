@@ -208,6 +208,8 @@ seed:
   operator_entity: ${OPERATOR_ENTITY}
   datacenter: ${DATACENTER}
   primary_ip_name: ${PRIMARY_IP_NAME}
+  # dh_mode: per-box   # set to "per-box" if generating DH params on-box (adds 10-15 min)
+  dh_mode: static       # default: RFC 7919 ffdhe3072 shipped via write_files; pull-dh-back no-ops
 
 services:
   netbird_management: ${NETBIRD_MGMT}
@@ -221,8 +223,6 @@ provider:
   image: ubuntu-24.04
   seed_type: ${DEFAULT_SERVER_TYPE}
   node_type: ${DEFAULT_SERVER_TYPE}
-  # dh_mode: per-box   # set to "per-box" if generating DH params on-box (adds 10-15 min)
-  dh_mode: static       # default: RFC 7919 ffdhe3072 shipped via write_files; pull-dh-back no-ops
 MANIFEST
 
 # --- Make runtime control/ scripts executable ---

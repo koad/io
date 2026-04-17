@@ -216,6 +216,20 @@ else
 fi
 
 cp "$MANIFEST" "$ARCHIVE_MANIFEST"
+
+# Append archived: block per SPEC-120 §15.1.3 (+ SPEC-119 §15.6.2 for garden mode)
+ARCHIVED_TS="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+{
+  printf '\n# --- archived ---\n'
+  printf 'archived:\n'
+  printf '  status: archived\n'
+  printf '  terminated: "%s"\n' "$ARCHIVED_TS"
+  printf '  reason: destroy-seed\n'
+  if [ -n "$GARDEN_ROOT" ]; then
+    printf '  garden_root: "%s"\n' "$GARDEN_ROOT"
+  fi
+} >> "$ARCHIVE_MANIFEST"
+
 ok "Manifest archived: $ARCHIVE_MANIFEST"
 echo ""
 
