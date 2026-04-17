@@ -1,11 +1,283 @@
 #!/usr/bin/env bash
-# destroy-seed — STUB ONLY
-# Full seed destroy (server + Primary IP + archive) is not yet implemented.
-# SPEC: VESTA-SPEC-120 §15.1 (open question — archive protocol not yet specified)
+# destroy-seed — full seed teardown: VM + Primary IP + archive + hook removal
+# Implements VESTA-SPEC-120 §15.1 (10-step sequence, archive protocol, confirmation gate)
+# and VESTA-SPEC-119 §15 (garden-mode archive convention, dangling-reference warning).
+#
+# Options:
+#   --dry-run   Print all planned actions without executing. Exit 0.
+#   --force     Skip typed-confirmation gate (still prints dangling-reference warning).
+#
+# Step logging: [STEP] before, [OK] after, [FAIL] on error.
+# Failure exits immediately — partial destruction is surfaced, not silently skipped.
 
-echo "destroy-seed is not yet implemented — pending VESTA-SPEC-120 §15.1 amendment."
-echo "The archive protocol (where manifest and device records go, retention policy) is deferred."
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKDIR="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$WORKDIR/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+CYN='\033[0;36m'
+NC='\033[0m'
+
+fail()  { echo -e "${RED}[FAIL] $*${NC}" >&2; exit 1; }
+ok()    { echo -e "${GRN}[OK]   $*${NC}"; }
+warn()  { echo -e "${YEL}[WARN] $*${NC}" >&2; }
+step()  { echo -e "${CYN}[STEP] $*${NC}"; }
+info()  { echo "       $*"; }
+
+DRY_RUN=0
+FORCE=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --force)   FORCE=1;   shift ;;
+    *)         shift ;;
+  esac
+done
+
+# ============================================================
+# Step 1: Pre-flight checks
+# ============================================================
+step "1/10 Pre-flight checks"
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $WORKDIR — is this a spawned seed?"
+
+read_seed()     { grep -A20 "^seed:"     "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+read_provider() { grep -A20 "^provider:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+
+SEED_NAME=$(read_seed "name")
+SEED_DOMAIN=$(read_seed "domain")
+PRIMARY_IP_NAME=$(read_seed "primary_ip_name")
+API_CONTEXT=$(read_provider "api_context")
+
+[ -n "$SEED_DOMAIN" ]     || fail "manifest.seed.domain is empty."
+[ -n "$PRIMARY_IP_NAME" ] || fail "manifest.seed.primary_ip_name is empty."
+
+# Check for running child nodes (dependency gate — SPEC §15.1.5)
+DEVICES_DIR="$WORKDIR/devices"
+RUNNING_NODES=()
+if [ -d "$DEVICES_DIR" ]; then
+  while IFS= read -r -d '' rec; do
+    role=$(jq -r '.role // empty' "$rec" 2>/dev/null || true)
+    status=$(jq -r '.status // empty' "$rec" 2>/dev/null || true)
+    if [ "$role" = "node" ] && [ "$status" = "running" ]; then
+      RUNNING_NODES+=("$rec")
+    fi
+  done < <(find "$DEVICES_DIR" -maxdepth 1 -name "*.json" -not -name ".spawn.json" -print0 2>/dev/null)
+fi
+
+if [ "${#RUNNING_NODES[@]}" -gt 0 ]; then
+  fail "Dependency check failed: ${#RUNNING_NODES[@]} running node(s) found. Destroy them first:
+$(printf '  %s\n' "${RUNNING_NODES[@]}")"
+fi
+
+command -v hcloud >/dev/null 2>&1 || fail "hcloud CLI not found. Install and authenticate before running destroy-seed."
+
+DEVICE_RECORD="$DEVICES_DIR/${SEED_DOMAIN}.json"
+[ -f "$DEVICE_RECORD" ] || fail "Device record not found at $DEVICE_RECORD — cannot proceed without server_id."
+
+SERVER_ID=$(jq -r '.server_id // empty' "$DEVICE_RECORD")
+[ -n "$SERVER_ID" ] && [ "$SERVER_ID" != "unknown" ] || fail "No valid server_id in device record ($DEVICE_RECORD)."
+
+ok "Pre-flight checks passed."
+info "Seed:        $SEED_DOMAIN"
+info "Server ID:   $SERVER_ID"
+info "Primary IP:  $PRIMARY_IP_NAME"
+info "WORKDIR:     $WORKDIR"
 echo ""
-echo "Use destroy-server to remove the VM while retaining the Primary IP and records:"
-echo "  $(dirname "$0")/destroy-server"
-exit 1
+
+# ============================================================
+# Step 2: --dry-run short-circuit
+# ============================================================
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo -e "${CYN}--- DRY-RUN MODE: no actions will be executed ---${NC}"
+  echo ""
+  echo "Planned actions for: destroy-seed $SEED_DOMAIN"
+  echo "  1/10  [done] Pre-flight checks"
+  echo "  2/10  [skip] Confirmation prompt (--dry-run)"
+  echo "  3b    [plan] Detect garden mode (walk up from $WORKDIR for ENTITY.md)"
+  echo "  4/10  [plan] hcloud server delete $SERVER_ID"
+  echo "  5/10  [plan] hcloud primary-ip delete $PRIMARY_IP_NAME"
+  echo "  6/10  [plan] Archive device record to <archive>/${SEED_DOMAIN}[-<ts>].json"
+  echo "  7/10  [plan] Archive manifest.yaml to <archive>/"
+  echo "  8/10  [plan] Scan garden manifest for dangling references to $SEED_DOMAIN"
+  echo "  9/10  [plan] rm ~/.koad-io/bin/$SEED_DOMAIN"
+  echo " 10/10  [plan] rm $MANIFEST"
+  echo ""
+  echo "Run without --dry-run to execute. Use --force to skip confirmation prompt."
+  exit 0
+fi
+
+# ============================================================
+# Step 3: Domain confirmation gate
+# ============================================================
+if [ "$FORCE" -eq 0 ]; then
+  echo -e "${RED}WARNING: This will PERMANENTLY DESTROY the seed $SEED_DOMAIN.${NC}"
+  echo "  - Server VM (server_id: $SERVER_ID) will be deleted."
+  echo "  - Primary IP ($PRIMARY_IP_NAME) will be DELETED (not recoverable)."
+  echo "  - Device hook (~/.koad-io/bin/$SEED_DOMAIN) will be removed."
+  echo ""
+  if [ -t 0 ]; then
+    read -r -p "Type the exact seed domain to confirm ($SEED_DOMAIN): " CONFIRM
+    [ "$CONFIRM" = "$SEED_DOMAIN" ] || { echo "[FAIL] Confirmation mismatch. Aborted."; exit 1; }
+  else
+    fail "Non-interactive mode: pass --force to skip the confirmation gate."
+  fi
+fi
+echo ""
+
+# ============================================================
+# Step 3b: Garden-mode detection (VESTA-SPEC-119 §15.5)
+# ============================================================
+step "3b    Detecting garden mode"
+GARDEN_ROOT=""
+dir="$WORKDIR"
+while [[ "$dir" != "/" ]]; do
+  dir="$(dirname "$dir")"
+  if [[ -f "$dir/ENTITY.md" ]]; then
+    GARDEN_ROOT="$dir"
+    break
+  fi
+done
+
+DESTROYED_TS="$(date -u +%Y%m%dT%H%M%SZ)"
+
+if [ -n "$GARDEN_ROOT" ]; then
+  ok "Garden mode: GARDEN_ROOT=$GARDEN_ROOT"
+  ARCHIVE_DIR="$GARDEN_ROOT/devices/.archive"
+  ARCHIVE_RECORD="$ARCHIVE_DIR/${SEED_DOMAIN}-${DESTROYED_TS}.json"
+  ARCHIVE_MANIFEST_DIR="$ARCHIVE_DIR/${SEED_DOMAIN}-${DESTROYED_TS}"
+  ARCHIVE_MANIFEST="$ARCHIVE_MANIFEST_DIR/manifest.yaml"
+else
+  ok "Standalone mode: archives within WORKDIR"
+  ARCHIVE_DIR="$WORKDIR/devices/.archive"
+  ARCHIVE_RECORD="$ARCHIVE_DIR/${SEED_DOMAIN}.json"
+  WORKDIR_ARCHIVE="$WORKDIR/.archive"
+  ARCHIVE_MANIFEST="$WORKDIR_ARCHIVE/manifest.yaml"
+fi
+echo ""
+
+HCLOUD_OPTS=()
+[ -n "$API_CONTEXT" ] && HCLOUD_OPTS+=(--context "$API_CONTEXT")
+
+# ============================================================
+# Step 4 (SPEC §15.1.6 step 5): Destroy server VM
+# ============================================================
+step "4/10  Destroy server VM (server_id: $SERVER_ID)"
+if hcloud server delete "${HCLOUD_OPTS[@]}" "$SERVER_ID" 2>/dev/null; then
+  ok "Server $SERVER_ID deleted."
+elif hcloud server delete "${HCLOUD_OPTS[@]}" "${SEED_NAME}-seed" 2>/dev/null; then
+  ok "Server ${SEED_NAME}-seed deleted by name."
+else
+  # 404/not-found is idempotent per SPEC §15.1.6
+  warn "Server not found on Hetzner (already deleted or never created). Continuing."
+fi
+echo ""
+
+# ============================================================
+# Step 5 (SPEC §15.1.6 step 6): Delete Primary IP
+# ============================================================
+step "5/10  Delete Primary IP ($PRIMARY_IP_NAME)"
+if hcloud primary-ip delete "${HCLOUD_OPTS[@]}" "$PRIMARY_IP_NAME" 2>/dev/null; then
+  ok "Primary IP $PRIMARY_IP_NAME deleted."
+else
+  warn "Primary IP $PRIMARY_IP_NAME not found (already deleted). Continuing."
+fi
+echo ""
+
+# ============================================================
+# Step 6 (SPEC §15.1.6 step 7): Archive device record
+# ============================================================
+step "6/10  Archive device record"
+mkdir -p "$ARCHIVE_DIR"
+
+jq \
+  --arg ts "$DESTROYED_TS" \
+  '.status = "archived" | .terminated = $ts' \
+  "$DEVICE_RECORD" > "${DEVICE_RECORD}.tmp" \
+  && mv "${DEVICE_RECORD}.tmp" "$DEVICE_RECORD"
+
+mv "$DEVICE_RECORD" "$ARCHIVE_RECORD"
+ok "Device record archived: $ARCHIVE_RECORD"
+echo ""
+
+# ============================================================
+# Step 7 (SPEC §15.1.6 step 8): Archive manifest
+# ============================================================
+step "7/10  Archive manifest"
+if [ -n "$GARDEN_ROOT" ]; then
+  mkdir -p "$ARCHIVE_MANIFEST_DIR"
+else
+  mkdir -p "$WORKDIR_ARCHIVE"
+fi
+
+cp "$MANIFEST" "$ARCHIVE_MANIFEST"
+ok "Manifest archived: $ARCHIVE_MANIFEST"
+echo ""
+
+# ============================================================
+# Step 8 (SPEC-119 §15 rule 14): Dangling reference warning
+# ============================================================
+step "8/10  Dangling reference scan"
+if [ -n "$GARDEN_ROOT" ]; then
+  GARDEN_MANIFEST="$GARDEN_ROOT/manifest.yaml"
+  if [ -f "$GARDEN_MANIFEST" ]; then
+    if grep -q "$SEED_DOMAIN" "$GARDEN_MANIFEST" 2>/dev/null; then
+      warn "WARNING: manifest.yaml still references destroyed device: $SEED_DOMAIN"
+      warn "Update or remove the entry manually: $GARDEN_MANIFEST"
+    else
+      ok "No dangling references in garden manifest."
+    fi
+  else
+    info "No garden manifest.yaml at $GARDEN_MANIFEST — skipping reference scan."
+  fi
+else
+  info "Standalone mode — no garden manifest to scan."
+fi
+echo ""
+
+# ============================================================
+# Step 9 (SPEC §15.1.6 step 9): Remove device hook
+# ============================================================
+step "9/10  Remove device hook"
+HOOK_PATH="$HOME/.koad-io/bin/$SEED_DOMAIN"
+if [ -f "$HOOK_PATH" ]; then
+  rm -f "$HOOK_PATH"
+  ok "Device hook removed: $HOOK_PATH"
+else
+  info "Device hook not present at $HOOK_PATH — skipping."
+fi
+echo ""
+
+# ============================================================
+# Step 10 (SPEC §15.1.6 step 10): Remove active manifest
+# ============================================================
+step "10/10 Remove active manifest"
+rm -f "$MANIFEST"
+ok "Active manifest removed: $MANIFEST"
+echo ""
+
+# ============================================================
+# Post-destruction report
+# ============================================================
+echo -e "${GRN}===== destroy-seed complete =====${NC}"
+echo ""
+echo "Destroyed:"
+echo "  Server VM:   $SERVER_ID (${SEED_NAME}-seed)"
+echo "  Primary IP:  $PRIMARY_IP_NAME"
+echo "  Device hook: ~/.koad-io/bin/$SEED_DOMAIN"
+echo ""
+echo "Archived:"
+echo "  Device record: $ARCHIVE_RECORD"
+echo "  Manifest:      $ARCHIVE_MANIFEST"
+echo ""
+echo "Preserved (untouched):"
+echo "  WORKDIR assets: $WORKDIR/control/, cloud-init/, nginx/"
+echo "  Entity keys:    ~/.<operator>/id/"
+echo "  DH params:      ~/.<operator>/ssl/"
+echo ""
+echo "Destroyed $SEED_DOMAIN at $DESTROYED_TS"

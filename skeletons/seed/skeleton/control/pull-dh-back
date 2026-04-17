@@ -20,10 +20,22 @@ warn() { echo -e "${YEL}WARN: $*${NC}" >&2; }
 
 [ -f "$MANIFEST" ] || fail "manifest.yaml not found at $WORKDIR — run spawn first."
 
-read_seed() { grep -A20 "^seed:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+read_seed()     { grep -A20 "^seed:"     "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+read_provider() { grep -A20 "^provider:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
 
 SEED_DOMAIN=$(read_seed "domain")
 OPERATOR=$(read_seed "operator_entity")
+
+# Bug 3 fix: static DH no-op — if dh_mode is static (or unset, default is static),
+# there is no per-box DH to pull back. ffdhe3072.pem was shipped via cloud-init write_files.
+DH_MODE=$(read_provider "dh_mode")
+DH_MODE="${DH_MODE:-static}"
+if [ "$DH_MODE" = "static" ]; then
+  ok "Static DH (ffdhe3072) in use — nothing to pull back."
+  ok "ffdhe3072.pem was shipped via cloud-init write_files; no per-box generation occurred."
+  ok "To use per-box DH generation: set provider.dh_mode: per-box in manifest.yaml and redeploy."
+  exit 0
+fi
 
 [ -n "$OPERATOR" ] && [ "$OPERATOR" != "koad-io" ] || fail "No operator entity in manifest — DH pull-back requires an entity. (Mode A deploys generate on-box and keep params there.)"
 

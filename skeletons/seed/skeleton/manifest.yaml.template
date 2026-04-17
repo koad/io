@@ -17,5 +17,13 @@ provider:
   name: hetzner
   # api_context: koad-hetzner    # optional: hcloud CLI context name
   image: ubuntu-24.04
-  seed_type: cx23
-  node_type: cx23
+  # seed_type is auto-selected by datacenter at spawn time:
+  #   ash-dc1 → cpx21 (cx-series unavailable in US)
+  #   fsn/nbg/hel → cx22
+  # Override here after spawn if needed.
+  seed_type: <SEED_SERVER_TYPE>
+  node_type: <SEED_SERVER_TYPE>
+  # dh_mode controls pull-dh-back behavior:
+  #   static   — ffdhe3072 shipped via write_files; pull-dh-back no-ops (default)
+  #   per-box  — on-box DH generation; pull-dh-back copies params locally
+  dh_mode: static

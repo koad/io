@@ -54,6 +54,19 @@ DATACENTER="${FLAG_DATACENTER:-ash-dc1}"
 PRIMARY_IP_NAME="${FLAG_PRIMARY_IP_NAME:-}"
 SERVICES="${FLAG_SERVICES:-netbird_management,ipfs_gateway,stun_turn,nginx,certbot}"
 
+# Bug 2: datacenter-to-server-type map (cx23 is EU-only; cpx21 is cheapest in ash)
+# Overridable via manifest seed.server_type after spawn, or by editing manifest.yaml.
+datacenter_default_server_type() {
+  case "$1" in
+    ash*) echo "cpx21" ;;   # Ashburn, US — cx-series unavailable
+    fsn*) echo "cx22"  ;;   # Falkenstein, EU
+    nbg*) echo "cx22"  ;;   # Nuremberg, EU
+    hel*) echo "cx22"  ;;   # Helsinki, EU
+    *)    echo "cx22"  ;;   # Unknown — EU default
+  esac
+}
+DEFAULT_SERVER_TYPE="$(datacenter_default_server_type "$DATACENTER")"
+
 # Detect entity-dir case
 if [ -f "$WORKDIR/ENTITY.md" ]; then
   DATADIR="$WORKDIR/devices/$SEED_NAME"
@@ -159,6 +172,7 @@ SUBSTITUTIONS=(
   "s|<SEED_DOMAIN>|$SEED_DOMAIN|g"
   "s|<OPERATOR_ENTITY>|$OPERATOR_ENTITY|g"
   "s|<DATACENTER>|$DATACENTER|g"
+  "s|<SEED_SERVER_TYPE>|$DEFAULT_SERVER_TYPE|g"
   "s|<PRIMARY_IP_NAME>|$PRIMARY_IP_NAME|g"
   "s|<CREATED_DATE>|$CREATED_DATE|g"
   "s|<NETBIRD_MGMT_ENABLED>|$NETBIRD_MGMT|g"
@@ -168,7 +182,15 @@ SUBSTITUTIONS=(
   "s|<CERTBOT_ENABLED>|$CERTBOT_SVC|g"
 )
 
+# Process non-cloud-init *.template files (manifest, README, etc.)
+# Cloud-init templates (cloud-init/*.template) are LEFT as .template on disk —
+# they require a second substitution pass at deploy time (user keys, etc.).
+# Bug 1 fix: install must not drop .template from files that deploy expects to find.
 find "$DATADIR" -name "*.template" | while read -r tpl; do
+  # Skip cloud-init/ templates — deploy owns those
+  case "$tpl" in
+    */cloud-init/*) continue ;;
+  esac
   out="${tpl%.template}"
   cp "$tpl" "$out"
   for sub in "${SUBSTITUTIONS[@]}"; do
@@ -197,8 +219,10 @@ services:
 provider:
   name: hetzner
   image: ubuntu-24.04
-  seed_type: cx23
-  node_type: cx23
+  seed_type: ${DEFAULT_SERVER_TYPE}
+  node_type: ${DEFAULT_SERVER_TYPE}
+  # dh_mode: per-box   # set to "per-box" if generating DH params on-box (adds 10-15 min)
+  dh_mode: static       # default: RFC 7919 ffdhe3072 shipped via write_files; pull-dh-back no-ops
 MANIFEST
 
 # --- Make runtime control/ scripts executable ---

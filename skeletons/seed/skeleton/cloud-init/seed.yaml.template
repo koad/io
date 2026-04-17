@@ -117,15 +117,41 @@ runcmd:
   - chmod 644 /etc/profile.d/koad-io.sh
 
   # --- Starship prompt ---
-  - su - <ENTITY_USER> -c 'curl -sS https://starship.rs/install.sh | sh -s -- --yes'
-  - echo 'eval "$(starship init bash)"' >> /home/<ENTITY_USER>/.bashrc
+  # Bug 4 fix: avoid starship install.sh (requires sudo TTY — fails in cloud-init).
+  # Instead: download the binary directly and wire into bashrc.
+  - |
+    STARSHIP_BIN="/home/<ENTITY_USER>/.local/bin/starship"
+    mkdir -p "/home/<ENTITY_USER>/.local/bin"
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+      x86_64)  STARSHIP_ARCH="x86_64-unknown-linux-musl" ;;
+      aarch64) STARSHIP_ARCH="aarch64-unknown-linux-musl" ;;
+      *)       STARSHIP_ARCH="x86_64-unknown-linux-musl" ;;
+    esac
+    STARSHIP_URL="https://github.com/starship/starship/releases/latest/download/starship-${STARSHIP_ARCH}.tar.gz"
+    if curl -fsSL "$STARSHIP_URL" | tar -xz -C "/home/<ENTITY_USER>/.local/bin" starship 2>/dev/null; then
+      chmod +x "$STARSHIP_BIN"
+      chown <ENTITY_USER>:<ENTITY_USER> "$STARSHIP_BIN"
+      echo 'export PATH="$HOME/.local/bin:$PATH"' >> /home/<ENTITY_USER>/.bashrc
+      echo 'eval "$(starship init bash)"' >> /home/<ENTITY_USER>/.bashrc
+    fi
+    chown -R <ENTITY_USER>:<ENTITY_USER> "/home/<ENTITY_USER>/.local"
 
   # --- DH params: ffdhe3072.pem already written via write_files above ---
   # Optional legacy path: generate 4096-bit on-box (adds 10-15 min, not recommended):
   # - openssl dhparam -out /etc/ssl/dhparam-4096-legacy.pem 4096
 
   # --- Gestate entity user on device ---
-  - su - <ENTITY_USER> -c 'export PATH="$HOME/.koad-io/bin:$PATH" KOAD_IO_QUIET=1 KOAD_IO_DOMAIN=<SEED_DOMAIN> KOAD_IO_HOME_MACHINE=<SEED_NAME>; koad-io gestate <ENTITY_USER>'
+  # Bug 4 fix: su - resets env; pass all required vars explicitly inside the subshell.
+  # Do NOT rely on the outer environment surviving through su -.
+  - |
+    su - <ENTITY_USER> -c '
+      export PATH="$HOME/.koad-io/bin:$HOME/.local/bin:$PATH"
+      export KOAD_IO_DOMAIN="<SEED_DOMAIN>"
+      export KOAD_IO_HOME_MACHINE="<SEED_NAME>"
+      export KOAD_IO_QUIET=1
+      koad-io gestate <ENTITY_USER>
+    '
 
   # --- nginx ---
   - systemctl enable nginx

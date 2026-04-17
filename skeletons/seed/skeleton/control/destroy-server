@@ -72,13 +72,12 @@ hcloud server delete "${HCLOUD_OPTS[@]}" "$SERVER_ID" || \
 # Update device record
 jq '.status = "destroyed"' "$DEVICE_RECORD" > "${DEVICE_RECORD}.tmp" && mv "${DEVICE_RECORD}.tmp" "$DEVICE_RECORD"
 
-# Remove device hook if present
-HOOK_PATH="$HOME/.koad-io/bin/$SEED_DOMAIN"
-if [ -f "$HOOK_PATH" ]; then
-  rm "$HOOK_PATH"
-  echo "Device hook removed: $HOOK_PATH"
-fi
+# Bug 5 fix: do NOT remove the device hook here.
+# The hook is kept so it can be reused when the seed is redeployed on the same Primary IP.
+# Hook removal is the responsibility of destroy-seed (full teardown including IP delete).
+# SPEC: VESTA-SPEC-120 §9.6 + §15.1.6 step 9.
 
 ok "Seed VM destroyed. Primary IP $PRIMARY_IP_NAME retained for reuse."
+echo "Device hook ~/.koad-io/bin/$SEED_DOMAIN kept — will work again after redeploy."
 echo ""
 echo "To redeploy with the same IP: ${WORKDIR}/control/deploy"
