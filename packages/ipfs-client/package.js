@@ -8,12 +8,12 @@ Package.describe({
 // Client-side npm deps are bundled by Meteor's build system via dynamic import.
 // Server-side deps are declared here for daemon pinning (Phase 2).
 Npm.depends({
-  '@helia/http': '1.0.2',
-  '@helia/verified-fetch': '2.1.0',
-  'blockstore-opfs': '2.0.1',
-  'blockstore-idb': '1.1.3',
-  'multiformats': '13.3.0',
-  '@ipld/dag-json': '10.2.2'
+  '@helia/http': '3.1.3',
+  '@helia/verified-fetch': '7.2.7',
+  'blockstore-opfs': '0.1.0',
+  'blockstore-idb': '3.0.2',
+  'multiformats': '13.4.2',
+  '@ipld/dag-json': '10.2.7'
 });
 
 Package.onUse(function(api) {

@@ -10,9 +10,9 @@ Package.describe({
 //   @noble/ed25519 — Ed25519 signing and verification
 //   @ipld/dag-json — canonical dag-json serialization per SPEC-111 §3.1
 Npm.depends({
-  'multiformats': '13.3.0',
+  'multiformats': '13.4.2',
   '@noble/ed25519': '2.1.0',
-  '@ipld/dag-json': '10.2.2'
+  '@ipld/dag-json': '10.2.7'
 });
 
 Package.onUse(function(api) {
