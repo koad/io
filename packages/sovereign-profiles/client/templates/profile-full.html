@@ -96,6 +96,29 @@
       </div>
     {{/if}}
 
+    {{!-- Kingdoms — VESTA-SPEC-115 --}}
+    {{#if kingdoms.length}}
+      <div class="profile-full-section profile-kingdoms-section">
+        <h3 class="profile-full-section-heading">Kingdoms</h3>
+        <div class="kingdoms-list">
+          {{#each kingdoms}}
+            <div class="kingdom-row">
+              <span class="kingdom-name">{{name}}</span>
+              {{#if domain}}
+                <span class="kingdom-domain">{{domain}}</span>
+              {{/if}}
+              {{#if sovereigntyModel}}
+                <span class="kingdom-model-badge kingdom-model-{{sovereigntyModel}}">{{sovereigntyModel}}</span>
+              {{/if}}
+              {{#if relationship}}
+                <span class="kingdom-rel-badge kingdom-rel-{{relationship}}">{{relationship}}</span>
+              {{/if}}
+            </div>
+          {{/each}}
+        </div>
+      </div>
+    {{/if}}
+
     {{!-- Social Proofs --}}
     {{#if profile.socialProofs.length}}
       <div class="profile-full-section">

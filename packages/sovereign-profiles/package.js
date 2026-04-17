@@ -39,6 +39,8 @@ Package.onUse(function(api) {
     'client/templates/profile-card.js',
     'client/templates/profile-full.html',
     'client/templates/profile-full.js',
+    'client/templates/kingdoms-overview.html',
+    'client/templates/kingdoms-overview.js',
     'client/templates/key-passphrase-modal.html',
     'client/templates/key-passphrase-modal.js',
     'client/templates/key-management.html',

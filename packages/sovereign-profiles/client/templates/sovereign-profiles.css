@@ -1062,6 +1062,228 @@
 }
 
 /* ══════════════════════════════════════════════════════════════
+   KINGDOMS — profileFull section + kingdomsOverview template
+   Namespace: .profile-kingdoms-* (section inside profileFull)
+              .km-overview-*      (standalone overview template)
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Kingdoms section inside profileFull ─────────────────────────────────── */
+
+.profile-kingdoms-section {
+  border-top: 1px solid var(--sp-border);
+  padding-top: 20px;
+}
+
+.kingdoms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kingdom-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--sp-surface);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.kingdom-name {
+  font-weight: 600;
+  color: var(--sp-text);
+  flex-shrink: 0;
+}
+
+.kingdom-domain {
+  font-family: var(--sp-font-mono);
+  font-size: 11px;
+  color: var(--sp-text-dim);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sovereignty model badge — muted, structured */
+.kingdom-model-badge {
+  font-family: var(--sp-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--sp-text-dim);
+  border: 1px solid var(--sp-border);
+  white-space: nowrap;
+}
+
+/* Relationship badge — accent-tinted per role */
+.kingdom-rel-badge {
+  font-family: var(--sp-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.kingdom-rel-sovereign {
+  background: var(--sp-border-acc);
+  color: var(--sp-accent);
+  border: 1px solid var(--sp-border-acc);
+}
+
+.kingdom-rel-member {
+  background: rgba(74, 144, 217, 0.1);
+  color: var(--sp-blue);
+  border: 1px solid rgba(74, 144, 217, 0.2);
+}
+
+.kingdom-rel-peer {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--sp-text-dim);
+  border: 1px solid var(--sp-border);
+}
+
+/* ── Kingdoms overview template ──────────────────────────────────────────── */
+
+.km-overview {
+  /* Inherits --sp-* from .sovereign-profile-full scope */
+}
+
+.km-overview-header {
+  padding: 28px 0 20px;
+  border-bottom: 1px solid var(--sp-border);
+  margin-bottom: 24px;
+}
+
+.km-overview-heading {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--sp-text);
+  margin: 0 0 6px;
+}
+
+.km-overview-subhead {
+  font-size: 13px;
+  color: var(--sp-text-dim);
+  margin: 0;
+  line-height: 1.6;
+}
+
+.km-overview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.km-overview-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  background: var(--sp-surface);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius);
+  font-size: 13px;
+  transition: background 0.12s;
+  flex-wrap: wrap;
+}
+
+.km-overview-item:hover {
+  background: var(--sp-raised);
+}
+
+.km-overview-item-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.km-overview-name {
+  font-weight: 600;
+  color: var(--sp-text);
+  white-space: nowrap;
+}
+
+.km-overview-domain {
+  font-family: var(--sp-font-mono);
+  font-size: 11px;
+  color: var(--sp-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.km-overview-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.km-overview-sovereign {
+  font-size: 12px;
+  color: var(--sp-text-dim);
+}
+
+.km-overview-model-badge {
+  font-family: var(--sp-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--sp-text-dim);
+  border: 1px solid var(--sp-border);
+  white-space: nowrap;
+}
+
+/* Variant: sovereign model gets accent tint */
+.km-overview-model-sovereign {
+  background: var(--sp-border-acc);
+  color: var(--sp-accent);
+  border-color: var(--sp-border-acc);
+}
+
+.km-overview-count {
+  font-family: var(--sp-font-mono);
+  font-size: 11px;
+  color: var(--sp-subtle);
+  white-space: nowrap;
+}
+
+@media (max-width: 540px) {
+  .km-overview-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .km-overview-item-meta {
+    align-self: stretch;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
    KEY MANAGEMENT SURFACE
    Shared by: keyPassphraseModal, keyManagement, keyImportForm,
               keyGenerateForm

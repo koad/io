@@ -54,6 +54,15 @@ Template.profileFull.helpers({
     return data?.profile || data || {};
   },
 
+  // Optional kingdoms context — array of { name, domain, sovereigntyModel, relationship }
+  // Passed by caller as {{ > profileFull kingdoms=kingdoms ... }}
+  // SovereignProfile.render() does not currently produce this field — caller must supply it.
+  kingdoms() {
+    const data = Template.currentData();
+    const list = data?.kingdoms;
+    return Array.isArray(list) && list.length ? list : null;
+  },
+
   chainHistory() {
     return Template.instance().chainHistory.get();
   },
@@ -68,5 +77,10 @@ Template.profileFull.helpers({
 
   firstLetter(name) {
     return (name || '?').charAt(0).toUpperCase();
+  },
+
+  tipCid() {
+    const data = Template.currentData();
+    return data?.tipCid || null;
   },
 });
