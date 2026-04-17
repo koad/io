@@ -9,6 +9,8 @@
 //   - SovereignProfile.sign: signature present, base64url format
 //   - SovereignProfile.render: render-ready shape
 //   - base64url encode/decode round-trip
+//   - SovereignProfile.publish: delegates to IPFSClient.put, returns CID
+//   - SovereignProfile.verifyChain: delegates fetch to IPFSClient.get (wiring only)
 
 import { SovereignProfile, canonicalPreImage, computeCid, toBase64Url, fromBase64Url } from '../client/profile-builder.js';
 import * as ed from '@noble/ed25519';
@@ -181,4 +183,63 @@ Tinytest.addAsync('sovereign-profiles — computeCid produces stable CIDv1', asy
   // 'bafy...' is dag-cbor (0x71). SPEC-111 examples use 'bafyrei...' illustratively
   // but the specified codec 0x0129 correctly yields 'bagu...'.
   test.isTrue(cid1.startsWith('bagu'), `CIDv1 dag-json starts with bagu (got ${cid1})`);
+});
+
+// ── Publish / resolve wiring tests ────────────────────────────────────────────
+// These tests stub IPFSClient to verify the wiring between sovereign-profiles
+// and ipfs-client, without requiring a live Helia node or IPFS network.
+
+Tinytest.addAsync('sovereign-profiles — publish delegates to IPFSClient.put and returns CID', async function(test) {
+  const { privKey, pubKey } = await makeTestKeypair();
+
+  const genesisUnsigned = SovereignProfile.genesis({
+    entity: TEST_ENTITY,
+    pubkeyBytes: pubKey,
+    description: 'test publish wiring',
+  });
+  const signedGenesis = await SovereignProfile.sign(genesisUnsigned, privKey);
+
+  // Stub IPFSClient.put to capture the call and return a fake CID
+  const origPut = IPFSClient.put;
+  let putCalledWith = null;
+  const fakeCid = 'baguqeeraTEST';
+  IPFSClient.put = async function(bytes) {
+    putCalledWith = bytes;
+    return fakeCid;
+  };
+
+  try {
+    const cid = await SovereignProfile.publish(signedGenesis);
+    test.equal(cid, fakeCid, 'publish returns CID from IPFSClient.put');
+    test.isNotNull(putCalledWith, 'IPFSClient.put was called');
+    test.isTrue(putCalledWith instanceof Uint8Array, 'put received dag-json bytes');
+  } finally {
+    IPFSClient.put = origPut; // restore
+  }
+});
+
+Tinytest.addAsync('sovereign-profiles — verifyChain fetch delegates to IPFSClient.get', async function(test) {
+  // Verify that a network error from IPFSClient.get is surfaced as a fetch error
+  // (not the old "stub — cannot fetch" message), proving the wiring is live.
+  const origGet = IPFSClient.get;
+  IPFSClient.get = async function(cid) {
+    throw new Error('IPFSClient.get called — wiring confirmed');
+  };
+
+  try {
+    const { valid, errors } = await SovereignProfile.verifyChain('baguqeeraFAKECID');
+    test.isFalse(valid, 'invalid chain when get throws');
+    test.isTrue(errors.length > 0, 'errors surfaced');
+    // The error message must come from IPFSClient.get, not the old stub text
+    test.isFalse(
+      errors[0].includes('fetchEntry stub'),
+      'error is from IPFSClient.get, not old stub'
+    );
+    test.isTrue(
+      errors[0].includes('wiring confirmed'),
+      `fetch error propagated correctly (got: ${errors[0]})`
+    );
+  } finally {
+    IPFSClient.get = origGet; // restore
+  }
 });

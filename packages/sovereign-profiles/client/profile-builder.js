@@ -198,22 +198,20 @@ SovereignProfile.sign = async function(entry, privateKey) {
 
 /**
  * Publish a signed entry to IPFS via koad:io-ipfs-client.
- * Returns the CIDv1 of the stored entry (dag-json, sha2-256).
+ * Encodes the entry as dag-json, stores in the Helia blockstore, and
+ * returns the CIDv1 (dag-json codec 0x0129, sha2-256).
  *
- * TODO: wire to IPFSClient.put() once client API is finalized in ipfs-client package.
- * For now, computes the CID locally and stubs the actual put.
+ * Implements SPEC-111 §3.1: canonical dag-json serialization; the returned
+ * CID is content-addressed and serves as the `previous` pointer for
+ * subsequent sigchain entries.
  *
  * @param {object} signedEntry — entry with `signature` field populated
- * @returns {Promise<string>} — CIDv1 string
+ * @returns {Promise<string>} — CIDv1 string e.g. "bagu..."
  */
 SovereignProfile.publish = async function(signedEntry) {
   const bytes = dagJsonEncode(signedEntry);
-  const cid = await computeCid(bytes);
-
-  // TODO: replace stub with: await IPFSClient.put(bytes, { codec: 'dag-json' })
-  console.log('[sovereign-profiles] publish stub — CID computed locally:', cid);
-  console.log('[sovereign-profiles] TODO: wire to IPFSClient.put() for actual IPFS storage');
-
+  // IPFSClient.put() accepts pre-encoded Uint8Array — no double-encoding
+  const cid = await IPFSClient.put(bytes);
   return cid;
 };
 

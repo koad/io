@@ -28,20 +28,17 @@ import { canonicalPreImage, computeCid, toBase64Url, fromBase64Url } from './pro
 /**
  * Fetch a dag-json entry from IPFS by CID.
  * Resolution order per sigchain-witness-architecture brief:
- *   1. Local OPFS cache (via IPFSClient)
- *   2. Helia HTTP delegated routing
- *   3. kingofalldata.com/ipfs/ gateway fallback
+ *   1. Local OPFS cache (via Helia blockstore)
+ *   2. Helia HTTP delegated routing (delegated-ipfs.dev)
  *
- * TODO: replace stub with IPFSClient.get(cid) once ipfs-client API is finalized.
+ * Delegates to IPFSClient.get(cid) which calls resolve() for raw bytes
+ * then decodes via @ipld/dag-json.
  *
  * @param {string} cid — CIDv1 string
  * @returns {Promise<object>} — decoded dag-json entry object
  */
 async function fetchEntry(cid) {
-  // TODO: wire to IPFSClient.get(cid) → Uint8Array, then dagJsonDecode(bytes)
-  // Stub: in Passenger this will hit OPFS then Helia. On kingofalldata.com it
-  // will hit the daemon's gateway at /ipfs/<cid>.
-  throw new Error(`[sovereign-profiles] fetchEntry stub — cannot fetch CID ${cid}. Wire to IPFSClient.get() to resolve.`);
+  return IPFSClient.get(cid);
 }
 
 // ── Verification helpers ──────────────────────────────────────────────────────
