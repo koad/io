@@ -45,3 +45,5 @@
 !upload
 !profile
 !profile/**
+!daemon
+!daemon/**

@@ -1,0 +1,6 @@
+{
+  "name": "IPFS",
+  "description": "IPFS node stack — Kubo (gateway/API) + ipfs-cluster-service (CRDT pinning cluster)",
+  "version": "kubo:latest + ipfs-cluster:latest",
+  "maintainer": "vulcan@kingofalldata.com"
+}

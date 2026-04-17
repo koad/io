@@ -1,0 +1,22 @@
+[
+  {
+    "id": "enabled",
+    "description": "Enable IPFS service (Kubo + ipfs-cluster-service)",
+    "default": "ON"
+  },
+  {
+    "id": "kubo-gateway",
+    "description": "Kubo HTTP gateway (127.0.0.1:8080)",
+    "default": "ON"
+  },
+  {
+    "id": "ipfs-cluster",
+    "description": "IPFS Cluster service — CRDT pinning coordination (127.0.0.1:9094)",
+    "default": "ON"
+  },
+  {
+    "id": "custom-bootstrap",
+    "description": "Configure custom bootstrap peers (ZeroTier IPs of cluster nodes)",
+    "default": "OFF"
+  }
+]
