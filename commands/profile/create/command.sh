@@ -3,32 +3,32 @@
 #
 # profile create — generate a genesis sigchain entry and initial profile state
 #
-# Creates two entries:
+# Creates two entries per VESTA-SPEC-111:
 #   1. koad.genesis  — anchors the chain, embeds the entity's Ed25519 public key
 #   2. koad.state-update (scope:profile) — initial profile state (name, bio, etc.)
 #
-# Signs both entries with the entity's Ed25519 key ($ENTITY_DIR/id/ed25519).
-# Publishes both to IPFS via `ipfs dag put`. Writes the tip CID to
-# $ENTITY_DIR/var/sigchain-tip.
+# Both entries are signed with the entity's Ed25519 key.
+# Tip CID is written to $ENTITY_DIR/var/sigchain-tip.
+# If --output is specified, signed entries are also written to that directory.
+#
+# Key lookup order:
+#   $ENTITY_DIR/id/ed25519.key  (PEM PKCS8 — preferred, per SPEC-111 §11.4)
+#   $ENTITY_DIR/id/ed25519      (OpenSSH format — fallback)
+#
+# IPFS dag put is stubbed — CIDs are computed locally without an IPFS daemon.
+# CID format: CIDv1 base32lower, codec dag-json (0x0129), hash sha2-256.
 #
 # Usage:
-#   $ENTITY profile create [--name NAME] [--bio BIO] [--non-interactive]
+#   $ENTITY profile create [--name NAME] [--bio BIO] [--non-interactive] [--output DIR]
 #   koad profile create --name "Alice" --bio "A koad:io entity"
-#
-# Requires:
-#   - ENTITY_DIR set (from koad:io env cascade)
-#   - Ed25519 key at $ENTITY_DIR/id/ed25519 (private) + ed25519.pub (public)
-#   - ipfs CLI available and daemon running (for dag put)
-#   - node (for dag-json canonical serialization helper)
 
 set -euo pipefail
 
 ENTITY="${ENTITY:-koad}"
 ENTITY_DIR="${ENTITY_DIR:-$HOME/.$ENTITY}"
-KEY_PRIVATE="$ENTITY_DIR/id/ed25519"
-KEY_PUBLIC="$ENTITY_DIR/id/ed25519.pub"
 SIGCHAIN_TIP_FILE="$ENTITY_DIR/var/sigchain-tip"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+SIGN_HELPER="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/.helpers/sign.js"
 
 # ── Usage ─────────────────────────────────────────────────────────────────────
 
@@ -43,20 +43,19 @@ Options:
   --name NAME           Display name (required in non-interactive mode)
   --bio BIO             Short bio (optional)
   --avatar CID          IPFS CID of your avatar image (optional)
+  --output DIR          Write signed entry JSON files to this directory
   --non-interactive     Skip prompts; fail if required fields are missing
   -h, --help            Show this help
 
-Creates:
+Creates (per VESTA-SPEC-111):
   1. koad.genesis entry — anchors chain identity, embeds Ed25519 public key
   2. koad.state-update[scope:profile] entry — initial profile data
 
-Both entries are signed with: $KEY_PRIVATE
-Tip CID is written to: $SIGCHAIN_TIP_FILE
+Key lookup: $ENTITY_DIR/id/ed25519.key (PEM) or $ENTITY_DIR/id/ed25519 (OpenSSH)
+Tip CID written to: $SIGCHAIN_TIP_FILE
 
-Prerequisites:
-  - Ed25519 key pair at $ENTITY_DIR/id/ed25519{,.pub}
-  - ipfs CLI available (daemon running for dag put)
-  - node for canonical dag-json serialization
+Note: IPFS dag put is stubbed. CIDs are computed locally. To push to IPFS,
+run: ipfs dag put --input-codec dag-json --store-codec dag-json < entry.json
 
 See also:
   $ENTITY profile update   — update existing profile
@@ -70,6 +69,7 @@ EOF
 NAME=""
 BIO=""
 AVATAR=""
+OUTPUT_DIR=""
 NON_INTERACTIVE=false
 
 while [[ $# -gt 0 ]]; do
@@ -77,6 +77,7 @@ while [[ $# -gt 0 ]]; do
     --name)           NAME="$2"; shift 2 ;;
     --bio)            BIO="$2";  shift 2 ;;
     --avatar)         AVATAR="$2"; shift 2 ;;
+    --output)         OUTPUT_DIR="$2"; shift 2 ;;
     --non-interactive) NON_INTERACTIVE=true; shift ;;
     -h|--help|help)   usage; exit 0 ;;
     *) echo "profile create: unknown option: $1" >&2; usage; exit 1 ;;
@@ -85,20 +86,35 @@ done
 
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
 
-if [[ ! -f "$KEY_PRIVATE" ]]; then
-  echo "profile create: Ed25519 private key not found: $KEY_PRIVATE" >&2
-  echo "Generate one with: ssh-keygen -t ed25519 -f $KEY_PRIVATE -P ''" >&2
-  exit 1
+# Locate private key (PEM PKCS8 preferred, OpenSSH fallback)
+KEY_PRIVATE=""
+if [[ -f "$ENTITY_DIR/id/ed25519.key" ]]; then
+  KEY_PRIVATE="$ENTITY_DIR/id/ed25519.key"
+elif [[ -f "$ENTITY_DIR/id/ed25519" ]]; then
+  KEY_PRIVATE="$ENTITY_DIR/id/ed25519"
 fi
 
-if [[ ! -f "$KEY_PUBLIC" ]]; then
-  echo "profile create: Ed25519 public key not found: $KEY_PUBLIC" >&2
+if [[ -z "$KEY_PRIVATE" ]]; then
+  echo "profile create: Ed25519 private key not found." >&2
+  echo "  Checked: $ENTITY_DIR/id/ed25519.key (PEM PKCS8)" >&2
+  echo "           $ENTITY_DIR/id/ed25519 (OpenSSH)" >&2
+  echo "  Generate with: ssh-keygen -t ed25519 -f $ENTITY_DIR/id/ed25519 -C '$ENTITY@wonderland' -N ''" >&2
   exit 1
 fi
 
 if [[ -f "$SIGCHAIN_TIP_FILE" ]]; then
   echo "profile create: sigchain tip already exists: $SIGCHAIN_TIP_FILE" >&2
   echo "This entity already has a sigchain. Use '$ENTITY profile update' to update." >&2
+  exit 1
+fi
+
+if ! command -v node &>/dev/null; then
+  echo "profile create: node not found. Required for Ed25519 signing." >&2
+  exit 1
+fi
+
+if [[ ! -f "$SIGN_HELPER" ]]; then
+  echo "profile create: sign helper not found: $SIGN_HELPER" >&2
   exit 1
 fi
 
@@ -122,119 +138,142 @@ else
   fi
 fi
 
-# ── Sign helper ───────────────────────────────────────────────────────────────
-# Produces an Ed25519 signature over canonical dag-json pre-image.
-# Outputs base64url without padding.
-#
-# TODO: Replace with a dedicated node script that:
-#   1. Builds the canonical pre-image (dag-json, keys sorted, signature absent)
-#   2. Signs with openssl pkeyutl -sign -rawin -inkey $KEY_PRIVATE
-#   3. Encodes to base64url without padding
-#   4. Outputs the full signed entry as canonical dag-json
-#   5. Computes the CIDv1 (dag-json, sha2-256) of the final entry
-#
-# The openssl invocation per SPEC-111 §3.3:
-#   printf '%s' "$PRE_IMAGE" | openssl pkeyutl -sign -rawin -inkey $KEY_PRIVATE \
-#     | base64 -w0 | tr '+/' '-_' | tr -d '='
-#
-# NOTE: OpenSSL Ed25519 keys generated by ssh-keygen require conversion to
-# PEM format first. Use:
-#   ssh-keygen -p -m PEM -f $KEY_PRIVATE -N "" -q
-# OR use a node script with @noble/ed25519 directly, reading the raw key bytes.
-
-sign_entry() {
-  local pre_image="$1"
-  # TODO: implement canonical signing
-  echo "TODO_SIGNATURE_$(echo -n "$pre_image" | sha256sum | cut -c1-16)"
-}
-
-# ── Build public key (base64url) ──────────────────────────────────────────────
-
-# TODO: extract raw Ed25519 public key bytes from $KEY_PUBLIC and base64url-encode.
-# ssh-keygen -e -m pkcs8 outputs PEM; extract raw 32-byte key from DER encoding.
-# Simpler: use a node one-liner:
-#   node -e "const fs=require('fs'); const k=fs.readFileSync('$KEY_PUBLIC','utf8');
-#            // parse OpenSSH ed25519 public key → raw 32 bytes → base64url"
-
-PUBKEY_B64URL="TODO_PUBKEY_BASE64URL"
-echo "profile create: WARNING — public key extraction not implemented. See TODO in command.sh" >&2
+# ── Prepare output directory ──────────────────────────────────────────────────
 
 mkdir -p "$ENTITY_DIR/var"
+if [[ -n "$OUTPUT_DIR" ]]; then
+  mkdir -p "$OUTPUT_DIR"
+fi
 
-# ── Step 1: genesis entry ─────────────────────────────────────────────────────
+# ── Get public key (base64url) ────────────────────────────────────────────────
 
-echo "Creating genesis entry for $ENTITY..."
+echo "Reading Ed25519 key from $KEY_PRIVATE..." >&2
 
-# TODO: replace with node script that:
-#   - Builds the canonical pre-image JSON (keys sorted: entity,payload,previous,timestamp,type,version)
-#   - Signs it per SPEC-111 §3.3
-#   - Adds the signature field
-#   - Runs: ipfs dag put --input-codec dag-json --store-codec dag-json < entry.json
-#   - Captures and prints the returned CID
+PUBKEY_RESULT=$(printf '%s' "{\"op\":\"pubkey\",\"keyPath\":\"${KEY_PRIVATE}\"}" \
+  | node "$SIGN_HELPER" 2>&1)
 
-GENESIS_ENTRY=$(cat <<GENESIS
-{
-  "entity": "$ENTITY",
-  "payload": {
-    "created": "$TIMESTAMP",
-    "description": "$ENTITY sovereign profile chain — genesis",
-    "entity": "$ENTITY",
-    "pubkey": "$PUBKEY_B64URL"
+if ! echo "$PUBKEY_RESULT" | grep -q '"ok":true'; then
+  echo "profile create: failed to read public key" >&2
+  echo "$PUBKEY_RESULT" >&2
+  exit 1
+fi
+
+PUBKEY_B64URL=$(echo "$PUBKEY_RESULT" | node -e \
+  "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).pubkeyBase64Url))")
+
+# ── Step 1: sign genesis entry ────────────────────────────────────────────────
+
+echo "Creating genesis entry for $ENTITY..." >&2
+
+# Build the genesis entry object via node (handles JSON escaping cleanly)
+GENESIS_ENTRY=$(node -e "
+const ts = process.argv[1];
+const entity = process.argv[2];
+const pubkey = process.argv[3];
+const e = {
+  entity,
+  payload: {
+    created: ts,
+    description: entity + ' sovereign profile chain \u2014 genesis',
+    entity,
+    pubkey,
   },
-  "previous": null,
-  "signature": "$(sign_entry "genesis-pre-image-placeholder")",
-  "timestamp": "$TIMESTAMP",
-  "type": "koad.genesis",
-  "version": 1
-}
-GENESIS
-)
+  previous: null,
+  timestamp: ts,
+  type: 'koad.genesis',
+  version: 1
+};
+process.stdout.write(JSON.stringify(e));
+" "$TIMESTAMP" "$ENTITY" "$PUBKEY_B64URL")
 
-# TODO: pipe GENESIS_ENTRY to `ipfs dag put --input-codec dag-json --store-codec dag-json`
-# GENESIS_CID=$(echo "$GENESIS_ENTRY" | ipfs dag put --input-codec dag-json --store-codec dag-json)
-GENESIS_CID="TODO_GENESIS_CID"
-echo "profile create: genesis entry CID: $GENESIS_CID (TODO: wire to ipfs dag put)" >&2
+GENESIS_RESULT=$(printf '%s' "{\"op\":\"sign\",\"entry\":${GENESIS_ENTRY},\"keyPath\":\"${KEY_PRIVATE}\"}" \
+  | node "$SIGN_HELPER" 2>&1)
 
-# ── Step 2: initial profile state-update entry ────────────────────────────────
+if ! echo "$GENESIS_RESULT" | grep -q '"ok":true'; then
+  echo "profile create: failed to sign genesis entry" >&2
+  echo "$GENESIS_RESULT" >&2
+  exit 1
+fi
 
-echo "Creating initial profile state entry..."
+GENESIS_SIGNED=$(echo "$GENESIS_RESULT" | node -e \
+  "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.stringify(JSON.parse(d).signedEntry)))")
+GENESIS_CID=$(echo "$GENESIS_RESULT" | node -e \
+  "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).cid))")
 
-PROFILE_ENTRY=$(cat <<PROFILE
-{
-  "entity": "$ENTITY",
-  "payload": {
-    "data": {
-      "avatar": ${AVATAR:+"\"$AVATAR\""}${AVATAR:-null},
-      "bio": "$BIO",
-      "name": "$NAME",
-      "socialProofs": []
+echo "Genesis CID: $GENESIS_CID" >&2
+
+if [[ -n "$OUTPUT_DIR" ]]; then
+  echo "$GENESIS_SIGNED" > "$OUTPUT_DIR/genesis.json"
+  echo "Wrote: $OUTPUT_DIR/genesis.json" >&2
+fi
+
+# ── Step 2: sign initial profile state-update entry ──────────────────────────
+
+echo "Creating initial profile state entry..." >&2
+
+# Build profile entry via node (handles JSON escaping of name/bio)
+PROFILE_ENTRY=$(node -e "
+const ts = process.argv[1];
+const entity = process.argv[2];
+const prevCid = process.argv[3];
+const name = process.argv[4];
+const bio = process.argv[5];
+const avatar = process.argv[6] || null;
+const e = {
+  entity,
+  payload: {
+    data: {
+      avatar,
+      bio,
+      name,
+      socialProofs: []
     },
-    "scope": "profile"
+    scope: 'profile'
   },
-  "previous": "$GENESIS_CID",
-  "signature": "$(sign_entry "profile-pre-image-placeholder")",
-  "timestamp": "$TIMESTAMP",
-  "type": "koad.state-update",
-  "version": 1
-}
-PROFILE
-)
+  previous: prevCid,
+  timestamp: ts,
+  type: 'koad.state-update',
+  version: 1
+};
+process.stdout.write(JSON.stringify(e));
+" "$TIMESTAMP" "$ENTITY" "$GENESIS_CID" "$NAME" "$BIO" "$AVATAR")
 
-# TODO: pipe PROFILE_ENTRY to ipfs dag put
-# PROFILE_CID=$(echo "$PROFILE_ENTRY" | ipfs dag put --input-codec dag-json --store-codec dag-json)
-PROFILE_CID="TODO_PROFILE_CID"
-echo "profile create: profile entry CID: $PROFILE_CID (TODO: wire to ipfs dag put)" >&2
+PROFILE_RESULT=$(printf '%s' "{\"op\":\"sign\",\"entry\":${PROFILE_ENTRY},\"keyPath\":\"${KEY_PRIVATE}\"}" \
+  | node "$SIGN_HELPER" 2>&1)
+
+if ! echo "$PROFILE_RESULT" | grep -q '"ok":true'; then
+  echo "profile create: failed to sign profile entry" >&2
+  echo "$PROFILE_RESULT" >&2
+  exit 1
+fi
+
+PROFILE_SIGNED=$(echo "$PROFILE_RESULT" | node -e \
+  "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.stringify(JSON.parse(d).signedEntry)))")
+PROFILE_CID=$(echo "$PROFILE_RESULT" | node -e \
+  "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).cid))")
+
+echo "Profile CID: $PROFILE_CID" >&2
+
+if [[ -n "$OUTPUT_DIR" ]]; then
+  echo "$PROFILE_SIGNED" > "$OUTPUT_DIR/profile-state.json"
+  echo "Wrote: $OUTPUT_DIR/profile-state.json" >&2
+fi
 
 # ── Write tip CID ─────────────────────────────────────────────────────────────
 
 echo "$PROFILE_CID" > "$SIGCHAIN_TIP_FILE"
-echo "profile create: tip CID written to $SIGCHAIN_TIP_FILE"
 
 echo ""
-echo "Profile created (scaffold — crypto not yet implemented):"
+echo "Profile created:"
 echo "  Entity:       $ENTITY"
 echo "  Name:         $NAME"
+echo "  Key:          $KEY_PRIVATE"
 echo "  Genesis CID:  $GENESIS_CID"
 echo "  Profile CID:  $PROFILE_CID (tip)"
+echo "  Tip file:     $SIGCHAIN_TIP_FILE"
+echo ""
+echo "Note: IPFS not wired. CIDs are computed locally (dag-json, sha2-256)."
+echo "To push entries to IPFS when daemon is running:"
+echo "  ipfs dag put --input-codec dag-json --store-codec dag-json < genesis.json"
 echo ""
 echo "Next: $ENTITY profile publish  — announce tip CID to canonical location"

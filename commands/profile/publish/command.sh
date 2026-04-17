@@ -1,36 +1,24 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# profile publish — push the current sigchain tip CID to the canonical location
+# profile publish — sign and announce the sigchain tip CID to the canonical location
 #
 # Reads the tip CID from $ENTITY_DIR/var/sigchain-tip.
-# Constructs a canonical location pointer (SPEC-111 §7.2), signs it, and
-# announces the tip CID to the configured canonical location(s).
-#
-# Canonical location pointer format (SPEC-111 §7.2):
+# Constructs a canonical location pointer per VESTA-SPEC-111 §7.2:
 #   { version, entity, tip, published, signature }
-#
-# Supported canonical locations (configured in $ENTITY_DIR/.env or via flags):
-#   - kingofalldata.com/ipfs/  (HTTP PUT to daemon API — default for kingdom entities)
-#   - IPNS update              (ipfs name publish <tip>)
-#   - DNS TXT record           (requires dns provider CLI, e.g. cloudflare)
-#   - stdout                   (--dry-run, for inspection)
+# Signs the pointer with the entity's Ed25519 key.
+# Delivers the signed pointer to the configured canonical location.
 #
 # Usage:
 #   $ENTITY profile publish [--location LOCATION] [--dry-run]
-#
-# Requires:
-#   - $ENTITY_DIR/var/sigchain-tip
-#   - Ed25519 key at $ENTITY_DIR/id/ed25519
-#   - ipfs CLI for IPNS (optional)
 
 set -euo pipefail
 
 ENTITY="${ENTITY:-koad}"
 ENTITY_DIR="${ENTITY_DIR:-$HOME/.$ENTITY}"
-KEY_PRIVATE="$ENTITY_DIR/id/ed25519"
 SIGCHAIN_TIP_FILE="$ENTITY_DIR/var/sigchain-tip"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+SIGN_HELPER="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/.helpers/sign.js"
 
 # Canonical location from env or default
 CANONICAL_LOCATION="${ENTITY_SIGCHAIN_CANONICAL_LOCATION:-stdout}"
@@ -39,7 +27,7 @@ CANONICAL_LOCATION="${ENTITY_SIGCHAIN_CANONICAL_LOCATION:-stdout}"
 
 usage() {
   cat >&2 <<EOF
-profile publish — announce sigchain tip CID to canonical location
+profile publish — sign and announce sigchain tip CID to canonical location
 
 Usage:
   $ENTITY profile publish [options]
@@ -51,11 +39,13 @@ Options:
   -h, --help            Show this help
 
 Reads tip from:  $SIGCHAIN_TIP_FILE
-Signs with:      $KEY_PRIVATE
+Signs with:      Ed25519 key in $ENTITY_DIR/id/
 
-Canonical location pointer (SPEC-111 §7.2) is signed and delivered to the
-configured location. Multiple locations can be configured by running publish
-with --location for each.
+Canonical location pointer format (VESTA-SPEC-111 §7.2):
+  { version, entity, tip, published, signature }
+
+The pointer is signed with the entity's Ed25519 key (signature field absent
+from pre-image, per §3.2). Pre-image field order: entity, published, tip, version.
 
 See also:
   $ENTITY profile create   — initialize profile sigchain
@@ -85,42 +75,74 @@ if [[ ! -f "$SIGCHAIN_TIP_FILE" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$KEY_PRIVATE" ]]; then
-  echo "profile publish: Ed25519 private key not found: $KEY_PRIVATE" >&2
+# Locate private key
+KEY_PRIVATE=""
+if [[ -f "$ENTITY_DIR/id/ed25519.key" ]]; then
+  KEY_PRIVATE="$ENTITY_DIR/id/ed25519.key"
+elif [[ -f "$ENTITY_DIR/id/ed25519" ]]; then
+  KEY_PRIVATE="$ENTITY_DIR/id/ed25519"
+fi
+
+if [[ -z "$KEY_PRIVATE" ]]; then
+  echo "profile publish: Ed25519 private key not found." >&2
+  echo "  Checked: $ENTITY_DIR/id/ed25519.key (PEM PKCS8)" >&2
+  echo "           $ENTITY_DIR/id/ed25519 (OpenSSH)" >&2
+  exit 1
+fi
+
+if ! command -v node &>/dev/null; then
+  echo "profile publish: node not found." >&2
+  exit 1
+fi
+
+if [[ ! -f "$SIGN_HELPER" ]]; then
+  echo "profile publish: sign helper not found: $SIGN_HELPER" >&2
   exit 1
 fi
 
 TIP_CID=$(cat "$SIGCHAIN_TIP_FILE")
-echo "Tip CID: $TIP_CID"
+echo "Tip CID: $TIP_CID" >&2
 
 # ── Build canonical location pointer ─────────────────────────────────────────
+# SPEC-111 §7.2: pointer fields sorted: entity, published, tip, version
+# signature absent from pre-image, then added.
+# The pointer is NOT a sigchain entry (no `type`, `previous`, `payload`).
+# We use the sign.js helper: pass a fake "entry" with the pointer fields,
+# treating signature as the field to omit from pre-image.
 
-# SPEC-111 §7.2: pointer is signed by Ed25519 key, signature absent from pre-image.
-# Pre-image field order (sorted): entity, published, tip, version
+POINTER=$(node -e "
+const ts = process.argv[1];
+const entity = process.argv[2];
+const tip = process.argv[3];
+// Build pointer object with fields in sorted order (entity, published, tip, version)
+// This is what the pre-image will contain (signature excluded by sign.js)
+const p = {
+  entity,
+  published: ts,
+  tip,
+  version: 1
+};
+process.stdout.write(JSON.stringify(p));
+" "$TIMESTAMP" "$ENTITY" "$TIP_CID")
 
-POINTER_PRE_IMAGE=$(cat <<JSON
-{"entity":"$ENTITY","published":"$TIMESTAMP","tip":"$TIP_CID","version":1}
-JSON
-)
+# Use sign.js to sign the pointer (it excludes the 'signature' field from pre-image)
+SIGN_RESULT=$(printf '%s' "{\"op\":\"sign\",\"entry\":${POINTER},\"keyPath\":\"${KEY_PRIVATE}\"}" \
+  | node "$SIGN_HELPER" 2>&1)
 
-# TODO: replace stub with actual signing:
-#   POINTER_SIG=$(printf '%s' "$POINTER_PRE_IMAGE" \
-#     | openssl pkeyutl -sign -rawin -inkey $KEY_PRIVATE \
-#     | base64 -w0 | tr '+/' '-_' | tr -d '=')
+if ! echo "$SIGN_RESULT" | grep -q '"ok":true'; then
+  echo "profile publish: failed to sign canonical location pointer" >&2
+  echo "$SIGN_RESULT" >&2
+  exit 1
+fi
 
-POINTER_SIG="TODO_POINTER_SIGNATURE"
-echo "profile publish: WARNING — pointer signing not implemented (TODO)" >&2
-
-SIGNED_POINTER=$(cat <<JSON
-{
-  "entity": "$ENTITY",
-  "published": "$TIMESTAMP",
-  "signature": "$POINTER_SIG",
-  "tip": "$TIP_CID",
-  "version": 1
-}
-JSON
-)
+SIGNED_POINTER=$(echo "$SIGN_RESULT" | node -e \
+  "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+    const r = JSON.parse(d);
+    // The signedEntry has the signature field — extract just the pointer fields
+    const e = r.signedEntry;
+    const pointer = { entity: e.entity, published: e.published, signature: e.signature, tip: e.tip, version: e.version };
+    console.log(JSON.stringify(pointer, null, 2));
+  })")
 
 # ── Publish ───────────────────────────────────────────────────────────────────
 
@@ -135,30 +157,46 @@ fi
 case "$CANONICAL_LOCATION" in
   stdout)
     echo ""
-    echo "--- canonical location pointer ---"
+    echo "--- canonical location pointer (VESTA-SPEC-111 §7.2) ---"
     echo "$SIGNED_POINTER"
     echo "--- end ---"
     echo ""
-    echo "profile publish: pointer printed to stdout. Configure ENTITY_SIGCHAIN_CANONICAL_LOCATION for automated delivery."
+    echo "Pointer printed to stdout."
+    echo "Set ENTITY_SIGCHAIN_CANONICAL_LOCATION to 'ipns' or 'kingofalldata' for automated delivery."
     ;;
 
   ipns)
-    # TODO: update IPNS name to point to tip CID
-    # ipfs name publish --key="$ENTITY" "$TIP_CID"
-    echo "profile publish: IPNS publish not yet implemented" >&2
-    echo "TODO: ipfs name publish --key=\"$ENTITY\" \"$TIP_CID\"" >&2
-    exit 1
+    # IPFS IPNS publish: ipfs name publish --key="$ENTITY" "$TIP_CID"
+    if ! command -v ipfs &>/dev/null; then
+      echo "profile publish: ipfs CLI not found." >&2
+      exit 1
+    fi
+    if ! ipfs swarm peers &>/dev/null 2>&1; then
+      echo "profile publish: IPFS daemon not running." >&2
+      exit 1
+    fi
+    echo "Publishing to IPNS (key: $ENTITY)..." >&2
+    ipfs name publish --key="$ENTITY" "$TIP_CID"
+    echo ""
+    echo "profile publish: IPNS updated. Tip $TIP_CID announced."
     ;;
 
   kingofalldata)
-    # TODO: PUT signed pointer to kingofalldata.com daemon API
-    # curl -X PUT "https://kingofalldata.com/api/sigchain/$ENTITY/tip" \
-    #   -H "Content-Type: application/json" \
-    #   -H "Authorization: Bearer $KOAD_IO_DAEMON_TOKEN" \
-    #   -d "$SIGNED_POINTER"
-    echo "profile publish: kingofalldata.com publish not yet implemented" >&2
-    echo "TODO: PUT signed pointer to daemon API" >&2
-    exit 1
+    # PUT signed pointer to kingofalldata.com daemon API
+    # Requires KOAD_IO_DAEMON_TOKEN in env
+    if [[ -z "${KOAD_IO_DAEMON_TOKEN:-}" ]]; then
+      echo "profile publish: KOAD_IO_DAEMON_TOKEN not set." >&2
+      echo "Set it in your entity .env or export it before running." >&2
+      exit 1
+    fi
+    echo "Publishing to kingofalldata.com..." >&2
+    curl -fsS -X PUT \
+      "https://kingofalldata.com/api/sigchain/${ENTITY}/tip" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer ${KOAD_IO_DAEMON_TOKEN}" \
+      -d "$SIGNED_POINTER"
+    echo ""
+    echo "profile publish: tip $TIP_CID announced to kingofalldata.com."
     ;;
 
   *)
@@ -168,4 +206,4 @@ case "$CANONICAL_LOCATION" in
     ;;
 esac
 
-echo "profile publish: done. Tip $TIP_CID announced to $CANONICAL_LOCATION"
+echo "profile publish: done."
