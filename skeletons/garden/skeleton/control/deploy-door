@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
-# deploy-door <fqdn> — render nginx vhost, request cert, reload nginx
+# deploy-door <fqdn> [--dh-path <path>] — render nginx vhost, request cert, reload nginx
 # Reads manifest.yaml and doors/<fqdn>/config.yaml for all values.
 # Idempotent: safe to re-run.
-# SPEC: VESTA-SPEC-119 §6, §9.2, §9.3
+#
+# DH parameter selection (SPEC-119 §6.3, conformance rule 16):
+#   Priority (highest to lowest):
+#     1. --dh-path <path>    CLI flag (operator override)
+#     2. dh_path: <path>     field in doors/<fqdn>/config.yaml
+#     3. /etc/ssl/ffdhe3072.pem  (RFC 7919 static default)
+#
+#   For custom per-entity DH (seed.dh_mode: custom), pass the entity ssl path:
+#     control/deploy-door trading.example.com --dh-path /home/<entity>/.<entity>/ssl/dhparam-4096.pem
+#
+# SPEC: VESTA-SPEC-119 §6, §9.2, §9.3, §13.16
 
 set -e
 
@@ -19,8 +29,42 @@ fail() { echo -e "${RED}ERROR: deploy-door — $*${NC}" >&2; exit 1; }
 ok()   { echo -e "${GRN}OK: deploy-door — $*${NC}"; }
 warn() { echo -e "${YEL}WARN: deploy-door — $*${NC}" >&2; }
 
-FQDN="${1:-}"
-[ -n "$FQDN" ] || fail "Usage: control/deploy-door <fqdn>"
+# --- Parse arguments ---
+FQDN=""
+CLI_DH_PATH=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dh-path)
+      CLI_DH_PATH="${2:-}"
+      [ -n "$CLI_DH_PATH" ] || fail "--dh-path requires a path argument"
+      shift 2
+      ;;
+    --help|-h)
+      echo "Usage: control/deploy-door <fqdn> [--dh-path <path>]"
+      echo ""
+      echo "  <fqdn>            FQDN of the door to deploy (required)"
+      echo "  --dh-path <path>  Path to DH params file for ssl_dhparam (optional)"
+      echo "                    Default: /etc/ssl/ffdhe3072.pem (RFC 7919 static)"
+      echo "                    Override for custom DH: /home/<entity>/.<entity>/ssl/dhparam-4096.pem"
+      echo ""
+      echo "  dh_path can also be set in doors/<fqdn>/config.yaml (CLI flag takes precedence)."
+      exit 0
+      ;;
+    -*)
+      fail "Unknown flag: $1 (use --help for usage)"
+      ;;
+    *)
+      if [ -z "$FQDN" ]; then
+        FQDN="$1"
+      else
+        fail "Unexpected argument: $1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+[ -n "$FQDN" ] || fail "Usage: control/deploy-door <fqdn> [--dh-path <path>]"
 
 [ -f "$MANIFEST" ] || fail "manifest.yaml not found at $GARDEN_ROOT"
 
@@ -38,6 +82,7 @@ SERVICE=$(read_door "service")
 UPSTREAM=$(read_door "upstream")
 CERT_PROVIDER=$(read_door "cert_provider")
 ENABLED=$(read_door "enabled")
+CONFIG_DH_PATH=$(read_door "dh_path")
 OPERATOR=$(read_garden "operator_entity")
 
 # Defaults
@@ -45,6 +90,17 @@ SERVICE="${SERVICE:-nginx}"
 CERT_PROVIDER="${CERT_PROVIDER:-certbot}"
 ENABLED="${ENABLED:-true}"
 DOOR_FQDN="${DOOR_FQDN:-$FQDN}"
+
+# --- Select DH params path (SPEC-119 §6.3, conformance rule 16) ---
+# Priority: CLI flag > config.yaml field > static RFC 7919 default
+DH_STATIC_PATH="/etc/ssl/ffdhe3072.pem"
+if [ -n "$CLI_DH_PATH" ]; then
+  SSL_DH_PATH="$CLI_DH_PATH"
+elif [ -n "$CONFIG_DH_PATH" ]; then
+  SSL_DH_PATH="$CONFIG_DH_PATH"
+else
+  SSL_DH_PATH="$DH_STATIC_PATH"
+fi
 
 if [ "$ENABLED" = "false" ]; then
   warn "Door $FQDN is marked enabled: false in config.yaml — skipping deploy. Use control/remove-door to deactivate."
@@ -118,7 +174,7 @@ elif [ -n "$UPSTREAM" ]; then
 
     ${SSL_CERT_LINE}
     ${SSL_KEY_LINE}
-    ssl_dhparam /etc/ssl/ffdhe3072.pem;
+    ssl_dhparam ${SSL_DH_PATH};
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
@@ -146,7 +202,7 @@ else
 
     ${SSL_CERT_LINE}
     ${SSL_KEY_LINE}
-    ssl_dhparam /etc/ssl/ffdhe3072.pem;
+    ssl_dhparam ${SSL_DH_PATH};
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;

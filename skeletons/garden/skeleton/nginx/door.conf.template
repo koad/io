@@ -1,7 +1,10 @@
 # door.conf.template — per-door nginx vhost template
-# Variables: {{fqdn}}, {{upstream}}, {{operator}}, {{entity}}
+# Variables: {{fqdn}}, {{upstream}}, {{operator}}, {{entity}}, {{dh_path}}
 # Used by control/deploy-door when doors/<fqdn>/nginx.conf.tmpl is not present.
-# SPEC: VESTA-SPEC-119 §6.3, VESTA-SPEC-120 §8.1
+# {{dh_path}}: DH params path — /etc/ssl/ffdhe3072.pem (static default) or
+#              /home/{{entity}}/.{{entity}}/ssl/dhparam-4096.pem (custom mode).
+#              Set via --dh-path flag or dh_path field in door config.yaml.
+# SPEC: VESTA-SPEC-119 §6.3, §13.16, VESTA-SPEC-120 §8.1
 
 server {
     listen 443 ssl http2;
@@ -9,7 +12,7 @@ server {
 
     ssl_certificate     /etc/letsencrypt/live/{{fqdn}}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/{{fqdn}}/privkey.pem;
-    ssl_dhparam         /etc/ssl/ffdhe3072.pem;
+    ssl_dhparam         {{dh_path}};
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
