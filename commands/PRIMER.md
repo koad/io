@@ -52,25 +52,33 @@ Minimum contract for a `command.sh`:
 | `probe`    | **shipped** | naked-LLM context testing (layer 1); see `probe/PRIMER.md` |
 | `think`    | **shipped** | raw one-liner to fourty4 ollama for local inference (not entity-aware) |
 | `io`       | **shipped** | `.io` container format for sovereign identity capsules |
-| `install`  | **shipped** | post-clone setup |
+| `install`  | **shipped** | post-clone setup; sub-commands for opencode and starship |
 | `sign`     | **shipped** | clearsign-style wrapper for keybase saltpack |
-| `build`    | shipped     | runtimer |
-| `commit`   | shipped     | entity commit flow |
-| `gestate`  | shipped     | new-entity creation |
-| `init`     | shipped     | entity bootstrap |
-| `respond`  | shipped     | reply to GitHub issues / chat |
-| `shell`    | shipped     | interactive shell inside an entity env |
-| `spawn`    | shipped     | process/entity spawner |
-| `start`    | shipped     | runtime start |
-| `upload`   | shipped     | publish content |
-| `upstart`  | shipped     | service supervision |
-| `test`     | placeholder | — |
-| `assert`   | placeholder (datadir only) | — |
-| `deploy`   | placeholder | — |
-| `outfit`   | placeholder | — |
-| `party`    | placeholder | — |
+| `adas`     | **shipped** | ADAS loop helpers: model routing, budget ceiling, flight report instrumentation |
+| `assert`   | **shipped** | precondition guards sourced by other commands; `assert/datadir` resolves DATADIR |
+| `build`    | **shipped** | compile Meteor app to deployable bundle |
+| `commit`   | **shipped** | entity commit flow; `commit staged` writes AI-assisted commit messages |
+| `configure`| **shipped** | interactive whiptail TUI for kingdom, daemon, and MongoDB setup |
+| `deploy`   | **shipped** | extract and link a built tarball; sub-commands for interface, service, site |
+| `entity`   | **shipped** | entity sub-commands; `entity memory` tree for memory management |
+| `generate` | **shipped** | generator utilities; `generate cid` derives stable 17-char Content IDs |
+| `gestate`  | **shipped** | new-entity creation — directory, keys, .env, wrapper command |
+| `init`     | **shipped** | register entity wrapper command in `~/.koad-io/bin/` |
+| `outfit`   | **shipped** | read/write entity visual outfit (hue, saturation) in passenger.json |
+| `party`    | **shipped** | party-line session management; `party check` audits protocol compliance |
+| `profile`  | **shipped** | sigchain profile create, update, verify, publish (VESTA-SPEC-111) |
+| `respond`  | **shipped** | pass the conch — send a message into the active party-line session |
+| `restart`  | **shipped** | stop (if running) then start |
+| `roles`    | **shipped** | roll call of all entities in the kingdom, grouped by role |
+| `shell`    | **shipped** | interactive shell inside entity daemon env; Meteor shell if app present |
+| `spawn`    | **shipped** | deploy a skeleton, launch a Claude Code subagent, or start a party session |
+| `start`    | **shipped** | start application in a detached screen session (production or dev mode) |
+| `stop`     | **shipped** | stop the running application by quitting its screen session |
+| `upload`   | **shipped** | scp file/folder to remote using entity SSH key |
+| `upstart`  | **shipped** | desktop session boot — run entity hooks, start daemon and desktop services |
+| `test`     | **shipped** | smoke test — confirm dispatch chain is working; prints EXEC_FILE and args |
 
-"Placeholder" means the directory exists (as a slot in the gitignore whitelist and as a reminder of intent) but there is no `command.sh` yet. See `README.md` — the koad:io philosophy is that unfinished command slots *are* a form of documentation: they declare what should exist.
+All commands in the table above have PRIMER.md files. See the individual PRIMER for sub-commands, flags, and edge cases.
 
 ## The `.gitignore` whitelist
 
