@@ -1,5 +1,6 @@
 *
 !.gitignore
+!PRIMER.md
 
 !entity
 !koad-io

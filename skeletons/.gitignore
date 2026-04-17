@@ -3,6 +3,7 @@
 
 # Allow these files
 !.gitignore
+!PRIMER.md
 !README.md
 !reference.sh
 
