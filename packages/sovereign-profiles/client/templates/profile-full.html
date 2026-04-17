@@ -37,6 +37,11 @@
               Unverified
             </span>
           {{/if}}
+          {{#if profile.sovereignKingdom}}
+            <span class="profile-sovereign-kingdom-badge" title="Sovereign kingdom — independent of the koad:io team hierarchy">
+              &#x22F9; Sovereign Kingdom
+            </span>
+          {{/if}}
         </div>
 
         {{#if profile.bondCount}}
@@ -55,6 +60,39 @@
     {{#if profile.bio}}
       <div class="profile-full-bio">
         <p>{{profile.bio}}</p>
+      </div>
+    {{/if}}
+
+    {{!-- Custodianship — VESTA-SPEC-112 --}}
+    {{#if profile.custodianship}}
+      <div class="profile-full-section profile-custodianship-section">
+        <h3 class="profile-full-section-heading">Custodianship</h3>
+        <div class="custodianship-grid">
+          {{#if profile.custodianship.creator}}
+            <div class="custodianship-row">
+              <span class="custodianship-label">Creator</span>
+              <span class="custodianship-value">{{profile.custodianship.creator}}</span>
+            </div>
+          {{/if}}
+          {{#if profile.custodianship.custodian}}
+            <div class="custodianship-row">
+              <span class="custodianship-label">Custodian</span>
+              <span class="custodianship-value">{{profile.custodianship.custodian}}</span>
+            </div>
+          {{/if}}
+          {{#if profile.custodianship.bondHolder}}
+            <div class="custodianship-row">
+              <span class="custodianship-label">Bond holder</span>
+              <span class="custodianship-value">{{profile.custodianship.bondHolder}}</span>
+            </div>
+          {{/if}}
+          {{#if profile.custodianship.scopeAuthority}}
+            <div class="custodianship-row">
+              <span class="custodianship-label">Scope</span>
+              <span class="custodianship-value custodianship-scope-{{profile.custodianship.scopeAuthority}}">{{profile.custodianship.scopeAuthority}}</span>
+            </div>
+          {{/if}}
+        </div>
       </div>
     {{/if}}
 

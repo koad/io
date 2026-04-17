@@ -159,6 +159,13 @@
   resize: vertical;
 }
 
+/* Field hint */
+.form-field-hint {
+  font-size: 11px;
+  color: var(--sp-subtle);
+  line-height: 1.5;
+}
+
 /* Character counter */
 .form-field-footer {
   display: flex;
@@ -661,6 +668,21 @@
   border-radius: 2px;
 }
 
+/* Sovereign kingdom badge */
+.profile-sovereign-kingdom-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: var(--sp-font-mono);
+  color: var(--sp-accent);
+  background: var(--sp-border-acc);
+  border: 1px solid var(--sp-border-acc);
+  padding: 2px 8px;
+  border-radius: 2px;
+  letter-spacing: 0.02em;
+}
+
 /* ══════════════════════════════════════════════════════════════
    PROFILE FULL
    ══════════════════════════════════════════════════════════════ */
@@ -792,6 +814,45 @@
   padding-bottom: 8px;
   border-bottom: 1px solid var(--sp-border);
 }
+
+/* Custodianship section (VESTA-SPEC-112) */
+.profile-custodianship-section {
+  border-top: 1px solid var(--sp-border);
+  padding-top: 20px;
+}
+
+.custodianship-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.custodianship-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.custodianship-label {
+  font-size: 11px;
+  font-family: var(--sp-font-mono);
+  color: var(--sp-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.custodianship-value {
+  color: var(--sp-text-dim);
+  word-break: break-word;
+}
+
+.custodianship-scope-full     { color: var(--sp-green); }
+.custodianship-scope-content-only,
+.custodianship-scope-config-only { color: #E8A738; }
+.custodianship-scope-none     { color: var(--sp-subtle); }
 
 /* Social proofs list (viewer) */
 .profile-social-proofs {

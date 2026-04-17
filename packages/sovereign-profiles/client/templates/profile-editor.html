@@ -28,12 +28,13 @@
 
       {{!-- Name --}}
       <div class="form-field">
-        <label for="profile-name">Display Name</label>
+        <label for="profile-name">Name</label>
         <input type="text" id="profile-name" name="name"
                value="{{currentProfile.name}}"
-               placeholder="Your display name"
+               placeholder="Your declared name"
                autocomplete="name"
                maxlength="80" />
+        <span class="form-field-hint">Your declared name — this is how you introduce yourself.</span>
       </div>
 
       {{!-- Bio --}}
