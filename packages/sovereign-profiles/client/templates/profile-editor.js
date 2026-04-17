@@ -224,9 +224,25 @@ Template.profileEditor.events({
       const { entity, privateKey, pubkeyBytes, sigchainTip } =
         await koad.passenger.signingContext();
 
+      let tipCid = sigchainTip;
+
+      // SPEC-111 §4: if this is a fresh chain (no tip), emit a koad.genesis entry
+      // first to anchor the entity + pubkey, then chain the profile state-update off it.
+      if (!tipCid) {
+        const genesisUnsigned = SovereignProfile.genesis({
+          entity,
+          pubkeyBytes,
+        });
+        const signedGenesis = await SovereignProfile.sign(genesisUnsigned, privateKey);
+        tipCid = await SovereignProfile.publish(signedGenesis);
+        // Persist genesis tip so that if the state-update publish fails we don't
+        // re-emit genesis on retry.
+        await koad.passenger.updateSigchainTip(tipCid);
+      }
+
       const entry = SovereignProfile.create({
         entity,
-        previousCid: sigchainTip,
+        previousCid: tipCid,
         profile: { name, bio, avatar, socialProofs },
       });
 

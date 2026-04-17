@@ -185,6 +185,93 @@ Tinytest.addAsync('sovereign-profiles — computeCid produces stable CIDv1', asy
   test.isTrue(cid1.startsWith('bagu'), `CIDv1 dag-json starts with bagu (got ${cid1})`);
 });
 
+// ── Genesis-first flow tests ──────────────────────────────────────────────────
+// Covers the fix for the null-sigchainTip case in the profile editor submit handler.
+// We test SovereignProfile directly (not the template) to stay in the vm-context pattern.
+
+Tinytest.addAsync('sovereign-profiles — fresh chain: genesis entry precedes state-update', async function(test) {
+  const { privKey, pubKey } = await makeTestKeypair();
+
+  // Simulate fresh chain: sigchainTip is null.
+  // The correct flow: genesis first (previous: null), then state-update (previous: genesisCid).
+  const genesisUnsigned = SovereignProfile.genesis({
+    entity: TEST_ENTITY,
+    pubkeyBytes: pubKey,
+  });
+
+  test.equal(genesisUnsigned.type, 'koad.genesis', 'genesis entry has correct type');
+  test.equal(genesisUnsigned.previous, null, 'genesis previous is null');
+  test.equal(genesisUnsigned.entity, TEST_ENTITY);
+
+  const signedGenesis = await SovereignProfile.sign(genesisUnsigned, privKey);
+  test.isString(signedGenesis.signature, 'genesis entry signed');
+
+  // Stub IPFSClient.put to return a fake genesis CID
+  const origPut = IPFSClient.put;
+  let putCalls = 0;
+  const fakeGenesisCid = 'baguFAKEGENESIS';
+  const fakeStateCid   = 'baguFAKESTATE';
+  IPFSClient.put = async function(bytes) {
+    putCalls++;
+    return putCalls === 1 ? fakeGenesisCid : fakeStateCid;
+  };
+
+  try {
+    const genesisCid = await SovereignProfile.publish(signedGenesis);
+    test.equal(genesisCid, fakeGenesisCid, 'genesis CID returned from publish');
+
+    // Now create the state-update referencing the genesis CID
+    const stateEntry = SovereignProfile.create({
+      entity: TEST_ENTITY,
+      previousCid: genesisCid,
+      profile: { name: 'Alice', bio: 'test bio' },
+    });
+
+    test.equal(stateEntry.type, 'koad.state-update', 'state-update has correct type');
+    test.equal(stateEntry.previous, fakeGenesisCid, 'state-update references genesis CID');
+    test.equal(stateEntry.payload.scope, 'profile');
+
+    const signedState = await SovereignProfile.sign(stateEntry, privKey);
+    const stateCid    = await SovereignProfile.publish(signedState);
+    test.equal(stateCid, fakeStateCid, 'state-update CID returned');
+    test.equal(putCalls, 2, 'IPFSClient.put called twice — genesis then state-update');
+  } finally {
+    IPFSClient.put = origPut;
+  }
+});
+
+Tinytest.addAsync('sovereign-profiles — existing chain: state-update only (no genesis)', async function(test) {
+  const { privKey } = await makeTestKeypair();
+
+  // Simulate existing chain: sigchainTip is already set.
+  const existingTip = 'baguEXISTINGTIP';
+
+  const stateEntry = SovereignProfile.create({
+    entity: TEST_ENTITY,
+    previousCid: existingTip,
+    profile: { name: 'Alice Updated', bio: 'updated bio' },
+  });
+
+  test.equal(stateEntry.type, 'koad.state-update', 'only a state-update, no genesis');
+  test.equal(stateEntry.previous, existingTip, 'references existing tip directly');
+
+  const origPut = IPFSClient.put;
+  let putCalls = 0;
+  IPFSClient.put = async function(bytes) {
+    putCalls++;
+    return 'baguNEWTIP';
+  };
+
+  try {
+    const signedState = await SovereignProfile.sign(stateEntry, privKey);
+    const newCid = await SovereignProfile.publish(signedState);
+    test.equal(newCid, 'baguNEWTIP', 'new tip CID returned');
+    test.equal(putCalls, 1, 'IPFSClient.put called exactly once — no genesis emitted');
+  } finally {
+    IPFSClient.put = origPut;
+  }
+});
+
 // ── Publish / resolve wiring tests ────────────────────────────────────────────
 // These tests stub IPFSClient to verify the wiring between sovereign-profiles
 // and ipfs-client, without requiring a live Helia node or IPFS network.
