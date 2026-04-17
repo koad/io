@@ -57,6 +57,7 @@ packages:
   - g++
   - libsodium-dev
   - certbot
+  - python3-certbot-nginx
   - jq
   - whiptail
   - nginx
