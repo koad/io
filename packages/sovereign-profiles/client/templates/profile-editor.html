@@ -14,6 +14,10 @@
       <div class="profile-editor-error">{{publishError}}</div>
     {{/if}}
 
+    {{#if publishCancelled}}
+      <div class="profile-editor-cancelled">Publish cancelled. Enter your passphrase when ready.</div>
+    {{/if}}
+
     {{#if publishSuccess}}
       <div class="profile-editor-success">
         Published. New tip: <code>{{publishedCid}}</code>
@@ -98,7 +102,7 @@
             <span>{{deviceKey.description}}</span>
           </p>
         {{else}}
-          <p class="key-warning">No signing key found. Passenger requires local key access to publish.</p>
+          <p class="key-warning">No key unlocked. You'll be prompted for your passphrase when you publish.</p>
         {{/if}}
       </div>
 
@@ -129,12 +133,17 @@
 
       {{!-- Actions --}}
       <div class="form-actions">
-        <button type="submit" class="js-publish-profile btn-primary" {{#unless canPublish}}disabled{{/unless}}>
+        <button type="submit" class="js-publish-profile btn-primary" {{#if publishing}}disabled{{/if}}>
           {{#if publishing}}Publishing…{{else}}Sign &amp; Publish to IPFS{{/if}}
         </button>
       </div>
 
     </form>
+
+    {{!-- Passphrase modal — rendered inline, hidden until needed --}}
+    {{#if showPassphraseModal}}
+      {{> keyPassphraseModal (passphraseModalData)}}
+    {{/if}}
 
     {{!-- Live Preview --}}
     <div class="profile-editor-preview">

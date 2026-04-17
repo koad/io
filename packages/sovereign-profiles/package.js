@@ -39,6 +39,14 @@ Package.onUse(function(api) {
     'client/templates/profile-card.js',
     'client/templates/profile-full.html',
     'client/templates/profile-full.js',
+    'client/templates/key-passphrase-modal.html',
+    'client/templates/key-passphrase-modal.js',
+    'client/templates/key-management.html',
+    'client/templates/key-management.js',
+    'client/templates/key-import-form.html',
+    'client/templates/key-import-form.js',
+    'client/templates/key-generate-form.html',
+    'client/templates/key-generate-form.js',
   ], 'client');
 
   // Server-side verification + pinning stubs

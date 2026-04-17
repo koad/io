@@ -27,6 +27,10 @@ Template.profileEditor.onCreated(function() {
   // Active device key — populated from koad.passenger.activeDeviceKey()
   tpl.deviceKey = new ReactiveVar(null);
 
+  // Passphrase modal state — set to a pending-resolve function when waiting for unlock
+  tpl._pendingPublish = null;
+  tpl.showPassphraseModal = new ReactiveVar(false);
+
   // Current profile data — loaded from sigchain tip on startup
   tpl.currentProfile = new ReactiveVar({
     name: '',
@@ -83,8 +87,10 @@ Template.profileEditor.helpers({
   },
 
   canPublish() {
-    const tpl = Template.instance();
-    return !tpl.publishing.get() && tpl.deviceKey.get() !== null;
+    // A key being unlocked is no longer a pre-condition to enable the button —
+    // the passphrase modal intercepts the publish flow when no key is active.
+    // Only block the button while a publish is in flight.
+    return !Template.instance().publishing.get();
   },
 
   deviceKey() {
@@ -109,6 +115,47 @@ Template.profileEditor.helpers({
 
   firstLetter(name) {
     return (name || '?').charAt(0).toUpperCase();
+  },
+
+  showPassphraseModal() {
+    return Template.instance().showPassphraseModal.get();
+  },
+
+  // Data context passed into {{> keyPassphraseModal}} when it renders
+  passphraseModalData() {
+    const tpl = this;
+    // `this` is the helper's data context, not the template instance —
+    // use Template.instance() to reach reactive state.
+    const inst = Template.instance();
+    return {
+      onUnlock(activeKey) {
+        // Modal succeeded: populate deviceKey, hide modal, resume publish
+        inst.deviceKey.set(activeKey);
+        inst.showPassphraseModal.set(false);
+        if (typeof inst._pendingPublish === 'function') {
+          const resume = inst._pendingPublish;
+          inst._pendingPublish = null;
+          resume();
+        }
+      },
+      onCancel() {
+        // User dismissed without unlocking: graceful cancel, not an error
+        inst.showPassphraseModal.set(false);
+        inst._pendingPublish = null;
+        inst.publishError.set(null);
+        inst.publishing.set(false);
+        // Surface a soft status message without an error class
+        inst.publishedCid.set(null);
+        inst.publishSuccess.set(false);
+        // Re-enable publish button but show inline note
+        inst._publishCancelled = true;
+      },
+    };
+  },
+
+  publishCancelled() {
+    const tpl = Template.instance();
+    return tpl._publishCancelled || false;
   },
 });
 
@@ -201,6 +248,32 @@ Template.profileEditor.events({
 
     tpl.publishError.set(null);
     tpl.publishSuccess.set(false);
+    tpl._publishCancelled = false;
+
+    // ── Gate: ensure a key is unlocked before attempting to sign ──────────────
+    // If no key is active, show the passphrase modal and wait for unlock.
+    // The modal's onUnlock callback will re-invoke this flow via _pendingPublish.
+    const activeKey = (koad && koad.passenger && typeof koad.passenger.activeDeviceKey === 'function')
+      ? koad.passenger.activeDeviceKey()
+      : null;
+
+    if (!activeKey) {
+      // Stash a resume function; the modal will call it on successful unlock
+      tpl._pendingPublish = () => {
+        // Re-fire the submit event programmatically on the form so the full
+        // handler runs again with the now-unlocked key. Using requestSubmit()
+        // triggers the native validation and the same submit handler.
+        const form = tpl.$('#js-profile-editor-form')[0];
+        if (form && typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        } else if (form) {
+          form.submit();
+        }
+      };
+      tpl.showPassphraseModal.set(true);
+      return; // pause here — modal takes over
+    }
+
     tpl.publishing.set(true);
 
     try {
