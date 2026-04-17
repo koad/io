@@ -34,7 +34,8 @@
   --sp-accent:      var(--entity-accent, #C9A84C);
   --sp-accent-dim:  var(--entity-accent-light, #9B7D35);
   --sp-border:      rgba(255, 255, 255, 0.07);
-  --sp-border-acc:  rgba(201, 168, 76, 0.22);
+  /* derived from accent — color-mix gives accent at 22% opacity */
+  --sp-border-acc:  color-mix(in srgb, var(--sp-accent) 22%, transparent);
   --sp-green:       #3EAF6A;
   --sp-red:         #E05252;
   --sp-blue:        #4A90D9;
@@ -1018,7 +1019,8 @@
   --sp-accent:      var(--entity-accent, #C9A84C);
   --sp-accent-dim:  var(--entity-accent-light, #9B7D35);
   --sp-border:      rgba(255, 255, 255, 0.07);
-  --sp-border-acc:  rgba(201, 168, 76, 0.22);
+  /* derived from accent — color-mix gives accent at 22% opacity */
+  --sp-border-acc:  color-mix(in srgb, var(--sp-accent) 22%, transparent);
   --sp-green:       #3EAF6A;
   --sp-red:         #E05252;
   --sp-blue:        #4A90D9;
