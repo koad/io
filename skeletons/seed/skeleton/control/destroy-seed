@@ -2,6 +2,7 @@
 # destroy-seed — full seed teardown: VM + Primary IP + archive + hook removal
 # Implements VESTA-SPEC-120 §15.1 (10-step sequence, archive protocol, confirmation gate)
 # and VESTA-SPEC-119 §15 (garden-mode archive convention, dangling-reference warning).
+# Case A/B device record path: SPEC-120 §12.1.
 #
 # Options:
 #   --dry-run   Print all planned actions without executing. Exit 0.
@@ -15,6 +16,18 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKDIR="$(dirname "$SCRIPT_DIR")"
 MANIFEST="$WORKDIR/manifest.yaml"
+
+# --- Early Case A / Case B detection (SPEC-120 §12.1, §3.2) ---
+# Done here (before pre-flight) so device record lookup uses the right path.
+GARDEN_ROOT=""
+_dir="$WORKDIR"
+while [[ "$_dir" != "/" ]]; do
+  _dir="$(dirname "$_dir")"
+  if [[ -f "$_dir/ENTITY.md" ]]; then
+    GARDEN_ROOT="$_dir"
+    break
+  fi
+done
 
 RED='\033[0;31m'
 GRN='\033[0;32m'
@@ -58,7 +71,12 @@ API_CONTEXT=$(read_provider "api_context")
 [ -n "$PRIMARY_IP_NAME" ] || fail "manifest.seed.primary_ip_name is empty."
 
 # Check for running child nodes (dependency gate — SPEC §15.1.5)
-DEVICES_DIR="$WORKDIR/devices"
+# Scan from the appropriate devices directory (Case A: garden level, Case B: WORKDIR).
+if [ -n "$GARDEN_ROOT" ]; then
+  DEVICES_DIR="$GARDEN_ROOT/devices"
+else
+  DEVICES_DIR="$WORKDIR/devices"
+fi
 RUNNING_NODES=()
 if [ -d "$DEVICES_DIR" ]; then
   while IFS= read -r -d '' rec; do
@@ -77,6 +95,7 @@ fi
 
 command -v hcloud >/dev/null 2>&1 || fail "hcloud CLI not found. Install and authenticate before running destroy-seed."
 
+# Device record path: Case A at garden level, Case B inside WORKDIR (SPEC-120 §12.1).
 DEVICE_RECORD="$DEVICES_DIR/${SEED_DOMAIN}.json"
 [ -f "$DEVICE_RECORD" ] || fail "Device record not found at $DEVICE_RECORD — cannot proceed without server_id."
 
@@ -133,16 +152,9 @@ echo ""
 # ============================================================
 # Step 3b: Garden-mode detection (VESTA-SPEC-119 §15.5)
 # ============================================================
+# Note: GARDEN_ROOT was already resolved at script top (before pre-flight checks)
+# so DEVICES_DIR and DEVICE_RECORD already point to the correct paths.
 step "3b    Detecting garden mode"
-GARDEN_ROOT=""
-dir="$WORKDIR"
-while [[ "$dir" != "/" ]]; do
-  dir="$(dirname "$dir")"
-  if [[ -f "$dir/ENTITY.md" ]]; then
-    GARDEN_ROOT="$dir"
-    break
-  fi
-done
 
 DESTROYED_TS="$(date -u +%Y%m%dT%H%M%SZ)"
 

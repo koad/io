@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 # verify — SSH in, check cloud-init status, check services
 # Idempotent read-only. Updates device record status field.
-# SPEC: VESTA-SPEC-120 §6.1
+# SPEC: VESTA-SPEC-120 §6.1, §12.1 (Case A/B device record path)
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKDIR="$(dirname "$SCRIPT_DIR")"
 MANIFEST="$WORKDIR/manifest.yaml"
+
+# --- Case A / Case B detection (SPEC-120 §12.1, §3.2) ---
+GARDEN_ROOT=""
+_dir="$WORKDIR"
+while [[ "$_dir" != "/" ]]; do
+  _dir="$(dirname "$_dir")"
+  if [[ -f "$_dir/ENTITY.md" ]]; then
+    GARDEN_ROOT="$_dir"
+    break
+  fi
+done
 
 RED='\033[0;31m'
 GRN='\033[0;32m'
@@ -26,7 +37,12 @@ read_services() { grep -A20 "^services:" "$MANIFEST" | grep "^\s*$1:" | head -1 
 SEED_DOMAIN=$(read_seed "domain")
 OPERATOR=$(read_seed "operator_entity")
 
-DEVICE_RECORD="$WORKDIR/devices/${SEED_DOMAIN}.json"
+# Case A: record at garden level. Case B: record inside WORKDIR (SPEC-120 §12.1).
+if [ -n "$GARDEN_ROOT" ]; then
+  DEVICE_RECORD="$GARDEN_ROOT/devices/${SEED_DOMAIN}.json"
+else
+  DEVICE_RECORD="$WORKDIR/devices/${SEED_DOMAIN}.json"
+fi
 [ -f "$DEVICE_RECORD" ] || fail "Device record not found at $DEVICE_RECORD — run control/deploy first."
 
 SERVER_IP=$(jq -r '.ip // empty' "$DEVICE_RECORD")

@@ -1,13 +1,27 @@
 #!/usr/bin/env bash
 # deploy — generate cloud-init, create Hetzner server, write device record
 # Reads manifest.yaml for all values.
-# SPEC: VESTA-SPEC-120 §7, §8, §9.5, §12
+# SPEC: VESTA-SPEC-120 §7, §8, §9.5, §12, §12.1 (Case A/B device record path)
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKDIR="$(dirname "$SCRIPT_DIR")"
 MANIFEST="$WORKDIR/manifest.yaml"
+
+# --- Case A / Case B detection (SPEC-120 §12.1, §3.2) ---
+# Walk up from WORKDIR looking for an ENTITY.md marker.
+# If found: Case A (entity-embedded), GARDEN_ROOT = dir containing ENTITY.md.
+# Else: Case B (standalone).
+GARDEN_ROOT=""
+_dir="$WORKDIR"
+while [[ "$_dir" != "/" ]]; do
+  _dir="$(dirname "$_dir")"
+  if [[ -f "$_dir/ENTITY.md" ]]; then
+    GARDEN_ROOT="$_dir"
+    break
+  fi
+done
 
 RED='\033[0;31m'
 GRN='\033[0;32m'
@@ -54,7 +68,12 @@ SEED_TYPE="${SEED_TYPE:-cpx21}"
 [ -n "$DATACENTER" ]  || fail "manifest.seed.datacenter is empty."
 
 # --- Guard: do not redeploy a running seed ---
-DEVICE_RECORD="$WORKDIR/devices/${SEED_DOMAIN}.json"
+# Case A: device record at garden level. Case B: record inside WORKDIR.
+if [ -n "$GARDEN_ROOT" ]; then
+  DEVICE_RECORD="$GARDEN_ROOT/devices/${SEED_DOMAIN}.json"
+else
+  DEVICE_RECORD="$WORKDIR/devices/${SEED_DOMAIN}.json"
+fi
 if [ -f "$DEVICE_RECORD" ]; then
   EXISTING_STATUS=$(jq -r '.status // empty' "$DEVICE_RECORD" 2>/dev/null || true)
   if [ "$EXISTING_STATUS" = "running" ]; then
@@ -150,8 +169,10 @@ PYEOF
   sed -i "s|<ENTITY_USER>|$HUMAN_USER|g" "$TMPFILE"
 fi
 
-# Save cloud-init for audit
-AUDIT_PATH="$WORKDIR/devices/${SEED_DOMAIN}-cloud-init.yaml"
+# Save cloud-init for audit — always scaffold-adjacent (WORKDIR/cloud-init/)
+# regardless of Case A or B. The cloud-init/ dir is part of the seed scaffold.
+AUDIT_PATH="$WORKDIR/cloud-init/${SEED_DOMAIN}-cloud-init.yaml"
+mkdir -p "$WORKDIR/cloud-init"
 cp "$TMPFILE" "$AUDIT_PATH"
 ok "Cloud-init written to $AUDIT_PATH"
 
@@ -221,7 +242,17 @@ if [ -z "$SERVER_IP" ] || [ -z "$SERVER_ID" ]; then
   exit 1
 fi
 
-# --- Write device record (SPEC-120 §12) ---
+# --- Write device record (SPEC-120 §12, §12.1) ---
+# Case A: record at garden level ($GARDEN_ROOT/devices/<hostname>.json)
+# Case B: record inside scaffold ($WORKDIR/devices/<hostname>.json)
+# DEVICE_RECORD was already set above for the guard check.
+if [ -n "$GARDEN_ROOT" ]; then
+  mkdir -p "$GARDEN_ROOT/devices"
+  # Do NOT create $WORKDIR/devices/ — it is not used in Case A.
+else
+  mkdir -p "$WORKDIR/devices"
+fi
+
 SERVICES_JSON=$(cat <<SVCS
 {
     "netbird_management": $([ "$NETBIRD_MGMT" = "true" ] && echo true || echo false),
