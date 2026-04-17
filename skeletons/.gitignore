@@ -17,4 +17,6 @@
 !lighthouse/
 !lighthouse/**
 
+!seed/
+!seed/**
 

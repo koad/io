@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# install — spawn-time scaffold for seed skeleton
+# Runs after pre-install. $WORKDIR, $ENTITY, $SKELETON are in scope.
+# Accepts flags: --name, --domain, --operator, --datacenter, --primary-ip-name, --path, --services
+#
+# Non-interactive: if all required fields are provided via flags, runs silently.
+# Interactive: missing required fields trigger whiptail walkthrough.
+# SPEC: VESTA-SPEC-120 §5 and §6.
+
+set -e
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}$*${NC}"; }
+
+# --- Parse flags ---
+FLAG_NAME=""
+FLAG_DOMAIN=""
+FLAG_OPERATOR=""
+FLAG_DATACENTER=""
+FLAG_PRIMARY_IP_NAME=""
+FLAG_SERVICES=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name)              FLAG_NAME="$2";           shift 2 ;;
+    --name=*)            FLAG_NAME="${1#*=}";       shift ;;
+    --domain)            FLAG_DOMAIN="$2";          shift 2 ;;
+    --domain=*)          FLAG_DOMAIN="${1#*=}";     shift ;;
+    --operator)          FLAG_OPERATOR="$2";        shift 2 ;;
+    --operator=*)        FLAG_OPERATOR="${1#*=}";   shift ;;
+    --datacenter)        FLAG_DATACENTER="$2";      shift 2 ;;
+    --datacenter=*)      FLAG_DATACENTER="${1#*=}"; shift ;;
+    --primary-ip-name)   FLAG_PRIMARY_IP_NAME="$2"; shift 2 ;;
+    --primary-ip-name=*) FLAG_PRIMARY_IP_NAME="${1#*=}"; shift ;;
+    --services)          FLAG_SERVICES="$2";        shift 2 ;;
+    --services=*)        FLAG_SERVICES="${1#*=}";   shift ;;
+    *)                   shift ;;
+  esac
+done
+
+# --- Resolve working directory ---
+# Case A: WORKDIR contains ENTITY.md — embed into <WORKDIR>/devices/<seed-name>/
+# Case B: WORKDIR is a plain path — scaffold at WORKDIR directly.
+# Entity-dir detection requires seed name first; so we collect name early.
+
+SEED_NAME="${FLAG_NAME:-$(basename "$WORKDIR")}"
+SEED_DOMAIN="${FLAG_DOMAIN:-}"
+OPERATOR_ENTITY="${FLAG_OPERATOR:-${ENTITY:-}}"
+DATACENTER="${FLAG_DATACENTER:-ash-dc1}"
+PRIMARY_IP_NAME="${FLAG_PRIMARY_IP_NAME:-}"
+SERVICES="${FLAG_SERVICES:-netbird_management,ipfs_gateway,stun_turn,nginx,certbot}"
+
+# Detect entity-dir case
+if [ -f "$WORKDIR/ENTITY.md" ]; then
+  DATADIR="$WORKDIR/devices/$SEED_NAME"
+  mkdir -p "$DATADIR"
+else
+  DATADIR="$WORKDIR"
+  mkdir -p "$DATADIR"
+fi
+
+# Guard: idempotency — do not overwrite an existing spawn
+if [ -f "$DATADIR/manifest.yaml" ]; then
+  fail "Seed already spawned at $DATADIR — run control/ scripts to operate it."
+fi
+
+# --- Interactive walkthrough (whiptail) for missing required fields ---
+IS_INTERACTIVE=0
+if [ -t 0 ] && command -v whiptail >/dev/null 2>&1; then
+  IS_INTERACTIVE=1
+fi
+
+prompt_required() {
+  local varname="$1"
+  local label="$2"
+  local default="$3"
+  local current="${!varname}"
+  if [ -z "$current" ]; then
+    if [ "$IS_INTERACTIVE" -eq 1 ]; then
+      local val
+      val=$(whiptail --inputbox "$label" 10 60 "$default" 3>&1 1>&2 2>&3) || fail "Cancelled."
+      eval "$varname=\"$val\""
+    else
+      fail "$label is required. Pass --$(echo "$varname" | tr '[:upper:]' '[:lower:]' | tr '_' '-') <value>."
+    fi
+  fi
+}
+
+if [ -z "$SEED_NAME" ]; then
+  prompt_required SEED_NAME "Seed name (e.g. zero)" "$(basename "$WORKDIR")"
+fi
+prompt_required SEED_DOMAIN "Primary domain (e.g. zero.koad.sh)" ""
+
+# Operator entity — optional; prompt only if interactive
+if [ -z "$OPERATOR_ENTITY" ] && [ "$IS_INTERACTIVE" -eq 1 ]; then
+  OPERATOR_ENTITY=$(whiptail --inputbox "Operator entity (leave blank for human-only mode)" 10 60 "" 3>&1 1>&2 2>&3) || true
+fi
+
+# Datacenter — default offered
+if [ -z "$DATACENTER" ]; then
+  if [ "$IS_INTERACTIVE" -eq 1 ]; then
+    DATACENTER=$(whiptail --inputbox "Hetzner datacenter slug" 10 60 "ash-dc1" 3>&1 1>&2 2>&3) || DATACENTER="ash-dc1"
+  else
+    DATACENTER="ash-dc1"
+  fi
+fi
+
+# Primary IP name — default to domain
+if [ -z "$PRIMARY_IP_NAME" ]; then
+  PRIMARY_IP_NAME="$SEED_DOMAIN"
+fi
+
+# Services — interactive checklist if not provided
+if [ -z "$SERVICES" ] && [ "$IS_INTERACTIVE" -eq 1 ]; then
+  SERVICES_SELECTED=$(whiptail --checklist "Services to enable" 20 60 6 \
+    "netbird_management" "Netbird management server" ON \
+    "ipfs_gateway"       "IPFS gateway"             ON \
+    "stun_turn"          "STUN/TURN server"          ON \
+    "nginx"              "nginx"                     ON \
+    "certbot"            "certbot TLS"               ON \
+    3>&1 1>&2 2>&3) || true
+  # whiptail returns quoted space-separated; convert to comma-separated
+  SERVICES=$(echo "$SERVICES_SELECTED" | tr -d '"' | tr ' ' ',')
+fi
+SERVICES="${SERVICES:-netbird_management,ipfs_gateway,stun_turn,nginx,certbot}"
+
+# --- Parse services into booleans ---
+svc_enabled() {
+  echo "$SERVICES" | tr ',' '\n' | grep -qx "$1" && echo "true" || echo "false"
+}
+
+NETBIRD_MGMT=$(svc_enabled "netbird_management")
+IPFS_GW=$(svc_enabled "ipfs_gateway")
+STUN_TURN=$(svc_enabled "stun_turn")
+NGINX_SVC=$(svc_enabled "nginx")
+CERTBOT_SVC=$(svc_enabled "certbot")
+
+# --- Create DATADIR structure ---
+mkdir -p "$DATADIR/devices" "$DATADIR/control" "$DATADIR/nginx" "$DATADIR/cloud-init"
+touch "$DATADIR/devices/.gitkeep"
+
+# --- Copy skeleton/ tree into DATADIR ---
+SKELETON_DIR="${SKELETON:-$(dirname "$(dirname "$0")")/skeleton}"
+
+if [ ! -d "$SKELETON_DIR" ]; then
+  fail "Skeleton directory not found at $SKELETON_DIR"
+fi
+
+cp -r "$SKELETON_DIR"/. "$DATADIR/"
+
+# --- Substitute placeholders in copied templates ---
+CREATED_DATE=$(date +%Y-%m-%d)
+SUBSTITUTIONS=(
+  "s|<SEED_NAME>|$SEED_NAME|g"
+  "s|<SEED_DOMAIN>|$SEED_DOMAIN|g"
+  "s|<OPERATOR_ENTITY>|$OPERATOR_ENTITY|g"
+  "s|<DATACENTER>|$DATACENTER|g"
+  "s|<PRIMARY_IP_NAME>|$PRIMARY_IP_NAME|g"
+  "s|<CREATED_DATE>|$CREATED_DATE|g"
+  "s|<NETBIRD_MGMT_ENABLED>|$NETBIRD_MGMT|g"
+  "s|<IPFS_GATEWAY_ENABLED>|$IPFS_GW|g"
+  "s|<STUN_TURN_ENABLED>|$STUN_TURN|g"
+  "s|<NGINX_ENABLED>|$NGINX_SVC|g"
+  "s|<CERTBOT_ENABLED>|$CERTBOT_SVC|g"
+)
+
+find "$DATADIR" -name "*.template" | while read -r tpl; do
+  out="${tpl%.template}"
+  cp "$tpl" "$out"
+  for sub in "${SUBSTITUTIONS[@]}"; do
+    sed -i "$sub" "$out"
+  done
+  rm "$tpl"
+done
+
+# --- Write manifest.yaml ---
+cat > "$DATADIR/manifest.yaml" <<MANIFEST
+seed:
+  name: ${SEED_NAME}
+  domain: ${SEED_DOMAIN}
+  created: ${CREATED_DATE}
+  operator_entity: ${OPERATOR_ENTITY}
+  datacenter: ${DATACENTER}
+  primary_ip_name: ${PRIMARY_IP_NAME}
+
+services:
+  netbird_management: ${NETBIRD_MGMT}
+  ipfs_gateway: ${IPFS_GW}
+  stun_turn: ${STUN_TURN}
+  nginx: ${NGINX_SVC}
+  certbot: ${CERTBOT_SVC}
+
+provider:
+  name: hetzner
+  image: ubuntu-24.04
+  seed_type: cx23
+  node_type: cx23
+MANIFEST
+
+# --- Make runtime control/ scripts executable ---
+chmod +x "$DATADIR"/control/*
+
+# --- Write spawn log ---
+SPAWN_JSON="$DATADIR/devices/.spawn.json"
+cat > "$SPAWN_JSON" <<JSON
+{
+  "spawned_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "spawning_entity": "${ENTITY:-}",
+  "flags": {
+    "name": "${SEED_NAME}",
+    "domain": "${SEED_DOMAIN}",
+    "operator": "${OPERATOR_ENTITY}",
+    "datacenter": "${DATACENTER}",
+    "primary_ip_name": "${PRIMARY_IP_NAME}",
+    "services": "${SERVICES}"
+  }
+}
+JSON
+
+ok "Seed workspace scaffolded at: $DATADIR"
+export DATADIR

@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# verify — SSH in, check cloud-init status, check services
+# Idempotent read-only. Updates device record status field.
+# SPEC: VESTA-SPEC-120 §6.1
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKDIR="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$WORKDIR/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}$*${NC}"; }
+warn() { echo -e "${YEL}WARN: $*${NC}" >&2; }
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $WORKDIR — run spawn first."
+
+read_seed()     { grep -A20 "^seed:"     "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+read_services() { grep -A20 "^services:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+
+SEED_DOMAIN=$(read_seed "domain")
+OPERATOR=$(read_seed "operator_entity")
+
+DEVICE_RECORD="$WORKDIR/devices/${SEED_DOMAIN}.json"
+[ -f "$DEVICE_RECORD" ] || fail "Device record not found at $DEVICE_RECORD — run control/deploy first."
+
+SERVER_IP=$(jq -r '.ip // empty' "$DEVICE_RECORD")
+[ -n "$SERVER_IP" ] && [ "$SERVER_IP" != "unknown" ] || fail "No IP in device record — deploy may have failed."
+
+# Determine SSH identity
+if [ -n "$OPERATOR" ] && [ "$OPERATOR" != "koad-io" ]; then
+  ENTITY_KEY="$HOME/.$OPERATOR/id/ed25519"
+  if [ -f "$ENTITY_KEY" ]; then
+    SSH_OPTS=(-i "$ENTITY_KEY" -l "$OPERATOR")
+  else
+    warn "Entity key not found at $ENTITY_KEY — using default SSH identity."
+    SSH_OPTS=()
+  fi
+else
+  SSH_OPTS=()
+fi
+
+SSH_BASE=(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${SSH_OPTS[@]}" "$SEED_DOMAIN")
+
+echo "Verifying $SEED_DOMAIN ($SERVER_IP) ..."
+
+# Poll SSH connectivity (up to 35 min for cloud-init)
+MAX_ATTEMPTS=42
+SLEEP_SEC=50
+ATTEMPT=0
+
+while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+  ATTEMPT=$((ATTEMPT + 1))
+  echo -n "  [$ATTEMPT/$MAX_ATTEMPTS] SSH check ... "
+  if "${SSH_BASE[@]}" -o BatchMode=yes true 2>/dev/null; then
+    ok "connected"
+    break
+  else
+    if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+      warn "SSH not responding after $((MAX_ATTEMPTS * SLEEP_SEC / 60)) minutes."
+      echo "Check Hetzner web console for cloud-init status (VNC)."
+      jq '.status = "unreachable"' "$DEVICE_RECORD" > "${DEVICE_RECORD}.tmp" && mv "${DEVICE_RECORD}.tmp" "$DEVICE_RECORD"
+      exit 1
+    fi
+    echo "not ready — waiting ${SLEEP_SEC}s ..."
+    sleep "$SLEEP_SEC"
+  fi
+done
+
+# Check cloud-init completion
+echo -n "  cloud-init status ... "
+CI_STATUS=$("${SSH_BASE[@]}" "cloud-init status 2>/dev/null || echo 'unknown'" 2>/dev/null || echo "error")
+echo "$CI_STATUS"
+
+if echo "$CI_STATUS" | grep -q "error"; then
+  warn "cloud-init reports error. Check /var/log/cloud-init-output.log on the server."
+fi
+
+# Check koad-io framework presence
+echo -n "  koad-io framework ... "
+if "${SSH_BASE[@]}" "test -d ~/.koad-io && echo ok" 2>/dev/null | grep -q ok; then
+  ok "present"
+else
+  warn "not found — cloud-init may still be running."
+fi
+
+# Check services per manifest
+if [ "$(read_services "nginx")" = "true" ]; then
+  echo -n "  nginx ... "
+  if "${SSH_BASE[@]}" "systemctl is-active nginx 2>/dev/null" 2>/dev/null | grep -q active; then
+    ok "active"
+  else
+    warn "not active"
+  fi
+fi
+
+if [ "$(read_services "netbird_management")" = "true" ]; then
+  echo -n "  netbird ... "
+  if "${SSH_BASE[@]}" "command -v netbird >/dev/null 2>&1 && echo ok" 2>/dev/null | grep -q ok; then
+    ok "installed"
+  else
+    warn "not found"
+  fi
+fi
+
+if [ "$(read_services "ipfs_gateway")" = "true" ]; then
+  echo -n "  ipfs ... "
+  if "${SSH_BASE[@]}" "command -v ipfs >/dev/null 2>&1 && echo ok" 2>/dev/null | grep -q ok; then
+    ok "installed"
+  else
+    warn "not found"
+  fi
+fi
+
+# Update device record status to running
+jq '.status = "running"' "$DEVICE_RECORD" > "${DEVICE_RECORD}.tmp" && mv "${DEVICE_RECORD}.tmp" "$DEVICE_RECORD"
+ok ""
+ok "Verification complete. Device record updated: status=running"

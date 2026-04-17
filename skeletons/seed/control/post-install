@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# post-install — prints next-steps after seed scaffold
+# Runs after install. $WORKDIR and $DATADIR are in scope.
+# SPEC: VESTA-SPEC-120 §5.1 step 3.
+
+GRN='\033[0;32m'
+CYN='\033[0;36m'
+NC='\033[0m'
+
+SEED_WORKDIR="${DATADIR:-$WORKDIR}"
+
+echo ""
+echo -e "${GRN}Seed workspace created at: ${SEED_WORKDIR}${NC}"
+echo ""
+echo "Next steps:"
+echo ""
+echo -e "  1. Review manifest:      ${CYN}${SEED_WORKDIR}/manifest.yaml${NC}"
+echo -e "  2. Reserve your IP:      ${CYN}${SEED_WORKDIR}/control/provision-ip${NC}"
+echo -e "  3. Deploy seed:          ${CYN}${SEED_WORKDIR}/control/deploy${NC}"
+echo -e "  4. Verify:               ${CYN}${SEED_WORKDIR}/control/verify${NC}"
+echo -e "  5. Install hook:         ${CYN}${SEED_WORKDIR}/control/install-device-hook${NC}"
+echo -e "  6. Pull DH params back:  ${CYN}${SEED_WORKDIR}/control/pull-dh-back${NC}   (if generated on-box)"
+echo ""
+echo "All control scripts read manifest.yaml — edit it there before deploying."
+echo ""

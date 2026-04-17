@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# provision-ip — create Hetzner Primary IP if not existing
+# Idempotent: re-running is safe.
+# SPEC: VESTA-SPEC-120 §9.4
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKDIR="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$WORKDIR/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}$*${NC}"; }
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $WORKDIR — run spawn first."
+
+# Read manifest fields
+read_field() { grep -A20 "^seed:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+read_provider() { grep -A20 "^provider:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+
+DATACENTER=$(read_field "datacenter")
+PRIMARY_IP_NAME=$(read_field "primary_ip_name")
+DOMAIN=$(read_field "domain")
+API_CONTEXT=$(read_provider "api_context")
+
+[ -n "$DATACENTER" ]      || fail "manifest.seed.datacenter is empty."
+[ -n "$PRIMARY_IP_NAME" ] || fail "manifest.seed.primary_ip_name is empty."
+
+HCLOUD_OPTS=()
+[ -n "$API_CONTEXT" ] && HCLOUD_OPTS+=(--context "$API_CONTEXT")
+
+# Check if Primary IP already exists
+EXISTING=$(hcloud primary-ip list "${HCLOUD_OPTS[@]}" -o json 2>/dev/null \
+  | jq -r --arg name "$PRIMARY_IP_NAME" '.[] | select(.name == $name) | .ip' 2>/dev/null || true)
+
+if [ -n "$EXISTING" ]; then
+  ok "Primary IP already exists: $EXISTING  (name: $PRIMARY_IP_NAME)"
+  echo "Point your A record: $DOMAIN -> $EXISTING"
+  exit 0
+fi
+
+echo "Creating Primary IP: name=$PRIMARY_IP_NAME datacenter=$DATACENTER ..."
+
+hcloud primary-ip create \
+  "${HCLOUD_OPTS[@]}" \
+  --name "$PRIMARY_IP_NAME" \
+  --datacenter "$DATACENTER" \
+  --type ipv4
+
+NEW_IP=$(hcloud primary-ip list "${HCLOUD_OPTS[@]}" -o json \
+  | jq -r --arg name "$PRIMARY_IP_NAME" '.[] | select(.name == $name) | .ip')
+
+ok "Primary IP: $NEW_IP  (name: $PRIMARY_IP_NAME)"
+echo "Point your A record: $DOMAIN -> $NEW_IP"

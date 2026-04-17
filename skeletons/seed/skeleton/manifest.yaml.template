@@ -1,0 +1,21 @@
+seed:
+  name: <SEED_NAME>
+  domain: <SEED_DOMAIN>
+  created: <CREATED_DATE>
+  operator_entity: <OPERATOR_ENTITY>
+  datacenter: <DATACENTER>
+  primary_ip_name: <PRIMARY_IP_NAME>
+
+services:
+  netbird_management: <NETBIRD_MGMT_ENABLED>
+  ipfs_gateway: <IPFS_GATEWAY_ENABLED>
+  stun_turn: <STUN_TURN_ENABLED>
+  nginx: true
+  certbot: true
+
+provider:
+  name: hetzner
+  # api_context: koad-hetzner    # optional: hcloud CLI context name
+  image: ubuntu-24.04
+  seed_type: cx23
+  node_type: cx23

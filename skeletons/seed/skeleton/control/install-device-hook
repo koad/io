@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# install-device-hook — write ~/.koad-io/bin/<fqdn> on home machine
+# Idempotent: overwrites existing hook.
+# SPEC: VESTA-SPEC-120 §10.4
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKDIR="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$WORKDIR/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}$*${NC}"; }
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $WORKDIR — run spawn first."
+
+read_seed() { grep -A20 "^seed:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+
+SEED_DOMAIN=$(read_seed "domain")
+OPERATOR=$(read_seed "operator_entity")
+
+[ -n "$SEED_DOMAIN" ] || fail "manifest.seed.domain is empty."
+
+HOOK_DIR="$HOME/.koad-io/bin"
+mkdir -p "$HOOK_DIR"
+HOOK_PATH="$HOOK_DIR/$SEED_DOMAIN"
+
+if [ -n "$OPERATOR" ] && [ "$OPERATOR" != "koad-io" ]; then
+  # Mode B: route to entity user with entity key (SPEC-120 §10.1)
+  cat > "$HOOK_PATH" <<HOOK
+#!/usr/bin/env bash
+ssh -i "\$HOME/.$OPERATOR/id/ed25519" -l $OPERATOR $SEED_DOMAIN "\$@"
+HOOK
+else
+  # Mode A: plain SSH, resolves via ~/.ssh/config (SPEC-120 §10.4)
+  cat > "$HOOK_PATH" <<HOOK
+#!/usr/bin/env bash
+ssh $SEED_DOMAIN "\$@"
+HOOK
+fi
+
+chmod +x "$HOOK_PATH"
+ok "Device hook installed: $HOOK_PATH"
+
+if [ -n "$OPERATOR" ] && [ "$OPERATOR" != "koad-io" ]; then
+  echo ""
+  echo "Usage:  $SEED_DOMAIN <command>"
+  echo "Routes to: $OPERATOR@$SEED_DOMAIN using ~/.$OPERATOR/id/ed25519"
+fi

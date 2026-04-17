@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# destroy-seed — STUB ONLY
+# Full seed destroy (server + Primary IP + archive) is not yet implemented.
+# SPEC: VESTA-SPEC-120 §15.1 (open question — archive protocol not yet specified)
+
+echo "destroy-seed is not yet implemented — pending VESTA-SPEC-120 §15.1 amendment."
+echo "The archive protocol (where manifest and device records go, retention policy) is deferred."
+echo ""
+echo "Use destroy-server to remove the VM while retaining the Primary IP and records:"
+echo "  $(dirname "$0")/destroy-server"
+exit 1

@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+# deploy — generate cloud-init, create Hetzner server, write device record
+# Reads manifest.yaml for all values.
+# SPEC: VESTA-SPEC-120 §7, §8, §9.5, §12
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKDIR="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$WORKDIR/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}$*${NC}"; }
+warn() { echo -e "${YEL}WARN: $*${NC}" >&2; }
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $WORKDIR — run spawn first."
+
+# --- Parse manifest ---
+read_seed()     { grep -A20 "^seed:"     "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+read_services() { grep -A20 "^services:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+read_provider() { grep -A20 "^provider:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+
+SEED_NAME=$(read_seed "name")
+SEED_DOMAIN=$(read_seed "domain")
+OPERATOR=$(read_seed "operator_entity")
+DATACENTER=$(read_seed "datacenter")
+PRIMARY_IP_NAME=$(read_seed "primary_ip_name")
+
+NETBIRD_MGMT=$(read_services "netbird_management")
+IPFS_GW=$(read_services "ipfs_gateway")
+STUN_TURN=$(read_services "stun_turn")
+NGINX_SVC=$(read_services "nginx")
+CERTBOT_SVC=$(read_services "certbot")
+
+PROVIDER_NAME=$(read_provider "name")
+API_CONTEXT=$(read_provider "api_context")
+IMAGE=$(read_provider "image")
+SEED_TYPE=$(read_provider "seed_type")
+
+# Defaults
+PROVIDER_NAME="${PROVIDER_NAME:-hetzner}"
+IMAGE="${IMAGE:-ubuntu-24.04}"
+SEED_TYPE="${SEED_TYPE:-cx23}"
+
+[ -n "$SEED_NAME" ]   || fail "manifest.seed.name is empty."
+[ -n "$SEED_DOMAIN" ] || fail "manifest.seed.domain is empty."
+[ -n "$DATACENTER" ]  || fail "manifest.seed.datacenter is empty."
+
+# --- Guard: do not redeploy a running seed ---
+DEVICE_RECORD="$WORKDIR/devices/${SEED_DOMAIN}.json"
+if [ -f "$DEVICE_RECORD" ]; then
+  EXISTING_STATUS=$(jq -r '.status // empty' "$DEVICE_RECORD" 2>/dev/null || true)
+  if [ "$EXISTING_STATUS" = "running" ]; then
+    warn "Device record shows status=running. Deploying again will create a second server."
+    if [ -t 0 ]; then
+      read -r -p "Continue anyway? [y/N] " CONFIRM
+      [[ "$CONFIRM" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+    else
+      fail "Non-interactive: aborting to prevent duplicate server. Delete or update $DEVICE_RECORD first."
+    fi
+  fi
+fi
+
+# --- Determine user model (SPEC-120 §7) ---
+HUMAN_USER="$(whoami)"
+HUMAN_SSH_KEY_FILE="$HOME/.ssh/id_ed25519.pub"
+[ -f "$HUMAN_SSH_KEY_FILE" ] || fail "Human SSH key not found at $HUMAN_SSH_KEY_FILE"
+HUMAN_SSH_KEY="$(cat "$HUMAN_SSH_KEY_FILE")"
+
+ENTITY_MODE=0
+if [ -n "$OPERATOR" ] && [ "$OPERATOR" != "koad-io" ]; then
+  ENTITY_KEY_FILE="$HOME/.$OPERATOR/id/ed25519.pub"
+  if [ -f "$ENTITY_KEY_FILE" ]; then
+    ENTITY_MODE=1
+    ENTITY_SSH_KEY="$(cat "$ENTITY_KEY_FILE")"
+  else
+    warn "Entity key not found at $ENTITY_KEY_FILE — falling back to Mode A (human-only)."
+  fi
+fi
+
+# --- Determine DH params (SPEC-120 §8) ---
+DH_EMBED=0
+DH_2048_CONTENT=""
+DH_4096_CONTENT=""
+
+if [ "$ENTITY_MODE" -eq 1 ]; then
+  DH_2048="$HOME/.$OPERATOR/ssl/dhparam-2048.pem"
+  DH_4096="$HOME/.$OPERATOR/ssl/dhparam-4096.pem"
+  if [ -f "$DH_2048" ] && [ -f "$DH_4096" ]; then
+    # Valid = does not begin with '#'
+    FIRST_2048=$(head -c1 "$DH_2048")
+    FIRST_4096=$(head -c1 "$DH_4096")
+    if [ "$FIRST_2048" != "#" ] && [ "$FIRST_4096" != "#" ]; then
+      DH_EMBED=1
+      DH_2048_CONTENT="$(cat "$DH_2048")"
+      DH_4096_CONTENT="$(cat "$DH_4096")"
+      ok "DH params found — will embed in cloud-init."
+    fi
+  fi
+fi
+if [ "$DH_EMBED" -eq 0 ]; then
+  warn "DH params not found or placeholder — server will generate on-box. Run control/pull-dh-back after deploy."
+fi
+
+# --- Build cloud-init from template ---
+CLOUD_INIT_TEMPLATE="$WORKDIR/cloud-init/seed.yaml.template"
+[ -f "$CLOUD_INIT_TEMPLATE" ] || fail "Cloud-init template not found at $CLOUD_INIT_TEMPLATE"
+
+CERTBOT_EMAIL="${KOAD_IO_CERTBOT_EMAIL:-koad@koad.sh}"
+TMPFILE=$(mktemp /tmp/seed-cloud-init-XXXXXX.yaml)
+trap 'rm -f "$TMPFILE"' EXIT
+
+cp "$CLOUD_INIT_TEMPLATE" "$TMPFILE"
+
+# Basic substitutions
+sed -i \
+  -e "s|<SEED_NAME>|$SEED_NAME|g" \
+  -e "s|<SEED_DOMAIN>|$SEED_DOMAIN|g" \
+  -e "s|<ADMIN_USER>|$HUMAN_USER|g" \
+  -e "s|<ADMIN_SSH_KEY>|$HUMAN_SSH_KEY|g" \
+  -e "s|<CERTBOT_EMAIL>|$CERTBOT_EMAIL|g" \
+  -e "s|<NETBIRD_MGMT_ENABLED>|${NETBIRD_MGMT:-false}|g" \
+  -e "s|<IPFS_GATEWAY_ENABLED>|${IPFS_GW:-false}|g" \
+  -e "s|<STUN_TURN_ENABLED>|${STUN_TURN:-false}|g" \
+  "$TMPFILE"
+
+if [ "$ENTITY_MODE" -eq 1 ]; then
+  sed -i \
+    -e "s|<ENTITY_USER>|$OPERATOR|g" \
+    -e "s|<ENTITY_SSH_KEY>|$ENTITY_SSH_KEY|g" \
+    "$TMPFILE"
+fi
+
+# DH params injection
+if [ "$DH_EMBED" -eq 1 ]; then
+  # Build the write_files block for DH params
+  DH_BLOCK="write_files:\n  - path: /home/${OPERATOR}/.${OPERATOR}/ssl/dhparam-2048.pem\n    owner: ${OPERATOR}:${OPERATOR}\n    permissions: '0600'\n    content: |\n$(echo "$DH_2048_CONTENT" | sed 's/^/      /')\n  - path: /home/${OPERATOR}/.${OPERATOR}/ssl/dhparam-4096.pem\n    owner: ${OPERATOR}:${OPERATOR}\n    permissions: '0600'\n    content: |\n$(echo "$DH_4096_CONTENT" | sed 's/^/      /')"
+  # Replace the placeholder block in template
+  sed -i "s|<DH_WRITE_FILES_BLOCK>|${DH_BLOCK}|" "$TMPFILE"
+  sed -i "s|<DH_GENERATE_BLOCK>||" "$TMPFILE"
+else
+  # Remove the embed placeholder, leave the generate runcmd section
+  sed -i "s|<DH_WRITE_FILES_BLOCK>||" "$TMPFILE"
+  if [ "$ENTITY_MODE" -eq 1 ]; then
+    DH_GEN="  - su - ${OPERATOR} -c 'mkdir -p \$HOME/.${OPERATOR}/ssl && openssl dhparam -out \$HOME/.${OPERATOR}/ssl/dhparam-2048.pem 2048 && openssl dhparam -out \$HOME/.${OPERATOR}/ssl/dhparam-4096.pem 4096'"
+    sed -i "s|<DH_GENERATE_BLOCK>|${DH_GEN}|" "$TMPFILE"
+  else
+    sed -i "s|<DH_GENERATE_BLOCK>||" "$TMPFILE"
+  fi
+fi
+
+# Remove entity user block if Mode A
+if [ "$ENTITY_MODE" -eq 0 ]; then
+  # Strip between MODE_B_START and MODE_B_END markers
+  sed -i '/# MODE_B_START/,/# MODE_B_END/d' "$TMPFILE"
+fi
+
+# Save cloud-init for audit
+AUDIT_PATH="$WORKDIR/devices/${SEED_DOMAIN}-cloud-init.yaml"
+cp "$TMPFILE" "$AUDIT_PATH"
+ok "Cloud-init written to $AUDIT_PATH"
+
+CLOUD_INIT_SHA=$(sha256sum "$TMPFILE" | awk '{print $1}')
+
+# --- Derive hcloud location from datacenter slug ---
+# ash-dc1 -> ash, fsn1-dc14 -> fsn1, nbg1-dc3 -> nbg1, hel1-dc2 -> hel1
+HCLOUD_LOCATION=$(echo "$DATACENTER" | sed 's/-dc[0-9]*$//')
+
+HCLOUD_OPTS=()
+[ -n "$API_CONTEXT" ] && HCLOUD_OPTS+=(--context "$API_CONTEXT")
+
+echo "Deploying seed: $SEED_NAME ($SEED_DOMAIN) at $HCLOUD_LOCATION on Hetzner..."
+echo "  Image:       $IMAGE"
+echo "  Server type: $SEED_TYPE"
+echo "  Primary IP:  $PRIMARY_IP_NAME"
+echo ""
+
+HCLOUD_OUTPUT=$(hcloud server create \
+  "${HCLOUD_OPTS[@]}" \
+  --name "${SEED_NAME}-seed" \
+  --type "$SEED_TYPE" \
+  --image "$IMAGE" \
+  --location "$HCLOUD_LOCATION" \
+  --primary-ipv4 "$PRIMARY_IP_NAME" \
+  --user-data-from-file "$TMPFILE" \
+  -o json 2>/dev/null) || {
+    # hcloud may not support -o json for create; fall back
+    HCLOUD_OUTPUT=$(hcloud server create \
+      "${HCLOUD_OPTS[@]}" \
+      --name "${SEED_NAME}-seed" \
+      --type "$SEED_TYPE" \
+      --image "$IMAGE" \
+      --location "$HCLOUD_LOCATION" \
+      --primary-ipv4 "$PRIMARY_IP_NAME" \
+      --user-data-from-file "$TMPFILE" 2>&1)
+    echo "$HCLOUD_OUTPUT"
+    # Parse server ID from text output
+    SERVER_ID=$(echo "$HCLOUD_OUTPUT" | grep -oP 'Server [0-9]+' | grep -oP '[0-9]+' | head -1 || true)
+    SERVER_IP=$(hcloud primary-ip list "${HCLOUD_OPTS[@]}" -o json \
+      | jq -r --arg name "$PRIMARY_IP_NAME" '.[] | select(.name == $name) | .ip' 2>/dev/null || true)
+    ok "Server created."
+  }
+
+# Try to extract from JSON output if available
+if echo "$HCLOUD_OUTPUT" | jq . >/dev/null 2>&1; then
+  SERVER_ID=$(echo "$HCLOUD_OUTPUT" | jq -r '.server.id // empty' 2>/dev/null || true)
+fi
+
+# Fallback: look up server by name
+if [ -z "$SERVER_ID" ]; then
+  SERVER_ID=$(hcloud server list "${HCLOUD_OPTS[@]}" -o json \
+    | jq -r --arg name "${SEED_NAME}-seed" '.[] | select(.name == $name) | .id' 2>/dev/null || true)
+fi
+
+if [ -z "$SERVER_IP" ]; then
+  SERVER_IP=$(hcloud primary-ip list "${HCLOUD_OPTS[@]}" -o json \
+    | jq -r --arg name "$PRIMARY_IP_NAME" '.[] | select(.name == $name) | .ip' 2>/dev/null || true)
+fi
+
+# --- Write device record (SPEC-120 §12) ---
+SERVICES_JSON=$(cat <<SVCS
+{
+    "netbird_management": $([ "$NETBIRD_MGMT" = "true" ] && echo true || echo false),
+    "ipfs_gateway": $([ "$IPFS_GW" = "true" ] && echo true || echo false),
+    "stun_turn": $([ "$STUN_TURN" = "true" ] && echo true || echo false),
+    "nginx": $([ "$NGINX_SVC" = "true" ] && echo true || echo false),
+    "certbot": $([ "$CERTBOT_SVC" = "true" ] && echo true || echo false)
+  }
+SVCS
+)
+
+cat > "$DEVICE_RECORD" <<RECORD
+{
+  "hostname": "$SEED_DOMAIN",
+  "role": "seed",
+  "ip": "${SERVER_IP:-unknown}",
+  "primary_ip_name": "$PRIMARY_IP_NAME",
+  "provider": "$PROVIDER_NAME",
+  "server_id": "${SERVER_ID:-unknown}",
+  "datacenter": "$DATACENTER",
+  "image": "$IMAGE",
+  "server_type": "$SEED_TYPE",
+  "operator_entity": "$OPERATOR",
+  "cloud_init_sha256": "$CLOUD_INIT_SHA",
+  "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "status": "running",
+  "services": $SERVICES_JSON,
+  "notes": ""
+}
+RECORD
+
+ok "Device record written to $DEVICE_RECORD"
+ok ""
+ok "Seed deployed. Next steps:"
+echo ""
+echo "  Cloud-init is running on the server (~25-35 min on first boot)."
+echo "  To check:"
+echo "    ${WORKDIR}/control/verify"
+echo ""
+echo "  After cloud-init completes:"
+echo "    ${WORKDIR}/control/install-device-hook"
+if [ "$DH_EMBED" -eq 0 ] && [ "$ENTITY_MODE" -eq 1 ]; then
+  echo "    ${WORKDIR}/control/pull-dh-back"
+fi
+echo ""

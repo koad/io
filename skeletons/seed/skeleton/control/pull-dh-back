@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# pull-dh-back — scp DH params from deployed seed back to operator entity ssl/
+# Idempotent: skips if valid local DH params already exist.
+# SPEC: VESTA-SPEC-120 §8.3
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKDIR="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$WORKDIR/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}$*${NC}"; }
+warn() { echo -e "${YEL}WARN: $*${NC}" >&2; }
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $WORKDIR — run spawn first."
+
+read_seed() { grep -A20 "^seed:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+
+SEED_DOMAIN=$(read_seed "domain")
+OPERATOR=$(read_seed "operator_entity")
+
+[ -n "$OPERATOR" ] && [ "$OPERATOR" != "koad-io" ] || fail "No operator entity in manifest — DH pull-back requires an entity. (Mode A deploys generate on-box and keep params there.)"
+
+LOCAL_SSL_DIR="$HOME/.$OPERATOR/ssl"
+LOCAL_2048="$LOCAL_SSL_DIR/dhparam-2048.pem"
+LOCAL_4096="$LOCAL_SSL_DIR/dhparam-4096.pem"
+
+# Idempotency: skip if valid files already exist locally
+valid_pem() {
+  [ -f "$1" ] && [ "$(head -c1 "$1")" != "#" ]
+}
+
+if valid_pem "$LOCAL_2048" && valid_pem "$LOCAL_4096"; then
+  ok "Valid DH params already present at $LOCAL_SSL_DIR — skipping pull-back."
+  ok "Next deploy will embed these params."
+  exit 0
+fi
+
+mkdir -p "$LOCAL_SSL_DIR"
+
+ENTITY_KEY="$HOME/.$OPERATOR/id/ed25519"
+[ -f "$ENTITY_KEY" ] || fail "Entity key not found at $ENTITY_KEY"
+
+echo "Pulling DH params from $OPERATOR@$SEED_DOMAIN ..."
+
+scp -i "$ENTITY_KEY" \
+  "${OPERATOR}@${SEED_DOMAIN}:~/.$OPERATOR/ssl/dhparam-2048.pem" \
+  "$LOCAL_2048" || fail "Failed to copy dhparam-2048.pem — cloud-init may still be generating it."
+
+scp -i "$ENTITY_KEY" \
+  "${OPERATOR}@${SEED_DOMAIN}:~/.$OPERATOR/ssl/dhparam-4096.pem" \
+  "$LOCAL_4096" || fail "Failed to copy dhparam-4096.pem — cloud-init may still be generating it."
+
+# Validate
+valid_pem "$LOCAL_2048" || fail "dhparam-2048.pem copied but appears to be a placeholder."
+valid_pem "$LOCAL_4096" || fail "dhparam-4096.pem copied but appears to be a placeholder."
+
+ok "DH params pulled to $LOCAL_SSL_DIR"
+ok "Next deploy will embed them in cloud-init."

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# pre-install — spawn-time checks for seed skeleton
+# Runs before install. $WORKDIR, $ENTITY, $SKELETON are in scope.
+# Exit 1 to abort spawn.
+
+set -e
+
+RED='\033[0;31m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+warn() { echo -e "${YEL}WARN: $*${NC}" >&2; }
+
+# Required: WORKDIR must be set
+if [ -z "$WORKDIR" ]; then
+  fail "WORKDIR is not set — cannot proceed."
+fi
+
+# Guard: do not overwrite an existing spawn
+if [ -f "$WORKDIR/manifest.yaml" ]; then
+  fail "Seed already spawned at $WORKDIR — run control/ scripts to operate it."
+fi
+
+# Dependency checks
+if ! command -v hcloud >/dev/null 2>&1; then
+  echo -e "${RED}ERROR: hcloud CLI not found.${NC}" >&2
+  echo "Install via: https://github.com/hetznercloud/cli#installation" >&2
+  echo "  Linux: curl -L https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz && mv hcloud /usr/local/bin/" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo -e "${RED}ERROR: jq not found.${NC}" >&2
+  echo "Install: sudo apt-get install jq  OR  brew install jq" >&2
+  exit 1
+fi
+
+if ! command -v whiptail >/dev/null 2>&1; then
+  warn "whiptail not found — interactive TUI will be unavailable. Non-interactive (--flag) mode required."
+  # Not a hard fail: non-interactive spawn still works without whiptail
+fi
+
+echo "pre-install checks passed."

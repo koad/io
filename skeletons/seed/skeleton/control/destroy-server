@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# destroy-server — delete server VM; KEEP Primary IP; update device record
+# Requires --force for non-interactive.
+# SPEC: VESTA-SPEC-120 §9.6
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKDIR="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$WORKDIR/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}$*${NC}"; }
+warn() { echo -e "${YEL}WARN: $*${NC}" >&2; }
+
+FORCE=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force) FORCE=1; shift ;;
+    *)       shift ;;
+  esac
+done
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $WORKDIR — run spawn first."
+
+read_seed()     { grep -A20 "^seed:"     "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+read_provider() { grep -A20 "^provider:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+
+SEED_NAME=$(read_seed "name")
+SEED_DOMAIN=$(read_seed "domain")
+PRIMARY_IP_NAME=$(read_seed "primary_ip_name")
+API_CONTEXT=$(read_provider "api_context")
+
+DEVICE_RECORD="$WORKDIR/devices/${SEED_DOMAIN}.json"
+[ -f "$DEVICE_RECORD" ] || fail "Device record not found at $DEVICE_RECORD"
+
+SERVER_ID=$(jq -r '.server_id // empty' "$DEVICE_RECORD")
+CURRENT_STATUS=$(jq -r '.status // empty' "$DEVICE_RECORD")
+
+[ -n "$SERVER_ID" ] && [ "$SERVER_ID" != "unknown" ] || fail "No server_id in device record."
+
+if [ "$CURRENT_STATUS" = "destroyed" ]; then
+  warn "Device record already shows status=destroyed."
+  exit 0
+fi
+
+warn "This will DELETE the server VM for $SEED_DOMAIN (server_id: $SERVER_ID)."
+warn "The Primary IP ($PRIMARY_IP_NAME) will be KEPT."
+echo ""
+
+if [ "$FORCE" -eq 0 ]; then
+  if [ -t 0 ]; then
+    read -r -p "Type the domain to confirm destruction ($SEED_DOMAIN): " CONFIRM
+    [ "$CONFIRM" = "$SEED_DOMAIN" ] || { echo "Confirmation failed. Aborted."; exit 1; }
+  else
+    fail "Non-interactive: pass --force to confirm destruction."
+  fi
+fi
+
+HCLOUD_OPTS=()
+[ -n "$API_CONTEXT" ] && HCLOUD_OPTS+=(--context "$API_CONTEXT")
+
+echo "Deleting server $SERVER_ID (${SEED_NAME}-seed) ..."
+hcloud server delete "${HCLOUD_OPTS[@]}" "$SERVER_ID" || \
+  hcloud server delete "${HCLOUD_OPTS[@]}" "${SEED_NAME}-seed"
+
+# Update device record
+jq '.status = "destroyed"' "$DEVICE_RECORD" > "${DEVICE_RECORD}.tmp" && mv "${DEVICE_RECORD}.tmp" "$DEVICE_RECORD"
+
+# Remove device hook if present
+HOOK_PATH="$HOME/.koad-io/bin/$SEED_DOMAIN"
+if [ -f "$HOOK_PATH" ]; then
+  rm "$HOOK_PATH"
+  echo "Device hook removed: $HOOK_PATH"
+fi
+
+ok "Seed VM destroyed. Primary IP $PRIMARY_IP_NAME retained for reuse."
+echo ""
+echo "To redeploy with the same IP: ${WORKDIR}/control/deploy"

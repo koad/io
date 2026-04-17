@@ -1,0 +1,48 @@
+# Seed: <SEED_NAME> (<SEED_DOMAIN>)
+
+Spawned: <CREATED_DATE>
+Operator: <OPERATOR_ENTITY>
+Datacenter: <DATACENTER>
+Spec: VESTA-SPEC-120
+
+## Operations
+
+All runtime operations are in `control/`:
+
+| Script | What it does |
+|--------|-------------|
+| `control/provision-ip` | Create Hetzner Primary IP (idempotent) |
+| `control/deploy` | Generate cloud-init, create server, write device record |
+| `control/verify` | SSH check, cloud-init status, service health |
+| `control/install-device-hook` | Write `~/.koad-io/bin/<SEED_DOMAIN>` on home machine |
+| `control/pull-dh-back` | Copy DH params from deployed device to local entity ssl/ |
+| `control/destroy-server` | Delete server VM (keeps Primary IP) |
+| `control/destroy-seed` | STUB — not implemented (SPEC-120 §15.1) |
+
+## Manifest
+
+`manifest.yaml` is the source of truth. Edit it before running control scripts.
+Never hardcode values that live in the manifest.
+
+## Device records
+
+`devices/<SEED_DOMAIN>.json` — written by `control/deploy`, updated by verify and destroy.
+`devices/.spawn.json` — written at spawn time, records flags used.
+
+## Device hook
+
+After `control/install-device-hook` runs:
+
+```bash
+<SEED_DOMAIN> screen -ls
+<SEED_DOMAIN> df -h
+<SEED_DOMAIN> <any-command>
+```
+
+Routes to `<OPERATOR_ENTITY>@<SEED_DOMAIN>` using `~/.<OPERATOR_ENTITY>/id/ed25519`.
+
+## Reference
+
+- VESTA-SPEC-120: Seed Protocol
+- VESTA-SPEC-119: Garden Protocol
+- `~/.koad-io/bin/missouri`: device hook precedent

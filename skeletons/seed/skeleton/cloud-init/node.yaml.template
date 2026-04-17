@@ -1,0 +1,18 @@
+#cloud-config
+# node.yaml.template — koad:io Seed Protocol cloud-init for NODE variant
+# STUB — node variant not fully implemented this flight.
+# SPEC: VESTA-SPEC-120 §15.3 (open question)
+#
+# A node is simpler than a seed:
+# - No Netbird management server (joins existing mesh as client)
+# - No IPFS gateway by default
+# - User model, DH params, device hook, device records identical to seed
+#
+# Implement as a stripped-down version of seed.yaml.template.
+# See VESTA-SPEC-120 §15.3 for open questions on node variant.
+
+hostname: <SEED_NAME>-node
+
+# Placeholder — full node template deferred to next flight.
+# Use seed.yaml.template with services.netbird_management=false and services.ipfs_gateway=false
+# for equivalent node-like deploys in the interim.
