@@ -1,5 +1,5 @@
-{{!-- SPDX-License-Identifier: AGPL-3.0-or-later --}}
-{{!--
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!--
   activityStream — main list template.
 
   Data context: a Stream instance (or anything with .isLoading(), .error(), .entries()).
@@ -8,7 +8,7 @@
     {{> activityStream stream=myStream opts=filterOpts}}
 
   For a static array, pass inline=true and entries=[...].
---}}
+-->
 
 <template name="activityStream">
   <div class="activity-stream {{#if isLoading}}activity-stream--loading{{/if}}">
