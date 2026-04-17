@@ -272,6 +272,21 @@ SovereignProfile.verifyChain = async function(tipCid) {
 SovereignProfile.render = function(profileData, opts = {}) {
   if (!profileData) return null;
 
+  // bondCount: count koad.bond entries in sigchain entries if provided; else fall through to
+  // profileData.bondCount (set by caller) or 0.
+  let bondCount = 0;
+  if (opts.chainEntries && Array.isArray(opts.chainEntries)) {
+    bondCount = opts.chainEntries.filter(({ entry }) => entry && entry.type === 'koad.bond').length;
+  } else if (typeof profileData.bondCount === 'number') {
+    bondCount = profileData.bondCount;
+  }
+
+  // sigchainTip, chainDepth, lastUpdated sourced from opts when caller has walked the chain.
+  const sigchainTip   = opts.sigchainTip   || profileData.sigchainTip   || null;
+  const chainDepth    = opts.chainDepth    != null ? opts.chainDepth    :
+                        (opts.chainEntries ? opts.chainEntries.length : (profileData.chainDepth || 0));
+  const lastUpdated   = opts.lastUpdated   || profileData.lastUpdated   || null;
+
   return {
     name: profileData.name || opts.entity || 'Unknown',
     bio: profileData.bio || '',
@@ -285,6 +300,10 @@ SovereignProfile.render = function(profileData, opts = {}) {
     })),
     verified: opts.verified === true,
     entity: opts.entity || null,
+    bondCount,
+    sigchainTip,
+    chainDepth,
+    lastUpdated,
   };
 };
 
