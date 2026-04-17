@@ -35,6 +35,19 @@ Template.profileFull.onCreated(function() {
   });
 });
 
+Template.profileFull.events({
+  'click .js-copy-tip-cid'(event, tpl) {
+    event.preventDefault();
+    const cid = event.currentTarget.dataset.cid;
+    if (!cid) return;
+    navigator.clipboard.writeText(cid).then(() => {
+      const btn = tpl.$(event.currentTarget);
+      btn.addClass('copied').text('copied');
+      setTimeout(() => btn.removeClass('copied').text('copy'), 2000);
+    }).catch(() => {});
+  },
+});
+
 Template.profileFull.helpers({
   profile() {
     const data = Template.currentData();

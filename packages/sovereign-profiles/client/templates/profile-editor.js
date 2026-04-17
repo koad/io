@@ -82,11 +82,86 @@ Template.profileEditor.helpers({
     // Pattern: koad.passenger.activeDeviceKey() → { id, description, pubkey, privateKey }
     return null;
   },
+
+  // Live preview data for the profileCard sub-template
+  previewProfile() {
+    const tpl = Template.instance();
+    const profile = tpl.currentProfile.get();
+    return {
+      name: profile.name || 'Your Name',
+      bio: profile.bio || '',
+      avatar: profile.avatar || null,
+      entity: null,
+      verified: false,
+      bondCount: null,
+    };
+  },
+
+  firstLetter(name) {
+    return (name || '?').charAt(0).toUpperCase();
+  },
 });
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
 Template.profileEditor.events({
+  // ── Bio character counter ─────────────────────────────────
+  'input #profile-bio'(event, tpl) {
+    const el = event.currentTarget;
+    const len = el.value.length;
+    const max = parseInt(el.getAttribute('maxlength') || '280', 10);
+    const counter = tpl.$('.js-bio-count');
+    counter.text(`${len} / ${max}`);
+    counter.removeClass('char-count--warn char-count--over');
+    if (len >= max) {
+      counter.addClass('char-count--over');
+    } else if (len >= max * 0.85) {
+      counter.addClass('char-count--warn');
+    }
+  },
+
+  // ── Avatar CID → live preview ─────────────────────────────
+  'input #profile-avatar'(event, tpl) {
+    const cid = event.currentTarget.value.trim();
+    const preview = tpl.$('.js-avatar-preview');
+    if (cid) {
+      preview.html(`<img src="/ipfs/${cid}" alt="avatar" />`);
+    } else {
+      const name = tpl.$('#profile-name').val().trim();
+      preview.text((name || '?').charAt(0).toUpperCase());
+    }
+    // Keep reactive profile in sync so profileCard preview updates
+    const current = tpl.currentProfile.get();
+    tpl.currentProfile.set({ ...current, avatar: cid || null });
+  },
+
+  // Keep reactive name in sync for card preview
+  'input #profile-name'(event, tpl) {
+    const name = event.currentTarget.value;
+    const current = tpl.currentProfile.get();
+    tpl.currentProfile.set({ ...current, name });
+  },
+
+  // Keep reactive bio in sync for card preview
+  'input #profile-bio'(event, tpl) {
+    const bio = event.currentTarget.value;
+    const current = tpl.currentProfile.get();
+    tpl.currentProfile.set({ ...current, bio });
+  },
+
+  // ── CID copy button ────────────────────────────────────────
+  'click .js-copy-cid'(event, tpl) {
+    event.preventDefault();
+    const cid = event.currentTarget.dataset.cid;
+    if (!cid) return;
+    navigator.clipboard.writeText(cid).then(() => {
+      const btn = tpl.$(event.currentTarget);
+      btn.addClass('copied').text('copied');
+      setTimeout(() => btn.removeClass('copied').text('copy'), 2000);
+    }).catch(() => {});
+  },
+
+  // ── Social proof add ──────────────────────────────────────
   'click .js-add-proof'(event, tpl) {
     event.preventDefault();
     const platform = tpl.$('#proof-platform').val().trim();

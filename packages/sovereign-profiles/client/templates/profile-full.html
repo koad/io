@@ -1,12 +1,15 @@
 {{!-- profile-full.html — Full profile view
      Shows avatar, name, handle, bio, social proofs, bond count, sigchain history.
      Usable anywhere. Data in: SovereignProfile.render() result + chain walk.
+     Design: Muse. sovereign-profiles.css provides all styles.
 --}}
 
 <template name="profileFull">
   <div class="sovereign-profile-full {{#if profile.verified}}profile-verified{{/if}}">
 
+    {{!-- Header: avatar + identity + stats --}}
     <div class="profile-full-header">
+
       {{#if profile.avatar}}
         <div class="profile-full-avatar">
           <img src="/ipfs/{{profile.avatar}}" alt="{{profile.name}}" loading="lazy" />
@@ -19,71 +22,117 @@
 
       <div class="profile-full-identity">
         <h1 class="profile-full-name">{{profile.name}}</h1>
+
         {{#if profile.entity}}
           <div class="profile-full-handle">@{{profile.entity}}</div>
         {{/if}}
 
-        {{#if profile.verified}}
-          <span class="profile-verified-badge" title="Full chain verified — all signatures valid">
-            &#10003; Chain Verified
-          </span>
-        {{else}}
-          <span class="profile-unverified-badge" title="Chain not verified — resolve to verify">
-            Unverified
-          </span>
+        <div class="profile-full-badges">
+          {{#if profile.verified}}
+            <span class="profile-verified-badge" title="Full chain verified — all signatures valid from tip to genesis">
+              &#10003; Chain Verified
+            </span>
+          {{else}}
+            <span class="profile-unverified-badge" title="Chain not yet verified — resolve tip CID to verify">
+              Unverified
+            </span>
+          {{/if}}
+        </div>
+
+        {{#if profile.bondCount}}
+          <div class="profile-full-stats-row">
+            <div class="profile-stat-item">
+              <span class="profile-stat-value">{{profile.bondCount}}</span>
+              <span class="profile-stat-label">bonds</span>
+            </div>
+          </div>
         {{/if}}
       </div>
+
     </div>
 
+    {{!-- Bio --}}
     {{#if profile.bio}}
       <div class="profile-full-bio">
         <p>{{profile.bio}}</p>
       </div>
     {{/if}}
 
+    {{!-- Social Proofs --}}
     {{#if profile.socialProofs.length}}
       <div class="profile-full-section">
-        <h3>Social Proofs</h3>
+        <h3 class="profile-full-section-heading">Social Proofs</h3>
         <ul class="profile-social-proofs">
           {{#each profile.socialProofs}}
             <li class="social-proof-item {{#if verified}}proof-verified{{else}}proof-unverified{{/if}}">
               <span class="proof-platform">{{platform}}</span>
               <span class="proof-handle">{{handle}}</span>
               {{#if url}}
-                <a href="{{url}}" target="_blank" rel="noopener">verify</a>
+                <a href="{{url}}" target="_blank" rel="noopener" class="proof-url-link">verify</a>
               {{/if}}
-              {{!-- TODO: show verification badge once social proof sig format is spec'd --}}
+              <span class="proof-verification-icon {{#if verified}}verified{{else}}unverified{{/if}}">
+                {{#if verified}}&#10003;{{else}}&#8212;{{/if}}
+              </span>
             </li>
           {{/each}}
         </ul>
       </div>
     {{/if}}
 
-    {{#if chainHistory.length}}
-      <div class="profile-full-section">
-        <h3>Sigchain History</h3>
-        <ul class="profile-chain-history">
-          {{#each chainHistory}}
-            <li class="chain-entry {{#if valid}}entry-valid{{else}}entry-invalid{{/if}}">
-              <span class="entry-type">{{entry.type}}</span>
-              <span class="entry-timestamp">{{entry.timestamp}}</span>
-              <code class="entry-cid">{{cid}}</code>
-            </li>
-          {{/each}}
-        </ul>
-      </div>
-    {{/if}}
+    {{!-- Sigchain History --}}
+    <div class="profile-full-section">
+      <h3 class="profile-full-section-heading">Sigchain</h3>
 
-    {{#if chainErrors.length}}
-      <div class="profile-full-section profile-chain-errors">
-        <h3>Chain Verification Errors</h3>
-        <ul>
-          {{#each chainErrors}}
-            <li>{{this}}</li>
-          {{/each}}
-        </ul>
-      </div>
-    {{/if}}
+      {{!-- Tip CID + copy --}}
+      {{#if tipCid}}
+        {{#if profile.verified}}
+          <div class="genesis-verified-banner">
+            <span class="genesis-verified-icon">&#10003;</span>
+            Verified to genesis — full chain is valid
+          </div>
+        {{/if}}
+        <div class="profile-full-cid-row" style="margin-bottom: 12px;">
+          <span class="profile-full-cid-label">Tip CID</span>
+          <span class="profile-full-cid-value">{{tipCid}}</span>
+          <button type="button" class="cid-copy-btn js-copy-tip-cid" data-cid="{{tipCid}}">copy</button>
+        </div>
+      {{/if}}
+
+      {{#if chainLoading}}
+        <div class="chain-loading-row">
+          <div class="chain-loading-spinner"></div>
+          Resolving chain…
+        </div>
+      {{else}}
+        {{#if chainHistory.length}}
+          <ul class="profile-chain-history">
+            {{#each chainHistory}}
+              <li class="chain-entry {{#if valid}}entry-valid{{else}}entry-invalid{{/if}}">
+                <span class="entry-type-badge">{{entry.type}}</span>
+                <span class="entry-timestamp">{{entry.timestamp}}</span>
+                <code class="entry-cid" title="{{cid}}">{{cid}}</code>
+              </li>
+            {{/each}}
+          </ul>
+        {{else}}
+          {{#unless tipCid}}
+            <p style="font-size:13px; color: var(--sp-subtle, #555); margin:0;">No sigchain — profile has not been published.</p>
+          {{/unless}}
+        {{/if}}
+      {{/if}}
+
+      {{#if chainErrors.length}}
+        <div class="profile-full-section profile-chain-errors" style="margin-top:12px;">
+          <h3 class="profile-full-section-heading">Verification Errors</h3>
+          <ul>
+            {{#each chainErrors}}
+              <li>{{this}}</li>
+            {{/each}}
+          </ul>
+        </div>
+      {{/if}}
+
+    </div>
 
   </div>
 </template>

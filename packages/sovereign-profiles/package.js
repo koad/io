@@ -30,8 +30,9 @@ Package.onUse(function(api) {
     'client/profile-viewer.js',   // resolve/verify/render (any app)
   ], 'client');
 
-  // Blaze templates
+  // Blaze templates + component stylesheet (all templates share one CSS file)
   api.addFiles([
+    'client/templates/sovereign-profiles.css',
     'client/templates/profile-editor.html',
     'client/templates/profile-editor.js',
     'client/templates/profile-card.html',
