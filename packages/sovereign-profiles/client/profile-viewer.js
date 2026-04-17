@@ -15,13 +15,17 @@
 //
 // All methods return Promises. Requires koad:io-ipfs-client for IPFS fetch.
 
-import { decode as dagJsonDecode, encode as dagJsonEncode } from '@ipld/dag-json';
-import { CID } from 'multiformats/cid';
-import { sha256 } from 'multiformats/hashes/sha2';
-import * as ed from '@noble/ed25519';
-
-// Pull shared helpers from profile-builder
 import { canonicalPreImage, computeCid, toBase64Url, fromBase64Url } from './profile-builder.js';
+
+let dagJsonDecode, dagJsonEncode, CID, sha256, ed;
+async function ensureDeps() {
+  if (!dagJsonDecode) {
+    ({ decode: dagJsonDecode, encode: dagJsonEncode } = await import('@ipld/dag-json'));
+    ({ CID } = await import('multiformats/cid'));
+    ({ sha256 } = await import('multiformats/hashes/sha2'));
+    ed = await import('@noble/ed25519');
+  }
+}
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
 
@@ -53,6 +57,7 @@ async function fetchEntry(cid) {
  * @returns {Promise<{ valid: boolean, error: string|null }>}
  */
 async function verifyEntry(cid, entry, authSet) {
+  await ensureDeps();
   // Step 1: recompute CID from entry bytes, assert match
   const bytes = dagJsonEncode(entry);
   const recomputedCid = await computeCid(bytes);
@@ -65,7 +70,7 @@ async function verifyEntry(cid, entry, authSet) {
     return { valid: false, error: 'entry missing signature field' };
   }
 
-  const preImage = canonicalPreImage(entry);
+  const preImage = await canonicalPreImage(entry);
   const sigBytes = fromBase64Url(entry.signature);
 
   let verified = false;
@@ -112,7 +117,7 @@ async function applyDeviceKeyEntry(entry, authSet) {
         Object.entries(payload).filter(([k]) => k !== 'reverse_sig')
       ),
     };
-    const reversePre = canonicalPreImage(preImageEntry);
+    const reversePre = await canonicalPreImage(preImageEntry);
     try {
       const devPubBytes = fromBase64Url(device_pubkey);
       const revSigBytes = fromBase64Url(reverse_sig);

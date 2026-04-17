@@ -11,10 +11,15 @@
 // pin() requests the daemon to persist the CID via the IPFS node.
 // Both stub to IPFSServer once that package's server API is finalized.
 
-import { encode as dagJsonEncode, decode as dagJsonDecode } from '@ipld/dag-json';
-import { CID } from 'multiformats/cid';
-import { sha256 } from 'multiformats/hashes/sha2';
-import * as ed from '@noble/ed25519';
+let dagJsonEncode, dagJsonDecode, CID, sha256, ed;
+async function ensureDeps() {
+  if (!dagJsonEncode) {
+    ({ encode: dagJsonEncode, decode: dagJsonDecode } = await import('@ipld/dag-json'));
+    ({ CID } = await import('multiformats/cid'));
+    ({ sha256 } = await import('multiformats/hashes/sha2'));
+    ed = await import('@noble/ed25519');
+  }
+}
 
 // ── SovereignProfile (server) ─────────────────────────────────────────────────
 
@@ -29,6 +34,7 @@ const SovereignProfile = {};
  * @returns {Promise<{ valid: boolean, errors: Array<string> }>}
  */
 SovereignProfile.verify = async function(cid) {
+  await ensureDeps();
   // TODO: walk chain using IPFSServer.get(cid) once ipfs-client server API is finalized.
   // Pattern:
   //   let currentCid = cid;
@@ -62,6 +68,7 @@ SovereignProfile.verify = async function(cid) {
  * @returns {Promise<{ pinned: boolean, cid: string }>}
  */
 SovereignProfile.pin = async function(cid) {
+  await ensureDeps();
   // TODO: wire to IPFSServer.pin(cid) once ipfs-client server Phase 2 is implemented.
   // See sigchain-witness-architecture.md §"Pinning Service" and §"Gateway".
 
