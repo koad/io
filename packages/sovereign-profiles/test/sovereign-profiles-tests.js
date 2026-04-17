@@ -177,5 +177,8 @@ Tinytest.addAsync('sovereign-profiles — computeCid produces stable CIDv1', asy
   const cid2 = await computeCid(bytes);
 
   test.equal(cid1, cid2, 'same input produces same CID');
-  test.isTrue(cid1.startsWith('bafy'), 'CIDv1 base32 starts with bafy');
+  // dag-json (0x0129) + sha2-256 produces 'bagu...' prefix in base32upper CIDv1.
+  // 'bafy...' is dag-cbor (0x71). SPEC-111 examples use 'bafyrei...' illustratively
+  // but the specified codec 0x0129 correctly yields 'bagu...'.
+  test.isTrue(cid1.startsWith('bagu'), `CIDv1 dag-json starts with bagu (got ${cid1})`);
 });
