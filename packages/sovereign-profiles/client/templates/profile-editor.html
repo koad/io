@@ -1,0 +1,83 @@
+{{!-- profile-editor.html — Sovereign Profile Editor
+     Consumer: Passenger only. Requires local key access.
+     Shows name/bio/avatar/social-proofs; Publish button signs + publishes to IPFS.
+--}}
+
+<template name="profileEditor">
+  <div class="sovereign-profile-editor">
+    <h2>Edit Your Sovereign Profile</h2>
+
+    {{#if publishError}}
+      <div class="profile-editor-error">{{publishError}}</div>
+    {{/if}}
+
+    {{#if publishSuccess}}
+      <div class="profile-editor-success">
+        Published. CID: <code>{{publishedCid}}</code>
+      </div>
+    {{/if}}
+
+    <form class="profile-editor-form" id="js-profile-editor-form">
+
+      <div class="form-field">
+        <label for="profile-name">Name</label>
+        <input type="text" id="profile-name" name="name"
+               value="{{currentProfile.name}}"
+               placeholder="Your display name" autocomplete="name" />
+      </div>
+
+      <div class="form-field">
+        <label for="profile-bio">Bio</label>
+        <textarea id="profile-bio" name="bio"
+                  placeholder="A short bio (optional)">{{currentProfile.bio}}</textarea>
+      </div>
+
+      <div class="form-field">
+        <label for="profile-avatar">Avatar (IPFS CID)</label>
+        <input type="text" id="profile-avatar" name="avatar"
+               value="{{currentProfile.avatar}}"
+               placeholder="bafyrei… (upload avatar to IPFS first)" />
+        {{!-- TODO: inline avatar upload → IPFS → populate this field --}}
+      </div>
+
+      <div class="form-section">
+        <h3>Social Proofs</h3>
+        {{#each currentProfile.socialProofs}}
+          <div class="social-proof-row" data-index="{{@index}}">
+            <span class="proof-platform">{{platform}}</span>
+            <span class="proof-handle">{{handle}}</span>
+            <a href="{{url}}" target="_blank" rel="noopener">{{url}}</a>
+            <button type="button" class="js-remove-proof btn-small" data-index="{{@index}}">Remove</button>
+          </div>
+        {{/each}}
+
+        <div class="social-proof-add">
+          <input type="text" id="proof-platform" placeholder="platform (e.g. github)" />
+          <input type="text" id="proof-handle"   placeholder="handle" />
+          <input type="url"  id="proof-url"      placeholder="https://…" />
+          <button type="button" class="js-add-proof btn-small">Add Proof</button>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Signing Key</h3>
+        {{#if deviceKey}}
+          <p class="key-info">
+            Active key: <code>{{deviceKey.id}}</code>
+            ({{deviceKey.description}})
+          </p>
+        {{else}}
+          <p class="key-warning">No signing key found. Passenger must have key access to publish.</p>
+          {{!-- TODO: link to key setup guide --}}
+        {{/if}}
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="js-publish-profile btn-primary" {{#unless canPublish}}disabled{{/unless}}>
+          {{#if publishing}}Publishing…{{else}}Sign &amp; Publish to IPFS{{/if}}
+        </button>
+      </div>
+
+    </form>
+  </div>
+</template>

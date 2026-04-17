@@ -1,0 +1,35 @@
+{{!-- profile-card.html — Compact profile card view
+     Usable anywhere: kingofalldata.com, Passenger, any koad:io app.
+     Data in: SovereignProfile.render(profileData, { verified, entity })
+--}}
+
+<template name="profileCard">
+  <div class="sovereign-profile-card {{#if profile.verified}}profile-verified{{/if}}">
+
+    {{#if profile.avatar}}
+      <div class="profile-card-avatar">
+        {{!-- Avatar served via /ipfs/<cid> on the daemon gateway --}}
+        <img src="/ipfs/{{profile.avatar}}" alt="{{profile.name}}" loading="lazy" />
+      </div>
+    {{else}}
+      <div class="profile-card-avatar profile-card-avatar-placeholder">
+        {{firstLetter profile.name}}
+      </div>
+    {{/if}}
+
+    <div class="profile-card-body">
+      <div class="profile-card-name">{{profile.name}}</div>
+
+      {{#if profile.entity}}
+        <div class="profile-card-handle">@{{profile.entity}}</div>
+      {{/if}}
+
+      {{#if profile.verified}}
+        <span class="profile-verified-badge" title="Chain verified">&#10003; Verified</span>
+      {{else}}
+        <span class="profile-unverified-badge" title="Chain not verified">Unverified</span>
+      {{/if}}
+    </div>
+
+  </div>
+</template>

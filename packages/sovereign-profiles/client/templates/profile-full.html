@@ -1,0 +1,89 @@
+{{!-- profile-full.html — Full profile view
+     Shows avatar, name, handle, bio, social proofs, bond count, sigchain history.
+     Usable anywhere. Data in: SovereignProfile.render() result + chain walk.
+--}}
+
+<template name="profileFull">
+  <div class="sovereign-profile-full {{#if profile.verified}}profile-verified{{/if}}">
+
+    <div class="profile-full-header">
+      {{#if profile.avatar}}
+        <div class="profile-full-avatar">
+          <img src="/ipfs/{{profile.avatar}}" alt="{{profile.name}}" loading="lazy" />
+        </div>
+      {{else}}
+        <div class="profile-full-avatar profile-full-avatar-placeholder">
+          {{firstLetter profile.name}}
+        </div>
+      {{/if}}
+
+      <div class="profile-full-identity">
+        <h1 class="profile-full-name">{{profile.name}}</h1>
+        {{#if profile.entity}}
+          <div class="profile-full-handle">@{{profile.entity}}</div>
+        {{/if}}
+
+        {{#if profile.verified}}
+          <span class="profile-verified-badge" title="Full chain verified — all signatures valid">
+            &#10003; Chain Verified
+          </span>
+        {{else}}
+          <span class="profile-unverified-badge" title="Chain not verified — resolve to verify">
+            Unverified
+          </span>
+        {{/if}}
+      </div>
+    </div>
+
+    {{#if profile.bio}}
+      <div class="profile-full-bio">
+        <p>{{profile.bio}}</p>
+      </div>
+    {{/if}}
+
+    {{#if profile.socialProofs.length}}
+      <div class="profile-full-section">
+        <h3>Social Proofs</h3>
+        <ul class="profile-social-proofs">
+          {{#each profile.socialProofs}}
+            <li class="social-proof-item {{#if verified}}proof-verified{{else}}proof-unverified{{/if}}">
+              <span class="proof-platform">{{platform}}</span>
+              <span class="proof-handle">{{handle}}</span>
+              {{#if url}}
+                <a href="{{url}}" target="_blank" rel="noopener">verify</a>
+              {{/if}}
+              {{!-- TODO: show verification badge once social proof sig format is spec'd --}}
+            </li>
+          {{/each}}
+        </ul>
+      </div>
+    {{/if}}
+
+    {{#if chainHistory.length}}
+      <div class="profile-full-section">
+        <h3>Sigchain History</h3>
+        <ul class="profile-chain-history">
+          {{#each chainHistory}}
+            <li class="chain-entry {{#if valid}}entry-valid{{else}}entry-invalid{{/if}}">
+              <span class="entry-type">{{entry.type}}</span>
+              <span class="entry-timestamp">{{entry.timestamp}}</span>
+              <code class="entry-cid">{{cid}}</code>
+            </li>
+          {{/each}}
+        </ul>
+      </div>
+    {{/if}}
+
+    {{#if chainErrors.length}}
+      <div class="profile-full-section profile-chain-errors">
+        <h3>Chain Verification Errors</h3>
+        <ul>
+          {{#each chainErrors}}
+            <li>{{this}}</li>
+          {{/each}}
+        </ul>
+      </div>
+    {{/if}}
+
+  </div>
+</template>
