@@ -83,29 +83,10 @@ if [ -n "$OPERATOR" ] && [ "$OPERATOR" != "koad-io" ]; then
   fi
 fi
 
-# --- Determine DH params (SPEC-120 §8) ---
-DH_EMBED=0
-DH_2048_CONTENT=""
-DH_4096_CONTENT=""
-
-if [ "$ENTITY_MODE" -eq 1 ]; then
-  DH_2048="$HOME/.$OPERATOR/ssl/dhparam-2048.pem"
-  DH_4096="$HOME/.$OPERATOR/ssl/dhparam-4096.pem"
-  if [ -f "$DH_2048" ] && [ -f "$DH_4096" ]; then
-    # Valid = does not begin with '#'
-    FIRST_2048=$(head -c1 "$DH_2048")
-    FIRST_4096=$(head -c1 "$DH_4096")
-    if [ "$FIRST_2048" != "#" ] && [ "$FIRST_4096" != "#" ]; then
-      DH_EMBED=1
-      DH_2048_CONTENT="$(cat "$DH_2048")"
-      DH_4096_CONTENT="$(cat "$DH_4096")"
-      ok "DH params found — will embed in cloud-init."
-    fi
-  fi
-fi
-if [ "$DH_EMBED" -eq 0 ]; then
-  warn "DH params not found or placeholder — server will generate on-box. Run control/pull-dh-back after deploy."
-fi
+# DH params: RFC 7919 ffdhe3072.pem is shipped statically in the template
+# via write_files. No entity-scoped DH generation or embed check needed.
+# The legacy pull-dh-back workflow is preserved for operators who prefer
+# custom on-box generation (see control/pull-dh-back).
 
 # --- Build cloud-init from template ---
 CLOUD_INIT_TEMPLATE="$WORKDIR/cloud-init/seed.yaml.template"
@@ -129,35 +110,42 @@ sed -i \
   -e "s|<STUN_TURN_ENABLED>|${STUN_TURN:-false}|g" \
   "$TMPFILE"
 
+# Build users block — Mode A vs Mode B (SPEC-120 §7)
 if [ "$ENTITY_MODE" -eq 1 ]; then
+  # Mode B — entity + admin users; strip markers, substitute entity placeholders
+  sed -i '/# MODE_B_START/d;/# MODE_B_END/d' "$TMPFILE"
   sed -i \
     -e "s|<ENTITY_USER>|$OPERATOR|g" \
     -e "s|<ENTITY_SSH_KEY>|$ENTITY_SSH_KEY|g" \
     "$TMPFILE"
-fi
-
-# DH params injection
-if [ "$DH_EMBED" -eq 1 ]; then
-  # Build the write_files block for DH params
-  DH_BLOCK="write_files:\n  - path: /home/${OPERATOR}/.${OPERATOR}/ssl/dhparam-2048.pem\n    owner: ${OPERATOR}:${OPERATOR}\n    permissions: '0600'\n    content: |\n$(echo "$DH_2048_CONTENT" | sed 's/^/      /')\n  - path: /home/${OPERATOR}/.${OPERATOR}/ssl/dhparam-4096.pem\n    owner: ${OPERATOR}:${OPERATOR}\n    permissions: '0600'\n    content: |\n$(echo "$DH_4096_CONTENT" | sed 's/^/      /')"
-  # Replace the placeholder block in template
-  sed -i "s|<DH_WRITE_FILES_BLOCK>|${DH_BLOCK}|" "$TMPFILE"
-  sed -i "s|<DH_GENERATE_BLOCK>||" "$TMPFILE"
 else
-  # Remove the embed placeholder, leave the generate runcmd section
-  sed -i "s|<DH_WRITE_FILES_BLOCK>||" "$TMPFILE"
-  if [ "$ENTITY_MODE" -eq 1 ]; then
-    DH_GEN="  - su - ${OPERATOR} -c 'mkdir -p \$HOME/.${OPERATOR}/ssl && openssl dhparam -out \$HOME/.${OPERATOR}/ssl/dhparam-2048.pem 2048 && openssl dhparam -out \$HOME/.${OPERATOR}/ssl/dhparam-4096.pem 4096'"
-    sed -i "s|<DH_GENERATE_BLOCK>|${DH_GEN}|" "$TMPFILE"
-  else
-    sed -i "s|<DH_GENERATE_BLOCK>||" "$TMPFILE"
-  fi
-fi
-
-# Remove entity user block if Mode A
-if [ "$ENTITY_MODE" -eq 0 ]; then
-  # Strip between MODE_B_START and MODE_B_END markers
+  # Mode A — human-only operator; strip the MODE_B block entirely and inject
+  # a clean single-user block, then substitute <ENTITY_USER> with the admin user.
   sed -i '/# MODE_B_START/,/# MODE_B_END/d' "$TMPFILE"
+  # Strip the trailing comment left after stripping the block
+  sed -i '/# Note: control\/deploy strips the MODE_B_START\/END block/d' "$TMPFILE"
+  sed -i '/# a single-user block for Mode A deployments\./d' "$TMPFILE"
+  # Write a clean single-user block and insert it after the hostname line
+  python3 - "$TMPFILE" "$HUMAN_USER" "$HUMAN_SSH_KEY" <<'PYEOF'
+import sys, re
+path, user, key = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    content = f.read()
+block = (
+    "\nusers:\n"
+    f"  - name: {user}\n"
+    "    groups: users, admin, docker\n"
+    "    sudo: ALL=(ALL) NOPASSWD:ALL\n"
+    "    shell: /bin/bash\n"
+    "    ssh_authorized_keys:\n"
+    f"      - {key}\n"
+)
+content = re.sub(r'(^hostname:.*$)', r'\1' + block, content, flags=re.MULTILINE, count=1)
+with open(path, 'w') as f:
+    f.write(content)
+PYEOF
+  # In Mode A, any remaining <ENTITY_USER> references in runcmd use the admin user
+  sed -i "s|<ENTITY_USER>|$HUMAN_USER|g" "$TMPFILE"
 fi
 
 # Save cloud-init for audit
@@ -258,13 +246,10 @@ ok "Device record written to $DEVICE_RECORD"
 ok ""
 ok "Seed deployed. Next steps:"
 echo ""
-echo "  Cloud-init is running on the server (~25-35 min on first boot)."
+echo "  Cloud-init is running on the server (~12-15 min on first boot)."
 echo "  To check:"
 echo "    ${WORKDIR}/control/verify"
 echo ""
 echo "  After cloud-init completes:"
 echo "    ${WORKDIR}/control/install-device-hook"
-if [ "$DH_EMBED" -eq 0 ] && [ "$ENTITY_MODE" -eq 1 ]; then
-  echo "    ${WORKDIR}/control/pull-dh-back"
-fi
 echo ""

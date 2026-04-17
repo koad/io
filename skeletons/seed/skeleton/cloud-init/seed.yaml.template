@@ -11,11 +11,14 @@
 #   <ADMIN_USER>             — human admin username (whoami)
 #   <ADMIN_SSH_KEY>          — human admin ssh public key
 #   <CERTBOT_EMAIL>          — certbot ACME email
-#   <DH_WRITE_FILES_BLOCK>   — DH params write_files entries (embed path) or empty
-#   <DH_GENERATE_BLOCK>      — DH generation runcmd line (generate path) or empty
 #   <NETBIRD_MGMT_ENABLED>   — true/false
 #   <IPFS_GATEWAY_ENABLED>   — true/false
 #   <STUN_TURN_ENABLED>      — true/false
+#
+# DH params strategy (SPEC-120 §8):
+#   Default: RFC 7919 ffdhe3072.pem shipped via write_files (no generation).
+#   Optional (legacy): uncomment DH_GENERATE_BLOCK below for on-box 4096-bit
+#   generation. Adds 10-15 min to first boot. Not recommended.
 
 hostname: <SEED_NAME>
 
@@ -47,9 +50,6 @@ packages:
   - git
   - net-tools
   - htop
-  - fail2ban
-  - docker.io
-  - docker-compose
   - screen
   - make
   - build-essential
@@ -60,14 +60,38 @@ packages:
   - jq
   - whiptail
   - nginx
-  - apparmor
-  - apparmor-utils
+
+# Deferred packages (install manually post-SSH or via koad-bootstrap.service):
+#   docker.io, docker-compose  — not needed before first SSH
+#   fail2ban                   — UFW covers initial protection; install post-SSH
+#   apparmor, apparmor-utils   — kernel module already loaded on Ubuntu 24.04
+#   xclip                      — X11 clipboard; no utility on headless VPS
 
 package_update: true
-# package_upgrade intentionally omitted — adds 10+ min to first boot
-# Run manually after verify: sudo apt-get upgrade -y
+# package_upgrade intentionally omitted — adds 10-15 min to first boot.
+# unattended-upgrades handles CVE patches on first boot automatically.
+# Run manually post-SSH: sudo apt-get upgrade -y
 
-<DH_WRITE_FILES_BLOCK>
+write_files:
+  # RFC 7919 ffdhe3072 DH parameters — shipped static, no generation.
+  # Standardized IETF group; stronger than a fresh self-generated param.
+  # TLS 1.3 uses ECDHE only; this covers TLS 1.2 legacy fallback.
+  # Source: RFC 7919 Appendix A.2 / openssl genpkey -genparam -algorithm DH -pkeyopt dh_param:ffdhe3072
+  - path: /etc/ssl/ffdhe3072.pem
+    owner: root:root
+    permissions: '0644'
+    content: |
+      -----BEGIN DH PARAMETERS-----
+      MIIBiAKCAYEA//////////+t+FRYortKmq/cViAnPTzx2LnFg84tNpWp4TZBFGQz
+      +8yTnc4kmz75fS/jY2MMddj2gbICrsRhetPfHtXV/WVhJDP1H18GbtCFY2VVPe0a
+      87VXE15/V8k1mE8McODmi3fipona8+/och3xWKE2rec1MKzKT0g6eXq8CrGCsyT7
+      YdEIqUuyyOP7uWrat2DX9GgdT0Kj3jlN9K5W7edjcrsZCwenyO4KbXCeAvzhzffi
+      7MA0BM0oNC9hkXL+nOmFg/+OTxIy7vKBg8P+OxtMb61zO7X8vC7CIAXFjvGDfRaD
+      ssbzSibBsu/6iGtCOGEfz9zeNVs7ZRkDW7w09N75nAI4YbRvydbmyQd62R0mkff3
+      7lmMsPrBhtkcrv4TCYUTknC0EwyTvEN5RPT9RFLi103TZPLiHnH1S/9croKrnJ32
+      nuhtK8UiNjoNq8Uhl5sN6todv5pC1cRITgq80Gv6U93vPBsg7j/VnXwl5B0rZsYu
+      N///////////AgEC
+      -----END DH PARAMETERS-----
 
 runcmd:
   # --- Firewall ---
@@ -80,27 +104,28 @@ runcmd:
   - ufw allow 49152:65535/udp
   - ufw --force enable
 
-  # --- nvm + node LTS for entity user ---
-  - su - <ENTITY_USER> -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash'
-  - su - <ENTITY_USER> -c 'export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && nvm install --lts'
+  # --- Node LTS via NodeSource APT (replaces nvm — faster, system-wide, no shell-init fragility) ---
+  - curl -fsSL https://deb.nodesource.com/setup_lts.x | DEBIAN_FRONTEND=noninteractive bash -
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
 
   # --- koad-io framework clone ---
   - git clone https://github.com/koad/io.git /home/<ENTITY_USER>/.koad-io
   - chown -R <ENTITY_USER>:<ENTITY_USER> /home/<ENTITY_USER>/.koad-io
 
-  # --- Wire ~/.koad-io/bin onto PATH (avoid heredoc — fragile in YAML runcmd) ---
-  - echo 'export PATH="$HOME/.koad-io/bin:$PATH"' >> /home/<ENTITY_USER>/.bashrc
-  - chown <ENTITY_USER>:<ENTITY_USER> /home/<ENTITY_USER>/.bashrc
+  # --- Wire ~/.koad-io/bin onto PATH via profile.d (system-wide, no heredoc fragility) ---
+  - echo 'export PATH="$HOME/.koad-io/bin:$PATH"' > /etc/profile.d/koad-io.sh
+  - chmod 644 /etc/profile.d/koad-io.sh
 
   # --- Starship prompt ---
   - su - <ENTITY_USER> -c 'curl -sS https://starship.rs/install.sh | sh -s -- --yes'
   - echo 'eval "$(starship init bash)"' >> /home/<ENTITY_USER>/.bashrc
 
-  # --- DH params (generate path — only present when embed path was not used) ---
-  <DH_GENERATE_BLOCK>
+  # --- DH params: ffdhe3072.pem already written via write_files above ---
+  # Optional legacy path: generate 4096-bit on-box (adds 10-15 min, not recommended):
+  # - openssl dhparam -out /etc/ssl/dhparam-4096-legacy.pem 4096
 
   # --- Gestate entity user on device ---
-  - su - <ENTITY_USER> -c 'export PATH="$HOME/.koad-io/bin:$PATH"; export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; KOAD_IO_QUIET=1 KOAD_IO_DOMAIN=<SEED_DOMAIN> KOAD_IO_HOME_MACHINE=<SEED_NAME> koad-io gestate <ENTITY_USER>'
+  - su - <ENTITY_USER> -c 'export PATH="$HOME/.koad-io/bin:$PATH" KOAD_IO_QUIET=1 KOAD_IO_DOMAIN=<SEED_DOMAIN> KOAD_IO_HOME_MACHINE=<SEED_NAME>; koad-io gestate <ENTITY_USER>'
 
   # --- nginx ---
   - systemctl enable nginx
