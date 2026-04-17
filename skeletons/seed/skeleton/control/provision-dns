@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+# provision-dns — create or update the A record for this seed domain
+# Reads:   manifest.yaml (seed.domain, seed.primary_ip_name, provider.api_context)
+#          .credentials   (PORKBUN_API_KEY, PORKBUN_SECRET_API_KEY)
+# Idempotent: safe to re-run.
+# Run AFTER provision-ip (IP must be known) and BEFORE deploy (so certbot succeeds).
+# SPEC: VESTA-SPEC-120 §9.4.1 (proposed)
+#
+# Usage:
+#   ./control/provision-dns           # normal run
+#   ./control/provision-dns --dry-run # print API call without executing
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKDIR="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$WORKDIR/manifest.yaml"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YEL='\033[1;33m'
+CYN='\033[0;36m'
+NC='\033[0m'
+
+fail() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+ok()   { echo -e "${GRN}$*${NC}"; }
+warn() { echo -e "${YEL}WARN: $*${NC}" >&2; }
+log()  { echo -e "${CYN}[$(date -u +%H:%M:%SZ)]${NC} $*"; }
+
+DRY_RUN=0
+for arg in "$@"; do
+  [ "$arg" = "--dry-run" ] && DRY_RUN=1
+done
+
+[ -f "$MANIFEST" ] || fail "manifest.yaml not found at $WORKDIR — run spawn first."
+
+# --- Parse manifest ---
+read_field()    { grep -A20 "^seed:"     "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+read_provider() { grep -A20 "^provider:" "$MANIFEST" | grep "^\s*$1:" | head -1 | awk '{print $2}' | tr -d '"'; }
+
+DOMAIN=$(read_field "domain")
+PRIMARY_IP_NAME=$(read_field "primary_ip_name")
+API_CONTEXT=$(read_provider "api_context")
+
+[ -n "$DOMAIN" ]          || fail "manifest.seed.domain is empty."
+[ -n "$PRIMARY_IP_NAME" ] || fail "manifest.seed.primary_ip_name is empty."
+
+# --- Split FQDN into apex zone and subdomain ---
+# zero.koad.sh -> ZONE=koad.sh, SUBDOMAIN=zero
+# koad.sh      -> ZONE=koad.sh, SUBDOMAIN="" (apex record)
+PARTS=$(echo "$DOMAIN" | awk -F. '{print NF}')
+if [ "$PARTS" -le 2 ]; then
+  ZONE="$DOMAIN"
+  SUBDOMAIN=""
+else
+  ZONE=$(echo "$DOMAIN" | cut -d. -f2-)
+  SUBDOMAIN=$(echo "$DOMAIN" | cut -d. -f1)
+fi
+
+# --- Domain → provider map ---
+case "$ZONE" in
+  koad.sh|kingofalldata.com|churchofhappy.com)
+    DNS_PROVIDER="porkbun"
+    ;;
+  rooty.io)
+    DNS_PROVIDER="afternic-manual"
+    ;;
+  astro.brokerage)
+    DNS_PROVIDER="unknown-manual"
+    ;;
+  *)
+    DNS_PROVIDER="unknown-manual"
+    ;;
+esac
+
+log "Domain: $DOMAIN  Zone: $ZONE  Subdomain: ${SUBDOMAIN:-(apex)}  Provider: $DNS_PROVIDER"
+
+# --- Manual-only providers: print instructions and exit cleanly ---
+if [[ "$DNS_PROVIDER" == *"-manual" ]]; then
+  warn "$ZONE is not on a supported automated DNS provider ($DNS_PROVIDER)."
+  echo ""
+  echo "  Manual DNS step required:"
+  echo "    Point your A record:  $DOMAIN -> <IP>"
+  echo ""
+  echo "  To find your IP:"
+  echo "    cat $WORKDIR/devices/primary-ip.txt"
+  echo "    OR: hcloud primary-ip list | grep $PRIMARY_IP_NAME"
+  echo ""
+  echo "  Once DNS is configured, continue with:"
+  echo "    ./control/deploy"
+  echo ""
+  echo "  (Tip: migrate $ZONE to Porkbun to enable automated DNS provisioning.)"
+  exit 0
+fi
+
+# --- Load credentials ---
+# Search order: seed .credentials, then operator entity .credentials
+CREDS=""
+SEED_CREDS="$WORKDIR/.credentials"
+OPERATOR=$(read_field "operator_entity")
+OPERATOR_CREDS="${HOME}/.${OPERATOR}/.credentials"
+GLOBAL_CREDS="${HOME}/.juno/.credentials"
+
+for try_creds in "$SEED_CREDS" "$OPERATOR_CREDS" "$GLOBAL_CREDS"; do
+  if [ -f "$try_creds" ]; then
+    # shellcheck source=/dev/null
+    source "$try_creds"
+    if [ -n "$PORKBUN_API_KEY" ] && [ -n "$PORKBUN_SECRET_API_KEY" ]; then
+      CREDS="$try_creds"
+      break
+    fi
+  fi
+done
+
+if [ -z "$CREDS" ]; then
+  fail "PORKBUN_API_KEY and PORKBUN_SECRET_API_KEY not found.
+  Add them to one of:
+    $SEED_CREDS        (preferred — seed-scoped)
+    $OPERATOR_CREDS    (operator entity)
+    $GLOBAL_CREDS      (fallback)
+  Values: generate at porkbun.com → Account → API Access
+  Also enable API access per-domain: Domain Management > $ZONE > Details > API Access toggle."
+fi
+
+log "Credentials loaded from: $CREDS"
+
+# --- Resolve the Primary IP ---
+HCLOUD_OPTS=()
+[ -n "$API_CONTEXT" ] && HCLOUD_OPTS+=(--context "$API_CONTEXT")
+
+# Try devices/primary-ip.txt first (written by provision-ip in some setups)
+PRIMARY_IP_FILE="$WORKDIR/devices/primary-ip.txt"
+if [ -f "$PRIMARY_IP_FILE" ]; then
+  SEED_IP=$(cat "$PRIMARY_IP_FILE" | tr -d '[:space:]')
+fi
+
+# Fallback to hcloud API
+if [ -z "$SEED_IP" ]; then
+  SEED_IP=$(hcloud primary-ip list "${HCLOUD_OPTS[@]}" -o json 2>/dev/null \
+    | jq -r --arg n "$PRIMARY_IP_NAME" '.[] | select(.name == $n) | .ip' 2>/dev/null || true)
+fi
+
+[ -n "$SEED_IP" ] || fail "Primary IP '$PRIMARY_IP_NAME' not found.
+  Run ./control/provision-ip first, then re-run provision-dns."
+
+log "Primary IP: $SEED_IP (name: $PRIMARY_IP_NAME)"
+
+# --- Build Porkbun auth payload ---
+PORKBUN_BASE="https://api.porkbun.com/api/json/v3"
+AUTH_BODY=$(jq -n \
+  --arg k "$PORKBUN_API_KEY" \
+  --arg s "$PORKBUN_SECRET_API_KEY" \
+  '{"apikey":$k,"secretapikey":$s}')
+
+porkbun_post() {
+  local endpoint="$1"
+  local body="$2"
+  curl -sf -X POST \
+    -H "Content-Type: application/json" \
+    -d "$body" \
+    "$PORKBUN_BASE/$endpoint"
+}
+
+check_porkbun_response() {
+  local response="$1"
+  local context="$2"
+  local status
+  status=$(echo "$response" | jq -r '.status // "UNKNOWN"' 2>/dev/null || echo "UNKNOWN")
+  if [ "$status" != "SUCCESS" ]; then
+    local msg
+    msg=$(echo "$response" | jq -r '.message // "no message"' 2>/dev/null || echo "no message")
+    if echo "$msg" | grep -qi "api access is not enabled\|api access not enabled\|not authorized"; then
+      fail "Porkbun API access not enabled for $ZONE.
+  Enable it: porkbun.com > Domain Management > $ZONE > Details > API Access (toggle ON)."
+    fi
+    fail "Porkbun API $context failed: status=$status  message=$msg"
+  fi
+}
+
+# --- Dry-run mode ---
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo ""
+  echo "DRY RUN — no API calls made."
+  echo ""
+  echo "Would check existing record:"
+  echo "  POST $PORKBUN_BASE/dns/retrieveByNameType/$ZONE/A/${SUBDOMAIN:-@}"
+  echo "  body: { apikey: ..., secretapikey: ... }"
+  echo ""
+  echo "If record missing: would CREATE"
+  echo "  POST $PORKBUN_BASE/dns/create/$ZONE"
+  echo "  body: { ..., name: \"$SUBDOMAIN\", type: \"A\", content: \"$SEED_IP\", ttl: \"600\" }"
+  echo ""
+  echo "If record present with wrong IP: would EDIT"
+  echo "  POST $PORKBUN_BASE/dns/editByNameType/$ZONE/A/${SUBDOMAIN:-@}"
+  echo "  body: { ..., content: \"$SEED_IP\", ttl: \"600\" }"
+  echo ""
+  echo "If record present with correct IP: would SKIP"
+  echo ""
+  echo "Then: poll dig +short A $DOMAIN @1.1.1.1 until $SEED_IP resolves (120s timeout)"
+  exit 0
+fi
+
+# --- Check existing record ---
+log "Checking existing DNS record: $DOMAIN A ..."
+
+RETRIEVE_RESP=$(porkbun_post \
+  "dns/retrieveByNameType/$ZONE/A/${SUBDOMAIN:-@}" \
+  "$AUTH_BODY" || echo '{"status":"ERROR","records":[]}')
+
+check_porkbun_response "$RETRIEVE_RESP" "retrieveByNameType"
+
+EXISTING_IP=$(echo "$RETRIEVE_RESP" | jq -r '.records[0].content // empty' 2>/dev/null || true)
+
+if [ "$EXISTING_IP" = "$SEED_IP" ]; then
+  log "DNS record already correct: $DOMAIN -> $SEED_IP (no change needed)"
+  ACTION="already-correct"
+elif [ -n "$EXISTING_IP" ]; then
+  log "Updating DNS record: $DOMAIN  $EXISTING_IP -> $SEED_IP"
+  UPDATE_BODY=$(echo "$AUTH_BODY" | jq \
+    --arg ip "$SEED_IP" \
+    '. + {"content":$ip,"ttl":"600"}')
+  UPDATE_RESP=$(porkbun_post \
+    "dns/editByNameType/$ZONE/A/${SUBDOMAIN:-@}" \
+    "$UPDATE_BODY")
+  check_porkbun_response "$UPDATE_RESP" "editByNameType"
+  ok "Updated: $DOMAIN -> $SEED_IP"
+  ACTION="updated"
+else
+  log "Creating DNS record: $DOMAIN -> $SEED_IP"
+  CREATE_BODY=$(echo "$AUTH_BODY" | jq \
+    --arg n "$SUBDOMAIN" \
+    --arg ip "$SEED_IP" \
+    '. + {"name":$n,"type":"A","content":$ip,"ttl":"600"}')
+  CREATE_RESP=$(porkbun_post "dns/create/$ZONE" "$CREATE_BODY")
+  check_porkbun_response "$CREATE_RESP" "create"
+  RECORD_ID=$(echo "$CREATE_RESP" | jq -r '.id // empty' 2>/dev/null || true)
+  ok "Created: $DOMAIN -> $SEED_IP  (id: ${RECORD_ID:-unknown})"
+  ACTION="created"
+fi
+
+# --- Poll for propagation ---
+# Re-IP scenarios may need up to 180s for old TTL (600s) to flush from resolvers;
+# typical new records propagate in 30-60s on Porkbun's Cloudflare-backed infra.
+POLL_CEILING=120
+[ "$ACTION" = "updated" ] && POLL_CEILING=180
+
+log "Waiting for DNS propagation: $DOMAIN -> $SEED_IP (ceiling: ${POLL_CEILING}s) ..."
+DEADLINE=$(( $(date +%s) + POLL_CEILING ))
+
+while true; do
+  RESOLVED=$(dig +short A "$DOMAIN" @1.1.1.1 2>/dev/null | head -1 || true)
+  if [ "$RESOLVED" = "$SEED_IP" ]; then
+    ok "DNS propagated: $DOMAIN -> $RESOLVED"
+    break
+  fi
+  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+    warn "DNS propagation not confirmed within ${POLL_CEILING}s. Continuing."
+    warn "certbot will retry on cloud-init boot — this is usually fine."
+    warn "You can re-run provision-dns after deploy if certbot fails."
+    break
+  fi
+  sleep 10
+done
+
+echo ""
+ok "provision-dns complete. Action: $ACTION"
+echo ""
+echo "Next step: ./control/deploy"
