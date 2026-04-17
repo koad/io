@@ -4,6 +4,20 @@ This directory is **intentionally empty of tickles**. The kingdom is substrate, 
 
 If you're looking for the canonical per-entity PRIMER (scope rules, dimensions, schema, loader behavior), read `~/.<entity>/tickler/PRIMER.md` on any entity that has one. Juno's is the current reference implementation.
 
+## Tickler Is Opt-In
+
+Not every entity needs a tickler. The tickler fires at **session start** — specifically, when a human operator types the entity name with no arguments and `executed-without-arguments.sh` opens a harness session. That is the only trigger surface.
+
+Dispatched subagents — entities launched by Juno (or any orchestrator) via a brief and a flight — **do not run the tickler**. They wake with a purpose, execute, and close. They have no "what's due today?" question because their entire context was assembled by the dispatcher. The orchestrator already holds the calendar, the briefs, and the dispatch queue. Giving every subagent its own tickler would just create more places for the orchestrator to look.
+
+**The rule:** an entity needs a tickler only if a human operator opens it directly via the bare-name invocation. If the entity is always dispatched by an orchestrator, it does not need one.
+
+Candidates for a tickler:
+- **Juno** — the orchestrator, opened directly by koad. Has one. Reference implementation.
+- **Any entity koad opens directly** — if the human habit is `mercury` at the terminal rather than dispatching Mercury through Juno, Mercury benefits from a tickler.
+
+Entities that are always dispatched (Veritas, Argus, Salus, Muse, etc.) do not need tickler directories. If the pattern changes — if an entity starts being opened directly — adding one is a single `mkdir` and a PRIMER copy.
+
 ## Where tickles actually live
 
 ```
