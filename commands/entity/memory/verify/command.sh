@@ -54,12 +54,12 @@ declare -a RESULTS
 FEEDBACK_FILES=()
 while IFS= read -r -d '' f; do
   FEEDBACK_FILES+=("$f")
-done < <(find "$MEMORY_DIR" -maxdepth 1 -name "*.md" -print0 2>/dev/null)
+done < <(find "$MEMORY_DIR" -maxdepth 1 -name "*.md" -not -name "MEMORY.md" -print0 2>/dev/null)
 
 FEEDBACK_COUNT=0
 FEEDBACK_SUPERSEDED=0
 for f in "${FEEDBACK_FILES[@]}"; do
-  TYPE_VAL=$(grep -m1 "^type:" "$f" 2>/dev/null | awk '{print $2}' | tr -d '"')
+  TYPE_VAL=$(grep -m1 "^type:" "$f" 2>/dev/null | awk '{print $2}' | tr -d '"' || echo "")
   if [ "$TYPE_VAL" = "feedback" ]; then
     # Check if superseded (in archive) — if we can find the file in active set it's present
     FEEDBACK_COUNT=$((FEEDBACK_COUNT + 1))
@@ -81,14 +81,14 @@ fi
 
 RULE1_STATUS="PASS"
 RULE1_DETAIL="All feedback memories present (${FEEDBACK_COUNT} active, ${ARCHIVED_FEEDBACK} superseded)"
-$VERBOSE && echo "Rule 1: $RULE1_DETAIL"
+$VERBOSE && echo "Rule 1: $RULE1_DETAIL" || true
 RESULTS+=("rule1:PASS:$RULE1_DETAIL")
 
 # --- Rule 2: identity-critical memories present ---
 IC_COUNT=0
 IC_MISSING=0
 for f in "${FEEDBACK_FILES[@]}"; do
-  IC_VAL=$(grep -m1 "^identity-critical:" "$f" 2>/dev/null | awk '{print $2}' | tr -d '"')
+  IC_VAL=$(grep -m1 "^identity-critical:" "$f" 2>/dev/null | awk '{print $2}' | tr -d '"' || echo "")
   if [ "$IC_VAL" = "true" ]; then
     IC_COUNT=$((IC_COUNT + 1))
     if [ ! -f "$f" ]; then
@@ -104,7 +104,7 @@ if [ "$IC_MISSING" -gt 0 ]; then
   RULE2_DETAIL="MISSING ${IC_MISSING} identity-critical memories"
   PASS=false
 fi
-$VERBOSE && echo "Rule 2: $RULE2_DETAIL"
+$VERBOSE && echo "Rule 2: $RULE2_DETAIL" || true
 RESULTS+=("rule2:${RULE2_STATUS}:${RULE2_DETAIL}")
 
 # --- Rule 3: MEMORY.md feedback entry parity ---
@@ -116,7 +116,7 @@ fi
 
 RULE3_STATUS="PASS"
 RULE3_DETAIL="Feedback count in MEMORY.md: ${MEMMD_FEEDBACK} entries"
-$VERBOSE && echo "Rule 3: $RULE3_DETAIL"
+$VERBOSE && echo "Rule 3: $RULE3_DETAIL" || true
 RESULTS+=("rule3:${RULE3_STATUS}:${RULE3_DETAIL}")
 
 # --- Rule 4: no aged deletions without audit ---
@@ -135,7 +135,7 @@ if [ -n "$REPO_ROOT" ]; then
       COMMIT_MSG=$(git -C "$REPO_ROOT" log --diff-filter=D --format="%s" -- "$deleted_file" 2>/dev/null | head -1)
       if ! echo "$COMMIT_MSG" | grep -q "memory: archive\|AUDIT\|SUPERSEDED"; then
         VIOLATION_COUNT=$((VIOLATION_COUNT + 1))
-        $VERBOSE && echo "  Violation: $deleted_file deleted $(date -d @$DEL_DATE +%Y-%m-%d 2>/dev/null || echo unknown) without audit"
+        $VERBOSE && echo "  Violation: $deleted_file deleted $(date -d @$DEL_DATE +%Y-%m-%d 2>/dev/null || echo unknown) without audit" || true
       fi
     fi
   done < <(git -C "$REPO_ROOT" log --diff-filter=D --name-only --format="" -- "memories/*.md" 2>/dev/null | grep "\.md$" || true)
@@ -147,8 +147,16 @@ if [ "$VIOLATION_COUNT" -gt 0 ]; then
   RULE4_STATUS="FAIL"
   PASS=false
 fi
-$VERBOSE && echo "Rule 4: $RULE4_DETAIL"
+$VERBOSE && echo "Rule 4: $RULE4_DETAIL" || true
 RESULTS+=("rule4:${RULE4_STATUS}:${RULE4_DETAIL}")
+
+# --- count passes ---
+CHECKS_PASSED=0
+for r in "${RESULTS[@]}"; do
+  STATUS=$(echo "$r" | cut -d: -f2)
+  [ "$STATUS" = "PASS" ] && CHECKS_PASSED=$((CHECKS_PASSED + 1)) || true
+done
+CHECKS_TOTAL=${#RESULTS[@]}
 
 # --- Output ---
 if $JSON; then
@@ -165,6 +173,12 @@ if $JSON; then
   done
   echo "  }"
   echo "}"
+  # SPEC-103 §11.5 instrumentation block for ADAS dispatcher
+  FLOOR_RESULT=$( $PASS && echo "PASS" || echo "FAIL" )
+  echo "memory_verify:"
+  echo "  checks_passed: ${CHECKS_PASSED}"
+  echo "  checks_total: ${CHECKS_TOTAL}"
+  echo "  floor: ${FLOOR_RESULT}"
 else
   echo ""
   echo "MEMORY FLOOR VERIFY"

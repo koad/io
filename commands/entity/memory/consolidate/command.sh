@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# entity memory consolidate — VULCAN-SPEC-EMCF-001 §3.2
+# entity memory consolidate — VULCAN-SPEC-EMCF-001 §3.2 + §9
 # Consolidation pass: STALE/ACTIVE → ARCHIVED, floor verification.
-# ADAS-invocable in headless mode.
+# ADAS-invocable in headless mode. Budget-bounded per §9 when ADAS_PASS=1.
 
 set -euo pipefail
 
@@ -11,28 +11,42 @@ INTERACTIVE=true
 HEADLESS=false
 CONFIRM=false
 DRY_RUN=false
+BUDGET_TOKENS=""
+MODEL_TIER="local"
 
 # Detect TTY
 [ -t 0 ] || INTERACTIVE=false
 
+# Detect ADAS context (§9.6)
+ADAS_CONTEXT=false
+[ "${ADAS_PASS:-}" = "1" ] && ADAS_CONTEXT=true
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --interactive) INTERACTIVE=true; HEADLESS=false; shift ;;
-    --headless)    HEADLESS=true; INTERACTIVE=false; shift ;;
-    --confirm)     CONFIRM=true; shift ;;
-    --dry-run)     DRY_RUN=true; shift ;;
+    --interactive)    INTERACTIVE=true; HEADLESS=false; shift ;;
+    --headless)       HEADLESS=true; INTERACTIVE=false; shift ;;
+    --confirm)        CONFIRM=true; shift ;;
+    --dry-run)        DRY_RUN=true; shift ;;
+    --budget-tokens)  BUDGET_TOKENS="$2"; ADAS_CONTEXT=true; shift 2 ;;
+    --model)          MODEL_TIER="$2"; shift 2 ;;
     --help|-h)
       cat <<HELP
 Usage: entity memory consolidate [--interactive|--headless] [--confirm] [--dry-run]
+                                  [--budget-tokens <N>] [--model <local|mid|frontier>]
 
 Run a consolidation pass over memories/. Archives stale/superseded memories,
 verifies the fidelity floor (SPEC-103 §4.3). Uses snapshot-first rollback strategy.
 
 Flags:
-  --interactive   Default when TTY. Prompts for Y/N per candidate.
-  --headless      Runs without prompts; requires --confirm to apply.
-  --confirm       Apply changes (without this, dry-run regardless of mode).
-  --dry-run       Output candidate list without modifying anything.
+  --interactive        Default when TTY. Prompts for Y/N per candidate.
+  --headless           Runs without prompts; requires --confirm to apply.
+  --confirm            Apply changes (without this, dry-run regardless of mode).
+  --dry-run            Output candidate list without modifying anything.
+  --budget-tokens <N>  Token budget ceiling for ADAS passes (§9.2). Required when
+                       ADAS_PASS=1 — running without a ceiling is a protocol violation.
+  --model <tier>       Model routing: local, mid, frontier (default: local). Advisory
+                       in v1 — flag + log only. Frontier without verified override
+                       is downgraded to mid (§9.3).
 
 Locked memories (never archived automatically):
   - type: feedback
@@ -48,6 +62,9 @@ Exit codes:
   2  floor check failed — rolled back from snapshot
   3  working tree not clean
   4  unresolved conflict detected (ambiguous merge candidates)
+  6  budget ceiling hit — partial consolidation committed (§9.4)
+
+Fallback (bare repo / detached HEAD): copy-restore from memories/.pre-consolidation-backup/
 
 Related: entity memory verify, entity memory index, entity memory archive
 HELP
@@ -56,6 +73,52 @@ HELP
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
+
+# --- §9.2: ADAS budget ceiling enforcement ---
+if $ADAS_CONTEXT && [ -z "$BUDGET_TOKENS" ]; then
+  echo "Error: --budget-tokens is required in ADAS context (SPEC-103 §11.2 protocol violation)." >&2
+  exit 2
+fi
+
+# --- §9.3: model routing (advisory in v1) ---
+if [ "$MODEL_TIER" = "frontier" ]; then
+  OVERRIDE_FLAG="${TOKEN_BUDGET_OVERRIDE:-}"
+  if [ -z "$OVERRIDE_FLAG" ]; then
+    echo "Note: --model frontier requested without TOKEN_BUDGET_OVERRIDE — routing to mid (§9.3)" >&2
+    MODEL_TIER="mid"
+  fi
+fi
+echo "Note: model routing = ${MODEL_TIER} (advisory, v1)"
+
+# --- token budget tracking (§9.2) ---
+TOKENS_CONSUMED=0
+BUDGET_CEILING_HIT=false
+
+budget_charge() {
+  local cost="$1"
+  TOKENS_CONSUMED=$((TOKENS_CONSUMED + cost))
+  if [ -n "$BUDGET_TOKENS" ]; then
+    CEILING_90=$((BUDGET_TOKENS * 90 / 100))
+    if [ "$TOKENS_CONSUMED" -ge "$CEILING_90" ]; then
+      BUDGET_CEILING_HIT=true
+    fi
+  fi
+}
+
+emit_memory_pass_block() {
+  local files_archived="${1:-0}"
+  local files_merged="${2:-0}"
+  local files_read="${3:-0}"
+  local ceiling="${BUDGET_TOKENS:-0}"
+  local hit="${BUDGET_CEILING_HIT}"
+  echo "memory_pass:"
+  echo "  tokens_consumed: ${TOKENS_CONSUMED}"
+  echo "  budget_ceiling: ${ceiling}"
+  echo "  files_read: ${files_read}"
+  echo "  files_archived: ${files_archived}"
+  echo "  files_merged: ${files_merged}"
+  echo "  budget_ceiling_hit: ${hit}"
+}
 
 # --- resolve entity repo root ---
 REPO_ROOT=$(git -C "${ENTITY_DIR:-$PWD}" rev-parse --show-toplevel 2>/dev/null || true)
@@ -136,9 +199,12 @@ classify_memory() {
   fi
 }
 
+FILES_READ_COUNT=0
 echo "STEP 1: AUDIT"
 while IFS= read -r -d '' f; do
   classify_memory "$f"
+  FILES_READ_COUNT=$((FILES_READ_COUNT + 1))
+  budget_charge 500  # §9.2: 500 tokens per file read
 done < <(find "$MEMORY_DIR" -maxdepth 1 -name "*.md" -not -name "MEMORY.md" -print0 2>/dev/null)
 
 echo "  Locked: ${#LOCKED_FILES[@]} memories"
@@ -160,6 +226,10 @@ done
 
 if [ ${#STALE_CANDIDATES[@]} -eq 0 ]; then
   echo "No stale candidates found. Nothing to consolidate."
+  # §9.5: always emit instrumentation block in headless mode (or when budget set)
+  if $HEADLESS || [ -n "$BUDGET_TOKENS" ]; then
+    emit_memory_pass_block 0 0 "$FILES_READ_COUNT"
+  fi
   exit 0
 fi
 
@@ -173,6 +243,9 @@ done
 if $DRY_RUN || (! $CONFIRM && ! $INTERACTIVE); then
   echo ""
   echo "Dry-run complete. Run with --confirm (and --headless or interactive) to apply."
+  if $HEADLESS || [ -n "$BUDGET_TOKENS" ]; then
+    emit_memory_pass_block 0 0 "$FILES_READ_COUNT"
+  fi
   exit 0
 fi
 
@@ -207,17 +280,25 @@ git -C "$REPO_ROOT" commit -m "memory: pre-consolidation snapshot" || true
 SNAPSHOT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
 echo "  snapshot: $SNAPSHOT_SHA"
 
-# --- STEP 3: ARCHIVE ---
+# --- STEP 3: ARCHIVE (budget-bounded per §9.4) ---
 echo ""
 echo "STEP 3: ARCHIVE"
 ARCHIVED_COUNT=0
+PARTIAL=false
 for c in "${CONFIRMED_FOR_ARCHIVE[@]}"; do
+  # §9.4: check budget ceiling before each archive operation
+  if $BUDGET_CEILING_HIT; then
+    echo "  Budget ceiling hit — stopping at ${ARCHIVED_COUNT} archived (partial consolidation §9.4)"
+    PARTIAL=true
+    break
+  fi
   SRC="$MEMORY_DIR/${c}.md"
   DST="$ARCHIVE_DIR/${c}.md"
   if [ -f "$SRC" ]; then
     mv "$SRC" "$DST"
     echo "  archived: $c"
     ARCHIVED_COUNT=$((ARCHIVED_COUNT + 1))
+    budget_charge 500  # file processing cost
   fi
 done
 
@@ -250,6 +331,10 @@ if ! $FLOOR_PASSED; then
   LOG_DIR="${ENTITY_DIR:-$PWD}/logs"
   mkdir -p "$LOG_DIR"
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] consolidate — FLOOR FAILED — rolled back to $SNAPSHOT_SHA" >> "$LOG_DIR/memory-commands.log"
+  # §9.5: emit block even on failure
+  if $HEADLESS || [ -n "$BUDGET_TOKENS" ]; then
+    emit_memory_pass_block "$ARCHIVED_COUNT" 0 "$FILES_READ_COUNT"
+  fi
   exit 2
 fi
 
@@ -257,13 +342,31 @@ fi
 echo ""
 echo "STEP 6: COMMIT"
 git -C "$REPO_ROOT" add -A
-git -C "$REPO_ROOT" commit -m "memory: consolidation pass — ${ARCHIVED_COUNT} archived, floor verified" || \
-  echo "Note: nothing new to commit (all changes already in snapshot)"
+if $PARTIAL; then
+  # §9.4: partial consolidation commit message
+  git -C "$REPO_ROOT" commit -m "memory: consolidation pass — partial (budget ceiling hit) — ${ARCHIVED_COUNT} archived, floor verified" || \
+    echo "Note: nothing new to commit"
+else
+  git -C "$REPO_ROOT" commit -m "memory: consolidation pass — ${ARCHIVED_COUNT} archived, floor verified" || \
+    echo "Note: nothing new to commit (all changes already in snapshot)"
+fi
 
 # --- log ---
 LOG_DIR="${ENTITY_DIR:-$PWD}/logs"
 mkdir -p "$LOG_DIR"
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] consolidate --confirm — floor: PASS — archived: ${ARCHIVED_COUNT}" >> "$LOG_DIR/memory-commands.log"
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] consolidate --confirm — floor: PASS — archived: ${ARCHIVED_COUNT}${PARTIAL:+ (partial)}" >> "$LOG_DIR/memory-commands.log"
 
 echo ""
-echo "Consolidation complete: ${ARCHIVED_COUNT} archived, floor verified."
+if $PARTIAL; then
+  echo "Consolidation partial: ${ARCHIVED_COUNT} archived (budget ceiling hit), floor verified."
+else
+  echo "Consolidation complete: ${ARCHIVED_COUNT} archived, floor verified."
+fi
+
+# §9.5: emit instrumentation block (always in headless or ADAS context; in interactive only if JSON)
+if $HEADLESS || [ -n "$BUDGET_TOKENS" ]; then
+  emit_memory_pass_block "$ARCHIVED_COUNT" 0 "$FILES_READ_COUNT"
+fi
+
+$PARTIAL && exit 6
+exit 0

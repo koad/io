@@ -52,10 +52,11 @@ MEMORY_INDEX="${MEMORY_DIR%/memories}/MEMORY.md"
 
 # --- read current MEMORY.md entries ---
 declare -A INDEX_ENTRIES  # name -> line
+MEMMD_ENTRY_RE='^\- \[([^]]+)\]\(memories/([^ )]+)\.md\)'
 if [ -f "$MEMORY_INDEX" ]; then
   while IFS= read -r line; do
     # Match lines like: - [name](memories/name.md) — description
-    if [[ "$line" =~ ^\-\ \[([^]]+)\]\(memories/([^)]+)\.md\) ]]; then
+    if [[ "$line" =~ $MEMMD_ENTRY_RE ]]; then
       FILE_NAME="${BASH_REMATCH[2]}"
       INDEX_ENTRIES["$FILE_NAME"]="$line"
     fi
@@ -66,8 +67,8 @@ fi
 declare -A DISK_FILES  # name -> description from frontmatter
 while IFS= read -r -d '' f; do
   FNAME=$(basename "$f" .md)
-  DESC=$(grep -m1 "^description:" "$f" 2>/dev/null | sed 's/^description: *//' | tr -d '"')
-  NAME_VAL=$(grep -m1 "^name:" "$f" 2>/dev/null | awk '{print $2}' | tr -d '"')
+  DESC=$(grep -m1 "^description:" "$f" 2>/dev/null | sed 's/^description: *//' | tr -d '"' || echo "")
+  NAME_VAL=$(grep -m1 "^name:" "$f" 2>/dev/null | awk '{print $2}' | tr -d '"' || echo "")
   LABEL="${NAME_VAL:-$FNAME}"
   DISK_FILES["$FNAME"]="${DESC:-no description}"
 done < <(find "$MEMORY_DIR" -maxdepth 1 -name "*.md" -not -name "MEMORY.md" -print0 2>/dev/null)
