@@ -1,0 +1,29 @@
+[Unit]
+Description=WebSub Hub (koad:io) — hub.koad.io
+Documentation=https://github.com/tystuyfzand/websub-server
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=websub
+Group=websub
+
+# Runtime data directory (BoltDB file lives here).
+# Created by deploy.sh: install -d -o websub -g websub /var/lib/websub
+Environment=WEBSUB_DB_PATH=/var/lib/websub/subs.db
+Environment=WEBSUB_LISTEN=127.0.0.1:8080
+
+ExecStart=/usr/local/bin/websub-hub
+
+Restart=on-failure
+RestartSec=5s
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/websub
+
+[Install]
+WantedBy=multi-user.target
