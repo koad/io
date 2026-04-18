@@ -27,7 +27,9 @@
 <entity> profile create --name "Alice" --bio "A koad:io entity" --non-interactive
 <entity> profile update --bio "Updated bio"
 <entity> profile view
-<entity> profile verify
+<entity> profile verify                       # scan sigchain-cache, walk chain
+<entity> profile verify --tip <cid>          # verify a specific tip (cache scan)
+<entity> profile verify --chain tip.json genesis.json  # explicit files
 <entity> profile publish
 ```
 

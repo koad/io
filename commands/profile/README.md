@@ -211,6 +211,9 @@ Verify Ed25519 signatures on local sigchain entry files.
 ```
 $ENTITY profile verify [options]
 
+  (no args)                 Scan $ENTITY_DIR/var/sigchain-cache/ — auto-discover
+                            chain JSON files and run verification tip-first
+  --tip CID                 Accept a tip CID; scan local cache (IPFS fetch stubbed)
   --file FILE               Verify a single local JSON entry file
   --chain TIP.json [...]    Verify an ordered sequence: tip first, genesis last
   --pubkey-path FILE        Public key file (OpenSSH or PEM SPKI)
@@ -225,9 +228,11 @@ Exit codes:
   2 — missing prerequisites or bad arguments
 ```
 
-Chain mode extracts the public key from the genesis entry automatically — no `--pubkey-path` needed.
+No-args and `--tip` modes scan `$ENTITY_DIR/var/sigchain-cache/` for JSON files. To populate the cache, use `--output` on `profile create` or `profile update`.
 
-IPFS chain-walk by CID is not yet implemented. Use `--file` or `--chain` with locally saved entry files.
+Chain mode and no-args mode extract the public key from the genesis entry automatically — no `--pubkey-path` needed.
+
+IPFS chain-walk by CID is not yet implemented. Use `--file`, `--chain`, or the cache-scan modes with locally saved entry files.
 
 ---
 

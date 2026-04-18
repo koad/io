@@ -135,6 +135,9 @@ fi
 
 # ── Prepare output directory ──────────────────────────────────────────────────
 
+# Always write to sigchain cache (enables no-args `profile verify`)
+SIGCHAIN_CACHE_DIR="$ENTITY_DIR/var/sigchain-cache"
+mkdir -p "$SIGCHAIN_CACHE_DIR"
 if [[ -n "$OUTPUT_DIR" ]]; then
   mkdir -p "$OUTPUT_DIR"
 fi
@@ -183,6 +186,9 @@ UPDATE_SIGNED=$(echo "$UPDATE_RESULT" | node -e \
 NEW_TIP=$(echo "$UPDATE_RESULT" | node -e \
   "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).cid))")
 
+# Always write to sigchain cache; use timestamp to avoid collisions with multiple updates
+UPDATE_TS_SLUG=$(echo "$TIMESTAMP" | tr -d ':-' | tr 'T' '-' | tr -d 'Z')
+echo "$UPDATE_SIGNED" > "$SIGCHAIN_CACHE_DIR/profile-update-${UPDATE_TS_SLUG}.json"
 if [[ -n "$OUTPUT_DIR" ]]; then
   echo "$UPDATE_SIGNED" > "$OUTPUT_DIR/profile-update.json"
   echo "Wrote: $OUTPUT_DIR/profile-update.json" >&2

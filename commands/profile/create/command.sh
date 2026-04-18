@@ -141,6 +141,9 @@ fi
 # ── Prepare output directory ──────────────────────────────────────────────────
 
 mkdir -p "$ENTITY_DIR/var"
+# Always write to sigchain-cache (enables no-args `profile verify`)
+SIGCHAIN_CACHE_DIR="$ENTITY_DIR/var/sigchain-cache"
+mkdir -p "$SIGCHAIN_CACHE_DIR"
 if [[ -n "$OUTPUT_DIR" ]]; then
   mkdir -p "$OUTPUT_DIR"
 fi
@@ -202,6 +205,8 @@ GENESIS_CID=$(echo "$GENESIS_RESULT" | node -e \
 
 echo "Genesis CID: $GENESIS_CID" >&2
 
+# Always write to sigchain cache
+echo "$GENESIS_SIGNED" > "$SIGCHAIN_CACHE_DIR/genesis.json"
 if [[ -n "$OUTPUT_DIR" ]]; then
   echo "$GENESIS_SIGNED" > "$OUTPUT_DIR/genesis.json"
   echo "Wrote: $OUTPUT_DIR/genesis.json" >&2
@@ -254,6 +259,8 @@ PROFILE_CID=$(echo "$PROFILE_RESULT" | node -e \
 
 echo "Profile CID: $PROFILE_CID" >&2
 
+# Always write to sigchain cache
+echo "$PROFILE_SIGNED" > "$SIGCHAIN_CACHE_DIR/profile-state.json"
 if [[ -n "$OUTPUT_DIR" ]]; then
   echo "$PROFILE_SIGNED" > "$OUTPUT_DIR/profile-state.json"
   echo "Wrote: $OUTPUT_DIR/profile-state.json" >&2

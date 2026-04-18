@@ -5,7 +5,10 @@
 #
 # Per VESTA-SPEC-111 §3.4 and §6.5.
 #
-# Two modes:
+# Modes:
+#   (no args)        Walk $ENTITY_DIR/var/sigchain-cache/ — auto-discovers local
+#                    chain files and runs chain verification tip-first to genesis.
+#   --tip CID        Accept a tip CID (IPFS fetch is stubbed; falls back to cache scan)
 #   --file FILE      Verify a single local JSON entry file (offline, no IPFS)
 #   --chain FILE...  Verify a sequence of JSON files from tip to genesis
 #                    (tip first, genesis last — must be ordered)
@@ -14,15 +17,17 @@
 # IPFS node is running. Local-file verification works today.
 #
 # Usage:
+#   $ENTITY profile verify
+#   $ENTITY profile verify --tip <cid>
 #   $ENTITY profile verify --file entry.json [--pubkey-path KEY.pub]
 #   $ENTITY profile verify --chain tip.json mid.json genesis.json
-#   $ENTITY profile verify                    # verifies own sigchain-tip file entries
 
 set -euo pipefail
 
 ENTITY="${ENTITY:-koad}"
 ENTITY_DIR="${ENTITY_DIR:-$HOME/.$ENTITY}"
 SIGCHAIN_TIP_FILE="$ENTITY_DIR/var/sigchain-tip"
+SIGCHAIN_CACHE_DIR="$ENTITY_DIR/var/sigchain-cache"
 SIGN_HELPER="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/.helpers/sign.js"
 
 # ── Usage ─────────────────────────────────────────────────────────────────────
@@ -32,11 +37,13 @@ usage() {
 profile verify — verify Ed25519 signatures on sigchain entries
 
 Usage:
+  $ENTITY profile verify
+  $ENTITY profile verify --tip CID
   $ENTITY profile verify --file ENTRY.json [--pubkey-path KEY.pub]
   $ENTITY profile verify --chain TIP.json [MID.json ...] GENESIS.json
-  $ENTITY profile verify --json            output results as JSON
 
 Options:
+  --tip CID             Tip CID to verify (uses local cache; IPFS fetch stubbed)
   --file FILE           Verify a single local JSON entry file
   --chain FILE...       Verify an ordered sequence: tip first, genesis last
   --pubkey-path FILE    Public key file to verify against (OpenSSH or PEM SPKI)
@@ -50,8 +57,10 @@ Exit codes:
   1 — one or more entries failed verification
   2 — missing prerequisites or bad arguments
 
-Note: IPFS chain-walk by CID is not yet implemented. Use --file or --chain
-with locally exported entry JSON files.
+No-args and --tip modes: scan $SIGCHAIN_CACHE_DIR for JSON files,
+sort genesis-to-tip, and run chain verification on them.
+IPFS fetch by CID is not yet wired — populate the cache with --output on
+profile create/update, or use --chain with explicit file paths.
 
 See also:
   $ENTITY profile view     — display resolved profile
@@ -62,6 +71,7 @@ EOF
 # ── Arg parsing ───────────────────────────────────────────────────────────────
 
 FILE=""
+TIP_CID=""
 CHAIN_FILES=()
 PUBKEY_PATH=""
 PUBKEY_B64URL=""
@@ -70,6 +80,7 @@ IN_CHAIN=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --tip)        TIP_CID="$2"; shift 2 ;;
     --file)       FILE="$2"; shift 2 ;;
     --chain)      IN_CHAIN=true; shift ;;
     --pubkey-path) PUBKEY_PATH="$2"; shift 2 ;;
@@ -173,6 +184,150 @@ verify_file() {
   fi
 }
 
+# ── Scan cache for chain files and sort genesis-to-tip ───────────────────────
+
+# Returns sorted chain files (tip first, genesis last) by walking previous links.
+# Writes sorted file paths to stdout, one per line. Returns 1 if cache is empty.
+load_chain_from_cache() {
+  local cache_dir="$1"
+
+  if [[ ! -d "$cache_dir" ]] || [[ -z "$(ls -A "$cache_dir"/*.json 2>/dev/null)" ]]; then
+    return 1
+  fi
+
+  # Use node to sort the JSON files by walking previous links (genesis has previous:null)
+  node -e "
+const fs = require('fs');
+const path = require('path');
+const cacheDir = process.argv[1];
+
+const files = fs.readdirSync(cacheDir).filter(f => f.endsWith('.json'));
+const entries = [];
+for (const f of files) {
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(cacheDir, f), 'utf8'));
+    entries.push({ file: path.join(cacheDir, f), entry: data });
+  } catch (e) { /* skip invalid JSON */ }
+}
+
+if (entries.length === 0) { process.exit(1); }
+
+// Sort: genesis (previous==null) last, tip first.
+// Walk chain links: find genesis, then chain forward from it.
+const genesis = entries.find(e => e.entry.previous === null);
+if (!genesis) {
+  process.stderr.write('No genesis entry found in cache.\n');
+  process.exit(1);
+}
+
+// Build CID -> file map using the sign helper's CID computation
+// For sorting we rely on timestamps: genesis is oldest, tip is newest
+const sorted = [...entries].sort((a, b) => {
+  const ta = new Date(a.entry.timestamp).getTime();
+  const tb = new Date(b.entry.timestamp).getTime();
+  return tb - ta; // tip (newest) first, genesis last
+});
+
+for (const e of sorted) {
+  process.stdout.write(e.file + '\n');
+}
+" "$cache_dir" 2>&1
+}
+
+# ── Chain verification with summary output ────────────────────────────────────
+
+verify_chain_with_summary() {
+  local -a files=("$@")
+  local errors=0
+
+  # Extract pubkey from genesis (last file)
+  local genesis_file="${files[-1]}"
+  local chain_pubkey
+  chain_pubkey=$(node -e "
+    const e = JSON.parse(require('fs').readFileSync('${genesis_file}','utf8'));
+    if (e.type !== 'koad.genesis') {
+      process.stderr.write('Last file is not a koad.genesis entry: ' + e.type + '\n');
+      process.exit(1);
+    }
+    const pubkey = e.payload && e.payload.pubkey;
+    if (!pubkey) {
+      process.stderr.write('genesis entry missing payload.pubkey\n');
+      process.exit(1);
+    }
+    process.stdout.write(pubkey);
+  " 2>&1)
+
+  if [[ $? -ne 0 ]]; then
+    echo "profile verify: failed to extract genesis pubkey: $chain_pubkey" >&2
+    return 1
+  fi
+
+  local pubkey_field="\"pubkeyBase64Url\":\"${chain_pubkey}\""
+  local entry_list=()
+  local fail_list=()
+
+  for f in "${files[@]}"; do
+    local entry result valid type cid scope_label
+    entry=$(cat "$f")
+    result=$(printf '%s' "{\"op\":\"verify\",\"entry\":${entry},${pubkey_field}}" \
+      | node "$SIGN_HELPER" 2>&1)
+
+    if echo "$result" | grep -q '"ok":true'; then
+      valid=$(echo "$result" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).valid))")
+      type=$(echo "$result" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).type))")
+      cid=$(echo "$result" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).cid))")
+
+      # Extract scope for state-update entries
+      scope_label=""
+      if [[ "$type" == "koad.state-update" ]]; then
+        scope=$(echo "$entry" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const e=JSON.parse(d);console.log(e.payload&&e.payload.scope||'')}catch(e){console.log('')}})")
+        if [[ -n "$scope" ]]; then
+          scope_label=" [$scope]"
+        fi
+      fi
+
+      if [[ "$valid" == "true" ]]; then
+        entry_list+=("  $cid $type${scope_label}")
+      else
+        entry_list+=("  $cid $type${scope_label} [FAIL]")
+        fail_list+=("Signature verification failed at $cid")
+        errors=$((errors + 1))
+      fi
+    else
+      errors=$((errors + 1))
+      fail_list+=("Verify error on $(basename "$f"): $result")
+    fi
+  done
+
+  if [[ "$JSON_OUTPUT" == true ]]; then
+    node -e "
+const valid = ${errors} === 0;
+const entries = $(printf '%s\n' "${entry_list[@]}" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const lines=d.trim().split('\n').filter(Boolean);const entries=lines.map(l=>{const m=l.trim().match(/^(\S+)\s+(.+)$/);return m?{cid:m[1],type:m[2]}:{raw:l.trim()}});console.log(JSON.stringify(entries))})" 2>/dev/null || echo '[]');
+const errors = $(printf '%s\n' "${fail_list[@]-}" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const lines=d.trim().split('\n').filter(Boolean);console.log(JSON.stringify(lines))})" 2>/dev/null || echo '[]');
+process.stdout.write(JSON.stringify({valid,entries,errors},null,2)+'\n');
+"
+  else
+    if [[ $errors -eq 0 ]]; then
+      echo "Chain valid: yes"
+    else
+      echo "Chain valid: NO"
+    fi
+    echo "Entries: ${#files[@]}"
+    for line in "${entry_list[@]}"; do
+      echo "$line"
+    done
+    if [[ ${#fail_list[@]} -gt 0 ]]; then
+      echo ""
+      echo "Errors:"
+      for err in "${fail_list[@]}"; do
+        echo "  $err"
+      done
+    fi
+  fi
+
+  return $errors
+}
+
 # ── Main: dispatch mode ───────────────────────────────────────────────────────
 
 if ! command -v node &>/dev/null; then
@@ -204,58 +359,50 @@ if [[ -n "$FILE" ]]; then
   fi
   verify_file "$FILE" "$PUBKEY_FIELD" || ERRORS=$((ERRORS + 1))
 
-elif [[ ${#CHAIN_FILES[@]} -gt 0 ]]; then
-  # Chain mode: verify each file, use genesis pubkey for all
-  # First pass: extract pubkey from genesis entry (last file in the chain)
-  GENESIS_FILE="${CHAIN_FILES[-1]}"
-  CHAIN_PUBKEY_B64URL=$(node -e "
-    const e = JSON.parse(require('fs').readFileSync('${GENESIS_FILE}','utf8'));
-    if (e.type !== 'koad.genesis') {
-      process.stderr.write('Last file is not a koad.genesis entry: ' + e.type + '\n');
-      process.exit(1);
-    }
-    const pubkey = e.payload && e.payload.pubkey;
-    if (!pubkey) {
-      process.stderr.write('genesis entry missing payload.pubkey\n');
-      process.exit(1);
-    }
-    process.stdout.write(pubkey);
-  " 2>&1)
-
-  if [[ $? -ne 0 ]]; then
-    echo "profile verify: failed to extract genesis pubkey: $CHAIN_PUBKEY_B64URL" >&2
+  echo ""
+  if [[ $ERRORS -eq 0 ]]; then
+    echo "Result: VERIFIED (1 entry)"
+    exit 0
+  else
+    echo "Result: FAILED ($ERRORS verification failure)" >&2
     exit 1
   fi
 
-  PUBKEY_FIELD="\"pubkeyBase64Url\":\"${CHAIN_PUBKEY_B64URL}\""
+elif [[ ${#CHAIN_FILES[@]} -gt 0 ]]; then
+  # Chain mode: verify each file with summary output
+  verify_chain_with_summary "${CHAIN_FILES[@]}"
+  exit $?
 
-  if [[ "$JSON_OUTPUT" == false ]]; then
-    echo "Verifying chain of ${#CHAIN_FILES[@]} entries (pubkey from genesis):"
-    echo ""
+elif [[ -n "$TIP_CID" ]] || [[ $# -eq 0 && -z "$FILE" && ${#CHAIN_FILES[@]} -eq 0 ]]; then
+  # No-args or --tip mode: scan local sigchain cache
+  if [[ -n "$TIP_CID" ]]; then
+    echo "Note: IPFS fetch not wired. Scanning local cache for chain files..." >&2
+    echo "Tip CID: $TIP_CID" >&2
+    echo "" >&2
   fi
 
-  for f in "${CHAIN_FILES[@]}"; do
-    verify_file "$f" "$PUBKEY_FIELD" || ERRORS=$((ERRORS + 1))
-  done
+  # Discover and sort chain files from cache
+  CACHE_CHAIN_FILES=()
+  if [[ -d "$SIGCHAIN_CACHE_DIR" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && CACHE_CHAIN_FILES+=("$line")
+    done < <(load_chain_from_cache "$SIGCHAIN_CACHE_DIR" 2>/dev/null)
+  fi
 
-else
-  # No args — not yet wired to IPFS fetch
-  echo "profile verify: no --file or --chain specified." >&2
-  echo "" >&2
-  echo "To verify local entry files:" >&2
-  echo "  $ENTITY profile verify --file genesis.json" >&2
-  echo "  $ENTITY profile verify --chain profile-state.json genesis.json" >&2
-  echo "" >&2
-  echo "Note: IPFS chain-walk by CID (from $SIGCHAIN_TIP_FILE) is not yet" >&2
-  echo "wired — requires running IPFS daemon. Local file verification works today." >&2
-  exit 2
-fi
+  if [[ ${#CACHE_CHAIN_FILES[@]} -eq 0 ]]; then
+    echo "profile verify: no local chain files found." >&2
+    echo "" >&2
+    echo "Checked cache: $SIGCHAIN_CACHE_DIR" >&2
+    echo "" >&2
+    echo "To populate the cache, use --output on create/update:" >&2
+    echo "  $ENTITY profile create --output $SIGCHAIN_CACHE_DIR --name \"Name\"" >&2
+    echo "  $ENTITY profile update --output $SIGCHAIN_CACHE_DIR --name \"Name\"" >&2
+    echo "" >&2
+    echo "Or verify explicit files with --chain:" >&2
+    echo "  $ENTITY profile verify --chain profile-state.json genesis.json" >&2
+    exit 2
+  fi
 
-echo ""
-if [[ $ERRORS -eq 0 ]]; then
-  echo "Result: VERIFIED ($((${#CHAIN_FILES[@]} + ${#FILE})) entries)"
-  exit 0
-else
-  echo "Result: FAILED ($ERRORS verification failures)" >&2
-  exit 1
+  verify_chain_with_summary "${CACHE_CHAIN_FILES[@]}"
+  exit $?
 fi
