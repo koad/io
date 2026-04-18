@@ -20,6 +20,7 @@ Template.profileEditor.onCreated(function() {
   tpl.publishError = new ReactiveVar(null);
   tpl.publishSuccess = new ReactiveVar(false);
   tpl.publishedCid = new ReactiveVar(null);
+  tpl.publishCancelled = new ReactiveVar(false);
 
   // Local social proofs list (reactive so add/remove updates UI)
   tpl.socialProofs = new ReactiveVar([]);
@@ -148,14 +149,13 @@ Template.profileEditor.helpers({
         inst.publishedCid.set(null);
         inst.publishSuccess.set(false);
         // Re-enable publish button but show inline note
-        inst._publishCancelled = true;
+        inst.publishCancelled.set(true);
       },
     };
   },
 
   publishCancelled() {
-    const tpl = Template.instance();
-    return tpl._publishCancelled || false;
+    return Template.instance().publishCancelled.get();
   },
 });
 
@@ -248,7 +248,7 @@ Template.profileEditor.events({
 
     tpl.publishError.set(null);
     tpl.publishSuccess.set(false);
-    tpl._publishCancelled = false;
+    tpl.publishCancelled.set(false);
 
     // ── Gate: ensure a key is unlocked before attempting to sign ──────────────
     // If no key is active, show the passphrase modal and wait for unlock.
