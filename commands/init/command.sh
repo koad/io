@@ -62,6 +62,7 @@ echo "Creating entity wrapper command: $ENTITY"
 echo '#!/usr/bin/env bash
 
 export ENTITY="'$ENTITY'"
+export KOAD_IO_VIA_LAUNCHER=1
 koad-io "$@";
 ' > $HOME/.koad-io/bin/$ENTITY
 echo && sleep 1
@@ -69,6 +70,57 @@ echo && sleep 1
 echo "making '$HOME/.koad-io/bin/$ENTITY' executable"
 chmod +x $HOME/.koad-io/bin/$ENTITY
 echo && sleep 1
+
+# Device key provisioning — generate ed25519 if missing
+ID_DIR="$WORKING_DIRECTORY/id"
+PRIVATE_KEY="$ID_DIR/ed25519"
+if [ ! -f "$PRIVATE_KEY" ]; then
+    echo "Device key missing — generating Ed25519 keypair for $ENTITY@$HOSTNAME"
+    mkdir -p "$ID_DIR"
+    ssh-keygen -t ed25519 -f "$PRIVATE_KEY" -C "$ENTITY@$HOSTNAME" -N ""
+
+    PUBKEY=$(cat "$PRIVATE_KEY.pub")
+    echo
+    echo "Device key generated for $ENTITY@$HOSTNAME."
+    echo "Public key: $PUBKEY"
+    echo
+    echo "Next step on the AUTHORIZING device (the one that holds the entity's"
+    echo "sigchain tip / root key):"
+    echo
+    echo "    $ENTITY profile device-key add \\"
+    echo "        --device-id $HOSTNAME \\"
+    echo "        --device-pubkey \"$PUBKEY\" \\"
+    echo "        --description \"Fresh install on $HOSTNAME\""
+    echo
+    echo "Until this device is authorized, it can read but not sign on behalf"
+    echo "of $ENTITY."
+    echo
+else
+    echo "Device key present — $PRIVATE_KEY"
+fi
+
+# Ensure id/.gitignore protects private keys from accidental commits
+GITIGNORE_PATH="$ID_DIR/.gitignore"
+if [ ! -f "$GITIGNORE_PATH" ]; then
+    echo "Writing $GITIGNORE_PATH to protect private keys from accidental commits"
+    mkdir -p "$ID_DIR"
+    cat > "$GITIGNORE_PATH" << 'GITIGNORE'
+# Private keys — never commit
+ed25519
+ecdsa
+rsa
+dsa
+kbpgp_key
+wonderland
+*.key
+# Keep public keys
+!*.pub
+# Keep this file
+!.gitignore
+GITIGNORE
+    echo "wrote: $GITIGNORE_PATH"
+fi
+
 echo "Initialization of $ENTITY complete!"
 sleep 1
 echo "-------------------------------------------------------------------------------"
