@@ -10,6 +10,7 @@ BondsIndex = new Mongo.Collection('BondsIndex');
 KeysIndex = new Mongo.Collection('KeysIndex');
 TicklerIndex = new Mongo.Collection('TicklerIndex');
 Emissions = new Mongo.Collection('Emissions');
+Flights = new Mongo.Collection('Flights');
 
 // Hostname reactive var — fetched once
 const _hostname = new ReactiveVar('...');
@@ -24,6 +25,8 @@ Template.KingdomOverview.onCreated(function () {
   this.subscribe('keys');
   this.subscribe('tickler');
   this.subscribe('emissions');
+  this.subscribe('flights.active');
+  this.subscribe('flights.recent', 20);
 });
 
 Template.KingdomOverview.helpers({
@@ -43,7 +46,8 @@ Template.KingdomOverview.helpers({
       const sat = outfit ? outfit.saturation : 0;
       const bri = outfit ? outfit.brightness : 30;
 
-      return {
+      const activeFlight = Flights.findOne({ entity: entity.handle, status: 'flying' });
+      const result = {
         handle: entity.handle,
         avatarImage: passenger ? passenger.image : null,
         firstLetter: entity.handle.charAt(0).toUpperCase(),
@@ -51,6 +55,36 @@ Template.KingdomOverview.helpers({
         keyCount: keysDoc ? keysDoc.count : 0,
         bondCount: bondsDoc ? bondsDoc.count : 0,
         tickleCount: ticklerDoc ? ticklerDoc.count : 0,
+      };
+
+      if (activeFlight) {
+        result.activeFlight = true;
+        result.flightBrief = activeFlight.briefSlug || '';
+        result.flightSummary = activeFlight.briefSummary || '';
+        result.flightElapsed = _elapsed(activeFlight.started);
+        result.flightModel = activeFlight.model || '';
+      }
+
+      return result;
+    });
+  },
+
+  recentFlights() {
+    return Flights.find({}, { sort: { started: -1 }, limit: 20 }).map(function (flight) {
+      const passenger = Passengers.findOne({ handle: flight.entity });
+      const hue = passenger && passenger.outfit ? passenger.outfit.hue : 200;
+      return {
+        _id: flight._id,
+        entity: flight.entity,
+        entityColor: 'hsl(' + hue + ', 60%, 65%)',
+        briefSlug: flight.briefSlug || '',
+        briefSummary: flight.briefSummary || '',
+        status: flight.status,
+        model: flight.model || '',
+        isFlying: flight.status === 'flying',
+        relativeTime: _relativeTime(flight.started),
+        elapsed: flight.status === 'flying' ? _elapsed(flight.started) : _formatElapsed(flight.elapsed),
+        completionSummary: flight.completionSummary || '',
       };
     });
   },
@@ -82,4 +116,21 @@ function _relativeTime(date) {
   if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
   if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
   return Math.floor(diff / 86400) + 'd ago';
+}
+
+// Live elapsed time from a start date (for active flights)
+function _elapsed(started) {
+  if (!started) return '';
+  const diff = Math.floor((new Date() - new Date(started)) / 1000);
+  if (diff < 60) return diff + 's';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ' + (diff % 60) + 's';
+  return Math.floor(diff / 3600) + 'h ' + Math.floor((diff % 3600) / 60) + 'm';
+}
+
+// Format a stored elapsed number (seconds) for landed flights
+function _formatElapsed(secs) {
+  if (secs == null) return '';
+  if (secs < 60) return secs + 's';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
+  return Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm';
 }

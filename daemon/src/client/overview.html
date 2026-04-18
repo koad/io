@@ -51,9 +51,34 @@
     .emission-type.warning { background: #4a3a1a; color: #d4a535; }
     .emission-type.error { background: #4a1a1a; color: #d55b5b; }
     .emission-type.request { background: #3a1a4a; color: #a55bd5; }
+    .emission-type.flight { background: #1a3a3a; color: #5bd5b5; }
     .emission-time { font-size: 10px; color: #555; margin-left: auto; }
     .emission-body { font-size: 13px; color: #999; line-height: 1.4; }
     .empty-state { color: #555; font-size: 13px; font-style: italic; padding: 20px 0; }
+
+    /* Flight indicators on entity cards */
+    .flight-indicator {
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 6px; padding-top: 5px; border-top: 1px solid #2a2a2a;
+    }
+    .flight-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.75); }
+    }
+    .flight-brief { font-size: 11px; color: #5bd5b5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+    .flight-elapsed { font-size: 10px; color: #555; flex-shrink: 0; }
+    .flight-model { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: #1a3a3a; color: #5bd5b5; flex-shrink: 0; }
+
+    /* Pinned active flights in emissions panel */
+    .flight-pinned {
+      padding: 10px 0; border-bottom: 1px solid #1e3a3a; margin-bottom: 2px;
+      background: #0e2020; margin: 0 -4px 2px; padding: 8px 4px; border-radius: 4px;
+    }
+    .flight-pinned .emission-body { color: #7abfbf; }
   </style>
 
   <div class="overview-header">
@@ -81,6 +106,14 @@
                 {{#if bondCount}}<span class="entity-stat"><span class="stat-val">{{bondCount}}</span> bonds</span>{{/if}}
                 {{#if tickleCount}}<span class="entity-stat"><span class="stat-val">{{tickleCount}}</span> tickles</span>{{/if}}
               </div>
+              {{#if activeFlight}}
+                <div class="flight-indicator">
+                  <span class="flight-dot" style="background: {{accentColor}};"></span>
+                  <span class="flight-brief" title="{{flightSummary}}">{{flightBrief}}</span>
+                  <span class="flight-elapsed">{{flightElapsed}}</span>
+                  {{#if flightModel}}<span class="flight-model">{{flightModel}}</span>{{/if}}
+                </div>
+              {{/if}}
             </div>
           </div>
         {{/each}}
@@ -88,7 +121,21 @@
     </div>
 
     <div class="emissions-panel">
-      <div class="section-label">Emissions</div>
+      <div class="section-label">Activity</div>
+
+      {{#each recentFlights}}
+        {{#if isFlying}}
+          <div class="flight-pinned">
+            <div class="emission-header">
+              <span class="emission-entity" style="color: {{entityColor}};">{{entity}}</span>
+              <span class="emission-type flight">flight</span>
+              <span class="emission-time">{{elapsed}}</span>
+            </div>
+            <div class="emission-body">{{briefSlug}}{{#if briefSummary}} &mdash; {{briefSummary}}{{/if}}</div>
+          </div>
+        {{/if}}
+      {{/each}}
+
       {{#each emissions}}
         <div class="emission-item">
           <div class="emission-header">
@@ -98,9 +145,26 @@
           </div>
           <div class="emission-body">{{body}}</div>
         </div>
-      {{else}}
-        <div class="empty-state">No emissions yet.</div>
       {{/each}}
+
+      {{#each recentFlights}}
+        {{#unless isFlying}}
+          <div class="emission-item">
+            <div class="emission-header">
+              <span class="emission-entity" style="color: {{entityColor}};">{{entity}}</span>
+              <span class="emission-type flight">flight</span>
+              <span class="emission-time">{{relativeTime}}</span>
+            </div>
+            <div class="emission-body">{{briefSlug}} &mdash; {{elapsed}}{{#if completionSummary}} &mdash; {{completionSummary}}{{/if}}</div>
+          </div>
+        {{/unless}}
+      {{/each}}
+
+      {{#unless emissions}}
+        {{#unless recentFlights}}
+          <div class="empty-state">No activity yet.</div>
+        {{/unless}}
+      {{/unless}}
     </div>
   </div>
 </template>
