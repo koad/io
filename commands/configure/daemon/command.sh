@@ -3,19 +3,64 @@
 # command.sh — daemon/configure
 #
 # Summary: Main menu orchestrator for managing daemon services via docker-compose.
-# Invoked as: koad-io daemon configure  OR  juno daemon configure
+# Invoked as: koad-io configure daemon [flags]
 #
+# Non-interactive usage:
+#   configure daemon --service ipfs --action install
+#   configure daemon --service netbird --action start
+#   configure daemon --service ipfs --action stop
+#   configure daemon --service netbird --action status
+#   CONFIGURE_SERVICE=ipfs CONFIGURE_ACTION=install configure daemon
+#
+
+# Parse non-interactive flags
+NON_INTERACTIVE=0
+SERVICE_FLAG="${CONFIGURE_SERVICE:-}"
+ACTION_FLAG="${CONFIGURE_ACTION:-}"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --service)
+            SERVICE_FLAG="$2"
+            shift 2
+            ;;
+        --service=*)
+            SERVICE_FLAG="${1#*=}"
+            shift
+            ;;
+        --action)
+            ACTION_FLAG="$2"
+            shift 2
+            ;;
+        --action=*)
+            ACTION_FLAG="${1#*=}"
+            shift
+            ;;
+        --non-interactive)
+            NON_INTERACTIVE=1
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+# If service+action given (or NON_INTERACTIVE set), skip TUI.
+if [[ -n "$SERVICE_FLAG" && -n "$ACTION_FLAG" ]] || [[ "$NON_INTERACTIVE" -eq 1 && -n "$SERVICE_FLAG" && -n "$ACTION_FLAG" ]]; then
+    NON_INTERACTIVE=1
+fi
 
 # Function to check if a command exists
 check_command() {
   command -v "$1" >/dev/null 2>&1
 }
 
-# Check required dependencies
+# Check required dependencies (whiptail only required for interactive mode)
 check_dependencies() {
   local missing_deps=()
 
-  if ! check_command whiptail; then
+  if [[ "$NON_INTERACTIVE" -eq 0 ]] && ! check_command whiptail; then
     missing_deps+=("whiptail")
   fi
 
@@ -67,12 +112,36 @@ export DAEMON_STATE_DIR="${DAEMON_STATE_DIR:-$HOME/.local/share/koad-io/daemon}"
 mkdir -p "$DAEMON_STATE_DIR"
 
 state_file="$DAEMON_STATE_DIR/.env"
-[[ -f "$state_file" ]] && source "$state_file" || echo "Warning: No daemon state file found (.env)"
+[[ -f "$state_file" ]] && source "$state_file" || true
 
-echo "Script directory:   $SCRIPT_DIR"
-echo "Services directory: $SERVICES_DIR"
-echo "Tooling location:   $TOOLING_LOCATION"
-echo "State directory:    $DAEMON_STATE_DIR"
+# Non-interactive dispatch: --service <name> --action <verb>
+if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
+    SVC_DIR="$SERVICES_DIR/$SERVICE_FLAG"
+    if [[ ! -d "$SVC_DIR" ]]; then
+        echo "Unknown service: $SERVICE_FLAG" >&2
+        echo "Available: $(ls "$SERVICES_DIR" | tr '\n' ' ')" >&2
+        exit 1
+    fi
+    case "$ACTION_FLAG" in
+        install)
+            exec bash "$SVC_DIR/install.sh"
+            ;;
+        start)
+            exec bash "$SVC_DIR/start.sh"
+            ;;
+        stop)
+            exec bash "$SVC_DIR/stop.sh"
+            ;;
+        status)
+            exec bash "$SVC_DIR/status.sh"
+            ;;
+        *)
+            echo "Unknown action: $ACTION_FLAG" >&2
+            echo "Available: install, start, stop, status" >&2
+            exit 1
+            ;;
+    esac
+fi
 
 declare -A options=(
     ["1"]="Configure Services - Enable or disable daemon services."
