@@ -543,7 +543,7 @@
             <div class="entity-card {{#if isExpanded}}expanded{{/if}} {{#if isActiveNow}}active-now{{/if}} {{#if isActive5m}}active-5m{{/if}}" data-handle="{{handle}}" style="border-left-color: {{accentColor}}; --entity-hue: {{entityHue}};">
             <div class="entity-card-inner">
               <div class="entity-card-top">
-                <a href="https://kingofalldata.com/{{handle}}" target="mainwebsite" class="entity-avatar entity-profile-link" style="background: {{accentColor}};" title="Open {{handle}} profile">
+                <a href="{{entityProfileUrl handle}}" target="mainwebsite" class="entity-avatar entity-profile-link" style="background: {{accentColor}};" title="Open {{handle}} profile">
                   {{#if avatarImage}}
                     <img src="{{avatarImage}}" alt="{{handle}}">
                   {{else}}
@@ -665,7 +665,7 @@
           </div>
           <div class="bullpen">
             {{#each bullpenEntities}}
-              <a href="https://kingofalldata.com/{{handle}}" target="mainwebsite"
+              <a href="{{entityProfileUrl handle}}" target="mainwebsite"
                  class="bullpen-avatar {{#if isActive5m}}active-5m{{/if}}"
                  style="background: {{accentColor}}; --entity-hue: {{entityHue}};"
                  title="{{handle}}{{#if lastSeenText}} — {{lastSeenText}}{{/if}}">
@@ -901,4 +901,136 @@
 
     </div>
   </div>
+</template>
+
+<!-- EntityProfile: single-entity ego-network view for /<handle> pages -->
+<template name="EntityProfile">
+  <style>
+    /* Scoped additions for entity profile — inherits overview card/panel styles */
+    .ep-header {
+      padding: 24px 32px 16px;
+      border-bottom: 1px solid #2a2a2a;
+      display: flex; align-items: center; gap: 16px;
+    }
+    .ep-avatar {
+      width: 56px; height: 56px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; font-weight: 700; color: #fff;
+      overflow: hidden; flex-shrink: 0;
+    }
+    .ep-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .ep-title { font-size: 22px; font-weight: 600; color: #e0e0e0; }
+    .ep-tagline { font-size: 13px; color: #777; font-style: italic; margin-top: 2px; }
+    .ep-meta { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+    .ep-body { display: flex; gap: 0; height: calc(100vh - 100px); }
+    .ep-main { flex: 1; padding: 20px 28px; overflow-y: auto; }
+    .ep-sidebar { width: 360px; min-width: 280px; border-left: 1px solid #2a2a2a; padding: 20px 18px; overflow-y: auto; }
+  </style>
+
+  {{#if entityData}}
+  <div class="ep-header">
+    <div class="ep-avatar" style="background: {{entityData.accentColor}};">
+      {{#if entityData.avatarImage}}
+        <img src="{{entityData.avatarImage}}" alt="{{entityData.handle}}">
+      {{else}}
+        {{entityData.firstLetter}}
+      {{/if}}
+    </div>
+    <div>
+      <div class="ep-title">{{entityData.handle}}</div>
+      {{#if entityData.tagline}}<div class="ep-tagline">{{entityData.tagline}}</div>{{/if}}
+      <div class="ep-meta">
+        {{#if entityData.role}}<span class="entity-role">{{entityData.role}}</span>{{/if}}
+        {{#if entityData.host}}<span class="entity-host">{{entityData.host}}</span>{{/if}}
+        <span class="entity-stat"><span class="stat-val">{{entityData.bondCount}}</span> bonds</span>
+        <span class="entity-stat"><span class="stat-val">{{entityData.keyCount}}</span> keys</span>
+      </div>
+    </div>
+  </div>
+  <div class="ep-body">
+    <div class="ep-main">
+
+      <!-- Active flight -->
+      {{#if entityData.activeFlight}}
+      <div class="section-label" style="margin-bottom: 8px;">Active Flight</div>
+      <div class="flight-pinned" style="margin-bottom: 20px;">
+        <div class="emission-header">
+          <span class="emission-entity" style="color: {{entityData.accentColor}};">{{entityData.handle}}</span>
+          <span class="emission-type flight">flying</span>
+          {{#if entityData.flightModel}}<span class="flight-model">{{entityData.flightModel}}</span>{{/if}}
+          <span class="emission-time">{{entityData.flightElapsed}}</span>
+        </div>
+        <div class="emission-body">{{entityData.flightBrief}}</div>
+      </div>
+      {{/if}}
+
+      <!-- Recent flights -->
+      <div class="section-label">Flights <span class="count">({{entityFlightsCount}})</span></div>
+      {{#each entityFlights}}
+        <div class="emission-item">
+          <div class="emission-header">
+            <span class="emission-type flight">{{status}}</span>
+            {{#if model}}<span class="flight-model">{{model}}</span>{{/if}}
+            <span class="emission-time">{{relativeTime}}</span>
+          </div>
+          <div class="emission-body">{{briefSlug}} &mdash; {{elapsed}}</div>
+          {{#if hasStats}}
+            <div class="emission-stats">
+              {{#if stats.toolCalls}}<span class="emission-stat"><span class="sv">{{stats.toolCalls}}</span> tools</span>{{/if}}
+              {{#if stats.cost}}<span class="emission-stat">$<span class="sv">{{formatCost stats.cost}}</span></span>{{/if}}
+            </div>
+          {{/if}}
+        </div>
+      {{/each}}
+      {{#unless entityFlights}}
+        <div class="empty-state">No flights on record.</div>
+      {{/unless}}
+
+      <!-- Emissions -->
+      <div class="section-label" style="margin-top: 24px;">Emissions</div>
+      {{#each entityEmissions}}
+        <div class="emission-item">
+          <div class="emission-header">
+            <span class="emission-type {{type}}">{{type}}</span>
+            <span class="emission-time">{{relativeTime}}</span>
+          </div>
+          <div class="emission-body">{{body}}</div>
+        </div>
+      {{/each}}
+      {{#unless entityEmissions}}
+        <div class="empty-state">No emissions on record.</div>
+      {{/unless}}
+
+    </div>
+    <div class="ep-sidebar">
+
+      <!-- Bonds ego-network -->
+      <div class="section-label">Bonds</div>
+      {{#each entityBonds}}
+        <div class="bond-row" style="padding-left: 0;">
+          <span class="bond-name">{{base}}</span>
+          <span class="bond-kind">{{type}}</span>
+        </div>
+      {{/each}}
+      {{#unless entityBonds}}
+        <div class="empty-state">No bonds indexed.</div>
+      {{/unless}}
+
+      <!-- Keys -->
+      <div class="section-label" style="margin-top: 20px;">Keys</div>
+      {{#each entityKeys}}
+        <div class="key-row" style="padding-left: 0;">
+          <span class="key-name">{{filename}}</span>
+          <span class="key-kind">{{type}}</span>
+        </div>
+      {{/each}}
+      {{#unless entityKeys}}
+        <div class="empty-state">No keys indexed.</div>
+      {{/unless}}
+
+    </div>
+  </div>
+  {{else}}
+  <div style="padding: 40px; color: #555; font-style: italic;">Entity not found.</div>
+  {{/if}}
 </template>
