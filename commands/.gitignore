@@ -68,3 +68,5 @@
 !configure/**
 !daemon
 !daemon/**
+!status
+!status/**

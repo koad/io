@@ -4,6 +4,7 @@
 import { WebApp } from 'meteor/webapp';
 import bodyParser from 'body-parser';
 
+const os = Npm.require('os');
 const app = WebApp.connectHandlers;
 
 app.use(bodyParser.json());
@@ -150,4 +151,168 @@ app.use('/flight', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   res.writeHead(204);
   res.end();
+});
+
+// ---------------------------------------------------------------------------
+// Read endpoints for CLI operators (juno status flights, emissions, etc.)
+// All GET, JSON out, no auth — inside the ZeroTier/Netbird hard shell.
+// Meteor 3: use fetchAsync()/countAsync() and async handlers.
+// Collection refs go through globalThis (set in flights.js, emissions.js).
+// ---------------------------------------------------------------------------
+
+// Local ref to Passengers — declared with same name in indexers/passengers.js
+// so Meteor dedupes to the same in-memory store.
+const PassengersRef = new Mongo.Collection('Passengers', { connection: null });
+
+function jsonOk(res, payload) {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.writeHead(200);
+  res.end(JSON.stringify(payload));
+}
+
+function jsonErr(res, code, message) {
+  res.setHeader('Content-Type', 'application/json');
+  res.writeHead(code);
+  res.end(JSON.stringify({ status: 'error', message }));
+}
+
+// Parse ?foo=bar&baz=qux off req.url (connect middleware has no req.query)
+function parseQuery(url) {
+  const q = {};
+  const i = url.indexOf('?');
+  if (i === -1) return q;
+  const raw = url.slice(i + 1);
+  for (const pair of raw.split('&')) {
+    const [k, v] = pair.split('=');
+    if (k) q[decodeURIComponent(k)] = v ? decodeURIComponent(v) : '';
+  }
+  return q;
+}
+
+// Match exact path, stripping query string.
+// Connect middleware with `app.use(prefix, ...)` strips the prefix from
+// req.url, so we check req.originalUrl (unchanged) for exact routing.
+function pathIs(req, target) {
+  const url = req.originalUrl || req.url || '';
+  const i = url.indexOf('?');
+  const path = i === -1 ? url : url.slice(0, i);
+  return path === target || path === target + '/';
+}
+
+// GET /api/health — daemon self-check
+app.use('/api/health', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/health')) return next();
+  try {
+    const Flights = globalThis.FlightsCollection;
+    const Emissions = globalThis.EmissionsCollection;
+    const payload = {
+      status: 'ok',
+      hostname: os.hostname(),
+      uptime_s: Math.floor(process.uptime()),
+      pid: process.pid,
+      node: process.version,
+      counts: {
+        flights: Flights ? await Flights.find().countAsync() : null,
+        emissions: Emissions ? await Emissions.find().countAsync() : null,
+        passengers: await PassengersRef.find().countAsync(),
+      },
+      time: new Date().toISOString(),
+    };
+    jsonOk(res, payload);
+  } catch (err) {
+    console.error('[API/health] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/flights/active — convenience: flying + stale only
+// Register BEFORE /api/flights because connect middleware processes in order
+// and /api/flights's prefix also matches /api/flights/active.
+app.use('/api/flights/active', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/flights/active')) return next();
+  try {
+    const Flights = globalThis.FlightsCollection;
+    if (!Flights) return jsonErr(res, 503, 'Flights collection not initialized');
+
+    const flights = await Flights.find(
+      { status: { $in: ['flying', 'stale'] } },
+      { sort: { started: -1 }, limit: 200 }
+    ).fetchAsync();
+
+    jsonOk(res, { status: 'ok', count: flights.length, flights });
+  } catch (err) {
+    console.error('[API/flights/active] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/flights — recent flights (newest first)
+// GET /api/flights?status=flying — filter by status (flying, landed, stale)
+// GET /api/flights?entity=vulcan — filter by entity
+// GET /api/flights?limit=50 — default 50, max 500
+app.use('/api/flights', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/flights')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const Flights = globalThis.FlightsCollection;
+    if (!Flights) return jsonErr(res, 503, 'Flights collection not initialized');
+
+    const selector = {};
+    if (q.status) selector.status = q.status;
+    if (q.entity) selector.entity = q.entity;
+
+    const limit = Math.min(parseInt(q.limit || '50', 10) || 50, 500);
+    const flights = await Flights.find(selector, {
+      sort: { started: -1 },
+      limit,
+    }).fetchAsync();
+
+    jsonOk(res, { status: 'ok', count: flights.length, flights });
+  } catch (err) {
+    console.error('[API/flights] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/emissions — recent emissions (newest first)
+// GET /api/emissions?entity=juno — filter
+// GET /api/emissions?type=warning — filter
+// GET /api/emissions?limit=50 — default 50, max 500
+app.use('/api/emissions', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/emissions')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const Emissions = globalThis.EmissionsCollection;
+    if (!Emissions) return jsonErr(res, 503, 'Emissions collection not initialized');
+
+    const selector = {};
+    if (q.entity) selector.entity = q.entity;
+    if (q.type) selector.type = q.type;
+
+    const limit = Math.min(parseInt(q.limit || '50', 10) || 50, 500);
+    const emissions = await Emissions.find(selector, {
+      sort: { timestamp: -1 },
+      limit,
+    }).fetchAsync();
+
+    jsonOk(res, { status: 'ok', count: emissions.length, emissions });
+  } catch (err) {
+    console.error('[API/emissions] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/passengers — entity index (all entities the daemon knows about)
+app.use('/api/passengers', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/passengers')) return next();
+  try {
+    const passengers = await PassengersRef.find({}, {
+      sort: { name: 1 },
+    }).fetchAsync();
+    jsonOk(res, { status: 'ok', count: passengers.length, passengers });
+  } catch (err) {
+    console.error('[API/passengers] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
 });
