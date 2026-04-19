@@ -630,8 +630,11 @@ async function buildOverviewPayload() {
   };
 }
 
-// OPTIONS preflight for /overview
-app.use('/overview', (req, res, next) => {
+// OPTIONS preflight for /api/overview
+// NOTE: moved from /overview to /api/overview — the Blaze template route at
+// /overview was being shadowed by this JSON handler, causing the dashboard
+// to return raw JSON instead of HTML. REST endpoints live under /api/.
+app.use('/api/overview', (req, res, next) => {
   if (req.method !== 'OPTIONS') return next();
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -640,9 +643,9 @@ app.use('/overview', (req, res, next) => {
   res.end();
 });
 
-// GET /overview — public-safe kingdom snapshot
-app.use('/overview', async (req, res, next) => {
-  if (req.method !== 'GET' || !pathIs(req, '/overview')) return next();
+// GET /api/overview — public-safe kingdom snapshot
+app.use('/api/overview', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/overview')) return next();
 
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
