@@ -1,13 +1,28 @@
-// Claude Code provider — VESTA-SPEC-133 §3 / §6
+// Claude Code provider — self-auth pattern (harness-access architecture 2026-04-19)
+//
+// This provider is NOT the kingdom-wide insider default. It is a self-auth
+// provider for koad's own use (and future sponsor-bonded keys — see below).
+// It is only reachable via harnesses with allowed_users restriction.
 //
 // Shells to `claude --print` with the entity system prompt and user message.
-// Tools constrained to Read, Glob, Grep per SPEC-133 §horizon-doc §Claude Code Provider.
+// Tools constrained to Read, Glob, Grep — entity gets filesystem read access,
+// zero write risk. Per §Special Harnesses in the harness-access horizon doc.
 // Streams output chunks as they arrive from the subprocess stdout.
 //
-// options (from Meteor.settings providers.claude-code):
-//   headroom_check_cmd  — command to check headroom (default: "juno usage --json")
+// options (from Meteor.settings providers.claude-code or the special harness config):
 //   tools               — allowed tools array (default: ["Read","Glob","Grep"])
 //   timeout_ms          — subprocess timeout in ms (default: 90000)
+//   headroom_check_cmd  — command to check headroom (default: "juno usage --json")
+//                         Only evaluated when used via the gate stack (koad-only harness).
+//
+// Self-auth: invokes `claude` using the logged-in user's own credentials.
+// Currently: koad's Max plan, because only koad is in the allowed_users list.
+// Future extension point: if Anthropic ToS or sponsor-bonded credentials open
+// this path to sponsors, the credentials-injection hook goes here — the spawn
+// call would receive credential env vars from the user's bonded key material,
+// distinct from the host environment. No build work needed now; this comment
+// is the reservation. See §The Claude Code Provider — Self-Auth Pattern in
+// ~/.juno/horizons/30k/harness-access-architecture.md.
 //
 // Usage shape returned to harness pipeline:
 //   { prompt_tokens: N, completion_tokens: N, total_tokens: N }
@@ -16,11 +31,14 @@
 
 const { spawn } = require('child_process');
 
-// Rate: Claude Code via Max 20x subscription — effective per-token cost is ~1/4 of API
-// These rates are used for quota debit estimation; actual billing is subscription-based.
-// The harness uses provider.rates from config if set; fallback values here.
-const DEFAULT_INPUT_RATE  = 0.75;   // $/M tokens  (~1/4 of Sonnet API rate)
-const DEFAULT_OUTPUT_RATE = 3.75;   // $/M tokens  (~1/4 of Sonnet API rate)
+// Rate estimates for quota debit calculation (koad's own gas-tank, koad-only harness).
+// These are internal estimation values for Copia's ledger; they are NOT the
+// subscription-arbitrage rates from the earlier Max-20x design.
+// Self-auth means koad's actual subscription absorbs the cost; these numbers
+// are used only to track relative usage, not to bill anyone.
+// Override via providers.claude-code.rates in Meteor.settings.
+const DEFAULT_INPUT_RATE  = 3.0;    // $/M tokens — Sonnet API rate (conservative estimate)
+const DEFAULT_OUTPUT_RATE = 15.0;   // $/M tokens — Sonnet API rate (conservative estimate)
 
 // Rough token estimate: ~4 chars per token
 function estimateTokens(text) {

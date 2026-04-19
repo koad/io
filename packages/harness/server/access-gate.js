@@ -1,30 +1,41 @@
-// Access Gate Stack — VESTA-SPEC-133 §6
+// Access Gate Stack — VESTA-SPEC-133 §6 (reframed 2026-04-19)
 //
-// Three orthogonal gates for insider claude-code routing:
-//   Gate 1 — Tier:     user.insidersState.current_tier === "insider"
-//   Gate 2 — XP:       user.insidersState.contributions.xp >= xp_required
-//   Gate 3 — Headroom: headroomAvailable() === true
+// Architecture reframe: claude-code is NOT the sponsor-default provider.
+// It is a self-auth provider for koad only (and future sponsor-bonded keys).
+// Tier-based routing uses each tier's `provider` field directly — no special
+// gate stack is needed for normal sponsor routing.
+//
+// The XP + headroom gates that previously guarded sponsor claude-code access now
+// only apply to harnesses with `provider: "claude-code"` in their tier config —
+// which in practice is the koad-only special harness (allowed_users: ["koad"]).
+//
+// allowed_users enforcement is handled upstream in harness.js before this function
+// is called; by the time resolveProvider runs, the user is already authorized to
+// use this harness.
+//
+// Gate stack (only triggered when tier config declares provider: "claude-code"):
+//   Gate 1 — Tier:     insidersState.current_tier === "insider"
+//   Gate 2 — XP:       insidersState.contributions.xp >= xp_required
+//   Gate 3 — Headroom: headroomAvailable() === true (protects koad's Max plan)
 //
 // Evaluation order: Tier → XP → Headroom (short-circuit on first failure).
-// Any failure → silent fallback to fallback_provider (SPEC-133 §6.2).
-// Gate failures are logged at INFO (user_id, which gate — no PII beyond user_id).
-// No error surfaced to sponsor (SPEC-133 §6.3).
+// Any failure → silent fallback to fallback_provider.
+// Gate failures are logged at INFO (user_id + gate name — no other PII).
+// No error surfaced to user.
 //
-// resolveProvider(config, user) → Promise<string>
-// Returns the provider name to use for this request.
+// resolveProvider(config, user) → Promise<{ provider, fallbackReason }>
 
 KoadHarnessAccessGate = {
   // Resolve which provider to use for a request.
   //
-  // config — the harness access config block:
-  //   { tiers: { insider: { provider, fallback_provider, xp_required, headroom_check } }, ... }
-  //   plus providers block for headroom_check_cmd
+  // accessConfig — harness access config block:
+  //   { anonymous: {...}, tiers: { explorer: {...}, ..., insider: {...} } }
   //
   // userId — Meteor users._id or null (anonymous)
   // insidersState — user.insidersState (pre-fetched by caller, or null)
   // providerConfig — providers block from harness config (for headroom_check_cmd)
   //
-  // Returns Promise<{ provider: string, fallbackReason: string|null }>
+  // Returns Promise<{ provider: string|null, fallbackReason: string|null }>
   async resolveProvider(accessConfig, userId, insidersState, providerConfig) {
     // No access config → use default provider path (legacy harness behavior)
     if (!accessConfig || !accessConfig.tiers) {
@@ -43,27 +54,36 @@ KoadHarnessAccessGate = {
     }
 
     if (!tierConfig) {
-      // No config for this tier — use anonymous config or deny
+      // No config for this tier — fall back to anonymous config if available
       tierConfig = accessConfig.anonymous;
     }
 
-    // Validate tier config (SPEC-133 §3.2 rule: must have exactly one quota model)
-    if (tierConfig && this._isConfigMalformed(tierConfig)) {
+    if (!tierConfig) {
+      // No tier config and no anonymous fallback — deny
+      console.info(`[harness:access-gate] no config for tier=${tierSlug || 'null'} user=${userId} → deny`);
+      return { provider: null, fallbackReason: 'no_tier_config' };
+    }
+
+    // Validate tier config (§3.2 rule: must have exactly one quota model)
+    if (this._isConfigMalformed(tierConfig)) {
       console.warn(`[harness:access-gate] malformed tier config for tier=${tierSlug}. Refusing to route.`);
       return { provider: tierConfig.fallback_provider || 'grok', fallbackReason: 'malformed_config' };
     }
 
-    const desiredProvider  = tierConfig && tierConfig.provider;
-    const fallbackProvider = tierConfig && tierConfig.fallback_provider;
+    const desiredProvider  = tierConfig.provider;
+    const fallbackProvider = tierConfig.fallback_provider;
 
-    // If desired provider is not claude-code, no gate stack needed — use it directly
+    // Standard path: tier routes directly to its configured provider.
+    // No gate stack. Budget check happens post-response in the debit engine.
     if (desiredProvider !== 'claude-code') {
       return { provider: desiredProvider, fallbackReason: null };
     }
 
-    // Gate stack for claude-code (SPEC-133 §6.1)
+    // Special path: tier config explicitly declares claude-code (koad-only harness).
+    // Apply three-gate stack: Tier → XP → Headroom.
+    // This protects koad's Max plan from being exhausted by any scenario.
 
-    // Gate 1 — Tier
+    // Gate 1 — Tier (must be insider)
     if (!insidersState || insidersState.current_tier !== 'insider') {
       console.info(`[harness:access-gate] Gate 1 FAIL (tier): user=${userId} tier=${tierSlug || 'null'} → fallback`);
       return { provider: fallbackProvider || 'grok', fallbackReason: 'tier' };

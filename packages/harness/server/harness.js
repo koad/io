@@ -8,20 +8,29 @@ const fs = require('fs');
  *   {
  *     "harnesses": [
  *       {
- *         "path": "/harness/jesus",
- *         "entities": ["jesus"],
+ *         "path": "/harness",
+ *         "entities": ["alice", "juno", "vulcan", "..."],
  *         "entityBaseDir": "/home/koad",
  *         "cacheTTL": 300000,
- *         "provider": {
- *           "default": "xai",
- *           "xai": { "model": "grok-3", "maxTokens": 1024 }
- *         },
+ *         "access": { ...tier-based rules for all users... },
+ *         "providers": { "grok": { "rates": { "input": 0.30, "output": 1.50 } } },
  *         "session": { "ttl": 1800000, "maxMessages": 50 },
  *         "rateLimits": { "enabled": false },
  *         "inputFilter": { "maxLength": 2000 }
+ *       },
+ *       {
+ *         "path": "/harness/koad-self",
+ *         "entities": "*",
+ *         "allowed_users": ["koad"],
+ *         "provider": "claude-code",
+ *         "tools": ["Read", "Glob", "Grep"]
  *       }
  *     ]
  *   }
+ *
+ * allowed_users: if present on a harness config, only the listed usernames may
+ * use this harness. Any request from a user not in the list receives a silent
+ * 404 — the harness's existence is not disclosed.
  *
  * Each harness mounts at its own path prefix and serves its own set of entities.
  * Routes per harness:
@@ -186,6 +195,26 @@ class HarnessInstance {
     if (!KoadHarnessDdpGate.validateToken(ddpToken)) {
       this.log(`chat blocked: no valid DDP token ip=${req.headers['x-forwarded-for'] || req.socket.remoteAddress}`);
       return this.json(res, 403, { error: 'there is nothing here for you' });
+    }
+
+    // allowed_users gate: special harnesses (e.g. koad-only self-auth) restrict
+    // access to a named list of usernames. Any other user gets a silent 404 —
+    // we do not disclose the harness's existence.
+    const allowedUsers = this.config.allowed_users;
+    if (allowedUsers && Array.isArray(allowedUsers) && allowedUsers.length > 0) {
+      let username = null;
+      if (sponsorUserId) {
+        try {
+          const userDoc = await Meteor.users.findOneAsync(sponsorUserId, { fields: { username: 1 } });
+          username = userDoc && userDoc.username;
+        } catch (e) {
+          // Non-blocking — if lookup fails, treat as unauthorized
+        }
+      }
+      if (!username || !allowedUsers.includes(username)) {
+        // Silent 404: do not reveal the harness exists
+        return this.json(res, 404, { error: 'Not found' });
+      }
     }
 
     if (!entityHandle || !this.config.entities.includes(entityHandle)) {
@@ -483,6 +512,40 @@ class HarnessInstance {
     });
   }
 
+  // --- allowed_users check for GET routes ---
+  // Returns true if the request is allowed to proceed for this harness.
+  // Reads the Authorization header (Bearer <ddp-token>) or skips to a
+  // username-unresolvable deny path if the harness has allowed_users.
+  //
+  // Note: For GET routes we check the query-string token (if present) or
+  // skip the gate for health/entities — but for special harnesses the entire
+  // harness is gated, so we deny all GET requests too.
+  async _checkAllowedUsers(req) {
+    const allowedUsers = this.config.allowed_users;
+    if (!allowedUsers || !Array.isArray(allowedUsers) || allowedUsers.length === 0) {
+      return true; // no restriction
+    }
+    // Extract DDP token from Authorization header (Bearer) or query string
+    let ddpToken = null;
+    const auth = req.headers && req.headers['authorization'];
+    if (auth && auth.startsWith('Bearer ')) {
+      ddpToken = auth.slice(7).trim();
+    }
+    if (!ddpToken) {
+      // No token — deny silently
+      return false;
+    }
+    const sponsorUserId = KoadHarnessDdpGate.getTokenUserId(ddpToken);
+    if (!sponsorUserId) return false;
+    try {
+      const userDoc = await Meteor.users.findOneAsync(sponsorUserId, { fields: { username: 1 } });
+      const username = userDoc && userDoc.username;
+      return !!(username && allowedUsers.includes(username));
+    } catch (e) {
+      return false;
+    }
+  }
+
   // --- Request dispatch ---
 
   async handle(req, res) {
@@ -497,15 +560,19 @@ class HarnessInstance {
 
     try {
       if (req.method === 'GET' && path === '/health') {
+        // Health endpoint is not gated by allowed_users (used by monitoring)
         return this.handleHealth(req, res);
       }
       if (req.method === 'GET' && path === '/entities') {
+        if (!(await this._checkAllowedUsers(req))) return this.json(res, 404, { error: 'Not found' });
         return await this.handleEntities(req, res, query);
       }
       if (req.method === 'GET' && segments[0] === 'entities' && segments.length === 2) {
+        if (!(await this._checkAllowedUsers(req))) return this.json(res, 404, { error: 'Not found' });
         return await this.handleEntitySingle(req, res, segments[1], query);
       }
       if (req.method === 'GET' && segments[0] === 'entities' && segments[2] === 'avatar') {
+        if (!(await this._checkAllowedUsers(req))) return this.json(res, 404, { error: 'Not found' });
         return await this.handleAvatar(req, res, segments[1]);
       }
       if (req.method === 'POST' && path === '/chat') {
