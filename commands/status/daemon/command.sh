@@ -63,3 +63,7 @@ printf '  %scollections%s\n' "$_dim" "$_R"
 echo "$_raw" | jq -r '.counts | to_entries[] | "    \(.key)\t\(.value)"' | while IFS=$'\t' read -r _k _v; do
   printf '    %s%-12s%s %s%s%s\n' "$_dim" "$_k" "$_R" "$_b" "$_v" "$_R"
 done
+
+# Self-documenting footer — lists subs/flags on TTY, silent when piped.
+# shellcheck source=/dev/null
+source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint

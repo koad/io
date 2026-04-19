@@ -106,3 +106,7 @@ echo "$_raw" | jq -r '
   fi
   echo
 done
+
+# Self-documenting footer — lists subs/flags on TTY, silent when piped.
+# shellcheck source=/dev/null
+source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint

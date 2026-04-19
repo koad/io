@@ -91,3 +91,7 @@ echo "$_raw" | jq -r '
     "$_c_type" "$_type" "$_R" \
     "$(echo "$_body_text" | head -c 100)"
 done
+
+# Self-documenting footer — lists subs/flags on TTY, silent when piped.
+# shellcheck source=/dev/null
+source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint
