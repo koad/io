@@ -70,3 +70,5 @@
 !daemon/**
 !status
 !status/**
+!feedback
+!feedback/**

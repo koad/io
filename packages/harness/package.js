@@ -26,6 +26,7 @@ Package.onUse(function (api) {
   // Pipeline
   api.addFiles('server/pipeline/input-filter.js', 'server');
   api.addFiles('server/pipeline/output-filter.js', 'server');
+  api.addFiles('server/pipeline/feedback-extractor.js', 'server');
   api.addFiles('server/pipeline/rate-limiter.js', 'server');
 
   // Providers
@@ -43,6 +44,9 @@ Package.onUse(function (api) {
   api.addFiles('server/harness.js', 'server');
 
   api.export('KoadHarness', 'server');
+  // Feedback extractor — hosting app calls KoadHarnessFeedbackExtractor.register(callback)
+  // to wire its Feedback collection into the harness capture pipeline (VESTA-SPEC-132).
+  api.export('KoadHarnessFeedbackExtractor', 'server');
   // OG injector is a public API in phase 2: apps call
   // `KoadHarnessOgInjector.registerPattern({ path, resolve, toOg })` at boot
   // to wire `/parties/:id`, `/posts/:slug`, etc. into the OG pipeline.
@@ -58,4 +62,5 @@ Package.onTest(function (api) {
   api.use('koad:io-harness');
   api.addFiles('test/entity-loader-test.js', 'server');
   api.addFiles('test/og-injector-test.js', 'server');
+  api.addFiles('test/feedback-extractor-test.js', 'server');
 });
