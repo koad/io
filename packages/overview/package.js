@@ -6,7 +6,7 @@ Package.describe({
 });
 
 Package.onUse(function (api) {
-  api.versionsFrom('2.8');
+  api.versionsFrom(['3.0', '3.3']);
 
   api.use([
     'meteor',
@@ -14,6 +14,7 @@ Package.onUse(function (api) {
     'reactive-var',
     'tracker',
     'mongo',
+    'ecmascript',
   ], 'client');
 
   api.addFiles([
