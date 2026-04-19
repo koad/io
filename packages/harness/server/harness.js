@@ -8,20 +8,29 @@ const fs = require('fs');
  *   {
  *     "harnesses": [
  *       {
- *         "path": "/harness/jesus",
- *         "entities": ["jesus"],
+ *         "path": "/harness",
+ *         "entities": ["alice", "juno", "vulcan", "..."],
  *         "entityBaseDir": "/home/koad",
  *         "cacheTTL": 300000,
- *         "provider": {
- *           "default": "xai",
- *           "xai": { "model": "grok-3", "maxTokens": 1024 }
- *         },
+ *         "access": { ...tier-based rules for all users... },
+ *         "providers": { "grok": { "rates": { "input": 0.30, "output": 1.50 } } },
  *         "session": { "ttl": 1800000, "maxMessages": 50 },
  *         "rateLimits": { "enabled": false },
  *         "inputFilter": { "maxLength": 2000 }
+ *       },
+ *       {
+ *         "path": "/harness/koad-self",
+ *         "entities": "*",
+ *         "allowed_users": ["koad"],
+ *         "provider": "claude-code",
+ *         "tools": ["Read", "Glob", "Grep"]
  *       }
  *     ]
  *   }
+ *
+ * allowed_users: if present on a harness config, only the listed usernames may
+ * use this harness. Any request from a user not in the list receives a silent
+ * 404 — the harness's existence is not disclosed.
  *
  * Each harness mounts at its own path prefix and serves its own set of entities.
  * Routes per harness:
@@ -31,6 +40,54 @@ const fs = require('fs');
  *   GET  {path}/entities/:handle/avatar
  *   POST {path}/chat
  */
+
+// ── allowed_users namespace-prefix parser (SPEC-128 v1.6 §6) ─────────────────
+// Entries must use "username:<name>" or "user:<id>" form.
+// Unprefixed entries are rejected at config-parse time with an explicit error.
+// Returns { valid: Boolean, error?: String } for a single entry,
+// or use _parseAllowedUsers() to validate an entire list.
+//
+// Comparison semantics:
+//   "username:<name>" — compare against user.services.github.login; case-insensitive
+//   "user:<id>"       — compare against users._id; exact string match
+function _parseAllowedUserEntry(entry) {
+  if (typeof entry !== 'string') {
+    return { valid: false, error: `allowed_users entry must be a string, got ${typeof entry}: ${JSON.stringify(entry)}` };
+  }
+  if (entry.startsWith('username:')) {
+    return { valid: true, kind: 'username', value: entry.slice('username:'.length) };
+  }
+  if (entry.startsWith('user:')) {
+    return { valid: true, kind: 'user_id', value: entry.slice('user:'.length) };
+  }
+  return { valid: false, error: `allowed_users entry "${entry}" lacks namespace prefix — must be "username:<name>" or "user:<id>"` };
+}
+
+function _validateAllowedUsers(list) {
+  for (const entry of list) {
+    const parsed = _parseAllowedUserEntry(entry);
+    if (!parsed.valid) {
+      throw new Error(`[harness] config error: ${parsed.error}`);
+    }
+  }
+}
+
+// Check whether a resolved user (from a DDP-token lookup) matches any entry.
+// userDoc must have { _id, services: { github: { login } } }.
+function _userMatchesAllowedList(userDoc, allowedUsers) {
+  if (!userDoc) return false;
+  for (const entry of allowedUsers) {
+    const parsed = _parseAllowedUserEntry(entry);
+    if (!parsed.valid) continue; // already validated at init; skip silently here
+    if (parsed.kind === 'username') {
+      const login = userDoc.services && userDoc.services.github && userDoc.services.github.login;
+      if (login && login.toLowerCase() === parsed.value.toLowerCase()) return true;
+    } else if (parsed.kind === 'user_id') {
+      if (userDoc._id === parsed.value) return true;
+    }
+  }
+  return false;
+}
 
 class HarnessInstance {
   constructor(config) {
@@ -43,6 +100,10 @@ class HarnessInstance {
     this.providerDown = false;
     this.providerDownSince = null;
     this.providerDownRetryAfter = 60000; // retry provider after 1 min
+    // Validate allowed_users entries at construction time (SPEC-128 v1.6 §6)
+    if (config.allowed_users && Array.isArray(config.allowed_users) && config.allowed_users.length > 0) {
+      _validateAllowedUsers(config.allowed_users); // throws on invalid — fail fast at boot
+    }
   }
 
   log(...args) {
@@ -117,12 +178,15 @@ class HarnessInstance {
   // --- Route handlers ---
 
   handleHealth(req, res) {
+    // Support both legacy provider.default and new providers config shapes
+    const providerDefault = (this.config.provider && this.config.provider.default)
+                            || (this.config.providers ? Object.keys(this.config.providers)[0] : 'unknown');
     this.json(res, 200, {
       status: 'ok',
       uptime: Math.floor((Date.now() - this.startedAt) / 1000),
       sessions: this.sessions.count,
       entities: this.config.entities,
-      provider: this.config.provider.default,
+      provider: providerDefault,
     });
   }
 
@@ -185,6 +249,28 @@ class HarnessInstance {
       return this.json(res, 403, { error: 'there is nothing here for you' });
     }
 
+    // allowed_users gate: special harnesses (e.g. koad-only self-auth) restrict
+    // access to a namespace-prefixed list of users. Any other user gets a silent 404 —
+    // we do not disclose the harness's existence.
+    // Entry forms: "username:<github-login>" or "user:<meteor-_id>" (SPEC-128 v1.6 §6)
+    const allowedUsers = this.config.allowed_users;
+    if (allowedUsers && Array.isArray(allowedUsers) && allowedUsers.length > 0) {
+      let userDoc = null;
+      if (sponsorUserId) {
+        try {
+          userDoc = await Meteor.users.findOneAsync(sponsorUserId, {
+            fields: { _id: 1, services: 1 },
+          });
+        } catch (e) {
+          // Non-blocking — if lookup fails, treat as unauthorized
+        }
+      }
+      if (!_userMatchesAllowedList(userDoc, allowedUsers)) {
+        // Silent 404: do not reveal the harness exists
+        return this.json(res, 404, { error: 'Not found' });
+      }
+    }
+
     if (!entityHandle || !this.config.entities.includes(entityHandle)) {
       return this.json(res, 400, { error: 'Unknown entity' });
     }
@@ -225,7 +311,7 @@ class HarnessInstance {
 
     this.rateLimiter.record(session.id, ip);
 
-    // Budget checks (token + cost)
+    // Budget checks (token + cost) — legacy session-level budgets
     const sessionCfg = this.config.session || {};
     const sessionUsage = this.sessions.getUsage(session.id);
     if (sessionUsage) {
@@ -278,10 +364,45 @@ class HarnessInstance {
     KoadHarnessSSE.writeHeaders(res);
     KoadHarnessSSE.writeEvent(res, 'session', { sessionId: session.id });
 
-    // Provider
-    const providerName = this.config.provider.default;
+    // ── VESTA-SPEC-133 Access Gate Stack ──────────────────────────────────────
+    // Resolve which provider to use via tier + XP + headroom gates.
+    // Falls back silently; sponsor sees no gate errors (SPEC-133 §6.3).
+    // If no access config is present, falls through to legacy provider.default.
+
+    let providerName = this.config.provider && this.config.provider.default;
+    let _accessFallbackReason = null;
+
+    if (typeof KoadHarnessAccessGate !== 'undefined' && this.config.access) {
+      let insidersState = null;
+      if (sponsorUserId) {
+        try {
+          const userDoc = await Meteor.users.findOneAsync(sponsorUserId, { fields: { insidersState: 1 } });
+          insidersState = userDoc && userDoc.insidersState;
+        } catch (e) {
+          // Non-blocking — if we can't read state, gate will fall back
+        }
+      }
+
+      const gateResult = await KoadHarnessAccessGate.resolveProvider(
+        this.config.access,
+        sponsorUserId,
+        insidersState,
+        this.config.providers
+      );
+
+      if (gateResult.provider) {
+        providerName = gateResult.provider;
+        _accessFallbackReason = gateResult.fallbackReason;
+      }
+    }
+    // ── End Gate Stack ─────────────────────────────────────────────────────────
+
     const provider = KoadHarnessProviders.get(providerName);
-    const providerOpts = this.config.provider[providerName] || {};
+    // Provider options: from providers.<name> block (SPEC-133 config shape)
+    // or legacy provider.<name> block
+    const providerOpts = (this.config.providers && this.config.providers[providerName])
+                         || (this.config.provider && this.config.provider[providerName])
+                         || {};
 
     let fullText = '';
 
@@ -324,11 +445,83 @@ class HarnessInstance {
           KoadHarnessSSE.writeEvent(res, 'error', { message: outputCheck.reason, fallback: fallback('default') });
         } else {
           // Record and accumulate usage with provider rates
+          // SPEC-133: check providers.<name>.rates (new config shape) then legacy provider.<name>.rates
           if (providerUsage) {
-            const rates = (this.config.provider[providerName] && this.config.provider[providerName].rates) || {};
+            const rates = (this.config.providers && this.config.providers[providerName] && this.config.providers[providerName].rates)
+                          || (this.config.provider && this.config.provider[providerName] && this.config.provider[providerName].rates)
+                          || {};
             providerUsage._rates = { input: rates.input || 3.0, output: rates.output || 15.0 };
             this.sessions.recordUsage(session.id, providerUsage);
           }
+
+          // ── SPEC-133 Quota Debit (pre-debit markup) ──────────────────────────
+          // Debit actual provider cost × markup against sponsor's quota window or gas tank.
+          // Fire-and-forget: quota failure after response delivery is logged, not shown.
+          if (providerUsage && sponsorUserId && this.config.access && typeof KoadHarnessAccessGate !== 'undefined') {
+            Meteor.defer(async () => {
+              try {
+                const tierSlug = (() => {
+                  const ud = Meteor.users.findOne(sponsorUserId, { fields: { insidersState: 1 } });
+                  return ud && ud.insidersState && ud.insidersState.current_tier;
+                })();
+                const tierCfg  = this.config.access && this.config.access.tiers && this.config.access.tiers[tierSlug];
+                if (!tierCfg) return;
+
+                const markup    = KoadHarnessAccessGate.getMarkup(tierCfg);
+                const rates     = providerUsage._rates || {};
+                const provCost  = ((providerUsage.prompt_tokens || 0) * (rates.input || 3.0)
+                                   + (providerUsage.completion_tokens || 0) * (rates.output || 15.0)) / 1_000_000;
+                const debitCost = provCost * markup;
+
+                if (tierCfg.monthly_gas_tank_usd != null && globalThis.GasTankStateCollection) {
+                  // Gas tank debit
+                  await globalThis.GasTankStateCollection.updateAsync(sponsorUserId, {
+                    $inc: { monthly_spent_usd: debitCost, window_spent_usd: debitCost },
+                  });
+
+                  // Fire observability events (SPEC-133 §10)
+                  if (globalThis.InsidersLedger) {
+                    const gasDoc = await globalThis.GasTankStateCollection.findOneAsync(sponsorUserId);
+                    if (gasDoc) {
+                      const remaining = (gasDoc.monthly_gas_tank_usd || 0) - (gasDoc.monthly_spent_usd || 0);
+                      if (remaining <= 0) {
+                        globalThis.InsidersLedger.recordEvent(sponsorUserId, {
+                          event_type: 'quota.exhausted', occurred_at: new Date(), source: 'internal',
+                          payload: { quota_model: 'monthly_gas_tank', tier: tierSlug, surface: 'chat' },
+                        }).catch(() => {});
+                      }
+                      if (providerName === 'claude-code' && (gasDoc.monthly_spent_usd || 0) > (gasDoc.monthly_gas_tank_usd || 0)) {
+                        globalThis.InsidersLedger.recordEvent(sponsorUserId, {
+                          event_type: 'overage.triggered', occurred_at: new Date(), source: 'internal',
+                          payload: { tier: tierSlug, surface: 'chat', overage_usd: provCost },
+                        }).catch(() => {});
+                      }
+                    }
+                  }
+
+                } else if (tierCfg.budget_usd != null && globalThis.QuotaWindowsCollection) {
+                  // Windowed budget debit
+                  const docId = `${tierSlug}:${sponsorUserId}`;
+                  await globalThis.QuotaWindowsCollection.updateAsync(docId, {
+                    $inc: { spent_usd: debitCost, request_count: 1 },
+                  });
+
+                  if (globalThis.InsidersLedger) {
+                    const wDoc = await globalThis.QuotaWindowsCollection.findOneAsync(docId);
+                    if (wDoc && (wDoc.spent_usd || 0) >= (tierCfg.budget_usd || 0)) {
+                      globalThis.InsidersLedger.recordEvent(sponsorUserId, {
+                        event_type: 'quota.exhausted', occurred_at: new Date(), source: 'internal',
+                        payload: { quota_model: 'windowed_budget', tier: tierSlug, surface: 'chat' },
+                      }).catch(() => {});
+                    }
+                  }
+                }
+              } catch (err) {
+                console.warn(`[harness:quota] debit error for user=${sponsorUserId}:`, err.message);
+              }
+            });
+          }
+          // ── End Quota Debit ───────────────────────────────────────────────────
           const sessionUsage = this.sessions.getUsage(session.id);
           // Use cleanedText (markers stripped) as the canonical response
           const donePayload = { fullText: cleanedText };
@@ -373,6 +566,38 @@ class HarnessInstance {
     });
   }
 
+  // --- allowed_users check for GET routes ---
+  // Returns true if the request is allowed to proceed for this harness.
+  // Uses namespace-prefix parser per SPEC-128 v1.6 §6:
+  //   "username:<github-login>" — case-insensitive match against services.github.login
+  //   "user:<meteor-_id>"      — exact match against users._id
+  async _checkAllowedUsers(req) {
+    const allowedUsers = this.config.allowed_users;
+    if (!allowedUsers || !Array.isArray(allowedUsers) || allowedUsers.length === 0) {
+      return true; // no restriction
+    }
+    // Extract DDP token from Authorization header (Bearer)
+    let ddpToken = null;
+    const auth = req.headers && req.headers['authorization'];
+    if (auth && auth.startsWith('Bearer ')) {
+      ddpToken = auth.slice(7).trim();
+    }
+    if (!ddpToken) {
+      // No token — deny silently
+      return false;
+    }
+    const sponsorUserId = KoadHarnessDdpGate.getTokenUserId(ddpToken);
+    if (!sponsorUserId) return false;
+    try {
+      const userDoc = await Meteor.users.findOneAsync(sponsorUserId, {
+        fields: { _id: 1, services: 1 },
+      });
+      return _userMatchesAllowedList(userDoc, allowedUsers);
+    } catch (e) {
+      return false;
+    }
+  }
+
   // --- Request dispatch ---
 
   async handle(req, res) {
@@ -387,15 +612,19 @@ class HarnessInstance {
 
     try {
       if (req.method === 'GET' && path === '/health') {
+        // Health endpoint is not gated by allowed_users (used by monitoring)
         return this.handleHealth(req, res);
       }
       if (req.method === 'GET' && path === '/entities') {
+        if (!(await this._checkAllowedUsers(req))) return this.json(res, 404, { error: 'Not found' });
         return await this.handleEntities(req, res, query);
       }
       if (req.method === 'GET' && segments[0] === 'entities' && segments.length === 2) {
+        if (!(await this._checkAllowedUsers(req))) return this.json(res, 404, { error: 'Not found' });
         return await this.handleEntitySingle(req, res, segments[1], query);
       }
       if (req.method === 'GET' && segments[0] === 'entities' && segments[2] === 'avatar') {
+        if (!(await this._checkAllowedUsers(req))) return this.json(res, 404, { error: 'Not found' });
         return await this.handleAvatar(req, res, segments[1]);
       }
       if (req.method === 'POST' && path === '/chat') {
@@ -424,7 +653,9 @@ KoadHarness = {
     for (const config of settings) {
       const instance = new HarnessInstance(config);
       this.instances.push(instance);
-      console.log(`[harness] Registered: ${instance.prefix} → entities: [${config.entities.join(', ')}] provider: ${config.provider.default}`);
+      const providerLabel = (config.provider && config.provider.default)
+                             || (config.providers ? Object.keys(config.providers)[0] : 'configured');
+      console.log(`[harness] Registered: ${instance.prefix} → entities: [${config.entities.join(', ')}] provider: ${providerLabel}`);
       // juno#90: install per-host OG/oembed meta-tag injector if configured.
       if (typeof KoadHarnessOgInjector !== 'undefined') {
         KoadHarnessOgInjector.install(instance);

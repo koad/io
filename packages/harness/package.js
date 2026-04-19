@@ -35,7 +35,13 @@ Package.onUse(function (api) {
   api.addFiles('server/providers/anthropic.js', 'server');
   api.addFiles('server/providers/groq.js', 'server');
   api.addFiles('server/providers/xai.js', 'server');
+  // VESTA-SPEC-133: claude-code provider (shells to `claude --print`)
+  api.addFiles('server/providers/claude-code.js', 'server');
   api.addFiles('server/providers/index.js', 'server');
+
+  // Access control (VESTA-SPEC-133)
+  api.addFiles('server/budget.js', 'server');        // Headroom gate
+  api.addFiles('server/access-gate.js', 'server');   // Three-gate stack
 
   // OG / oembed injector (juno#90)
   api.addFiles('server/og-injector.js', 'server');
@@ -53,6 +59,9 @@ Package.onUse(function (api) {
   api.export('KoadHarnessOgInjector', 'server');
   // Tests reach into the entity loader's pure functions via this global.
   api.export('KoadHarnessEntityLoader', 'server', { testOnly: true });
+  // VESTA-SPEC-133: access gate + budget exported for hosting-app quota debit wiring
+  api.export('KoadHarnessAccessGate', 'server');
+  api.export('KoadHarnessBudget', 'server');
 });
 
 Package.onTest(function (api) {
