@@ -62,6 +62,34 @@ app.use('/emit', (req, res, next) => {
   res.end();
 });
 
+// POST /heartbeat — entity activity pulse
+// Body: { entity: "juno" }
+// Called by prompt-awareness hooks during live sessions.
+app.use('/heartbeat', (req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.writeHead(204);
+    return res.end();
+  }
+  if (req.method !== 'POST') return next();
+
+  const { entity } = req.body || {};
+  if (!entity || typeof entity !== 'string') {
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing "entity"' }));
+  }
+
+  const now = new Date();
+  EntityScanner.Entities.update({ handle: entity }, { $set: { lastActivity: now } });
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.writeHead(200);
+  res.end(JSON.stringify({ status: 'ok', entity, at: now.toISOString() }));
+});
+
 // POST /flight — flight telemetry endpoint
 // Body: { action: "open"|"close"|"stale", ...fields }
 // No auth — localhost only, behind ZeroTier/Netbird hard shell
@@ -496,5 +524,148 @@ app.use('/api/alerts', async (req, res, next) => {
   } catch (err) {
     console.error('[API/alerts] error:', err.message);
     jsonErr(res, 500, err.message);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /overview — public-safe kingdom snapshot (VESTA-SPEC-135)
+// 60s TTL cache; CORS open; no auth required.
+// Field projections follow §5 of the spec — dollar values and ops-language excluded.
+// ---------------------------------------------------------------------------
+
+let overviewCache = null;
+let overviewCacheAt = 0;
+const OVERVIEW_TTL_MS = 60 * 1000;
+
+// Parse bond base strings into directed edges.
+// Expected format: "{from}-to-{to}-{bond_type}"
+// E.g. "koad-to-juno-peer" → { from: "koad", to: "juno", bond_type: "peer" }
+// Deduplicates same-type pairs by bumping count.
+function buildBondEdges(bondsDocs) {
+  const edgeMap = new Map();
+  for (const doc of bondsDocs) {
+    for (const bond of (doc.bonds || [])) {
+      const base = bond.base || '';
+      const m = base.match(/^(.+)-to-(.+)-([^-]+)$/);
+      if (!m) {
+        console.warn('[overview] bond base did not match parse pattern, skipping:', base);
+        continue;
+      }
+      const [, from, to, bond_type] = m;
+      const key = `${from}::${to}::${bond_type}`;
+      if (edgeMap.has(key)) {
+        edgeMap.get(key).count++;
+      } else {
+        edgeMap.set(key, { from, to, bond_type, count: 1 });
+      }
+    }
+  }
+  return Array.from(edgeMap.values());
+}
+
+async function buildOverviewPayload() {
+  const now = new Date();
+  const twentyFourHoursAgo = new Date(now - 24 * 60 * 60 * 1000);
+
+  // Entities — public-safe projection per §5
+  const entities = await EntityScanner.Entities.find(
+    {},
+    { fields: { handle: 1, tagline: 1, role: 1, entityMd: 1 } }
+  ).fetchAsync();
+
+  // Bonds — parse edge list from BondsIndex
+  const BondsRef = new Mongo.Collection('BondsIndex', { connection: null });
+  const bondsDocs = await BondsRef.find({}).fetchAsync();
+  const edges = buildBondEdges(bondsDocs);
+
+  // Flights (24h) — public-safe projection; briefSlug excluded per §4.4.1
+  const Flights = globalThis.FlightsCollection;
+  const flights = Flights
+    ? await Flights.find(
+        { started: { $gte: twentyFourHoursAgo } },
+        {
+          sort: { started: -1 },
+          limit: 50,
+          fields: { entity: 1, status: 1, started: 1, elapsed: 1, model: 1, _id: 0 },
+        }
+      ).fetchAsync()
+    : [];
+
+  // Emissions (24h) — type + entity + timestamp only; body excluded per §4.5
+  const Emissions = globalThis.EmissionsCollection;
+  const emissions = Emissions
+    ? await Emissions.find(
+        { timestamp: { $gte: twentyFourHoursAgo } },
+        {
+          sort: { timestamp: -1 },
+          limit: 50,
+          fields: { entity: 1, type: 1, timestamp: 1, _id: 0 },
+        }
+      ).fetchAsync()
+    : [];
+
+  return {
+    generated_at: now.toISOString(),
+    entities: entities.map(e => ({
+      handle: e.handle,
+      tagline: e.tagline || null,
+      role: e.role || null,
+      entityMd: e.entityMd || null,
+    })),
+    bond_graph: { edges },
+    activity: {
+      flights_24h: flights.map(f => ({
+        entity: f.entity,
+        status: f.status,
+        started: f.started ? f.started.toISOString() : null,
+        elapsed_s: f.elapsed != null ? Number(f.elapsed) : null,
+        model: f.model || null,
+      })),
+      emissions_24h: emissions.map(e => ({
+        entity: e.entity,
+        type: e.type,
+        timestamp: e.timestamp ? e.timestamp.toISOString() : null,
+      })),
+    },
+  };
+}
+
+// OPTIONS preflight for /overview
+app.use('/overview', (req, res, next) => {
+  if (req.method !== 'OPTIONS') return next();
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.writeHead(204);
+  res.end();
+});
+
+// GET /overview — public-safe kingdom snapshot
+app.use('/overview', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/overview')) return next();
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+
+  const now = Date.now();
+  try {
+    if (!overviewCache || (now - overviewCacheAt) > OVERVIEW_TTL_MS) {
+      overviewCache = await buildOverviewPayload();
+      overviewCacheAt = now;
+    }
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('X-Overview-Generated-At', overviewCache.generated_at);
+    jsonOk(res, overviewCache);
+  } catch (err) {
+    console.error('[overview] buildOverviewPayload error:', err.message);
+    // Stale-on-error: serve cached response if one exists
+    if (overviewCache) {
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      res.setHeader('X-Overview-Generated-At', overviewCache.generated_at);
+      res.setHeader('X-Overview-Stale', 'true');
+      jsonOk(res, overviewCache);
+    } else {
+      jsonErr(res, 503, 'overview not yet available: ' + err.message);
+    }
   }
 });

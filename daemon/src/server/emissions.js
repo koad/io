@@ -31,6 +31,7 @@ Meteor.methods({
     };
 
     const id = Emissions.insert(doc);
+    EntityScanner.Entities.update({ handle: data.entity }, { $set: { lastActivity: doc.timestamp } });
     console.log(`[EMIT] ${data.entity}/${data.type}: ${data.body}`);
     return { _id: id };
   },
@@ -46,15 +47,17 @@ Meteor.methods({
   },
 });
 
-// All emissions
+// Minimongo ({ connection: null }) cannot observe cursors with sort+limit.
+// Use date-range selector; client sorts in its own Minimongo.
 Meteor.publish('emissions', function () {
-  return Emissions.find({}, { sort: { timestamp: -1 }, limit: 200 });
+  const cutoff = new Date(Date.now() - 24 * 3600 * 1000);
+  return Emissions.find({ timestamp: { $gte: cutoff } });
 });
 
-// Filtered by entity
 Meteor.publish('emissions.entity', function (handle) {
   check(handle, String);
-  return Emissions.find({ entity: handle }, { sort: { timestamp: -1 }, limit: 100 });
+  const cutoff = new Date(Date.now() - 24 * 3600 * 1000);
+  return Emissions.find({ entity: handle, timestamp: { $gte: cutoff } });
 });
 
 // Export for REST endpoint — see flights.js for why globalThis is needed
