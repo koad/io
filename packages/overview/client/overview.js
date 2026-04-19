@@ -461,10 +461,10 @@ function _computeAllEntities() {
 }
 
 // =====================================================================
-// EntityProfile template
+// EntityProfilePanel template
 // =====================================================================
 
-Template.EntityProfile.helpers({
+Template.EntityProfilePanel.helpers({
   entityData() {
     const handle = Template.instance().data && Template.instance().data.handle;
     if (!handle) return null;
