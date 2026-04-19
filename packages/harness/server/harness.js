@@ -41,6 +41,54 @@ const fs = require('fs');
  *   POST {path}/chat
  */
 
+// ── allowed_users namespace-prefix parser (SPEC-128 v1.6 §6) ─────────────────
+// Entries must use "username:<name>" or "user:<id>" form.
+// Unprefixed entries are rejected at config-parse time with an explicit error.
+// Returns { valid: Boolean, error?: String } for a single entry,
+// or use _parseAllowedUsers() to validate an entire list.
+//
+// Comparison semantics:
+//   "username:<name>" — compare against user.services.github.login; case-insensitive
+//   "user:<id>"       — compare against users._id; exact string match
+function _parseAllowedUserEntry(entry) {
+  if (typeof entry !== 'string') {
+    return { valid: false, error: `allowed_users entry must be a string, got ${typeof entry}: ${JSON.stringify(entry)}` };
+  }
+  if (entry.startsWith('username:')) {
+    return { valid: true, kind: 'username', value: entry.slice('username:'.length) };
+  }
+  if (entry.startsWith('user:')) {
+    return { valid: true, kind: 'user_id', value: entry.slice('user:'.length) };
+  }
+  return { valid: false, error: `allowed_users entry "${entry}" lacks namespace prefix — must be "username:<name>" or "user:<id>"` };
+}
+
+function _validateAllowedUsers(list) {
+  for (const entry of list) {
+    const parsed = _parseAllowedUserEntry(entry);
+    if (!parsed.valid) {
+      throw new Error(`[harness] config error: ${parsed.error}`);
+    }
+  }
+}
+
+// Check whether a resolved user (from a DDP-token lookup) matches any entry.
+// userDoc must have { _id, services: { github: { login } } }.
+function _userMatchesAllowedList(userDoc, allowedUsers) {
+  if (!userDoc) return false;
+  for (const entry of allowedUsers) {
+    const parsed = _parseAllowedUserEntry(entry);
+    if (!parsed.valid) continue; // already validated at init; skip silently here
+    if (parsed.kind === 'username') {
+      const login = userDoc.services && userDoc.services.github && userDoc.services.github.login;
+      if (login && login.toLowerCase() === parsed.value.toLowerCase()) return true;
+    } else if (parsed.kind === 'user_id') {
+      if (userDoc._id === parsed.value) return true;
+    }
+  }
+  return false;
+}
+
 class HarnessInstance {
   constructor(config) {
     this.config = config;
@@ -52,6 +100,10 @@ class HarnessInstance {
     this.providerDown = false;
     this.providerDownSince = null;
     this.providerDownRetryAfter = 60000; // retry provider after 1 min
+    // Validate allowed_users entries at construction time (SPEC-128 v1.6 §6)
+    if (config.allowed_users && Array.isArray(config.allowed_users) && config.allowed_users.length > 0) {
+      _validateAllowedUsers(config.allowed_users); // throws on invalid — fail fast at boot
+    }
   }
 
   log(...args) {
@@ -198,20 +250,22 @@ class HarnessInstance {
     }
 
     // allowed_users gate: special harnesses (e.g. koad-only self-auth) restrict
-    // access to a named list of usernames. Any other user gets a silent 404 —
+    // access to a namespace-prefixed list of users. Any other user gets a silent 404 —
     // we do not disclose the harness's existence.
+    // Entry forms: "username:<github-login>" or "user:<meteor-_id>" (SPEC-128 v1.6 §6)
     const allowedUsers = this.config.allowed_users;
     if (allowedUsers && Array.isArray(allowedUsers) && allowedUsers.length > 0) {
-      let username = null;
+      let userDoc = null;
       if (sponsorUserId) {
         try {
-          const userDoc = await Meteor.users.findOneAsync(sponsorUserId, { fields: { username: 1 } });
-          username = userDoc && userDoc.username;
+          userDoc = await Meteor.users.findOneAsync(sponsorUserId, {
+            fields: { _id: 1, services: 1 },
+          });
         } catch (e) {
           // Non-blocking — if lookup fails, treat as unauthorized
         }
       }
-      if (!username || !allowedUsers.includes(username)) {
+      if (!_userMatchesAllowedList(userDoc, allowedUsers)) {
         // Silent 404: do not reveal the harness exists
         return this.json(res, 404, { error: 'Not found' });
       }
@@ -514,18 +568,15 @@ class HarnessInstance {
 
   // --- allowed_users check for GET routes ---
   // Returns true if the request is allowed to proceed for this harness.
-  // Reads the Authorization header (Bearer <ddp-token>) or skips to a
-  // username-unresolvable deny path if the harness has allowed_users.
-  //
-  // Note: For GET routes we check the query-string token (if present) or
-  // skip the gate for health/entities — but for special harnesses the entire
-  // harness is gated, so we deny all GET requests too.
+  // Uses namespace-prefix parser per SPEC-128 v1.6 §6:
+  //   "username:<github-login>" — case-insensitive match against services.github.login
+  //   "user:<meteor-_id>"      — exact match against users._id
   async _checkAllowedUsers(req) {
     const allowedUsers = this.config.allowed_users;
     if (!allowedUsers || !Array.isArray(allowedUsers) || allowedUsers.length === 0) {
       return true; // no restriction
     }
-    // Extract DDP token from Authorization header (Bearer) or query string
+    // Extract DDP token from Authorization header (Bearer)
     let ddpToken = null;
     const auth = req.headers && req.headers['authorization'];
     if (auth && auth.startsWith('Bearer ')) {
@@ -538,9 +589,10 @@ class HarnessInstance {
     const sponsorUserId = KoadHarnessDdpGate.getTokenUserId(ddpToken);
     if (!sponsorUserId) return false;
     try {
-      const userDoc = await Meteor.users.findOneAsync(sponsorUserId, { fields: { username: 1 } });
-      const username = userDoc && userDoc.username;
-      return !!(username && allowedUsers.includes(username));
+      const userDoc = await Meteor.users.findOneAsync(sponsorUserId, {
+        fields: { _id: 1, services: 1 },
+      });
+      return _userMatchesAllowedList(userDoc, allowedUsers);
     } catch (e) {
       return false;
     }
