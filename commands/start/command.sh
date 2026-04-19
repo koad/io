@@ -10,18 +10,40 @@ source "$HOME/.koad-io/commands/assert/datadir/command.sh"
 cd $DATADIR
 
 # Parse positional and flag arguments.
-# Positional: build type (e.g. "local"). Flags: --local, --attach.
+# Positional: build type (e.g. "local"). Flags: --local, --attach, --tail.
 # The dispatcher exports KOAD_IO_FLAGS with any --flag args stripped from $@,
 # but commands can also receive flags directly for backwards compatibility.
+#
+# --tail       After starting, wait 5s then tail -f the log in the foreground.
+# --tail=N     Wait N seconds (or 30s / 2m / 1h) before tailing.
+#              Ctrl-C stops the tail — the daemon keeps running in its screen.
+#
+# Note: the `--tail N` space form is NOT supported because upstream helpers
+# (assert/datadir and the dispatcher) strip --tail but then treat N as a
+# positional argument, which breaks workspace resolution. Always use the
+# equals form when specifying a value.
+KOAD_IO_TAIL=""
+KOAD_IO_TAIL_WAIT="5"
 for _arg in "$@" $KOAD_IO_FLAGS; do
   case "$_arg" in
-    --local)  LOCAL_BUILD=true ;;
-    --attach) KOAD_IO_ATTACH=true ;;
-    --*)      ;; # ignore unknown flags
-    *)        [[ -z "$KOAD_IO_TYPE" ]] && KOAD_IO_TYPE="$_arg" ;;
+    --local)   LOCAL_BUILD=true ;;
+    --attach)  KOAD_IO_ATTACH=true ;;
+    --tail)    KOAD_IO_TAIL=true ;;
+    --tail=*)
+      KOAD_IO_TAIL=true
+      _t="${_arg#--tail=}"
+      case "$_t" in
+        *s) KOAD_IO_TAIL_WAIT="${_t%s}" ;;
+        *m) KOAD_IO_TAIL_WAIT="$(( ${_t%m} * 60 ))" ;;
+        *h) KOAD_IO_TAIL_WAIT="$(( ${_t%h} * 3600 ))" ;;
+        *)  KOAD_IO_TAIL_WAIT="$_t" ;;
+      esac
+      ;;
+    --*)       ;; # ignore unknown flags
+    *)         [[ -z "$KOAD_IO_TYPE" ]] && KOAD_IO_TYPE="$_arg" ;;
   esac
 done
-unset _arg
+unset _arg _t
 
 # "local" as a positional arg also sets LOCAL_BUILD, and vice versa
 [[ "$KOAD_IO_TYPE" == "local" ]] && LOCAL_BUILD=true
@@ -146,4 +168,15 @@ elif [[ -f ./src/.meteor/release ]]; then
 
 else
     echo -e "\033[31mkoad/io application not found.\033[0m"
+    exit 1
+fi
+
+# --- Optional tail ------------------------------------------------------
+# With --tail, wait for the app to warm up then tail the log in the
+# foreground. The screen keeps running after Ctrl-C ends the tail.
+if [[ "$KOAD_IO_TAIL" == "true" ]] && [[ "$KOAD_IO_ATTACH" != "true" ]]; then
+  echo "Waiting ${KOAD_IO_TAIL_WAIT}s for startup, then tailing ($LOGFILE)..."
+  echo "  (Ctrl-C to stop the tail — the daemon keeps running in screen $SCREEN_NAME)"
+  sleep "$KOAD_IO_TAIL_WAIT"
+  exec tail -F "$LOGFILE"
 fi
