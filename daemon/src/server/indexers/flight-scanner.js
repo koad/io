@@ -74,8 +74,13 @@ function upsertFlight(record) {
     doc.elapsed = Math.floor((Date.now() - doc.started) / 1000);
   }
 
-  const now = new Date();
-  doc.lastActivity = now;
+  // lastActivity = the most recent timestamp on this flight (ended or started).
+  // Historically this was set to `new Date()` on every upsert, which meant
+  // every daemon restart stamped every entity as "active now" — flooding
+  // the overview with false positives. Now we preserve the flight's real
+  // timestamp so restart doesn't inflate activity.
+  const flightActivity = doc.ended || doc.started || new Date();
+  doc.lastActivity = flightActivity;
 
   const existing = Flights.findOne({ _id: id });
   if (existing) {
@@ -84,8 +89,14 @@ function upsertFlight(record) {
     Flights.insert(Object.assign({ _id: id }, doc));
   }
 
+  // Only stamp entity.lastActivity if this flight is newer than what's there.
+  // Scans iterate files in undefined order, so we must compare.
   if (doc.entity && doc.entity !== 'unknown') {
-    EntityScanner.Entities.update({ handle: doc.entity }, { $set: { lastActivity: now } });
+    const entity = EntityScanner.Entities.findOne({ handle: doc.entity });
+    const existingActivity = entity && entity.lastActivity ? new Date(entity.lastActivity) : null;
+    if (!existingActivity || flightActivity > existingActivity) {
+      EntityScanner.Entities.update({ handle: doc.entity }, { $set: { lastActivity: flightActivity } });
+    }
   }
 }
 
