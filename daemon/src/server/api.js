@@ -43,6 +43,9 @@ app.use('/emit', (req, res, next) => {
   };
 
   const id = EmissionsCollection.insert(doc);
+  // Stamp lastActivity on the entity so card glows light up on the overview.
+  // Parallels the DDP `entity.emit` method; REST path had been missing it.
+  EntityScanner.Entities.update({ handle: entity }, { $set: { lastActivity: doc.timestamp } });
   console.log(`[EMIT/REST] ${entity}/${type}: ${body}`);
 
   res.setHeader('Content-Type', 'application/json');
