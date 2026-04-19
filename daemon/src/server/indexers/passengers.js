@@ -100,6 +100,8 @@ function scanAll() {
     watchEntity(entity.handle, entity.path);
   }
   console.log(`[PASSENGERS] Indexed. Total: ${Passengers.find().count()}`);
+  if (!globalThis.indexerReady) globalThis.indexerReady = {};
+  globalThis.indexerReady.passengers = new Date().toISOString();
 }
 
 // Startup (gated on KOAD_IO_INDEX_PASSENGERS)

@@ -115,6 +115,8 @@ Meteor.startup(() => {
     watchEntityChanges();
     const count = Alerts.find().count();
     console.log(`[ALERTS] Initial scan complete: ${count} active alert/notification sources`);
+    if (!globalThis.indexerReady) globalThis.indexerReady = {};
+    globalThis.indexerReady.alerts = new Date().toISOString();
   }, 1000);
 });
 

@@ -201,15 +201,21 @@ Meteor.startup(async () => {
         runImmediately: true,
         task: async () => {
           scanAll();
+          if (!globalThis.indexerReady) globalThis.indexerReady = {};
+          if (!globalThis.indexerReady.kingdoms) globalThis.indexerReady.kingdoms = new Date().toISOString();
         }
       });
     } else {
       console.warn('[KINGDOMS] koad.workers unavailable — falling back to one-shot scan');
       scanAll();
+      if (!globalThis.indexerReady) globalThis.indexerReady = {};
+      globalThis.indexerReady.kingdoms = new Date().toISOString();
     }
   } else {
     // One-shot scan only (mode is a non-'true' truthy value)
     scanAll();
+    if (!globalThis.indexerReady) globalThis.indexerReady = {};
+    globalThis.indexerReady.kingdoms = new Date().toISOString();
   }
 
   // Always watch for hot-reload when mode is active

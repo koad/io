@@ -92,6 +92,8 @@ Meteor.startup(() => {
   // Wait briefly for entity scanner to finish
   Meteor.setTimeout(() => {
     scanAll();
+    if (!globalThis.indexerReady) globalThis.indexerReady = {};
+    globalThis.indexerReady.env = new Date().toISOString();
 
     if (mode === 'true') {
       // Re-scan when entities change

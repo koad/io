@@ -30,6 +30,56 @@ function handleFromFolder(folderName) {
   return folderName.replace(/^\./, '');
 }
 
+// Identity sections — these are the public-facing parts of ENTITY.md.
+// Operational sections (Session Start, Key Files, Tech Stack, etc.) belong
+// in the roles/context layer at the harness level, not in the public profile.
+const IDENTITY_SECTIONS = new Set([
+  'Identity', 'Custodianship', 'Role', 'Personality',
+  'Core Principles', 'Team Position', 'Team',
+  'Behavioral Constraints', 'Behavioral Principles',
+  'Communication Protocol', 'The Deeper Purpose',
+  'Sovereignty Model', 'Who I Am', 'Who I Serve',
+  'My Place in the Team', 'Kingdom Memberships',
+  'Design Principles', 'Core Responsibilities',
+  'Philosophy', 'Principles', 'Summary',
+]);
+
+// Extract identity-only sections from ENTITY.md.
+// Keeps: title, tagline, and sections whose ## heading is in IDENTITY_SECTIONS.
+// Drops: Session Start, Key Files, Tech Stack, Products I Watch, etc.
+function extractIdentitySections(content) {
+  const lines = content.split('\n');
+  const out = [];
+  let include = true;
+
+  for (const line of lines) {
+    const h2Match = line.match(/^## (.+)/);
+    if (h2Match) {
+      include = IDENTITY_SECTIONS.has(h2Match[1].trim());
+    }
+    if (include) out.push(line);
+  }
+
+  return out.join('\n').trim();
+}
+
+// Read ENTITY.md — returns { entityMd (identity-only), tagline } or nulls
+function readEntityMd(entityPath) {
+  const mdPath = path.join(entityPath, 'ENTITY.md');
+  try {
+    const content = fs.readFileSync(mdPath, 'utf8');
+    const taglineMatch = content.match(/^>\s*(.+)$/m);
+    const tagline = taglineMatch ? taglineMatch[1].trim() : null;
+    const entityMd = extractIdentitySections(content);
+    return { entityMd, tagline };
+  } catch (e) {
+    return { entityMd: null, tagline: null };
+  }
+}
+
+// Active ENTITY.md watchers
+const entityMdWatchers = new Map();
+
 // Scan home directory for entity folders
 function scanEntities() {
   const found = [];
@@ -55,9 +105,10 @@ function syncEntities() {
   for (const folder of folders) {
     const handle = handleFromFolder(folder);
     foundHandles.add(handle);
+    const entityPath = path.join(homePath, folder);
 
     // Extract role from .env (KOAD_IO_ENTITY_ROLE=<word>)
-    const entityEnvPath = path.join(homePath, folder, '.env');
+    const entityEnvPath = path.join(entityPath, '.env');
     let role = null;
     try {
       const envContent = fs.readFileSync(entityEnvPath, 'utf8');
@@ -65,18 +116,36 @@ function syncEntities() {
       if (roleMatch) role = roleMatch[1].trim();
     } catch (e) { /* no .env or unreadable — role stays null */ }
 
+    // Read ENTITY.md
+    const { entityMd, tagline } = readEntityMd(entityPath);
+
     if (!knownHandles.has(handle)) {
       Entities.insert({
         handle,
         folder,
-        path: path.join(homePath, folder),
+        path: entityPath,
         role,
+        tagline,
+        entityMd,
         detectedAt: new Date(),
       });
       console.log(`[ENTITIES] + ${handle} (${role || 'no role'})`);
     } else {
-      // Update role if it changed (entity already known)
-      Entities.update({ handle }, { $set: { role } });
+      Entities.update({ handle }, { $set: { role, tagline, entityMd } });
+    }
+
+    // Watch ENTITY.md for live edits
+    if (!entityMdWatchers.has(handle)) {
+      const mdPath = path.join(entityPath, 'ENTITY.md');
+      try {
+        const watcher = fs.watch(mdPath, { persistent: false }, () => {
+          Meteor.setTimeout(() => {
+            const updated = readEntityMd(entityPath);
+            Entities.update({ handle }, { $set: { tagline: updated.tagline, entityMd: updated.entityMd } });
+          }, 300);
+        });
+        entityMdWatchers.set(handle, watcher);
+      } catch (e) { /* ENTITY.md might not exist */ }
     }
   }
 
@@ -110,6 +179,8 @@ Meteor.startup(() => {
   watchHome();
   const count = Entities.find().count();
   console.log(`[ENTITIES] Initial scan complete: ${count} entities`);
+  if (!globalThis.indexerReady) globalThis.indexerReady = {};
+  globalThis.indexerReady.entities = new Date().toISOString();
 });
 
 // Publications

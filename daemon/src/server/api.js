@@ -7,6 +7,10 @@ import bodyParser from 'body-parser';
 const os = Npm.require('os');
 const app = WebApp.connectHandlers;
 
+// Indexer readiness registry — each indexer stamps its key when initial scan completes.
+// Health endpoint reads this to report whether the daemon is fully indexed.
+if (!globalThis.indexerReady) globalThis.indexerReady = {};
+
 app.use(bodyParser.json());
 
 const VALID_TYPES = ['notice', 'warning', 'error', 'request'];
@@ -206,12 +210,17 @@ app.use('/api/health', async (req, res, next) => {
   try {
     const Flights = globalThis.FlightsCollection;
     const Emissions = globalThis.EmissionsCollection;
+    const ready = globalThis.indexerReady || {};
+    const allReady = ['entities', 'passengers', 'alerts'].every(k => ready[k]);
+
     const payload = {
-      status: 'ok',
+      status: allReady ? 'ok' : 'starting',
+      ready: allReady,
       hostname: os.hostname(),
       uptime_s: Math.floor(process.uptime()),
       pid: process.pid,
       node: process.version,
+      indexers: ready,
       counts: {
         flights: Flights ? await Flights.find().countAsync() : null,
         emissions: Emissions ? await Emissions.find().countAsync() : null,
@@ -313,6 +322,179 @@ app.use('/api/passengers', async (req, res, next) => {
     jsonOk(res, { status: 'ok', count: passengers.length, passengers });
   } catch (err) {
     console.error('[API/passengers] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Entity, kingdom, bond, tickler, key, env, and alert read endpoints
+// Same pattern: GET, JSON, no auth — inside the hard shell.
+// ---------------------------------------------------------------------------
+
+// GET /api/entities — all detected entities
+// GET /api/entities?role=orchestrator — filter by role
+// GET /api/entities?kingdom=koad-io — filter by kingdomId
+// GET /api/entities?summary=true — omit entityMd (for list views)
+app.use('/api/entities', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/entities')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const selector = {};
+    if (q.role) selector.role = q.role;
+    if (q.kingdom) selector.kingdomId = q.kingdom;
+
+    const opts = { sort: { handle: 1 } };
+    if (q.summary === 'true') {
+      opts.fields = { entityMd: 0 };
+    }
+
+    const entities = await EntityScanner.Entities.find(selector, opts).fetchAsync();
+    jsonOk(res, { status: 'ok', count: entities.length, entities });
+  } catch (err) {
+    console.error('[API/entities] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/kingdoms — all indexed kingdoms
+app.use('/api/kingdoms', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/kingdoms')) return next();
+  try {
+    const KingdomsRef = new Mongo.Collection('Kingdoms', { connection: null });
+    const kingdoms = await KingdomsRef.find({}, {
+      sort: { name: 1 },
+    }).fetchAsync();
+    jsonOk(res, { status: 'ok', count: kingdoms.length, kingdoms });
+  } catch (err) {
+    console.error('[API/kingdoms] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/bonds — bond index per entity
+// GET /api/bonds?entity=juno — filter to one entity
+app.use('/api/bonds', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/bonds')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const BondsRef = new Mongo.Collection('BondsIndex', { connection: null });
+    const selector = {};
+    if (q.entity) selector.handle = q.entity;
+
+    const bonds = await BondsRef.find(selector, {
+      sort: { handle: 1 },
+    }).fetchAsync();
+
+    const CrossRef = new Mongo.Collection('CrossKingdomBonds', { connection: null });
+    const crossSelector = {};
+    if (q.entity) crossSelector.$or = [{ fromEntity: q.entity }, { toEntity: q.entity }];
+    const crossKingdom = await CrossRef.find(crossSelector).fetchAsync();
+
+    jsonOk(res, {
+      status: 'ok',
+      count: bonds.length,
+      bonds,
+      crossKingdom: { count: crossKingdom.length, bonds: crossKingdom },
+    });
+  } catch (err) {
+    console.error('[API/bonds] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/tickler — pending tickles per entity
+// GET /api/tickler?entity=juno — filter to one entity
+app.use('/api/tickler', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/tickler')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const TicklerRef = new Mongo.Collection('TicklerIndex', { connection: null });
+    const selector = {};
+    if (q.entity) selector.handle = q.entity;
+
+    const tickles = await TicklerRef.find(selector, {
+      sort: { handle: 1 },
+    }).fetchAsync();
+    jsonOk(res, { status: 'ok', count: tickles.length, tickles });
+  } catch (err) {
+    console.error('[API/tickler] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/keys — key presence per entity (filenames only, never contents)
+// GET /api/keys?entity=juno — filter to one entity
+app.use('/api/keys', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/keys')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const KeysRef = new Mongo.Collection('KeysIndex', { connection: null });
+    const selector = {};
+    if (q.entity) selector.handle = q.entity;
+
+    const keys = await KeysRef.find(selector, {
+      sort: { handle: 1 },
+    }).fetchAsync();
+    jsonOk(res, { status: 'ok', count: keys.length, keys });
+  } catch (err) {
+    console.error('[API/keys] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/env — entity env vars (sensitive keys redacted)
+// GET /api/env?entity=juno — filter to one entity
+const SENSITIVE_KEY_PATTERNS = [/SECRET/i, /TOKEN/i, /PASSWORD/i, /CREDENTIAL/i];
+function redactVars(vars) {
+  if (!vars || typeof vars !== 'object') return vars;
+  const safe = {};
+  for (const [k, v] of Object.entries(vars)) {
+    if (SENSITIVE_KEY_PATTERNS.some(re => re.test(k))) safe[k] = '[REDACTED]';
+    else safe[k] = v;
+  }
+  return safe;
+}
+
+app.use('/api/env', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/env')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const EnvRef = new Mongo.Collection('EnvIndex', { connection: null });
+    const selector = {};
+    if (q.entity) selector.handle = q.entity;
+
+    const raw = await EnvRef.find(selector, {
+      sort: { handle: 1 },
+    }).fetchAsync();
+
+    const env = raw.map(doc => ({
+      ...doc,
+      vars: redactVars(doc.vars),
+    }));
+
+    jsonOk(res, { status: 'ok', count: env.length, env });
+  } catch (err) {
+    console.error('[API/env] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/alerts — active alerts/notifications per entity
+// GET /api/alerts?entity=juno — filter to one entity
+app.use('/api/alerts', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/alerts')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const AlertsRef = new Mongo.Collection('Alerts', { connection: null });
+    const selector = {};
+    if (q.entity) selector.entity = q.entity;
+
+    const alerts = await AlertsRef.find(selector, {
+      sort: { updatedAt: -1 },
+    }).fetchAsync();
+    jsonOk(res, { status: 'ok', count: alerts.length, alerts });
+  } catch (err) {
+    console.error('[API/alerts] error:', err.message);
     jsonErr(res, 500, err.message);
   }
 });

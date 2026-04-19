@@ -51,12 +51,28 @@ elif [ "$_uptime" -lt 86400 ]; then _up_fmt="$((_uptime/3600))h$(((_uptime%3600)
 else _up_fmt="$((_uptime/86400))d$(((_uptime%86400)/3600))h"
 fi
 
-printf '  %sstatus%s     %sok%s\n' "$_dim" "$_R" "$_g" "$_R"
+_status=$(echo "$_raw" | jq -r '.status')
+_ready=$(echo "$_raw" | jq -r '.ready // false')
+
+if [ "$_ready" = "true" ]; then
+  printf '  %sstatus%s     %sok%s\n' "$_dim" "$_R" "$_g" "$_R"
+else
+  printf '  %sstatus%s     %sstarting%s\n' "$_dim" "$_R" "$_r" "$_R"
+fi
 printf '  %shost%s       %s\n'     "$_dim" "$_R" "$_host"
 printf '  %suptime%s     %s\n'     "$_dim" "$_R" "$_up_fmt"
 printf '  %spid%s        %s\n'     "$_dim" "$_R" "$_pid"
 printf '  %snode%s       %s\n'     "$_dim" "$_R" "$_node"
 printf '  %stime%s       %s\n'     "$_dim" "$_R" "$_time"
+
+_indexer_count=$(echo "$_raw" | jq '.indexers | length')
+if [ "$_indexer_count" -gt 0 ] 2>/dev/null; then
+  echo
+  printf '  %sindexers%s\n' "$_dim" "$_R"
+  echo "$_raw" | jq -r '.indexers | to_entries[] | "\(.key)\t\(.value)"' | while IFS=$'\t' read -r _k _v; do
+    printf '    %s%-14s%s %s%s%s\n' "$_dim" "$_k" "$_R" "$_g" "$_v" "$_R"
+  done
+fi
 
 echo
 printf '  %scollections%s\n' "$_dim" "$_R"

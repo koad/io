@@ -55,17 +55,23 @@ Meteor.startup(async () => {
         task: async () => {
           scanAll();
           console.log(`[KEYS] Scan complete: ${KeysIndex.find().count()} entities with keys`);
+          if (!globalThis.indexerReady) globalThis.indexerReady = {};
+          if (!globalThis.indexerReady.keys) globalThis.indexerReady.keys = new Date().toISOString();
         }
       });
     } else {
       console.warn('[KEYS] koad.workers unavailable (koad:io-worker-processes not resolved) — falling back to one-shot scan');
       scanAll();
       console.log(`[KEYS] Initial scan complete: ${KeysIndex.find().count()} entities with keys`);
+      if (!globalThis.indexerReady) globalThis.indexerReady = {};
+      globalThis.indexerReady.keys = new Date().toISOString();
     }
   } else {
     // One-shot scan only
     scanAll();
     console.log(`[KEYS] Initial scan complete: ${KeysIndex.find().count()} entities with keys`);
+    if (!globalThis.indexerReady) globalThis.indexerReady = {};
+    globalThis.indexerReady.keys = new Date().toISOString();
   }
 });
 

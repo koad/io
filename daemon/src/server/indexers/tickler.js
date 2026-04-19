@@ -70,17 +70,23 @@ Meteor.startup(async () => {
         task: async () => {
           scanAll();
           console.log(`[TICKLER] Scan complete: ${TicklerIndex.find().count()} entities with tickles`);
+          if (!globalThis.indexerReady) globalThis.indexerReady = {};
+          if (!globalThis.indexerReady.tickler) globalThis.indexerReady.tickler = new Date().toISOString();
         }
       });
     } else {
       console.warn('[TICKLER] koad.workers unavailable (koad:io-worker-processes not resolved) — falling back to one-shot scan');
       scanAll();
       console.log(`[TICKLER] Initial scan complete: ${TicklerIndex.find().count()} entities with tickles`);
+      if (!globalThis.indexerReady) globalThis.indexerReady = {};
+      globalThis.indexerReady.tickler = new Date().toISOString();
     }
   } else {
     // One-shot scan only
     scanAll();
     console.log(`[TICKLER] Initial scan complete: ${TicklerIndex.find().count()} entities with tickles`);
+    if (!globalThis.indexerReady) globalThis.indexerReady = {};
+    globalThis.indexerReady.tickler = new Date().toISOString();
   }
 });
 
