@@ -1,4 +1,4 @@
-WorkerProcesses = new Mongo.Collection('workers');
+WorkerProcesses = new Mongo.Collection('workers', koad.mongo);
 
 WorkerProcesses.allow({
   insert(userId, doc) {

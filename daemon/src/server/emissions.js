@@ -57,5 +57,5 @@ Meteor.publish('emissions.entity', function (handle) {
   return Emissions.find({ entity: handle }, { sort: { timestamp: -1 }, limit: 100 });
 });
 
-// Export for REST endpoint
-EmissionsCollection = Emissions;
+// Export for REST endpoint — see flights.js for why globalThis is needed
+globalThis.EmissionsCollection = Emissions;

@@ -5,6 +5,13 @@
 const fs = Npm.require('fs');
 const path = Npm.require('path');
 
+// Local ref to the in-memory Kingdoms collection. The core package also
+// declares this by the same name with { connection: null } — Meteor
+// deduplicates by collection name, so both refs hit the same store. We
+// declare it here too so this indexer is robust to package load order in
+// dev mode (where the indexer can fire before core's collections.js).
+const Kingdoms = new Mongo.Collection('Kingdoms', { connection: null });
+
 const KINGDOMS_CONFIG = path.join(process.env.HOME, '.koad-io', 'daemon', 'kingdoms.json');
 
 let configWatcher = null;

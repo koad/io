@@ -119,5 +119,8 @@ Meteor.publish('flights.recent', function (limit) {
   return Flights.find({}, { sort: { started: -1 }, limit: limit || 50 });
 });
 
-// Export for REST endpoint
-FlightsCollection = Flights;
+// Export for REST endpoint — attach to globalThis so sibling files see it
+// without ES-module imports. Implicit globals (`FlightsCollection = Flights`)
+// work under sloppy mode but throw ReferenceError under strict/module mode,
+// which is what Meteor's dev runtime enforces.
+globalThis.FlightsCollection = Flights;

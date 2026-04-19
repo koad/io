@@ -33,7 +33,7 @@
  * 
  * Stores search history for analytics and autocomplete.
  */
-GlobalSearch = new Mongo.Collection('global_search');
+GlobalSearch = new Mongo.Collection('global_search', koad.mongo);
 
 /**
  * Search Registry

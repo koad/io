@@ -7,6 +7,12 @@ const path = Npm.require('path');
 
 const BondsIndex = new Mongo.Collection('BondsIndex', { connection: null });
 
+// Local ref to CrossKingdomBonds (also declared in packages/core/server/collections.js
+// with { connection: null } — Meteor dedupes by name). Declared here too for
+// robustness against load order, since this file's worker task can fire before
+// core's collections.js evaluates in dev mode.
+const CrossKingdomBonds = new Mongo.Collection('CrossKingdomBonds', { connection: null });
+
 // Parse minimal YAML frontmatter from a bond file
 // Returns an object with any frontmatter fields found, or {} on failure
 // Only reads up to the closing '---' to stay lightweight
