@@ -335,6 +335,10 @@ Template.KingdomOverview.helpers({
     if (!n) return '0.00';
     return n.toFixed(2);
   },
+
+  publicTierHint() {
+    return !!(KoadOverview._settings && KoadOverview._settings.publicTierHint);
+  },
 });
 
 // Compute per-entity render data, shared by activeEntities/bullpenEntities.
