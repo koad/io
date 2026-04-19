@@ -15,7 +15,7 @@ function generateToken() {
   return Random.id(32);
 }
 
-function issueToken(connectionId) {
+function issueToken(connectionId, userId) {
   // Clean expired tokens opportunistically
   const now = Date.now();
   if (tokens.size > 1000) {
@@ -27,6 +27,7 @@ function issueToken(connectionId) {
   const token = generateToken();
   tokens.set(token, {
     connectionId,
+    userId: userId || null, // null for anonymous sessions
     issuedAt: now,
   });
   return token;
@@ -43,13 +44,22 @@ function validateToken(token) {
   return true;
 }
 
+// Return userId from a valid token, or null if anonymous / invalid.
+function getTokenUserId(token) {
+  if (!token) return null;
+  const entry = tokens.get(token);
+  if (!entry) return null;
+  return entry.userId || null;
+}
+
 // Meteor method — only callable over DDP (browser with live websocket)
 Meteor.methods({
   'harness.token'() {
     if (!this.connection) {
       throw new Meteor.Error('no-connection', 'DDP connection required');
     }
-    return issueToken(this.connection.id);
+    // Pass userId so the harness can attribute feedback captures to the sponsor
+    return issueToken(this.connection.id, this.userId || null);
   },
 });
 
@@ -61,4 +71,4 @@ Meteor.setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-KoadHarnessDdpGate = { validateToken };
+KoadHarnessDdpGate = { validateToken, getTokenUserId };

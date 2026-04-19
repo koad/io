@@ -176,6 +176,9 @@ class HarnessInstance {
 
     const { entity: entityHandle, message, sessionId, ddpToken } = body;
 
+    // Resolve sponsor userId from the DDP token (null for anonymous sessions)
+    const sponsorUserId = KoadHarnessDdpGate.getTokenUserId(ddpToken);
+
     // DDP gate: require a valid token issued via Meteor method (proves DDP session)
     if (!KoadHarnessDdpGate.validateToken(ddpToken)) {
       this.log(`chat blocked: no valid DDP token ip=${req.headers['x-forwarded-for'] || req.socket.remoteAddress}`);
@@ -300,7 +303,22 @@ class HarnessInstance {
         KoadHarnessSSE.writeEvent(res, 'chunk', { text: chunk });
       },
       (finalText, providerUsage) => {
-        const outputCheck = KoadHarnessOutputFilter.scan(finalText, entity);
+        // Extract <<CAPTURE_FEEDBACK>> markers before output checks or client delivery.
+        // VESTA-SPEC-132 §3.1.5: markers are always stripped; valid ones fire the
+        // registered callback (fire-and-forget — does not block response delivery).
+        const sessionHistory = this.sessions.getHistory(session.id, 10).map(m => ({
+          role: m.role,
+          content: m.content,
+          at: new Date(m.timestamp || Date.now()),
+        }));
+        const cleanedText = KoadHarnessFeedbackExtractor.extract(finalText, {
+          entity: entityHandle,
+          sessionId: session.id,
+          userId: sponsorUserId,
+          sessionHistory,
+        });
+
+        const outputCheck = KoadHarnessOutputFilter.scan(cleanedText, entity);
         if (!outputCheck.clean) {
           this.log(`output blocked: session=${session.id} reason=${outputCheck.reason}`);
           KoadHarnessSSE.writeEvent(res, 'error', { message: outputCheck.reason, fallback: fallback('default') });
@@ -312,7 +330,8 @@ class HarnessInstance {
             this.sessions.recordUsage(session.id, providerUsage);
           }
           const sessionUsage = this.sessions.getUsage(session.id);
-          const donePayload = { fullText: finalText };
+          // Use cleanedText (markers stripped) as the canonical response
+          const donePayload = { fullText: cleanedText };
           if (providerUsage) {
             donePayload.usage = providerUsage;
           }
@@ -323,7 +342,9 @@ class HarnessInstance {
             this.log(`usage: session=${session.id} req=[p:${providerUsage.prompt_tokens} c:${providerUsage.completion_tokens}] total=[p:${sessionUsage.prompt_tokens} c:${sessionUsage.completion_tokens} t:${sessionUsage.total_tokens} r:${sessionUsage.requests}]`);
           }
           KoadHarnessSSE.writeEvent(res, 'done', donePayload);
-          this.sessions.addMessage(session.id, 'entity', finalText);
+          // Store cleaned text in history so CAPTURE_FEEDBACK markers never appear
+          // in subsequent context passed back to the provider
+          this.sessions.addMessage(session.id, 'entity', cleanedText);
         }
         KoadHarnessSSE.endStream(res);
         this.rateLimiter.release();
