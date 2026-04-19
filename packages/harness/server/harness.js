@@ -117,12 +117,15 @@ class HarnessInstance {
   // --- Route handlers ---
 
   handleHealth(req, res) {
+    // Support both legacy provider.default and new providers config shapes
+    const providerDefault = (this.config.provider && this.config.provider.default)
+                            || (this.config.providers ? Object.keys(this.config.providers)[0] : 'unknown');
     this.json(res, 200, {
       status: 'ok',
       uptime: Math.floor((Date.now() - this.startedAt) / 1000),
       sessions: this.sessions.count,
       entities: this.config.entities,
-      provider: this.config.provider.default,
+      provider: providerDefault,
     });
   }
 
@@ -225,7 +228,7 @@ class HarnessInstance {
 
     this.rateLimiter.record(session.id, ip);
 
-    // Budget checks (token + cost)
+    // Budget checks (token + cost) — legacy session-level budgets
     const sessionCfg = this.config.session || {};
     const sessionUsage = this.sessions.getUsage(session.id);
     if (sessionUsage) {
@@ -278,10 +281,45 @@ class HarnessInstance {
     KoadHarnessSSE.writeHeaders(res);
     KoadHarnessSSE.writeEvent(res, 'session', { sessionId: session.id });
 
-    // Provider
-    const providerName = this.config.provider.default;
+    // ── VESTA-SPEC-133 Access Gate Stack ──────────────────────────────────────
+    // Resolve which provider to use via tier + XP + headroom gates.
+    // Falls back silently; sponsor sees no gate errors (SPEC-133 §6.3).
+    // If no access config is present, falls through to legacy provider.default.
+
+    let providerName = this.config.provider && this.config.provider.default;
+    let _accessFallbackReason = null;
+
+    if (typeof KoadHarnessAccessGate !== 'undefined' && this.config.access) {
+      let insidersState = null;
+      if (sponsorUserId) {
+        try {
+          const userDoc = await Meteor.users.findOneAsync(sponsorUserId, { fields: { insidersState: 1 } });
+          insidersState = userDoc && userDoc.insidersState;
+        } catch (e) {
+          // Non-blocking — if we can't read state, gate will fall back
+        }
+      }
+
+      const gateResult = await KoadHarnessAccessGate.resolveProvider(
+        this.config.access,
+        sponsorUserId,
+        insidersState,
+        this.config.providers
+      );
+
+      if (gateResult.provider) {
+        providerName = gateResult.provider;
+        _accessFallbackReason = gateResult.fallbackReason;
+      }
+    }
+    // ── End Gate Stack ─────────────────────────────────────────────────────────
+
     const provider = KoadHarnessProviders.get(providerName);
-    const providerOpts = this.config.provider[providerName] || {};
+    // Provider options: from providers.<name> block (SPEC-133 config shape)
+    // or legacy provider.<name> block
+    const providerOpts = (this.config.providers && this.config.providers[providerName])
+                         || (this.config.provider && this.config.provider[providerName])
+                         || {};
 
     let fullText = '';
 
@@ -324,11 +362,83 @@ class HarnessInstance {
           KoadHarnessSSE.writeEvent(res, 'error', { message: outputCheck.reason, fallback: fallback('default') });
         } else {
           // Record and accumulate usage with provider rates
+          // SPEC-133: check providers.<name>.rates (new config shape) then legacy provider.<name>.rates
           if (providerUsage) {
-            const rates = (this.config.provider[providerName] && this.config.provider[providerName].rates) || {};
+            const rates = (this.config.providers && this.config.providers[providerName] && this.config.providers[providerName].rates)
+                          || (this.config.provider && this.config.provider[providerName] && this.config.provider[providerName].rates)
+                          || {};
             providerUsage._rates = { input: rates.input || 3.0, output: rates.output || 15.0 };
             this.sessions.recordUsage(session.id, providerUsage);
           }
+
+          // ── SPEC-133 Quota Debit (pre-debit markup) ──────────────────────────
+          // Debit actual provider cost × markup against sponsor's quota window or gas tank.
+          // Fire-and-forget: quota failure after response delivery is logged, not shown.
+          if (providerUsage && sponsorUserId && this.config.access && typeof KoadHarnessAccessGate !== 'undefined') {
+            Meteor.defer(async () => {
+              try {
+                const tierSlug = (() => {
+                  const ud = Meteor.users.findOne(sponsorUserId, { fields: { insidersState: 1 } });
+                  return ud && ud.insidersState && ud.insidersState.current_tier;
+                })();
+                const tierCfg  = this.config.access && this.config.access.tiers && this.config.access.tiers[tierSlug];
+                if (!tierCfg) return;
+
+                const markup    = KoadHarnessAccessGate.getMarkup(tierCfg);
+                const rates     = providerUsage._rates || {};
+                const provCost  = ((providerUsage.prompt_tokens || 0) * (rates.input || 3.0)
+                                   + (providerUsage.completion_tokens || 0) * (rates.output || 15.0)) / 1_000_000;
+                const debitCost = provCost * markup;
+
+                if (tierCfg.monthly_gas_tank_usd != null && globalThis.GasTankStateCollection) {
+                  // Gas tank debit
+                  await globalThis.GasTankStateCollection.updateAsync(sponsorUserId, {
+                    $inc: { monthly_spent_usd: debitCost, window_spent_usd: debitCost },
+                  });
+
+                  // Fire observability events (SPEC-133 §10)
+                  if (globalThis.InsidersLedger) {
+                    const gasDoc = await globalThis.GasTankStateCollection.findOneAsync(sponsorUserId);
+                    if (gasDoc) {
+                      const remaining = (gasDoc.monthly_gas_tank_usd || 0) - (gasDoc.monthly_spent_usd || 0);
+                      if (remaining <= 0) {
+                        globalThis.InsidersLedger.recordEvent(sponsorUserId, {
+                          event_type: 'quota.exhausted', occurred_at: new Date(), source: 'internal',
+                          payload: { quota_model: 'monthly_gas_tank', tier: tierSlug, surface: 'chat' },
+                        }).catch(() => {});
+                      }
+                      if (providerName === 'claude-code' && (gasDoc.monthly_spent_usd || 0) > (gasDoc.monthly_gas_tank_usd || 0)) {
+                        globalThis.InsidersLedger.recordEvent(sponsorUserId, {
+                          event_type: 'overage.triggered', occurred_at: new Date(), source: 'internal',
+                          payload: { tier: tierSlug, surface: 'chat', overage_usd: provCost },
+                        }).catch(() => {});
+                      }
+                    }
+                  }
+
+                } else if (tierCfg.budget_usd != null && globalThis.QuotaWindowsCollection) {
+                  // Windowed budget debit
+                  const docId = `${tierSlug}:${sponsorUserId}`;
+                  await globalThis.QuotaWindowsCollection.updateAsync(docId, {
+                    $inc: { spent_usd: debitCost, request_count: 1 },
+                  });
+
+                  if (globalThis.InsidersLedger) {
+                    const wDoc = await globalThis.QuotaWindowsCollection.findOneAsync(docId);
+                    if (wDoc && (wDoc.spent_usd || 0) >= (tierCfg.budget_usd || 0)) {
+                      globalThis.InsidersLedger.recordEvent(sponsorUserId, {
+                        event_type: 'quota.exhausted', occurred_at: new Date(), source: 'internal',
+                        payload: { quota_model: 'windowed_budget', tier: tierSlug, surface: 'chat' },
+                      }).catch(() => {});
+                    }
+                  }
+                }
+              } catch (err) {
+                console.warn(`[harness:quota] debit error for user=${sponsorUserId}:`, err.message);
+              }
+            });
+          }
+          // ── End Quota Debit ───────────────────────────────────────────────────
           const sessionUsage = this.sessions.getUsage(session.id);
           // Use cleanedText (markers stripped) as the canonical response
           const donePayload = { fullText: cleanedText };
@@ -424,7 +534,9 @@ KoadHarness = {
     for (const config of settings) {
       const instance = new HarnessInstance(config);
       this.instances.push(instance);
-      console.log(`[harness] Registered: ${instance.prefix} → entities: [${config.entities.join(', ')}] provider: ${config.provider.default}`);
+      const providerLabel = (config.provider && config.provider.default)
+                             || (config.providers ? Object.keys(config.providers)[0] : 'configured');
+      console.log(`[harness] Registered: ${instance.prefix} → entities: [${config.entities.join(', ')}] provider: ${providerLabel}`);
       // juno#90: install per-host OG/oembed meta-tag injector if configured.
       if (typeof KoadHarnessOgInjector !== 'undefined') {
         KoadHarnessOgInjector.install(instance);
