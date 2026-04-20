@@ -138,15 +138,18 @@ Template.KingdomOverview.helpers({
   },
 
   // --- Entities view ---
+  // An entity is "active" if it has recent flights, emissions, is flying, or
+  // has a live harness session. Sessions count because orchestrators (Juno)
+  // don't fly — they run, emit heartbeats, and dispatch others.
   activeEntities() {
     return _computeAllEntities().filter(function (e) {
-      return e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight;
+      return e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight || e.hasActiveSession;
     });
   },
 
   bullpenEntities() {
     return _computeAllEntities().filter(function (e) {
-      return !(e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight);
+      return !(e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight || e.hasActiveSession);
     });
   },
 
@@ -398,6 +401,8 @@ function _computeAllEntities() {
     const accent = 'hsl(' + hue + ', ' + sat + '%, ' + Math.min(bri + 20, 60) + '%)';
 
     const activeFlight = Flights ? Flights.findOne({ entity: entity.handle, status: 'flying' }) : null;
+    const HarnessSessions = _col('HarnessSessions');
+    const activeSession = HarnessSessions ? HarnessSessions.findOne({ entity: entity.handle, status: 'active' }) : null;
     const isExpanded = !!expanded[entity.handle];
 
     tick1s.depend();
@@ -450,7 +455,13 @@ function _computeAllEntities() {
       lastFlightAge: lastFlightAge,
       alertItemCount: alertItemCount,
       hasAlerts: alertItemCount > 0,
+      hasActiveSession: !!activeSession,
     };
+
+    if (activeSession) {
+      result.sessionModel = activeSession.model || activeSession.modelId || '';
+      result.sessionContextPct = activeSession.contextPct != null ? Math.round(activeSession.contextPct) : null;
+    }
 
     if (activeFlight) {
       result.activeFlight = true;
