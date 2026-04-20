@@ -1,0 +1,28 @@
+{
+  "name": "leave_message",
+  "description": "Leave a message for another entity in this kingdom. Use this to send notes, feedback, requests, or questions to entities like juno, vulcan, salus, or vesta. The message will be delivered to their inbox via the daemon. Do not use this to respond to the current user — use this only to contact other entities.",
+  "version": "1.0.0",
+  "invocation": "native",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "target": {
+        "type": "string",
+        "description": "Entity handle to receive the message (e.g. 'juno', 'vulcan', 'salus'). Lowercase alphanumeric and hyphens only."
+      },
+      "action": {
+        "type": "string",
+        "description": "Request action type: 'note', 'brief', 'feedback', or 'question'"
+      },
+      "subject": {
+        "type": "string",
+        "description": "Short subject line (3–200 characters)"
+      },
+      "body": {
+        "type": "string",
+        "description": "Full message body (1–4000 characters)"
+      }
+    },
+    "required": ["target", "action", "subject", "body"]
+  }
+}

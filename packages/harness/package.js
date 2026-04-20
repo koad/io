@@ -59,6 +59,9 @@ Package.onUse(function (api) {
   // leave_message tool — entity → daemon inbox dispatch
   api.addFiles('server/pipeline/message-tool.js', 'server');
 
+  // VESTA-SPEC-137: entity tool cascade loader
+  api.addFiles('server/tool-cascade.js', 'server');
+
   // VESTA-SPEC-134: Phase 4 — Layer 4a context loader
   api.addFiles('server/memory-context-loader.js', 'server');
 
@@ -98,6 +101,8 @@ Package.onUse(function (api) {
   api.export('KoadHarnessForgetResolver', 'server');
   // leave_message tool — entity → daemon inbox
   api.export('KoadHarnessMessageTool', 'server');
+  // VESTA-SPEC-137: entity tool cascade
+  api.export('KoadHarnessToolCascade', 'server');
   // VESTA-SPEC-134 Phase 4: Layer 4a context loader
   api.export('KoadHarnessMemoryContextLoader', 'server');
   // VESTA-SPEC-134 Phase 1: client-side crypto exports (browser only)
