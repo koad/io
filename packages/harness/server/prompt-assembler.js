@@ -23,14 +23,21 @@ HARD CONSTRAINTS — violating these breaks the interface:
 
 // VESTA-SPEC-067: Context load order
 // Layer 1: Kingdom (KOAD_IO.md) → Layer 2: Entity (ENTITY.md) → Layer 3: Implement (CLAUDE.md)
-// → Layer 4: Location (PRIMER.md) → Layer 5: Memory → Layer 6: Guardrails (safety cap)
+// → Layer 4a: Per-user memories from UserMemories (VESTA-SPEC-134 §8) ← NEW
+// → Layer 4b: Entity's per-user local notes (local harness only)
+// → Layer 5: PRIMER / current state → Layer 6: Guardrails (safety cap)
 //
 // contextLayers config (optional array) controls which layers are included.
-// Valid layer names: "kingdom", "entity", "implement", "primer", "memory", "guardrails"
+// Valid layer names: "kingdom", "entity", "implement", "user-memories", "primer", "memory", "guardrails"
 // Default (no config): all layers included.
-// Example: ["entity", "primer", "guardrails"] — skips kingdom, implement, memory.
+// "memory" = Layer 4b (entity's local per-user notes); "user-memories" = Layer 4a (SPEC-134 §8).
+// Example: ["entity", "primer", "guardrails"] — skips kingdom, implement, memory layers.
+//
+// Layer 4a (user-memories) is populated asynchronously at session start via
+// KoadHarnessMemoryContextLoader.load(). The string is passed as entity.userMemoriesBlock.
+// If absent or empty, Layer 4a is silently omitted.
 
-const ALL_LAYERS = ['kingdom', 'entity', 'implement', 'primer', 'memory', 'guardrails'];
+const ALL_LAYERS = ['kingdom', 'entity', 'implement', 'user-memories', 'primer', 'memory', 'guardrails'];
 
 function buildSystemPrompt(entity, contextLayers) {
   const layers = contextLayers && contextLayers.length > 0 ? contextLayers : ALL_LAYERS;
@@ -48,6 +55,14 @@ function buildSystemPrompt(entity, contextLayers) {
     parts.push(entity.claudeMd.trim());
   }
 
+  // Layer 4a — per-user memories from UserMemories (VESTA-SPEC-134 §8.2)
+  // Populated at session-start via KoadHarnessMemoryContextLoader.load().
+  // Silently omitted if not present or empty.
+  if (layers.includes('user-memories') && entity.userMemoriesBlock && entity.userMemoriesBlock.trim()) {
+    parts.push(entity.userMemoriesBlock.trim());
+  }
+
+  // Layer 4b — entity's per-user local notes (local harness only)
   if (layers.includes('primer') && entity.primerMd) {
     parts.push('## Current State\n');
     parts.push(entity.primerMd.trim());
