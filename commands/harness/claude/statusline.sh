@@ -151,10 +151,25 @@ if [ -n "$PAYLOAD" ] && [ -n "$_entity_dir_for_outfit" ] \
         "$_entity_dir_for_outfit/.env" 2>/dev/null; then
   _sensor_dir="$_entity_dir_for_outfit/.local/state/harness"
   if mkdir -p "$_sensor_dir" 2>/dev/null; then
+    # last-payload.json — latest payload across all turns (singular, overwritten)
     _sensor_tmp="$_sensor_dir/.last-payload.json.tmp.$$"
     if printf '%s' "$PAYLOAD" > "$_sensor_tmp" 2>/dev/null; then
       mv -f "$_sensor_tmp" "$_sensor_dir/last-payload.json" 2>/dev/null \
         || rm -f "$_sensor_tmp" 2>/dev/null
+    fi
+
+    # sessions/<session_id>.json — per-session record, consumed by daemon's
+    # session-scanner.js to populate HarnessSessions collection.
+    _session_id=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null)
+    if [ -n "$_session_id" ]; then
+      _sessions_dir="$_sensor_dir/sessions"
+      if mkdir -p "$_sessions_dir" 2>/dev/null; then
+        _session_tmp="$_sessions_dir/.${_session_id}.json.tmp.$$"
+        if printf '%s' "$PAYLOAD" > "$_session_tmp" 2>/dev/null; then
+          mv -f "$_session_tmp" "$_sessions_dir/${_session_id}.json" 2>/dev/null \
+            || rm -f "$_session_tmp" 2>/dev/null
+        fi
+      fi
     fi
   fi
 fi
