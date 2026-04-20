@@ -948,3 +948,254 @@ app.use('/api/overview', async (req, res, next) => {
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// GET /api/primitives — list the primitive library
+// GET /api/primitives/<name> — single primitive detail with script content
+// GET /api/entities/<handle>/primitives — installed primitives per entity
+// POST /api/primitives/provision?entity=<handle> — manual provision trigger
+//
+// These implement VESTA-SPEC-136 §9.1–9.4.
+// ---------------------------------------------------------------------------
+
+const primitivesFsPath = Npm.require('path');
+const primitivesFs = Npm.require('fs');
+const primitivesHome = process.env.HOME;
+
+function loadPrimitivesLibraryForApi() {
+  if (globalThis.PrimitivesLibrary && globalThis.PrimitivesLibrary.loadPrimitiveLibrary) {
+    return globalThis.PrimitivesLibrary.loadPrimitiveLibrary();
+  }
+  return [];
+}
+
+// GET /api/primitives/<name> — must be registered before /api/primitives
+app.use('/api/primitives', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  // Strip query string and leading path prefix
+  const stripped = url.replace(/^\/api\/primitives\/?/, '').split('?')[0].replace(/\/$/, '');
+
+  if (!stripped || stripped === 'provision') return next(); // let /api/primitives (list) or /provision handler catch
+
+  // Single primitive detail: GET /api/primitives/<name>
+  const name = decodeURIComponent(stripped);
+  try {
+    const library = loadPrimitivesLibraryForApi();
+    const primitive = library.find(p => p.name === name);
+    if (!primitive) return jsonErr(res, 404, `Primitive '${name}' not found`);
+
+    let script = null;
+    try {
+      script = primitivesFs.readFileSync(primitive.scriptPath, 'utf8');
+    } catch (e) {}
+
+    const { scriptPath, ...rest } = primitive;
+    jsonOk(res, Object.assign({}, rest, { script }));
+  } catch (err) {
+    console.error('[API/primitives/:name] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/primitives — list all primitives in library
+app.use('/api/primitives', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/primitives')) return next();
+  try {
+    const library = loadPrimitivesLibraryForApi();
+    const primitives = library.map(({ scriptPath, ...rest }) => rest);
+    jsonOk(res, { status: 'ok', count: primitives.length, primitives });
+  } catch (err) {
+    console.error('[API/primitives] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// POST /api/primitives/provision?entity=<handle> — manual provision
+app.use('/api/primitives/provision', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const entityHandle = q.entity || null;
+
+    const entities = entityHandle
+      ? EntityScanner.Entities.find({ handle: entityHandle }).fetch()
+      : EntityScanner.Entities.find().fetch();
+
+    if (entityHandle && entities.length === 0) {
+      return jsonErr(res, 404, `Entity '${entityHandle}' not found`);
+    }
+
+    const library = loadPrimitivesLibraryForApi();
+
+    // Re-use the provisioner logic by calling provisionOnce via globalThis
+    // provisioner.js exports nothing directly — we re-implement the sweep here
+    // using the shared library loader and the same pattern. The provisioner
+    // worker will also sweep on its next interval, but this gives an immediate
+    // synchronous summary for the caller.
+
+    const results = [];
+    const pathMod = Npm.require('path');
+    const fsMod = Npm.require('fs');
+    const cryptoMod = Npm.require('crypto');
+
+    function hashFile(fp) {
+      try {
+        const c = fsMod.readFileSync(fp);
+        return 'sha256:' + cryptoMod.createHash('sha256').update(c).digest('hex');
+      } catch (e) { return null; }
+    }
+
+    function readRecord(entityPath, name) {
+      try {
+        return JSON.parse(fsMod.readFileSync(pathMod.join(entityPath, '.patched', name + '.json'), 'utf8'));
+      } catch (e) { return null; }
+    }
+
+    function hasOptout(entityPath, name) {
+      try { fsMod.accessSync(pathMod.join(entityPath, '.patched', name + '.optout')); return true; }
+      catch (e) { return false; }
+    }
+
+    for (const entity of entities) {
+      if (!entity.path) continue;
+      for (const primitive of library) {
+        if (!primitive.roles.includes('*') && entity.role && !primitive.roles.includes(entity.role)) continue;
+        if (!primitive.roles.includes('*') && !entity.role) continue;
+
+        const name = primitive.name;
+        let action = 'no_op';
+
+        if (hasOptout(entity.path, name)) {
+          action = 'skipped_optout';
+        } else {
+          const record = readRecord(entity.path, name);
+          if (!record) {
+            action = 'eligible_not_installed';
+          } else {
+            const currentHash = hashFile(record.install_path);
+            const cmp = (function semCmp(a, b) {
+              const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+              for (let i = 0; i < 3; i++) {
+                const na = pa[i] || 0, nb = pb[i] || 0;
+                if (na < nb) return -1; if (na > nb) return 1;
+              }
+              return 0;
+            })(record.version, primitive.version);
+            if (cmp < 0 && currentHash === record.source_hash) action = 'upgrade_notice_emitted';
+            else if (cmp < 0) action = 'skipped_customized';
+            else if (cmp > 0) action = 'version_anomaly';
+            else if (currentHash !== record.source_hash) action = 'skipped_customized';
+            else action = 'no_op';
+          }
+        }
+
+        results.push({ entity: entity.handle, primitive: name, action });
+      }
+    }
+
+    jsonOk(res, {
+      status: 'ok',
+      ran_at: new Date().toISOString(),
+      entity: entityHandle || 'all',
+      summary: results,
+    });
+  } catch (err) {
+    console.error('[API/primitives/provision] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/entities/<handle>/primitives — installed primitives state per entity
+// Must be registered BEFORE /api/entities to avoid prefix shadowing.
+app.use('/api/entities', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  const m = url.match(/^\/api\/entities\/([^/?]+)\/primitives/);
+  if (!m) return next();
+
+  const handle = decodeURIComponent(m[1]);
+  try {
+    const entity = await EntityScanner.Entities.findOneAsync({ handle });
+    if (!entity) return jsonErr(res, 404, `Entity '${handle}' not found`);
+
+    const library = loadPrimitivesLibraryForApi();
+    const entityPath = entity.path;
+    const fsMod = Npm.require('fs');
+    const pathMod = Npm.require('path');
+    const cryptoMod = Npm.require('crypto');
+
+    function hashFile(fp) {
+      try {
+        const c = fsMod.readFileSync(fp);
+        return 'sha256:' + cryptoMod.createHash('sha256').update(c).digest('hex');
+      } catch (e) { return null; }
+    }
+
+    function readRecord(name) {
+      try {
+        return JSON.parse(fsMod.readFileSync(pathMod.join(entityPath, '.patched', name + '.json'), 'utf8'));
+      } catch (e) { return null; }
+    }
+
+    function checkOptout(name) {
+      try { fsMod.accessSync(pathMod.join(entityPath, '.patched', name + '.optout')); return true; }
+      catch (e) { return false; }
+    }
+
+    const entries = [];
+
+    // Add all library primitives eligible for this entity + opted-out ones
+    const seen = new Set();
+    for (const primitive of library) {
+      const { name, kind, version: libVersion } = primitive;
+      seen.add(name);
+      const roleMatches = primitive.roles.includes('*') || (entity.role && primitive.roles.includes(entity.role));
+
+      if (checkOptout(name)) {
+        entries.push({ name, kind, status: 'opted_out', installed_version: null, library_version: libVersion, customized: false, pinned: false, opted_out: true });
+        continue;
+      }
+
+      if (!roleMatches) {
+        entries.push({ name, kind, status: 'role_mismatch', installed_version: null, library_version: libVersion, customized: false, pinned: false, opted_out: false });
+        continue;
+      }
+
+      const record = readRecord(name);
+      if (!record) {
+        entries.push({ name, kind, status: 'not_installed', installed_version: null, library_version: libVersion, customized: false, pinned: false, opted_out: false });
+        continue;
+      }
+
+      const currentHash = hashFile(record.install_path);
+      const customized = !currentHash || currentHash !== record.source_hash;
+      const pinned = record.pinned || false;
+
+      const semCmp = (function(a, b) {
+        const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+        for (let i = 0; i < 3; i++) {
+          const na = pa[i] || 0, nb = pb[i] || 0;
+          if (na < nb) return -1; if (na > nb) return 1;
+        }
+        return 0;
+      })(record.version, libVersion);
+
+      let status;
+      if (semCmp > 0) status = 'version_anomaly';
+      else if (semCmp < 0 && !customized) status = 'upgrade_available';
+      else if (customized) status = 'customized';
+      else status = 'current';
+
+      entries.push({ name, kind, status, installed_version: record.version, library_version: libVersion, customized, pinned, opted_out: false });
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    jsonOk(res, { status: 'ok', entity: handle, count: entries.length, primitives: entries });
+  } catch (err) {
+    console.error('[API/entities/:handle/primitives] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
