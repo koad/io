@@ -145,18 +145,30 @@ function ensureDir(dirPath) {
 
 // ---------------------------------------------------------------------------
 // Emission helper — always attributed to the target entity (SPEC-136 §4)
+// Uses direct collection insert (same path as the entity.emit Meteor method)
+// rather than Meteor.callAsync so it works reliably inside worker task context.
 // ---------------------------------------------------------------------------
 
 function emitForEntity(entityHandle, type, body, meta) {
   try {
-    Meteor.callAsync('entity.emit', {
+    const Emissions = globalThis.EmissionsCollection;
+    if (!Emissions) {
+      console.warn(`[PROVISIONER] EmissionsCollection not ready, skipping emit for ${entityHandle}`);
+      return;
+    }
+    const now = new Date();
+    const doc = {
       entity: entityHandle,
       type,
       body,
+      timestamp: now,
       meta: Object.assign({ source: 'provisioner' }, meta || {}),
-    }).catch(e => {
-      console.error(`[PROVISIONER] emit failed for ${entityHandle}: ${e.message}`);
-    });
+    };
+    const id = Emissions.insert(doc);
+    EntityScanner.Entities.update({ handle: entityHandle }, { $set: { lastActivity: now } });
+    if (globalThis.evaluateEmissionTriggers) {
+      globalThis.evaluateEmissionTriggers(Object.assign({}, doc, { _id: id }), 'emit');
+    }
   } catch (e) {
     console.error(`[PROVISIONER] emit error for ${entityHandle}: ${e.message}`);
   }
