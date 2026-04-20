@@ -265,6 +265,39 @@ Template.KingdomOverview.helpers({
     });
   },
 
+  activeSessionsList() {
+    const HarnessSessions = _col('HarnessSessions');
+    if (!HarnessSessions) return [];
+    tick1s.depend();
+    return HarnessSessions.find({ status: 'active' }, { sort: { lastSeen: -1 } }).map(function (s) {
+      var ctx = s.contextPct != null ? Math.round(s.contextPct) : null;
+      var pressure = 'low';
+      if (ctx != null) {
+        if (ctx >= 85) pressure = 'high';
+        else if (ctx >= 60) pressure = 'mid';
+      }
+      return {
+        entity: s.entity,
+        entityColor: KoadOverview._entityColor(s.entity),
+        model: s.model || s.modelId || '—',
+        host: s.host || '',
+        contextPct: ctx,
+        pressure: pressure,
+        cost: s.cost != null ? s.cost : null,
+        harness: s.harness || '',
+        source: s.source || '',
+        lastSeen: KoadOverview._relativeTime(s.lastSeen),
+      };
+    });
+  },
+
+  activeSessionsCount() {
+    const HarnessSessions = _col('HarnessSessions');
+    if (!HarnessSessions) return 0;
+    tick1s.depend();
+    return HarnessSessions.find({ status: 'active' }).count();
+  },
+
   alertFeed() {
     const Alerts = _col('Alerts');
     if (!Alerts) return [];
