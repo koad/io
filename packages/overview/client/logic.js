@@ -592,6 +592,7 @@ Template.KingdomOverview.helpers({
         entity: flight.entity,
         entityColor: KoadOverview._entityColor(flight.entity),
         briefSlug: flight.briefSlug || '',
+        briefSummary: flight.briefSummary || '',
         status: flight.status,
         model: flight.model || '',
         elapsed: KoadOverview._formatElapsed(flight.elapsed),
@@ -800,6 +801,7 @@ Template.EntityProfilePanel.helpers({
       const hasStats = f.stats && (f.stats.toolCalls || f.stats.cost);
       return {
         briefSlug: f.briefSlug || '(unnamed)',
+        briefSummary: f.briefSummary || '',
         status: f.status,
         model: f.model || '',
         elapsed: KoadOverview._formatElapsed(f.elapsed),

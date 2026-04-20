@@ -462,7 +462,7 @@
               {{#if model}}<span class="flight-model">{{model}}</span>{{/if}}
               <span class="emission-time">{{elapsed}}</span>
             </div>
-            <div class="emission-body">{{briefSlug}}{{#if briefSummary}} &mdash; {{briefSummary}}{{/if}}</div>
+            <div class="emission-body">{{#if briefSummary}}{{briefSummary}}{{else}}{{briefSlug}}{{/if}}</div>
           </div>
         {{/each}}
       </div>
@@ -541,7 +541,7 @@
               {{#if model}}<span class="flight-model">{{model}}</span>{{/if}}
               <span class="emission-time">{{relativeTime}}</span>
             </div>
-            <div class="emission-body">{{briefSlug}} &mdash; {{elapsed}}{{#if completionSummary}} &mdash; {{completionSummary}}{{/if}}</div>
+            <div class="emission-body">{{#if briefSummary}}{{briefSummary}}{{else}}{{briefSlug}}{{/if}} &mdash; {{elapsed}}</div>
             {{#if hasStats}}
               <div class="emission-stats">
                 {{#if stats.toolCalls}}<span class="emission-stat"><span class="sv">{{stats.toolCalls}}</span> tools</span>{{/if}}
@@ -644,7 +644,7 @@
             {{#if model}}<span class="flight-model">{{model}}</span>{{/if}}
             <span class="emission-time">{{relativeTime}}</span>
           </div>
-          <div class="emission-body">{{briefSlug}} &mdash; {{elapsed}}</div>
+          <div class="emission-body">{{#if briefSummary}}{{briefSummary}}{{else}}{{briefSlug}}{{/if}} &mdash; {{elapsed}}</div>
           {{#if hasStats}}
             <div class="emission-stats">
               {{#if stats.toolCalls}}<span class="emission-stat"><span class="sv">{{stats.toolCalls}}</span> tools</span>{{/if}}
