@@ -129,15 +129,56 @@ async function sweepOnce(daysOverride) {
   return summary;
 }
 
-Meteor.startup(() => {
+Meteor.startup(async () => {
   ensureDir(ARCHIVE_DIR);
   console.log(`[ARCHIVER] active — keeping last ${ARCHIVE_DAYS}d in memory, archiving older to ${ARCHIVE_DIR}`);
 
-  // First sweep after a delay so indexers have time to populate
-  Meteor.setTimeout(() => sweepOnce(), STARTUP_DELAY_S * 1000);
+  // Convert sweep interval from seconds to minutes for koad.workers (minimum 1 min)
+  const sweepIntervalMinutes = Math.max(1, Math.round(SWEEP_INTERVAL_S / 60));
 
-  // Then on interval
-  Meteor.setInterval(() => sweepOnce(), SWEEP_INTERVAL_S * 1000);
+  if (typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
+    await koad.workers.start({
+      service: 'archive-sweep',
+      type: 'indexer',
+      interval: sweepIntervalMinutes,
+      runImmediately: false,
+      task: async () => {
+        // Emit service lifecycle so the daemon's own sweep is observable
+        // Emitting as 'koad-io' (framework label) rather than 'daemon' because
+        // EntityScanner may not have a registered entity handle of 'daemon' —
+        // 'koad-io' is a known framework handle that safely absorbs internal ops.
+        let eid = null;
+        try {
+          const opened = await Meteor.callAsync('entity.emit', {
+            entity: 'koad-io', type: 'service', body: 'archive sweep running', lifecycle: 'open'
+          });
+          eid = opened && opened._id ? opened._id : null;
+        } catch (e) {
+          // Emission is best-effort — don't abort the sweep if emit fails
+        }
+        try {
+          const summary = await sweepOnce();
+          const totalArchived = Object.values(summary.targets).reduce((n, t) => n + (t.archived || 0), 0);
+          if (eid) {
+            await Meteor.callAsync('entity.emit.update', eid, `archived ${totalArchived} records`, 'close');
+          }
+        } catch (err) {
+          if (eid) {
+            try {
+              await Meteor.callAsync('entity.emit.update', eid, `sweep failed: ${err.message}`, 'close');
+            } catch (e) {}
+          }
+          throw err;
+        }
+      }
+    });
+  } else {
+    console.warn('[ARCHIVER] koad.workers unavailable — falling back to Meteor.setInterval');
+    // First sweep after a delay so indexers have time to populate
+    Meteor.setTimeout(() => sweepOnce(), STARTUP_DELAY_S * 1000);
+    // Then on interval
+    Meteor.setInterval(() => sweepOnce(), SWEEP_INTERVAL_S * 1000);
+  }
 });
 
 // Manual trigger

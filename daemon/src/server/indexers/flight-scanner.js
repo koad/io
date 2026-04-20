@@ -213,8 +213,8 @@ function periodicStaleCheck() {
   });
 }
 
-Meteor.startup(() => {
-  Meteor.setTimeout(() => {
+Meteor.startup(async () => {
+  Meteor.setTimeout(async () => {
     scanAll();
 
     // Sweep stale flights immediately after the initial scan — catches any
@@ -231,10 +231,46 @@ Meteor.startup(() => {
       },
     });
 
-    // Periodic stale-check every 60s
-    Meteor.setInterval(() => periodicStaleCheck(), 60000);
-
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.flights = new Date().toISOString();
+
+    // Periodic stale-check — move to koad.workers (1-minute interval)
+    if (typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
+      await koad.workers.start({
+        service: 'flight-stale-check',
+        type: 'indexer',
+        interval: 1,
+        runImmediately: true,
+        task: async () => {
+          let eid = null;
+          try {
+            const opened = await Meteor.callAsync('entity.emit', {
+              entity: 'koad-io', type: 'service', body: 'flight stale check running', lifecycle: 'open'
+            });
+            eid = opened && opened._id ? opened._id : null;
+          } catch (e) {}
+          try {
+            const Flights = globalThis.FlightsCollection;
+            const before = Flights ? Flights.find({ status: 'flying' }).count() : 0;
+            periodicStaleCheck();
+            const after = Flights ? Flights.find({ status: 'flying' }).count() : 0;
+            const marked = before - after;
+            if (eid) {
+              await Meteor.callAsync('entity.emit.update', eid, `stale check: ${marked} flights marked stale`, 'close');
+            }
+          } catch (err) {
+            if (eid) {
+              try {
+                await Meteor.callAsync('entity.emit.update', eid, `stale check failed: ${err.message}`, 'close');
+              } catch (e) {}
+            }
+            throw err;
+          }
+        }
+      });
+    } else {
+      console.warn('[FLIGHT-SCANNER] koad.workers unavailable — falling back to Meteor.setInterval');
+      Meteor.setInterval(() => periodicStaleCheck(), 60000);
+    }
   }, 1500);
 });

@@ -1,0 +1,9 @@
+{
+  "name": "commit-self-check",
+  "kind": "trigger",
+  "version": "1.0.0",
+  "description": "Verifies the last git commit in the entity's home dir was authored by the entity. Emits a warning if authorship does not match.",
+  "roles": ["engineer"],
+  "requires": ["KOAD_IO_EMIT"],
+  "tags": ["git", "authorship", "integrity", "engineer"]
+}

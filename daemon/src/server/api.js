@@ -755,6 +755,33 @@ app.use('/api/alerts', async (req, res, next) => {
   }
 });
 
+// GET /api/workers — worker process status (koad:io-worker-processes)
+// Returns all workers registered in WorkerProcesses collection, sorted by service name.
+// errors[] is stripped to a count to avoid leaking stack traces.
+app.use('/api/workers', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/workers')) return next();
+  try {
+    // WorkerProcesses collection is declared in packages/workers with Mongo name 'workers'
+    const WorkersRef = new Mongo.Collection('workers', { connection: null });
+    const raw = await WorkersRef.find({}, { sort: { service: 1 } }).fetchAsync();
+
+    // Project out stack traces — include error count only
+    const workers = raw.map(w => {
+      const safe = Object.assign({}, w);
+      if (Array.isArray(safe.errors)) {
+        safe.errorCount = safe.errors.length;
+        delete safe.errors;
+      }
+      return safe;
+    });
+
+    jsonOk(res, { status: 'ok', count: workers.length, workers });
+  } catch (err) {
+    console.error('[API/workers] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // GET /overview — public-safe kingdom snapshot (VESTA-SPEC-135)
 // 60s TTL cache; CORS open; no auth required.
