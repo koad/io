@@ -74,6 +74,28 @@ Meteor.methods({
     EntityScanner.Entities.update({ handle: data.entity }, { $set: { lastActivity: now } });
     console.log(`[EMIT] ${data.entity}/${data.type}: ${data.body}${isLifecycle ? ' (lifecycle:open)' : ''}`);
 
+    // Heartbeat: keep the most-recent active HarnessSessions record fresh.
+    // This gives a near-real-time session signal even when last-payload.json
+    // hasn't changed and the stale-check interval hasn't fired yet.
+    try {
+      const Sessions = globalThis.SessionsCollection;
+      if (Sessions) {
+        const activeSessions = Sessions.find({
+          entity: data.entity,
+          status: 'active',
+        }).fetch();
+        if (activeSessions.length > 0) {
+          // Pick the most-recently-started session
+          const mostRecent = activeSessions.reduce((a, b) =>
+            new Date(a.startedAt || 0) >= new Date(b.startedAt || 0) ? a : b
+          );
+          Sessions.update(mostRecent._id, { $set: { lastSeen: now } });
+        }
+      }
+    } catch (e) {
+      // Non-fatal — heartbeat failure must not affect emission path
+    }
+
     // Reactive layer — fire matching triggers
     if (globalThis.evaluateEmissionTriggers) {
       const event = isLifecycle ? 'open' : 'emit';
