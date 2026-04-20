@@ -507,6 +507,18 @@ class HarnessInstance {
         }
         // ── End memory signal extraction ──────────────────────────────────────
 
+        // ── leave_message tool — daemon inbox dispatch ─────────────────────────
+        // Extract and strip <<LEAVE_MESSAGE: json>> markers.
+        // Fires registered callback (fire-and-forget). Must not block delivery.
+        if (typeof KoadHarnessMessageTool !== 'undefined') {
+          cleanedText = KoadHarnessMessageTool.parse(cleanedText, {
+            entity:    entityHandle,
+            sessionId: session.id,
+            userId:    sponsorUserId,
+          });
+        }
+        // ── End leave_message tool ─────────────────────────────────────────────
+
         const outputCheck = KoadHarnessOutputFilter.scan(cleanedText, entity);
         if (!outputCheck.clean) {
           this.log(`output blocked: session=${session.id} reason=${outputCheck.reason}`);
