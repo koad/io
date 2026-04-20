@@ -20,8 +20,9 @@ Package.onUse(function (api) {
   api.addFiles([
     'client/helpers/time.js',
     'client/helpers/color.js',
-    'client/overview.html',
-    'client/overview.js',
+    'client/templates.html',
+    'client/logic.js',
+    'client/styles.css',
   ], 'client');
 
   // Expose package-level setting helpers to the host app

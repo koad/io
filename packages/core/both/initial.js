@@ -1,17 +1,40 @@
 // both/initial.js — Initialize the koad global object.
 //
-// Phase 2: koad object base shape sourced from @koad-io/node (the standalone
-// Node.js module at ~/.koad-io/modules/node/). The daemon app declares this
-// as a file: dep in daemon/src/package.json so Meteor's bundler can resolve it.
+// The canonical koad object shape lives in ~/.koad-io/modules/node/ for use
+// by CLI tools, non-Meteor apps, and future runtimes. Inside Meteor, we
+// construct the same shape inline because Meteor packages can't require()
+// from the app's node_modules (they resolve against their own .npm tree).
 //
-// This file is loaded first (see package.js api.addFiles order) and establishes
-// the globalThis.koad global. Subsequent files in the package decorate it with
-// Meteor-specific properties (reactive vars, collections, etc.).
-
-import { koad as _koad } from '@koad-io/node';
+// Keep this in sync with modules/node/index.js.
 
 console.log('koad:io - loading has begun');
 
-// Assign to globalThis so the Meteor global `koad` is available everywhere.
-// We spread to get a plain mutable copy; the module's export is also plain.
-globalThis.koad = Object.assign({}, _koad);
+koad = {
+	maintenance: true,
+	lighthouse: null,
+	extension: null,
+	instance: null,
+	gateway: null,
+	session: null,
+	internals: 'unset',
+	identity: {},
+	storage: {},
+	library: {},
+	format: {
+		timestamp: function(d, s) {
+		if(!d) d = new Date();
+		if(!s) s = ":";
+		  const date = new Date(d);
+		  const year = date.getFullYear();
+		  const month = String(date.getMonth() + 1).padStart(2, '0');
+		  const day = String(date.getDate()).padStart(2, '0');
+		  const hours = String(date.getHours()).padStart(2, '0');
+		  const minutes = String(date.getMinutes()).padStart(2, '0');
+		  const seconds = String(date.getSeconds()).padStart(2, '0');
+		  return `${year}${s}${month}${s}${day}${s}${hours}${s}${minutes}${s}${seconds}`;
+		}
+	},
+	seeders: [],
+	emitters: [],
+	trackers: []
+};

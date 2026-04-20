@@ -7,6 +7,15 @@ import { Tracker } from 'meteor/tracker';
 // and overview.js; forge via daemon-bridge.js). Package reads, never owns.
 function _col(name) { return globalThis[name] || null; }
 
+
+// =====================================================================
+// Additional collections — not in initial package.js but used by host apps
+// =====================================================================
+// These follow the same pattern as other collections — host provides, package reads.
+
+const _crossKingdomBonds = new ReactiveVar('list');
+const _envIndex = _col('EnvIndex');
+
 // Reactive clocks — same convention as koad:io-templating constants.
 const tick1s = new Tracker.Dependency();
 const tick1m = new Tracker.Dependency();
@@ -20,9 +29,11 @@ const _hostname = new ReactiveVar('...');
 KoadOverview.setHostname = function (name) { _hostname.set(name); };
 
 const _currentView = new ReactiveVar('entities');
-const _expandedEntities = new ReactiveVar({});
+const _selectedEntity = new ReactiveVar(null);
 const _flightFilter = new ReactiveVar('all');
 const _bondView = new ReactiveVar('graph');
+const _searchQuery = new ReactiveVar('');
+const _kingdomFilter = new ReactiveVar('');
 
 // =====================================================================
 // KingdomOverview template
@@ -39,6 +50,29 @@ Template.KingdomOverview.onCreated(function () {
       if (!err && result) _hostname.set(result);
     });
   }
+
+  // Fetch health data from daemon
+  if (Meteor.call) {
+    Meteor.call('getHealth', function (err, result) {
+      if (!err && result) {
+        KoadOverview._health = result;
+      }
+    });
+  }
+
+  // Esc key deselects the current entity. Bound on document because focus
+  // may be anywhere (or nowhere). Stored on the template instance so the
+  // onDestroyed hook can remove it cleanly on teardown.
+  this._escHandler = function (e) {
+    if (e.key === 'Escape' && _selectedEntity.get()) {
+      _selectedEntity.set(null);
+    }
+  };
+  document.addEventListener('keydown', this._escHandler);
+});
+
+Template.KingdomOverview.onDestroyed(function () {
+  if (this._escHandler) document.removeEventListener('keydown', this._escHandler);
 });
 
 Template.KingdomOverview.events({
@@ -55,20 +89,29 @@ Template.KingdomOverview.events({
   'click .entity-card'(event) {
     const handle = event.currentTarget.dataset.handle;
     if (!handle) return;
-    const current = _expandedEntities.get();
-    const updated = Object.assign({}, current);
-    if (updated[handle]) {
-      delete updated[handle];
-    } else {
-      updated[handle] = true;
-    }
-    _expandedEntities.set(updated);
+    _selectedEntity.set(_selectedEntity.get() === handle ? null : handle);
+  },
+  'click .deselect-entity'() {
+    _selectedEntity.set(null);
   },
   'click .flight-filter'(event) {
     const filter = event.currentTarget.dataset.filter;
     if (filter) _flightFilter.set(filter);
     const bondView = event.currentTarget.dataset.bondView;
     if (bondView) _bondView.set(bondView);
+  },
+  'click .cross-kingdom-filter'(event) {
+    const view = event.currentTarget.dataset.crossKingdomView;
+    if (view) _crossKingdomBonds.set(view);
+  },
+  'input .search-input'(event) {
+    _searchQuery.set(event.currentTarget.value);
+  },
+  'input .kingdom-filter-input'(event) {
+    _kingdomFilter.set(event.currentTarget.value);
+  },
+  'click .clear-search'(event) {
+    _searchQuery.set('');
   },
 });
 
@@ -84,6 +127,13 @@ Template.KingdomOverview.helpers({
   // Profile URL helper — uses KoadOverview._entityProfileUrl
   entityProfileUrl(handle) { return KoadOverview._entityProfileUrl(handle); },
 
+  // --- Search & Filter ---
+  searchQuery() { return _searchQuery.get(); },
+  hasSearch() { return _searchQuery.get().length > 0; },
+  kingdomFilter() { return _kingdomFilter.get(); },
+  hasKingdomFilter() { return _kingdomFilter.get().length > 0; },
+  clearSearch() { _searchQuery.set(''); },
+
   // --- Aggregate stats ---
   entityCount() {
     const Entities = _col('Entities');
@@ -92,7 +142,11 @@ Template.KingdomOverview.helpers({
 
   flyingCount() {
     const Flights = _col('Flights');
-    return Flights ? Flights.find({ status: 'flying' }).count() : 0;
+    if (!Flights) return 0;
+    const sel = _selectedEntity.get();
+    const q = { status: 'flying' };
+    if (sel) q.entity = sel;
+    return Flights.find(q).count();
   },
 
   totalBonds() {
@@ -127,6 +181,42 @@ Template.KingdomOverview.helpers({
     return t;
   },
 
+  // --- System Health ---
+  healthUptime() {
+    return KoadOverview._health ? KoadOverview._health.uptime : '—';
+  },
+  healthPid() {
+    return KoadOverview._health ? KoadOverview._health.pid : '—';
+  },
+  healthNode() {
+    return KoadOverview._health ? KoadOverview._health.node : '—';
+  },
+  indexerStatus() {
+    if (!KoadOverview._health || !KoadOverview._health.indexers) return [];
+    return Object.entries(KoadOverview._health.indexers).map(function (entry) {
+      return { name: entry[0], ready: !!entry[1], updated: entry[1] || '—' };
+    });
+  },
+  collectionStats() {
+    const stats = [];
+    if (KoadOverview._health && KoadOverview._health.counts) {
+      const names = ['flights', 'emissions', 'passengers', 'sessions'];
+      for (const name of names) {
+        if (KoadOverview._health.counts[name] != null) {
+          stats.push({ name: name, count: KoadOverview._health.counts[name] });
+        }
+      }
+    }
+    // Add from collections
+    const Entities = _col('Entities');
+    const Flights = _col('Flights');
+    const Emissions = _col('Emissions');
+    if (Entities) stats.push({ name: 'entities', count: Entities.find().count() });
+    if (Flights) stats.push({ name: 'flights', count: Flights.find().count() });
+    if (Emissions) stats.push({ name: 'emissions', count: Emissions.find().count() });
+    return stats;
+  },
+
   // --- Kingdoms ---
   hasKingdoms() {
     const Kingdoms = _col('Kingdoms');
@@ -134,27 +224,112 @@ Template.KingdomOverview.helpers({
   },
   kingdoms() {
     const Kingdoms = _col('Kingdoms');
-    return Kingdoms ? Kingdoms.find().fetch() : [];
+    const Flights = _col('Flights');
+    const Emissions = _col('Emissions');
+    const Entities = _col('Entities');
+    if (!Kingdoms) return [];
+    tick1m.depend();
+    return Kingdoms.find().fetch().map(function (k) {
+      // Count entities in this kingdom
+      const entityCount = Entities ? Entities.find({ kingdomId: k.name }).count() : 0;
+      // Count flights in last 24h for kingdom entities
+      let flights24h = 0;
+      if (Flights && entityCount > 0) {
+        const cutoff = new Date(Date.now() - 86400000);
+        const handles = Entities ? Entities.find({ kingdomId: k.name }, { fields: { handle: 1 } }).fetch().map(function (e) { return e.handle; }) : [];
+        flights24h = Flights.find({ entity: { $in: handles }, started: { $gte: cutoff } }).count();
+      }
+      // Count emissions in last 24h
+      let emissions24h = 0;
+      if (Emissions && entityCount > 0) {
+        const cutoff = new Date(Date.now() - 86400000);
+        const handles = Entities ? Entities.find({ kingdomId: k.name }, { fields: { handle: 1 } }).fetch().map(function (e) { return e.handle; }) : [];
+        emissions24h = Emissions.find({ entity: { $in: handles }, timestamp: { $gte: cutoff } }).count();
+      }
+      return Object.assign({}, k, {
+        memberCount: entityCount,
+        flights24h: flights24h,
+        emissions24h: emissions24h,
+      });
+    });
+  },
+
+  // --- Cross-kingdom bonds ---
+  crossKingdomBondsView() { return _crossKingdomBonds.get(); },
+  crossKingdomViewClass(name) { return _crossKingdomBonds.get() === name ? 'active' : ''; },
+  crossKingdomCount() {
+    const CrossKingdomBonds = _col('CrossKingdomBonds');
+    return CrossKingdomBonds ? CrossKingdomBonds.find().count() : 0;
+  },
+  crossKingdomBondsGrouped() {
+    const CrossKingdomBonds = _col('CrossKingdomBonds');
+    if (!CrossKingdomBonds) return [];
+    return CrossKingdomBonds.find().fetch();
+  },
+
+  // --- Env vars (injected identity) ---
+  entityEnv(handle) {
+    const EnvIndex = _col('EnvIndex');
+    if (!EnvIndex) return null;
+    return EnvIndex.findOne({ handle });
+  },
+  entityRole(handle) {
+    const entityEnv = Template.KingdomOverview.helpers.entityEnv(handle);
+    return entityEnv ? entityEnv.role : null;
+  },
+  entityPurpose(handle) {
+    const entityEnv = Template.KingdomOverview.helpers.entityEnv(handle);
+    return entityEnv ? entityEnv.purpose : null;
+  },
+  entityHarness(handle) {
+    const entityEnv = Template.KingdomOverview.helpers.entityEnv(handle);
+    return entityEnv ? entityEnv.harness : null;
   },
 
   // --- Entities view ---
-  // An entity is "active" if it has recent flights, emissions, is flying, or
-  // has a live harness session. Sessions count because orchestrators (Juno)
-  // don't fly — they run, emit heartbeats, and dispatch others.
   activeEntities() {
+    const q = _searchQuery.get().toLowerCase();
+    const kf = _kingdomFilter.get().toLowerCase();
     return _computeAllEntities().filter(function (e) {
-      return e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight || e.hasActiveSession;
+      // Search filter
+      if (q && e.handle.toLowerCase().indexOf(q) === -1 &&
+          (!e.tagline || e.tagline.toLowerCase().indexOf(q) === -1) &&
+          (!e.role || e.role.toLowerCase().indexOf(q) === -1) &&
+          (!e.purpose || e.purpose.toLowerCase().indexOf(q) === -1)) return false;
+      // Kingdom filter
+      if (kf && (!e.kingdomId || e.kingdomId.toLowerCase().indexOf(kf) === -1)) return false;
+      return e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight;
     });
   },
 
   bullpenEntities() {
+    const q = _searchQuery.get().toLowerCase();
+    const kf = _kingdomFilter.get().toLowerCase();
     return _computeAllEntities().filter(function (e) {
-      return !(e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight || e.hasActiveSession);
+      // Search filter
+      if (q && e.handle.toLowerCase().indexOf(q) === -1 &&
+          (!e.tagline || e.tagline.toLowerCase().indexOf(q) === -1) &&
+          (!e.role || e.role.toLowerCase().indexOf(q) === -1) &&
+          (!e.purpose || e.purpose.toLowerCase().indexOf(q) === -1)) return false;
+      // Kingdom filter
+      if (kf && (!e.kingdomId || e.kingdomId.toLowerCase().indexOf(kf) === -1)) return false;
+      return !(e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight);
     });
   },
 
   entities() {
-    return _computeAllEntities();
+    const q = _searchQuery.get().toLowerCase();
+    const kf = _kingdomFilter.get().toLowerCase();
+    return _computeAllEntities().filter(function (e) {
+      // Search filter
+      if (q && e.handle.toLowerCase().indexOf(q) === -1 &&
+          (!e.tagline || e.tagline.toLowerCase().indexOf(q) === -1) &&
+          (!e.role || e.role.toLowerCase().indexOf(q) === -1) &&
+          (!e.purpose || e.purpose.toLowerCase().indexOf(q) === -1)) return false;
+      // Kingdom filter
+      if (kf && (!e.kingdomId || e.kingdomId.toLowerCase().indexOf(kf) === -1)) return false;
+      return true;
+    });
   },
 
   // --- Flights view ---
@@ -252,11 +427,61 @@ Template.KingdomOverview.helpers({
   },
 
   // --- Activity panel ---
+  selectedEntityHandle() {
+    return _selectedEntity.get();
+  },
+
+  selectedEntityData() {
+    const handle = _selectedEntity.get();
+    if (!handle) return null;
+    const Entities = _col('Entities');
+    const Passengers = _col('Passengers');
+    const EnvIndex = _col('EnvIndex');
+    const BondsIndex = _col('BondsIndex');
+    const KeysIndex = _col('KeysIndex');
+    const TicklerIndex = _col('TicklerIndex');
+    const entity = Entities ? Entities.findOne({ handle }) : null;
+    if (!entity) return null;
+    const passenger = Passengers ? Passengers.findOne({ handle }) : null;
+    const envDoc = EnvIndex ? EnvIndex.findOne({ handle }) : null;
+    const bondsDoc = BondsIndex ? BondsIndex.findOne({ handle }) : null;
+    const keysDoc = KeysIndex ? KeysIndex.findOne({ handle }) : null;
+    const tickleDoc = TicklerIndex ? TicklerIndex.findOne({ handle }) : null;
+    const outfit = passenger && passenger.outfit;
+    const hue = outfit ? outfit.hue : 0;
+    const sat = outfit ? outfit.saturation : 0;
+    const bri = outfit ? outfit.brightness : 30;
+    return {
+      handle,
+      avatarImage: passenger ? passenger.image : null,
+      firstLetter: handle.charAt(0).toUpperCase(),
+      accentColor: 'hsl(' + hue + ', ' + sat + '%, ' + Math.min(bri + 20, 60) + '%)',
+      tagline: entity.tagline || null,
+      role: entity.role || null,
+      kingdomId: entity.kingdomId || null,
+      host: entity.homeMachine || null,
+      // Env-derived
+      purpose: envDoc ? envDoc.purpose : null,
+      harness: envDoc ? envDoc.harness : null,
+      // Counts
+      bondCount: bondsDoc ? bondsDoc.count : 0,
+      keyCount: keysDoc ? keysDoc.count : 0,
+      tickleCount: tickleDoc ? tickleDoc.count : 0,
+      // Full lists for detail view
+      bonds: bondsDoc ? bondsDoc.bonds || [] : [],
+      keys: keysDoc ? keysDoc.keys || [] : [],
+      tickles: tickleDoc ? tickleDoc.tickles || [] : [],
+    };
+  },
+
   activeFlightsList() {
     const Flights = _col('Flights');
     if (!Flights) return [];
     tick1s.depend();
-    return Flights.find({ status: 'flying' }, { sort: { started: -1 } }).map(function (flight) {
+    const sel = _selectedEntity.get();
+    const q = { status: 'flying' };
+    if (sel) q.entity = sel;
+    return Flights.find(q, { sort: { started: -1 } }).map(function (flight) {
       return {
         entity: flight.entity,
         entityColor: KoadOverview._entityColor(flight.entity),
@@ -268,44 +493,56 @@ Template.KingdomOverview.helpers({
     });
   },
 
-  activeSessionsList() {
-    const HarnessSessions = _col('HarnessSessions');
-    if (!HarnessSessions) return [];
+  activeSessions() {
+    const Sessions = _col('HarnessSessions');
+    if (!Sessions) return [];
     tick1s.depend();
-    return HarnessSessions.find({ status: 'active' }, { sort: { lastSeen: -1 } }).map(function (s) {
-      var ctx = s.contextPct != null ? Math.round(s.contextPct) : null;
-      var pressure = 'low';
-      if (ctx != null) {
-        if (ctx >= 85) pressure = 'high';
-        else if (ctx >= 60) pressure = 'mid';
-      }
+    const sel = _selectedEntity.get();
+    const q = { status: 'active' };
+    if (sel) q.entity = sel;
+    return Sessions.find(q, { sort: { lastSeen: -1 } }).map(function (s) {
+      // Rate limits breakdown
+      var rateFive = s.rateLimits && s.rateLimits.fiveHour ? s.rateLimits.fiveHour : null;
+      var rateSeven = s.rateLimits && s.rateLimits.sevenDay ? s.rateLimits.sevenDay : null;
       return {
         entity: s.entity,
         entityColor: KoadOverview._entityColor(s.entity),
-        model: s.model || s.modelId || '—',
+        model: s.model || '?',
+        modelId: s.modelId || '',
         host: s.host || '',
-        contextPct: ctx,
-        pressure: pressure,
-        cost: s.cost != null ? s.cost : null,
-        harness: s.harness || '',
-        source: s.source || '',
-        lastSeen: KoadOverview._relativeTime(s.lastSeen),
+        cwd: s.cwd || '',
+        version: s.version || '',
+        contextPct: s.contextPct != null ? Math.round(s.contextPct) : 0,
+        contextSize: s.contextSize || 0,
+        tokensIn: s.tokensIn || 0,
+        tokensOut: s.tokensOut || 0,
+        durationMs: s.durationMs || 0,
+        cost: s.cost || null,
+        rateFiveHourPct: rateFive ? rateFive.usedPct : null,
+        rateFiveHourResetsAt: rateFive && rateFive.resetsAt ? KoadOverview._relativeTime(rateFive.resetsAt) : null,
+        rateSevenDayPct: rateSeven ? rateSeven.usedPct : null,
+        rateSevenDayResetsAt: rateSeven && rateSeven.resetsAt ? KoadOverview._relativeTime(rateSeven.resetsAt) : null,
+        lastSeenAgo: KoadOverview._relativeTime(s.lastSeen),
       };
     });
   },
 
-  activeSessionsCount() {
-    const HarnessSessions = _col('HarnessSessions');
-    if (!HarnessSessions) return 0;
-    tick1s.depend();
-    return HarnessSessions.find({ status: 'active' }).count();
+  activeSessionCount() {
+    const Sessions = _col('HarnessSessions');
+    if (!Sessions) return 0;
+    const sel = _selectedEntity.get();
+    const q = { status: 'active' };
+    if (sel) q.entity = sel;
+    return Sessions.find(q).count();
   },
 
   alertFeed() {
     const Alerts = _col('Alerts');
     if (!Alerts) return [];
+    const sel = _selectedEntity.get();
+    const q = sel ? { entity: sel } : {};
     var items = [];
-    Alerts.find().forEach(function (doc) {
+    Alerts.find(q).forEach(function (doc) {
       if (!doc.items) return;
       doc.items.forEach(function (item) {
         var text = typeof item === 'string' ? item : (item.message || item.body || item.text || JSON.stringify(item));
@@ -325,7 +562,9 @@ Template.KingdomOverview.helpers({
     const Emissions = _col('Emissions');
     if (!Emissions) return [];
     tick1m.depend();
-    return Emissions.find({}, { sort: { timestamp: -1 }, limit: 3 }).map(function (em) {
+    const sel = _selectedEntity.get();
+    const q = sel ? { entity: sel } : {};
+    return Emissions.find(q, { sort: { timestamp: -1 }, limit: 3 }).map(function (em) {
       return {
         entity: em.entity,
         type: em.type,
@@ -340,15 +579,20 @@ Template.KingdomOverview.helpers({
     const Flights = _col('Flights');
     if (!Flights) return [];
     tick1m.depend();
-    return Flights.find(
-      { status: { $ne: 'flying' } },
-      { sort: { started: -1 }, limit: 30 }
-    ).map(function (flight) {
-      const hasStats = flight.stats && (flight.stats.toolCalls || flight.stats.inputTokens || flight.stats.outputTokens || flight.stats.cost);
+    const sel = _selectedEntity.get();
+    const q = { status: { $ne: 'flying' } };
+    if (sel) q.entity = sel;
+    return Flights.find(q, { sort: { started: -1 }, limit: 18 }).map(function (flight) {
+      const hasStats = flight.stats && (
+        flight.stats.toolCalls || flight.stats.inputTokens || flight.stats.outputTokens ||
+        flight.stats.cost || flight.stats.linesAdded || flight.stats.linesRemoved ||
+        flight.stats.contextTokens || flight.stats.apiDurationMs
+      );
       return {
         entity: flight.entity,
         entityColor: KoadOverview._entityColor(flight.entity),
         briefSlug: flight.briefSlug || '',
+        briefSummary: flight.briefSummary || '',
         status: flight.status,
         model: flight.model || '',
         elapsed: KoadOverview._formatElapsed(flight.elapsed),
@@ -371,6 +615,10 @@ Template.KingdomOverview.helpers({
     if (!n) return '0.00';
     return n.toFixed(2);
   },
+
+  publicTierHint() {
+    return !!(KoadOverview._settings && KoadOverview._settings.publicTierHint);
+  },
 });
 
 // Compute per-entity render data, shared by activeEntities/bullpenEntities.
@@ -383,16 +631,18 @@ function _computeAllEntities() {
   const Alerts = _col('Alerts');
   const Flights = _col('Flights');
   const Emissions = _col('Emissions');
+  const EnvIndex = _col('EnvIndex');
 
   if (!Entities) return [];
 
-  const expanded = _expandedEntities.get();
+  const selected = _selectedEntity.get();
   return Entities.find({}, { sort: { handle: 1 } }).map(function (entity) {
     const passenger = Passengers ? Passengers.findOne({ handle: entity.handle }) : null;
     const keysDoc = KeysIndex ? KeysIndex.findOne({ handle: entity.handle }) : null;
     const bondsDoc = BondsIndex ? BondsIndex.findOne({ handle: entity.handle }) : null;
     const ticklerDoc = TicklerIndex ? TicklerIndex.findOne({ handle: entity.handle }) : null;
     const alertDocs = Alerts ? Alerts.find({ entity: entity.handle }).fetch() : [];
+    const envDoc = EnvIndex ? EnvIndex.findOne({ handle: entity.handle }) : null;
 
     const outfit = passenger && passenger.outfit;
     const hue = outfit ? outfit.hue : 0;
@@ -400,10 +650,8 @@ function _computeAllEntities() {
     const bri = outfit ? outfit.brightness : 30;
     const accent = 'hsl(' + hue + ', ' + sat + '%, ' + Math.min(bri + 20, 60) + '%)';
 
-    const activeFlight = Flights ? Flights.findOne({ entity: entity.handle, status: 'flying' }) : null;
-    const HarnessSessions = _col('HarnessSessions');
-    const activeSession = HarnessSessions ? HarnessSessions.findOne({ entity: entity.handle, status: 'active' }) : null;
-    const isExpanded = !!expanded[entity.handle];
+    const activeFlights = Flights ? Flights.find({ entity: entity.handle, status: 'flying' }, { sort: { started: -1 } }).fetch() : [];
+    const isSelected = selected === entity.handle;
 
     tick1s.depend();
     const now = Date.now();
@@ -437,14 +685,17 @@ function _computeAllEntities() {
       firstLetter: entity.handle.charAt(0).toUpperCase(),
       accentColor: accent,
       entityHue: hue,
+      entitySat: sat,
       tagline: entity.tagline || null,
       role: entity.role || null,
       kingdomId: entity.kingdomId || null,
       host: host,
+      purpose: envDoc ? envDoc.purpose : null,
+      harness: envDoc ? envDoc.harness : null,
       keyCount: keysDoc ? keysDoc.count : 0,
       bondCount: bondsDoc ? bondsDoc.count : 0,
       tickleCount: ticklerDoc ? ticklerDoc.count : 0,
-      isExpanded: isExpanded,
+      isSelected: isSelected,
       isActiveNow: isActiveNow,
       isActive5m: isActive5m,
       statusLevel: statusLevel,
@@ -455,49 +706,25 @@ function _computeAllEntities() {
       lastFlightAge: lastFlightAge,
       alertItemCount: alertItemCount,
       hasAlerts: alertItemCount > 0,
-      hasActiveSession: !!activeSession,
     };
 
-    if (activeSession) {
-      result.sessionModel = activeSession.model || activeSession.modelId || '';
-      result.sessionContextPct = activeSession.contextPct != null ? Math.round(activeSession.contextPct) : null;
-    }
-
-    if (activeFlight) {
+    if (activeFlights.length) {
       result.activeFlight = true;
-      result.flightBrief = activeFlight.briefSlug || '';
-      result.flightSummary = activeFlight.briefSummary || '';
-      result.flightElapsed = KoadOverview._elapsed(activeFlight.started);
-      result.flightModel = activeFlight.model || '';
-    }
-
-    if (isExpanded) {
-      result.alertItems = [];
-      alertDocs.forEach(function (doc) {
-        if (doc.items) {
-          doc.items.forEach(function (item) {
-            var text = typeof item === 'string' ? item : (item.message || item.body || item.text || JSON.stringify(item));
-            result.alertItems.push({ source: doc.source, text: text });
-          });
-        }
-      });
-
-      result.bonds = bondsDoc && bondsDoc.bonds ? bondsDoc.bonds : [];
-      result.keys = keysDoc && keysDoc.keys ? keysDoc.keys : [];
-      result.tickles = ticklerDoc && ticklerDoc.tickles ? ticklerDoc.tickles : [];
-
-      var entityFlights = Flights ? Flights.find(
-        { entity: entity.handle, status: { $ne: 'flying' } },
-        { sort: { started: -1 }, limit: 10 }
-      ).fetch() : [];
-      result.recentEntityFlights = entityFlights.map(function (f) {
+      result.activeFlightCount = activeFlights.length;
+      result.activeFlightsList = activeFlights.map(function (f) {
         return {
-          briefSlug: f.briefSlug || '(unnamed)',
-          elapsed: KoadOverview._formatElapsed(f.elapsed),
-          model: f.model || '',
-          statusColor: f.status === 'landed' ? '#5bd5b5' : '#d4a535',
+          flightBrief: f.briefSlug || '',
+          flightSummary: f.briefSummary || '',
+          flightElapsed: KoadOverview._elapsed(f.started),
+          flightModel: f.model || '',
+          accentColor: accent,
         };
       });
+      // Keep single-flight fields for backward compat with card summary
+      result.flightBrief = activeFlights[0].briefSlug || '';
+      result.flightSummary = activeFlights[0].briefSummary || '';
+      result.flightElapsed = KoadOverview._elapsed(activeFlights[0].started);
+      result.flightModel = activeFlights[0].model || '';
     }
 
     return result;
@@ -524,29 +751,42 @@ Template.EntityProfilePanel.helpers({
     const passenger = Passengers ? Passengers.findOne({ handle }) : null;
     const keysDoc = KeysIndex ? KeysIndex.findOne({ handle }) : null;
     const bondsDoc = BondsIndex ? BondsIndex.findOne({ handle }) : null;
-    const activeFlight = Flights ? Flights.findOne({ entity: handle, status: 'flying' }) : null;
+    const activeFlights = Flights ? Flights.find({ entity: handle, status: 'flying' }, { sort: { started: -1 } }).fetch() : [];
 
     const outfit = passenger && passenger.outfit;
     const hue = outfit ? outfit.hue : 0;
     const sat = outfit ? outfit.saturation : 0;
     const bri = outfit ? outfit.brightness : 30;
+    const accent = 'hsl(' + hue + ', ' + sat + '%, ' + Math.min(bri + 20, 60) + '%)';
 
     tick1s.depend();
-    return {
+    const result = {
       handle,
       avatarImage: passenger ? passenger.image : null,
       firstLetter: handle.charAt(0).toUpperCase(),
-      accentColor: 'hsl(' + hue + ', ' + sat + '%, ' + Math.min(bri + 20, 60) + '%)',
+      accentColor: accent,
       tagline: entity.tagline || null,
       role: entity.role || null,
       host: entity.homeMachine || null,
       keyCount: keysDoc ? keysDoc.count : 0,
       bondCount: bondsDoc ? bondsDoc.count : 0,
-      activeFlight: !!activeFlight,
-      flightBrief: activeFlight ? (activeFlight.briefSlug || '') : '',
-      flightElapsed: activeFlight ? KoadOverview._elapsed(activeFlight.started) : '',
-      flightModel: activeFlight ? (activeFlight.model || '') : '',
+      activeFlight: activeFlights.length > 0,
+      activeFlightsList: activeFlights.map(function (f) {
+        return {
+          flightBrief: f.briefSlug || '',
+          flightSummary: f.briefSummary || '',
+          flightElapsed: KoadOverview._elapsed(f.started),
+          flightModel: f.model || '',
+          accentColor: accent,
+        };
+      }),
     };
+    if (activeFlights.length) {
+      result.flightBrief = activeFlights[0].briefSlug || '';
+      result.flightElapsed = KoadOverview._elapsed(activeFlights[0].started);
+      result.flightModel = activeFlights[0].model || '';
+    }
+    return result;
   },
 
   entityFlights() {
@@ -561,6 +801,7 @@ Template.EntityProfilePanel.helpers({
       const hasStats = f.stats && (f.stats.toolCalls || f.stats.cost);
       return {
         briefSlug: f.briefSlug || '(unnamed)',
+        briefSummary: f.briefSummary || '',
         status: f.status,
         model: f.model || '',
         elapsed: KoadOverview._formatElapsed(f.elapsed),

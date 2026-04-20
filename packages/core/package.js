@@ -21,12 +21,12 @@ Npm.depends({
 	"ssh2": "1.14.0",
 	"kbpgp": "2.1.15", // Keybase PGP for identity and cryptography
 	"ipfs-core": "0.18.1", // IPFS implementation for distributed storage
-	"ipfs-http-client": "60.0.1", // IPFS HTTP client
+	"ipfs-http-client": "60.0.1" // IPFS HTTP client
 
-	// ── Shared crypto/IPFS deps (multiformats, @noble/ed25519, @ipld/dag-json) ──
-	// Removed in phase 2: these now live in ~/.koad-io/modules/node/ and are
-	// accessed via @koad-io/node declared in daemon/src/package.json.
-	// client/deps.js imports from '@koad-io/node/deps' instead of bare specifiers.
+	// ── Shared crypto/IPFS deps ──
+	// Moved to daemon/src/package.json (app-level) so Meteor's client bundler
+	// can resolve bare specifiers. Also live in ~/.koad-io/modules/node/.
+	// Npm.depends() can't serve the client bundler for ESM-only packages.
 });
 
 Package.onUse(function(api) {

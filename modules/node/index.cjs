@@ -1,28 +1,57 @@
-// index.cjs — CJS wrapper for @koad-io/node
-// Allows require('@koad-io/node') from CommonJS callers (Meteor's CJS resolver,
-// older Node scripts, Jest with default transforms, etc.)
+// index.cjs — CJS entry for @koad-io/node
 //
-// Dynamic import is used so the ESM module graph still resolves correctly.
+// Builds the koad object synchronously so Meteor's Reify-based require()
+// gets a real object at import time (not a promise).
+//
+// The crypto/IPFS deps (dag-json, multiformats, ed25519) are ESM-only and
+// loaded lazily — they're not needed at koad object construction time.
+// Meteor's client/deps.js (a mainModule in ESM context) imports them directly.
 
-let _exports;
+const { createIdentityShape } = require('./identity.cjs');
 
-async function load() {
-  if (!_exports) {
-    _exports = await import('./index.js');
-  }
-  return _exports;
-}
-
-// Synchronous-compatible pattern: expose a .ready() promise and top-level
-// named exports via module.exports after the promise resolves.
-// For fully synchronous callers that can't await, they should migrate to ESM.
-module.exports = {
-  ready: load(),
-  // Eagerly expose the promise for callers that do: require('@koad-io/node').ready.then(...)
+const koad = {
+  maintenance: true,
+  lighthouse: null,
+  extension: null,
+  instance: null,
+  gateway: null,
+  session: null,
+  internals: 'unset',
+  identity: createIdentityShape(),
+  storage: {},
+  library: {},
+  format: {
+    timestamp: function(d, s) {
+      if (!d) d = new Date();
+      if (!s) s = ':';
+      const date = new Date(d);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+      return `${year}${s}${month}${s}${day}${s}${hours}${s}${minutes}${s}${seconds}`;
+    },
+  },
+  seeders: [],
+  emitters: [],
+  trackers: [],
+  deps: {},
 };
 
-// After load resolves, patch module.exports in-place so cached require() calls
-// that destructure after await also get the right values.
-load().then(function(m) {
-  Object.assign(module.exports, m);
+// Lazy-load ESM deps into koad.deps when requested
+let _depsLoaded = false;
+const _loadDeps = import('./deps.js').then(function(m) {
+  Object.assign(koad.deps, {
+    dagJsonEncode: m.dagJsonEncode,
+    dagJsonDecode: m.dagJsonDecode,
+    CID: m.CID,
+    sha256: m.sha256,
+    base64: m.base64,
+    ed: m.ed,
+  });
+  _depsLoaded = true;
 });
+
+module.exports = { koad, createIdentityShape, depsReady: _loadDeps };

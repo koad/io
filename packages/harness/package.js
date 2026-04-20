@@ -56,6 +56,12 @@ Package.onUse(function (api) {
   api.addFiles('server/pipeline/memory-signal-parser.js', 'server');
   api.addFiles('server/pipeline/forget-resolver.js', 'server');
 
+  // leave_message tool — entity → daemon inbox dispatch
+  api.addFiles('server/pipeline/message-tool.js', 'server');
+
+  // VESTA-SPEC-137: entity tool cascade loader
+  api.addFiles('server/tool-cascade.js', 'server');
+
   // VESTA-SPEC-134: Phase 4 — Layer 4a context loader
   api.addFiles('server/memory-context-loader.js', 'server');
 
@@ -93,6 +99,10 @@ Package.onUse(function (api) {
   // VESTA-SPEC-134 Phase 3: memory signal parser + FORGET resolver
   api.export('KoadHarnessMemoryParser', 'server');
   api.export('KoadHarnessForgetResolver', 'server');
+  // leave_message tool — entity → daemon inbox
+  api.export('KoadHarnessMessageTool', 'server');
+  // VESTA-SPEC-137: entity tool cascade
+  api.export('KoadHarnessToolCascade', 'server');
   // VESTA-SPEC-134 Phase 4: Layer 4a context loader
   api.export('KoadHarnessMemoryContextLoader', 'server');
   // VESTA-SPEC-134 Phase 1: client-side crypto exports (browser only)
@@ -115,4 +125,6 @@ Package.onTest(function (api) {
   api.addFiles('test/memory-signal-parser-test.js', 'server');
   // VESTA-SPEC-134 Phase 4 tests — Layer 4a context loader
   api.addFiles('test/memory-context-loader-test.js', 'server');
+  // leave_message tool tests
+  api.addFiles('test/message-tool-test.js', 'server');
 });

@@ -1,4 +1,5 @@
 const fs = require('fs');
+const KoadHarnessToolCascade = require('./tool-cascade.js');
 
 /*
  * koad:harness — Entity conversation harness for Meteor
@@ -417,6 +418,22 @@ class HarnessInstance {
     KoadHarnessSSE.writeHeaders(res);
     KoadHarnessSSE.writeEvent(res, 'session', { sessionId: session.id });
 
+    // ── VESTA-SPEC-137: Load tool cascade ─────────────────────────────────────
+    // Discover entity + framework tools. Runs synchronously (fs.readdirSync).
+    // Silent on failure — session continues without tools if cascade errors.
+    let toolRegistry = null;
+    if (KoadHarnessToolCascade) {
+      try {
+        toolRegistry = KoadHarnessToolCascade.load(
+          entityHandle,
+          this.config.entityBaseDir || null,
+        );
+      } catch (toolErr) {
+        this.log(`tool cascade load failed (silent): ${toolErr.message}`);
+      }
+    }
+    // ── End tool cascade ──────────────────────────────────────────────────────
+
     // ── VESTA-SPEC-133 Access Gate Stack ──────────────────────────────────────
     // Resolve which provider to use via tier + XP + headroom gates.
     // Falls back silently; sponsor sees no gate errors (SPEC-133 §6.3).
@@ -472,6 +489,21 @@ class HarnessInstance {
 
     let fullText = '';
 
+    // Merge tool registry + context into provider options
+    // Providers that don't support tools (groq, xai, ollama) receive the
+    // options and silently ignore unknown keys — no provider code changes needed
+    // for those until they implement VESTA-SPEC-137 normalization.
+    const toolContext = {
+      entity:    entityHandle,
+      sessionId: session.id,
+      userId:    sponsorUserId,
+      settings:  Meteor.settings,
+    };
+    if (toolRegistry) {
+      providerOpts.tools       = toolRegistry;
+      providerOpts.toolContext = toolContext;
+    }
+
     const cancel = provider.stream(
       systemPrompt,
       prompt,
@@ -519,6 +551,18 @@ class HarnessInstance {
           });
         }
         // ── End memory signal extraction ──────────────────────────────────────
+
+        // ── leave_message tool — daemon inbox dispatch ─────────────────────────
+        // Extract and strip <<LEAVE_MESSAGE: json>> markers.
+        // Fires registered callback (fire-and-forget). Must not block delivery.
+        if (typeof KoadHarnessMessageTool !== 'undefined') {
+          cleanedText = KoadHarnessMessageTool.parse(cleanedText, {
+            entity:    entityHandle,
+            sessionId: session.id,
+            userId:    sponsorUserId,
+          });
+        }
+        // ── End leave_message tool ─────────────────────────────────────────────
 
         const outputCheck = KoadHarnessOutputFilter.scan(cleanedText, entity);
         if (!outputCheck.clean) {
