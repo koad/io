@@ -1,6 +1,6 @@
 Package.describe({
   name: 'koad:io-harness',
-  version: '1.0.0',
+  version: '1.1.0',
   summary: 'Entity conversation harness — serve AI entities over HTTP/SSE from any koad:io Meteor app',
   documentation: 'README.md',
 });
@@ -43,6 +43,11 @@ Package.onUse(function (api) {
   api.addFiles('server/budget.js', 'server');        // Headroom gate
   api.addFiles('server/access-gate.js', 'server');   // Three-gate stack
 
+  // VESTA-SPEC-134: Relational Memory Protocol — Phase 0 (bond types + collection)
+  // Bond type registry must load before any collection that may be validated.
+  api.addFiles('server/bond-types.js', 'server');
+  api.addFiles('server/collections/user-memories.js', 'server');
+
   // OG / oembed injector (juno#90)
   api.addFiles('server/og-injector.js', 'server');
 
@@ -62,6 +67,9 @@ Package.onUse(function (api) {
   // VESTA-SPEC-133: access gate + budget exported for hosting-app quota debit wiring
   api.export('KoadHarnessAccessGate', 'server');
   api.export('KoadHarnessBudget', 'server');
+  // VESTA-SPEC-134: bond type registry + UserMemories collection
+  api.export('KoadHarnessBondTypes', 'server');
+  api.export('UserMemories', 'server');
 });
 
 Package.onTest(function (api) {
@@ -72,4 +80,6 @@ Package.onTest(function (api) {
   api.addFiles('test/entity-loader-test.js', 'server');
   api.addFiles('test/og-injector-test.js', 'server');
   api.addFiles('test/feedback-extractor-test.js', 'server');
+  // VESTA-SPEC-134 Phase 0 tests
+  api.addFiles('test/bond-types-test.js', 'server');
 });
