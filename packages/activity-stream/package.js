@@ -7,13 +7,9 @@ Package.describe({
   documentation: 'README.md'
 });
 
-// npm deps: same CID + dag-json stack as sovereign-profiles and ipfs-client.
-// @noble/ed25519 for entry verification in the browser.
-Npm.depends({
-  'multiformats': '13.3.0',
-  '@noble/ed25519': '2.1.0',
-  '@ipld/dag-json': '10.2.2'
-});
+// npm deps: multiformats, @noble/ed25519, @ipld/dag-json are centralized in koad:io-core.
+// stream.js delegates crypto ops to IPFSClient and koad.deps (via core).
+// No direct Npm.depends() needed here.
 
 Package.onUse(function(api) {
   api.versionsFrom(['3.0', '3.3']);

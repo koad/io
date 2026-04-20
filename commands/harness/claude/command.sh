@@ -220,6 +220,10 @@ if [ "$CONTINUE" = "1" ] && command -v jq >/dev/null 2>&1; then
 fi
 echo
 
+# --- Load emission helpers (before first koad_io_emit_update use) ----------
+
+source "$HOME/.koad-io/helpers/emit.sh" 2>/dev/null
+
 # --- Context assembly (VESTA-SPEC-067) ------------------------------------
 #
 # Identity always loads. Run startup.sh to assemble KOAD_IO.md → ENTITY.md →
@@ -228,10 +232,13 @@ echo
 # whether a prompt was given or how dispatch reached this script.
 
 if [ -f "$HOME/.koad-io/harness/startup.sh" ]; then
+  koad_io_emit_update "context assembly started"
   SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh")" || {
     echo "Warning: startup.sh failed (exit $?), proceeding without context assembly" >&2
+    koad_io_emit_update "context assembly failed (exit $?)"
   }
   export SYSTEM_PROMPT
+  koad_io_emit_update "context assembly complete"
 fi
 
 # --- Exec -----------------------------------------------------------------
@@ -256,6 +263,15 @@ if [ "${ENTITY_SKIP_PERMISSIONS:-false}" = "true" ]; then
 fi
 
 # Inject identity context via --append-system-prompt and add entity dir for file access.
+# KOAD_IO_CWD_PRIMER carries project context from the caller's directory
+# (set by executed-without-arguments.sh when a roaming entity is invoked
+# in a dir with PRIMER.md). Append it to SYSTEM_PROMPT so it loads as
+# context, not as a one-shot prompt.
+if [ -n "${KOAD_IO_CWD_PRIMER:-}" ]; then
+  SYSTEM_PROMPT="${SYSTEM_PROMPT:+$SYSTEM_PROMPT
+
+}$KOAD_IO_CWD_PRIMER"
+fi
 if [ -n "$SYSTEM_PROMPT" ]; then
   _args+=(--append-system-prompt "$SYSTEM_PROMPT" --add-dir "$ENTITY_DIR")
 fi
@@ -296,17 +312,69 @@ if [ "${ENTITY_LOCKFILE:-false}" = "true" ] && [ -n "$PROMPT" ]; then
   trap _lock_cleanup EXIT INT TERM
 fi
 
+# --- Harness lifecycle emissions + PID tracking ---------------------------
+#
+# Record the harness wrapper PID so the session-scanner can detect orphans
+# (SIGKILL'd processes that never ran the EXIT trap). Emit open/close/killed
+# lifecycle events to the daemon via the emit helper.
+#
+# Lifecycle emission: one record per session, updated as it progresses.
+# On resume (-c), reconnect to the existing emission instead of opening new.
+#
+# We never `exec` claude anymore — always run as a child process so the
+# EXIT trap fires reliably. The overhead is one extra bash process in the
+# tree, negligible for sessions that run minutes to hours.
+
+_harness_pid_dir="$ENTITY_DIR/.local/state/harness"
+_harness_pid_file="$_harness_pid_dir/harness.pid"
+mkdir -p "$_harness_pid_dir" 2>/dev/null
+echo $$ > "$_harness_pid_file" 2>/dev/null
+
+# Emission ID persists across resume
+export KOAD_IO_EMISSION_ID_FILE="$_harness_pid_dir/emission.id"
+
+_mode="interactive"
+[ -n "$PROMPT" ] && _mode="one-shot"
+
+_emit_type="session"
+[ -n "$PROMPT" ] && _emit_type="flight"
+
+# Session file pattern — the daemon uses this to correlate with session-scanner.
+# Claude Code writes the session UUID as the filename; we pass the dir so the
+# daemon knows where to look. The actual sessionId gets merged via heartbeat
+# once Claude Code's statusline writes it.
+_emit_meta="{\"harness\":\"claude\",\"model\":\"$MODEL_RESOLVED\",\"pid\":$$,\"host\":\"$(hostname -s)\",\"cwd\":\"$WORK_DIR\",\"sessionDir\":\"$_harness_pid_dir/sessions\"}"
+
+if [ "$CONTINUE" = "1" ] && [ -f "$KOAD_IO_EMISSION_ID_FILE" ]; then
+  koad_io_emit_resume "resumed: claude $MODEL_RESOLVED ($_mode)" "$_emit_meta"
+else
+  koad_io_emit_open "$_emit_type" "harness opened: claude $MODEL_RESOLVED ($_mode)" "$_emit_meta"
+fi
+
+_harness_exit_emitted=""
+_harness_on_exit() {
+  local rc=$?
+  _lock_cleanup
+  rm -f "$_harness_pid_file" 2>/dev/null
+  [ -n "$_harness_exit_emitted" ] && return
+  _harness_exit_emitted=1
+  if [ "$rc" -eq 0 ]; then
+    koad_io_emit_close "harness closed: claude $MODEL_RESOLVED ($_mode, clean exit)"
+  elif [ "$rc" -eq 130 ]; then
+    koad_io_emit_close "harness closed: claude $MODEL_RESOLVED ($_mode, interrupted)"
+  else
+    koad_io_emit_close "harness closed: claude $MODEL_RESOLVED ($_mode, exit $rc)"
+  fi
+}
+trap _harness_on_exit EXIT
+
 # --- JSON .result extraction (ENTITY_EXTRACT_RESULT) ----------------------
 #
 # When ENTITY_EXTRACT_RESULT=true AND this is -p one-shot mode, force
 # --output-format=json and pipe stdout through python3 to emit just the
 # .result field. Gives orchestrators a clean string to parse without the
 # JSON envelope noise. Interactive launches are unaffected.
-#
-# Trade-off: we can't `exec` when we need to pipe, so the script stays
-# resident during the claude run. Acceptable — a one-shot is bounded.
 if [ "${ENTITY_EXTRACT_RESULT:-false}" = "true" ] && [ -n "$PROMPT" ]; then
-  # Inject --output-format=json ahead of the -p pair (only if not already set).
   _has_json=0
   for _a in "${_args[@]}"; do
     case "$_a" in --output-format=*|--output-format) _has_json=1 ;; esac
@@ -315,16 +383,9 @@ if [ "${ENTITY_EXTRACT_RESULT:-false}" = "true" ] && [ -n "$PROMPT" ]; then
   unset _a _has_json
 
   claude "${_args[@]}" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('result',''))"
-  _rc=${PIPESTATUS[0]}
-  _lock_cleanup
-  exit "$_rc"
+  exit ${PIPESTATUS[0]}
 fi
 
-# If we're holding a lockfile, run (don't exec) so the EXIT trap can clean
-# it up. Otherwise exec for zero overhead.
-if [ "${ENTITY_LOCKFILE:-false}" = "true" ] && [ -n "$PROMPT" ]; then
-  claude "${_args[@]}"
-  exit $?
-fi
-
-exec claude "${_args[@]}"
+# --- Launch ---------------------------------------------------------------
+claude "${_args[@]}"
+exit $?

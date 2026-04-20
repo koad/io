@@ -101,22 +101,25 @@ Meteor.methods({
   },
 });
 
-// Grid: only active flights, all entities
+// Minimongo ({ connection: null }) cannot observe cursors with sort+limit
+// (requires ordered observe / addedBefore). Use date-range selectors
+// instead — Minimongo handles those fine. Client sorts in its own Minimongo.
+
 Meteor.publish('flights.active', function () {
   return Flights.find({ status: 'flying' });
 });
 
-// Entity detail: recent flights for one entity
-Meteor.publish('flights.entity', function (entity, limit) {
+Meteor.publish('flights.entity', function (entity) {
   check(entity, String);
-  check(limit, Match.Optional(Number));
-  return Flights.find({ entity }, { sort: { started: -1 }, limit: limit || 20 });
+  return Flights.find({ entity });
 });
 
-// Aggregate: all recent flights
-Meteor.publish('flights.recent', function (limit) {
-  check(limit, Match.Optional(Number));
-  return Flights.find({}, { sort: { started: -1 }, limit: limit || 50 });
+Meteor.publish('flights.recent', function () {
+  const cutoff = new Date(Date.now() - 24 * 3600 * 1000);
+  return Flights.find({ $or: [
+    { status: 'flying' },
+    { started: { $gte: cutoff } },
+  ]});
 });
 
 // Export for REST endpoint — attach to globalThis so sibling files see it

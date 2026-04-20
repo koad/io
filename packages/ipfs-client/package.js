@@ -5,15 +5,14 @@ Package.describe({
   documentation: 'README.md'
 });
 
-// Client-side npm deps are bundled by Meteor's build system via dynamic import.
-// Server-side deps are declared here for daemon pinning (Phase 2).
+// npm deps: multiformats and @ipld/dag-json are centralized in koad:io-core.
+// ipfs-client-specific deps (Helia, blockstores) remain here since they are
+// loaded via dynamic import and are not shared with other packages.
 Npm.depends({
   '@helia/http': '3.1.3',
   '@helia/verified-fetch': '7.2.7',
   'blockstore-opfs': '0.1.0',
-  'blockstore-idb': '3.0.2',
-  'multiformats': '13.4.2',
-  '@ipld/dag-json': '10.2.7'
+  'blockstore-idb': '3.0.2'
 });
 
 Package.onUse(function(api) {

@@ -1,0 +1,9 @@
+{
+  "name": "emission-stream-log",
+  "kind": "trigger",
+  "version": "1.0.0",
+  "description": "Logs error, warning, and anomaly-body emissions to a dated stream file at ~/.entity/streams/<date>.log for later grep and audit.",
+  "roles": ["auditor"],
+  "requires": [],
+  "tags": ["emissions", "observability", "logging", "audit"]
+}

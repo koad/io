@@ -1,18 +1,14 @@
 Package.describe({
   name: 'koad:io-sovereign-profiles',
-  version: '0.1.0',
-  summary: 'Sovereign profile management via SPEC-111 sigchain entries. Editor/signer components for Passenger; viewer/verifier components for any koad:io app.',
+  version: '0.2.0',
+  summary: 'Sovereign profile management via SPEC-111 sigchain entries. Create, sign, authenticate, and publish profiles. Viewer/verifier components for any koad:io app.',
   documentation: 'README.md'
 });
 
-// npm deps:
-//   multiformats — CIDv1 computation (dag-json codec, sha2-256)
-//   @noble/ed25519 — Ed25519 signing and verification
-//   @ipld/dag-json — canonical dag-json serialization per SPEC-111 §3.1
+// Client-side crypto deps (multiformats, dag-json, noble/ed25519) come from koad:io-core via koad.deps.
+// Server-side needs @noble/ed25519 locally for SovereignAuth.verify — the server has no koad.deps pattern.
 Npm.depends({
-  'multiformats': '13.4.2',
   '@noble/ed25519': '2.1.0',
-  '@ipld/dag-json': '10.2.7'
 });
 
 Package.onUse(function(api) {
@@ -24,10 +20,16 @@ Package.onUse(function(api) {
   api.use('blaze-html-templates');
   api.use('templating');
 
-  // Core profile logic — both sides consume
+  // Weak dependency on sigchain-discovery for chain broadcast.
+  // sovereign-profiles works standalone (render, sign, verify) without it.
+  // Chain broadcast via publishToChain() is a no-op unless sigchain-discovery is present.
+  api.use('ecoincore:sigchain-discovery', 'server', { weak: true });
+
+  // Client files — deps now come from koad:io-core's client/deps.js via koad.deps global.
+  // profile-builder loads first (defines SovereignProfile); profile-viewer extends it.
   api.addFiles([
-    'client/profile-builder.js',  // create/update/sign/publish (passenger)
-    'client/profile-viewer.js',   // resolve/verify/render (any app)
+    'client/profile-builder.js',
+    'client/profile-viewer.js',
   ], 'client');
 
   // Blaze templates + component stylesheet (all templates share one CSS file)
@@ -51,10 +53,9 @@ Package.onUse(function(api) {
     'client/templates/key-generate-form.js',
   ], 'client');
 
-  // Server-side verification + pinning stubs
-  api.addFiles([
-    'server/profile-server.js',
-  ], 'server');
+  // Server mainModule wires up keystore, auth, and profile-server via ESM re-exports,
+  // so api.export('SovereignAuth', 'server') picks up the actual module exports.
+  api.mainModule('server/main.js', 'server');
 
   // Client exports — SovereignProfile is the primary API surface.
   // Attaches to koad.sovereign.profile per brief; also exported standalone.
@@ -62,6 +63,8 @@ Package.onUse(function(api) {
 
   // Server exports
   api.export('SovereignProfile', 'server');
+  api.export('SovereignProfileKeystore', 'server');
+  api.export('SovereignAuth', 'server');
 });
 
 
@@ -69,5 +72,7 @@ Package.onTest(function(api) {
   api.use('koad:io-sovereign-profiles');
   api.use('tinytest');
   api.use('test-helpers');
+  api.use('ecmascript');
   api.addFiles('test/sovereign-profiles-tests.js', 'client');
+  api.addFiles('test/sovereign-profiles-server-tests.js', 'server');
 });

@@ -16,15 +16,9 @@
 // All methods return Promises. Signing requires @noble/ed25519.
 // Publishing requires koad:io-ipfs-client (IPFSClient) to be initialized.
 
-let dagJsonEncode, CID, sha256, ed;
-async function ensureDeps() {
-  if (!dagJsonEncode) {
-    ({ encode: dagJsonEncode } = await import('@ipld/dag-json'));
-    ({ CID } = await import('multiformats/cid'));
-    ({ sha256 } = await import('multiformats/hashes/sha2'));
-    ed = await import('@noble/ed25519');
-  }
-}
+// Shared crypto deps provided by koad:io-core client/deps.js (loads first via api.imply).
+// koad.deps is populated before this file runs — core is the first package in the load chain.
+const { dagJsonEncode, CID, sha256, ed } = koad.deps;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,7 +30,6 @@ async function ensureDeps() {
  * @returns {Uint8Array} — dag-json bytes ready for Ed25519 signing
  */
 async function canonicalPreImage(entry) {
-  await ensureDeps();
   const ordered = {
     entity: entry.entity,
     payload: entry.payload,
@@ -56,7 +49,6 @@ async function canonicalPreImage(entry) {
  * @returns {Promise<string>} — base32-upper CIDv1 string e.g. "bafyrei..."
  */
 async function computeCid(bytes) {
-  await ensureDeps();
   const hash = await sha256.digest(bytes);
   // dag-json codec = 0x0129
   const cid = CID.createV1(0x0129, hash);
@@ -195,7 +187,7 @@ SovereignProfile.update = function(currentCid, changes, entity) {
 SovereignProfile.sign = async function(entry, privateKey) {
   const preImage = await canonicalPreImage(entry);
   // @noble/ed25519 sign(message, privateKey) → Promise<Uint8Array>
-  const sigBytes = await ed.sign(preImage, privateKey);
+  const sigBytes = await ed.signAsync(preImage, privateKey);
   return {
     ...entry,
     signature: toBase64Url(sigBytes),
@@ -215,7 +207,6 @@ SovereignProfile.sign = async function(entry, privateKey) {
  * @returns {Promise<string>} — CIDv1 string e.g. "bagu..."
  */
 SovereignProfile.publish = async function(signedEntry) {
-  await ensureDeps();
   const bytes = dagJsonEncode(signedEntry);
   // IPFSClient.put() accepts pre-encoded Uint8Array — no double-encoding
   const cid = await IPFSClient.put(bytes);
@@ -239,7 +230,6 @@ if (typeof koad !== 'undefined') {
  * @returns {Promise<Uint8Array>} — 32-byte public key
  */
 const ed25519GetPublicKey = async function(seedBytes) {
-  await ensureDeps();
   return ed.getPublicKeyAsync(seedBytes);
 };
 

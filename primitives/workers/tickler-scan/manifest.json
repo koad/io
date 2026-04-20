@@ -1,0 +1,12 @@
+{
+  "name": "tickler-scan",
+  "kind": "worker",
+  "version": "1.0.0",
+  "description": "Runs the entity's tickler scan command every 60 minutes and emits a service lifecycle (open, update with count, close) around each run.",
+  "roles": ["orchestrator"],
+  "requires": [],
+  "tags": ["tickler", "orchestration", "lifecycle", "service"],
+  "interval": 60,
+  "delay": 0,
+  "runImmediately": false
+}

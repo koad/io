@@ -138,15 +138,18 @@ Template.KingdomOverview.helpers({
   },
 
   // --- Entities view ---
+  // An entity is "active" if it has recent flights, emissions, is flying, or
+  // has a live harness session. Sessions count because orchestrators (Juno)
+  // don't fly — they run, emit heartbeats, and dispatch others.
   activeEntities() {
     return _computeAllEntities().filter(function (e) {
-      return e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight;
+      return e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight || e.hasActiveSession;
     });
   },
 
   bullpenEntities() {
     return _computeAllEntities().filter(function (e) {
-      return !(e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight);
+      return !(e.flights24h > 0 || e.emissions24h > 0 || e.activeFlight || e.hasActiveSession);
     });
   },
 
@@ -265,6 +268,39 @@ Template.KingdomOverview.helpers({
     });
   },
 
+  activeSessionsList() {
+    const HarnessSessions = _col('HarnessSessions');
+    if (!HarnessSessions) return [];
+    tick1s.depend();
+    return HarnessSessions.find({ status: 'active' }, { sort: { lastSeen: -1 } }).map(function (s) {
+      var ctx = s.contextPct != null ? Math.round(s.contextPct) : null;
+      var pressure = 'low';
+      if (ctx != null) {
+        if (ctx >= 85) pressure = 'high';
+        else if (ctx >= 60) pressure = 'mid';
+      }
+      return {
+        entity: s.entity,
+        entityColor: KoadOverview._entityColor(s.entity),
+        model: s.model || s.modelId || '—',
+        host: s.host || '',
+        contextPct: ctx,
+        pressure: pressure,
+        cost: s.cost != null ? s.cost : null,
+        harness: s.harness || '',
+        source: s.source || '',
+        lastSeen: KoadOverview._relativeTime(s.lastSeen),
+      };
+    });
+  },
+
+  activeSessionsCount() {
+    const HarnessSessions = _col('HarnessSessions');
+    if (!HarnessSessions) return 0;
+    tick1s.depend();
+    return HarnessSessions.find({ status: 'active' }).count();
+  },
+
   alertFeed() {
     const Alerts = _col('Alerts');
     if (!Alerts) return [];
@@ -289,7 +325,7 @@ Template.KingdomOverview.helpers({
     const Emissions = _col('Emissions');
     if (!Emissions) return [];
     tick1m.depend();
-    return Emissions.find({}, { sort: { timestamp: -1 }, limit: 100 }).map(function (em) {
+    return Emissions.find({}, { sort: { timestamp: -1 }, limit: 3 }).map(function (em) {
       return {
         entity: em.entity,
         type: em.type,
@@ -335,10 +371,6 @@ Template.KingdomOverview.helpers({
     if (!n) return '0.00';
     return n.toFixed(2);
   },
-
-  publicTierHint() {
-    return !!(KoadOverview._settings && KoadOverview._settings.publicTierHint);
-  },
 });
 
 // Compute per-entity render data, shared by activeEntities/bullpenEntities.
@@ -369,6 +401,8 @@ function _computeAllEntities() {
     const accent = 'hsl(' + hue + ', ' + sat + '%, ' + Math.min(bri + 20, 60) + '%)';
 
     const activeFlight = Flights ? Flights.findOne({ entity: entity.handle, status: 'flying' }) : null;
+    const HarnessSessions = _col('HarnessSessions');
+    const activeSession = HarnessSessions ? HarnessSessions.findOne({ entity: entity.handle, status: 'active' }) : null;
     const isExpanded = !!expanded[entity.handle];
 
     tick1s.depend();
@@ -421,7 +455,13 @@ function _computeAllEntities() {
       lastFlightAge: lastFlightAge,
       alertItemCount: alertItemCount,
       hasAlerts: alertItemCount > 0,
+      hasActiveSession: !!activeSession,
     };
+
+    if (activeSession) {
+      result.sessionModel = activeSession.model || activeSession.modelId || '';
+      result.sessionContextPct = activeSession.contextPct != null ? Math.round(activeSession.contextPct) : null;
+    }
 
     if (activeFlight) {
       result.activeFlight = true;

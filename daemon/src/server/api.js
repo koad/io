@@ -13,13 +13,76 @@ if (!globalThis.indexerReady) globalThis.indexerReady = {};
 
 app.use(bodyParser.json());
 
-const VALID_TYPES = ['notice', 'warning', 'error', 'request'];
+const VALID_TYPES = ['notice', 'warning', 'error', 'request', 'session', 'flight', 'service', 'conversation', 'hook'];
+
+// POST /emit/update — update a lifecycle emission
+// Must be registered BEFORE /emit because connect prefix-matches.
+app.use('/emit/update', (req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.writeHead(204);
+    return res.end();
+  }
+  if (req.method !== 'POST') return next();
+
+  const { _id, body, action, meta } = req.body || {};
+
+  if (!_id || typeof _id !== 'string') {
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing "_id"' }));
+  }
+  if (!body || typeof body !== 'string') {
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing "body"' }));
+  }
+
+  const existing = EmissionsCollection.findOne(_id);
+  if (!existing) {
+    res.writeHead(404);
+    return res.end(JSON.stringify({ status: 'error', message: `Emission ${_id} not found` }));
+  }
+
+  const now = new Date();
+  const update = {
+    $set: { body, updatedAt: now },
+    $push: { history: { body, at: now } },
+  };
+
+  if (action === 'close') {
+    update.$set.status = 'closed';
+    update.$set.closedAt = now;
+  } else if (existing.status === 'open') {
+    update.$set.status = 'active';
+  }
+
+  if (meta && typeof meta === 'object') {
+    update.$set.meta = Object.assign({}, existing.meta || {}, meta);
+  }
+
+  EmissionsCollection.update(_id, update);
+  EntityScanner.Entities.update({ handle: existing.entity }, { $set: { lastActivity: now } });
+  console.log(`[EMIT/REST] ${existing.entity}/${existing.type}: ${body} (${action || 'update'})`);
+
+  // Reactive layer — fire matching triggers
+  if (globalThis.evaluateEmissionTriggers) {
+    const after = EmissionsCollection.findOne(_id);
+    const event = action === 'close' ? 'close' : 'update';
+    if (after) globalThis.evaluateEmissionTriggers(after, event);
+  }
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.writeHead(200);
+  res.end(JSON.stringify({ status: 'success', _id }));
+});
 
 // POST /emit — entity notification endpoint
 app.use('/emit', (req, res, next) => {
   if (req.method !== 'POST') return next();
 
-  const { entity, type, body } = req.body || {};
+  const { entity, type, body, lifecycle, meta } = req.body || {};
 
   // Validate
   if (!entity || typeof entity !== 'string') {
@@ -35,15 +98,38 @@ app.use('/emit', (req, res, next) => {
     return res.end(JSON.stringify({ status: 'error', message: 'Missing or invalid "body" field' }));
   }
 
+  const now = new Date();
+  const isLifecycle = lifecycle === 'open';
+
   const doc = {
     entity,
     type,
     body,
-    timestamp: new Date(),
+    timestamp: now,
   };
 
+  if (meta && typeof meta === 'object') {
+    doc.meta = globalThis.enrichEmissionAncestry
+      ? globalThis.enrichEmissionAncestry(meta)
+      : meta;
+  }
+
+  if (isLifecycle) {
+    doc.status = 'open';
+    doc.startedAt = now;
+    doc.updatedAt = now;
+    doc.history = [{ body, at: now }];
+  }
+
   const id = EmissionsCollection.insert(doc);
-  console.log(`[EMIT/REST] ${entity}/${type}: ${body}`);
+  EntityScanner.Entities.update({ handle: entity }, { $set: { lastActivity: now } });
+  console.log(`[EMIT/REST] ${entity}/${type}: ${body}${isLifecycle ? ' (lifecycle:open)' : ''}`);
+
+  // Reactive layer — fire matching triggers
+  if (globalThis.evaluateEmissionTriggers) {
+    const event = isLifecycle ? 'open' : 'emit';
+    globalThis.evaluateEmissionTriggers(Object.assign({}, doc, { _id: id }), event);
+  }
 
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -60,6 +146,34 @@ app.use('/emit', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   res.writeHead(204);
   res.end();
+});
+
+// POST /heartbeat — entity activity pulse
+// Body: { entity: "juno" }
+// Called by prompt-awareness hooks during live sessions.
+app.use('/heartbeat', (req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.writeHead(204);
+    return res.end();
+  }
+  if (req.method !== 'POST') return next();
+
+  const { entity } = req.body || {};
+  if (!entity || typeof entity !== 'string') {
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing "entity"' }));
+  }
+
+  const now = new Date();
+  EntityScanner.Entities.update({ handle: entity }, { $set: { lastActivity: now } });
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.writeHead(200);
+  res.end(JSON.stringify({ status: 'ok', entity, at: now.toISOString() }));
 });
 
 // POST /flight — flight telemetry endpoint
@@ -211,7 +325,7 @@ app.use('/api/health', async (req, res, next) => {
     const Flights = globalThis.FlightsCollection;
     const Emissions = globalThis.EmissionsCollection;
     const ready = globalThis.indexerReady || {};
-    const allReady = ['entities', 'passengers', 'alerts'].every(k => ready[k]);
+    const allReady = ['entities', 'passengers', 'alerts', 'sessions'].every(k => ready[k]);
 
     const payload = {
       status: allReady ? 'ok' : 'starting',
@@ -225,6 +339,7 @@ app.use('/api/health', async (req, res, next) => {
         flights: Flights ? await Flights.find().countAsync() : null,
         emissions: Emissions ? await Emissions.find().countAsync() : null,
         passengers: await PassengersRef.find().countAsync(),
+        sessions: globalThis.SessionsCollection ? await globalThis.SessionsCollection.find().countAsync() : null,
       },
       time: new Date().toISOString(),
     };
@@ -284,9 +399,148 @@ app.use('/api/flights', async (req, res, next) => {
   }
 });
 
+// GET /api/sessions/active — active harness sessions only
+app.use('/api/sessions/active', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/sessions/active')) return next();
+  try {
+    const Sessions = globalThis.SessionsCollection;
+    if (!Sessions) return jsonErr(res, 503, 'Sessions collection not initialized');
+
+    const sessions = await Sessions.find(
+      { status: 'active' },
+      { sort: { lastSeen: -1 }, limit: 200 }
+    ).fetchAsync();
+
+    const totalCost = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
+
+    jsonOk(res, { status: 'ok', count: sessions.length, totalCost, sessions });
+  } catch (err) {
+    console.error('[API/sessions/active] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/sessions — all indexed sessions
+// GET /api/sessions?entity=juno — filter by entity
+// GET /api/sessions?status=active — filter by status (active, stale)
+// GET /api/sessions?limit=50 — default 50, max 500
+app.use('/api/sessions', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/sessions')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const Sessions = globalThis.SessionsCollection;
+    if (!Sessions) return jsonErr(res, 503, 'Sessions collection not initialized');
+
+    const selector = {};
+    if (q.status) selector.status = q.status;
+    if (q.entity) selector.entity = q.entity;
+
+    const limit = Math.min(parseInt(q.limit || '50', 10) || 50, 500);
+    const sessions = await Sessions.find(selector, {
+      sort: { lastSeen: -1 },
+      limit,
+    }).fetchAsync();
+
+    const totalCost = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
+
+    jsonOk(res, { status: 'ok', count: sessions.length, totalCost, sessions });
+  } catch (err) {
+    console.error('[API/sessions] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/triggers — list all loaded reactive triggers
+app.use('/api/triggers', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/triggers')) return next();
+  try {
+    const list = globalThis.listEmissionTriggers ? globalThis.listEmissionTriggers() : [];
+    jsonOk(res, { status: 'ok', count: list.length, triggers: list });
+  } catch (err) {
+    console.error('[API/triggers] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/emissions/tree/<id> — full descendant tree under an emission
+// Returns a nested structure: { ...node, children: [{ ...child, children: [...] }] }
+// The requested id is the root of the returned tree (not necessarily the
+// ancestral root). Includes the requested node itself + every descendant
+// reachable via meta.path.
+app.use('/api/emissions/tree', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  try {
+    const url = req.originalUrl || req.url || '';
+    // /api/emissions/tree/<id> — connect strips the prefix, so req.url is /<id>
+    // But pathIs uses originalUrl which is unstripped. Strip prefix manually.
+    const stripped = url.replace(/^\/api\/emissions\/tree\/?/, '').split('?')[0].replace(/\/$/, '');
+    const id = decodeURIComponent(stripped);
+    if (!id) return jsonErr(res, 400, 'Missing emission id in path');
+
+    const Emissions = globalThis.EmissionsCollection;
+    if (!Emissions) return jsonErr(res, 503, 'Emissions collection not initialized');
+
+    const root = await Emissions.findOne(id);
+    if (!root) return jsonErr(res, 404, `Emission ${id} not found`);
+
+    // Find every doc whose path includes this id — those are all descendants
+    const descendants = await Emissions.find({ 'meta.path': id }).fetchAsync();
+
+    // Build a parent → children index for O(N) tree assembly
+    const byParent = {};
+    for (const doc of descendants) {
+      const pid = doc.meta && doc.meta.parentId;
+      if (!pid) continue;
+      if (!byParent[pid]) byParent[pid] = [];
+      byParent[pid].push(doc);
+    }
+
+    function attach(node) {
+      const kids = byParent[node._id] || [];
+      kids.sort((a, b) => new Date(a.startedAt || a.timestamp) - new Date(b.startedAt || b.timestamp));
+      return Object.assign({}, node, {
+        children: kids.map(attach),
+      });
+    }
+
+    const tree = attach(root);
+    const totalNodes = 1 + descendants.length;
+    jsonOk(res, { status: 'ok', rootId: id, totalNodes, tree });
+  } catch (err) {
+    console.error('[API/emissions/tree] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/emissions/active — open or active lifecycle emissions
+// GET /api/emissions/active?entity=vulcan — filter by entity
+app.use('/api/emissions/active', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/emissions/active')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const Emissions = globalThis.EmissionsCollection;
+    if (!Emissions) return jsonErr(res, 503, 'Emissions collection not initialized');
+
+    const selector = { status: { $in: ['open', 'active'] } };
+    if (q.entity) selector.entity = q.entity;
+
+    const emissions = await Emissions.find(selector, {
+      sort: { startedAt: -1 },
+      limit: 200,
+    }).fetchAsync();
+
+    jsonOk(res, { status: 'ok', count: emissions.length, emissions });
+  } catch (err) {
+    console.error('[API/emissions/active] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
 // GET /api/emissions — recent emissions (newest first)
 // GET /api/emissions?entity=juno — filter
 // GET /api/emissions?type=warning — filter
+// GET /api/emissions?status=open — filter by lifecycle status
+// GET /api/emissions?parent=abc123 — children of a conversation/parent emission
 // GET /api/emissions?limit=50 — default 50, max 500
 app.use('/api/emissions', async (req, res, next) => {
   if (req.method !== 'GET' || !pathIs(req, '/api/emissions')) return next();
@@ -298,6 +552,8 @@ app.use('/api/emissions', async (req, res, next) => {
     const selector = {};
     if (q.entity) selector.entity = q.entity;
     if (q.type) selector.type = q.type;
+    if (q.status) selector.status = q.status;
+    if (q.parent) selector['meta.parentId'] = q.parent;
 
     const limit = Math.min(parseInt(q.limit || '50', 10) || 50, 500);
     const emissions = await Emissions.find(selector, {
@@ -495,6 +751,451 @@ app.use('/api/alerts', async (req, res, next) => {
     jsonOk(res, { status: 'ok', count: alerts.length, alerts });
   } catch (err) {
     console.error('[API/alerts] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/workers — worker process status (koad:io-worker-processes)
+// Returns all workers registered in WorkerProcesses collection, sorted by service name.
+// errors[] is stripped to a count to avoid leaking stack traces.
+app.use('/api/workers', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/workers')) return next();
+  try {
+    // WorkerProcesses collection is declared in packages/workers with Mongo name 'workers'
+    const WorkersRef = new Mongo.Collection('workers', { connection: null });
+    const raw = await WorkersRef.find({}, { sort: { service: 1 } }).fetchAsync();
+
+    // Project out stack traces — include error count only
+    const workers = raw.map(w => {
+      const safe = Object.assign({}, w);
+      if (Array.isArray(safe.errors)) {
+        safe.errorCount = safe.errors.length;
+        delete safe.errors;
+      }
+      return safe;
+    });
+
+    jsonOk(res, { status: 'ok', count: workers.length, workers });
+  } catch (err) {
+    console.error('[API/workers] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /overview — public-safe kingdom snapshot (VESTA-SPEC-135)
+// 60s TTL cache; CORS open; no auth required.
+// Field projections follow §5 of the spec — dollar values and ops-language excluded.
+// ---------------------------------------------------------------------------
+
+let overviewCache = null;
+let overviewCacheAt = 0;
+const OVERVIEW_TTL_MS = 60 * 1000;
+
+// Parse bond base strings into directed edges.
+// Expected format: "{from}-to-{to}-{bond_type}"
+// E.g. "koad-to-juno-peer" → { from: "koad", to: "juno", bond_type: "peer" }
+// Deduplicates same-type pairs by bumping count.
+function buildBondEdges(bondsDocs) {
+  const edgeMap = new Map();
+  for (const doc of bondsDocs) {
+    for (const bond of (doc.bonds || [])) {
+      const base = bond.base || '';
+      const m = base.match(/^(.+)-to-(.+)-([^-]+)$/);
+      if (!m) {
+        console.warn('[overview] bond base did not match parse pattern, skipping:', base);
+        continue;
+      }
+      const [, from, to, bond_type] = m;
+      const key = `${from}::${to}::${bond_type}`;
+      if (edgeMap.has(key)) {
+        edgeMap.get(key).count++;
+      } else {
+        edgeMap.set(key, { from, to, bond_type, count: 1 });
+      }
+    }
+  }
+  return Array.from(edgeMap.values());
+}
+
+async function buildOverviewPayload() {
+  const now = new Date();
+  const twentyFourHoursAgo = new Date(now - 24 * 60 * 60 * 1000);
+
+  // Entities — public-safe projection per §5
+  const entities = await EntityScanner.Entities.find(
+    {},
+    { fields: { handle: 1, tagline: 1, role: 1, entityMd: 1 } }
+  ).fetchAsync();
+
+  // Bonds — parse edge list from BondsIndex
+  const BondsRef = new Mongo.Collection('BondsIndex', { connection: null });
+  const bondsDocs = await BondsRef.find({}).fetchAsync();
+  const edges = buildBondEdges(bondsDocs);
+
+  // Flights (24h) — public-safe projection; briefSlug excluded per §4.4.1
+  const Flights = globalThis.FlightsCollection;
+  const flights = Flights
+    ? await Flights.find(
+        { started: { $gte: twentyFourHoursAgo } },
+        {
+          sort: { started: -1 },
+          limit: 50,
+          fields: { entity: 1, status: 1, started: 1, elapsed: 1, model: 1, _id: 0 },
+        }
+      ).fetchAsync()
+    : [];
+
+  // Sessions — active harness sessions; cost + model visible, cwd excluded
+  const SessionsCol = globalThis.SessionsCollection;
+  const sessions = SessionsCol
+    ? await SessionsCol.find(
+        { status: 'active' },
+        {
+          sort: { lastSeen: -1 },
+          limit: 50,
+          fields: { entity: 1, model: 1, contextPct: 1, cost: 1, lastSeen: 1, host: 1, status: 1, _id: 0 },
+        }
+      ).fetchAsync()
+    : [];
+
+  // Emissions (24h) — type + entity + timestamp only; body excluded per §4.5
+  const Emissions = globalThis.EmissionsCollection;
+  const emissions = Emissions
+    ? await Emissions.find(
+        { timestamp: { $gte: twentyFourHoursAgo } },
+        {
+          sort: { timestamp: -1 },
+          limit: 50,
+          fields: { entity: 1, type: 1, timestamp: 1, _id: 0 },
+        }
+      ).fetchAsync()
+    : [];
+
+  return {
+    generated_at: now.toISOString(),
+    entities: entities.map(e => ({
+      handle: e.handle,
+      tagline: e.tagline || null,
+      role: e.role || null,
+      entityMd: e.entityMd || null,
+    })),
+    bond_graph: { edges },
+    sessions: sessions.map(s => ({
+      entity: s.entity,
+      model: s.model || null,
+      contextPct: s.contextPct != null ? Number(s.contextPct) : null,
+      cost: s.cost != null ? Number(s.cost) : null,
+      lastSeen: s.lastSeen ? s.lastSeen.toISOString() : null,
+      host: s.host || null,
+    })),
+    activity: {
+      flights_24h: flights.map(f => ({
+        entity: f.entity,
+        status: f.status,
+        started: f.started ? f.started.toISOString() : null,
+        elapsed_s: f.elapsed != null ? Number(f.elapsed) : null,
+        model: f.model || null,
+      })),
+      emissions_24h: emissions.map(e => ({
+        entity: e.entity,
+        type: e.type,
+        timestamp: e.timestamp ? e.timestamp.toISOString() : null,
+      })),
+    },
+  };
+}
+
+// OPTIONS preflight for /api/overview
+// NOTE: moved from /overview to /api/overview — the Blaze template route at
+// /overview was being shadowed by this JSON handler, causing the dashboard
+// to return raw JSON instead of HTML. REST endpoints live under /api/.
+app.use('/api/overview', (req, res, next) => {
+  if (req.method !== 'OPTIONS') return next();
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.writeHead(204);
+  res.end();
+});
+
+// GET /api/overview — public-safe kingdom snapshot
+app.use('/api/overview', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/overview')) return next();
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+
+  const now = Date.now();
+  try {
+    if (!overviewCache || (now - overviewCacheAt) > OVERVIEW_TTL_MS) {
+      overviewCache = await buildOverviewPayload();
+      overviewCacheAt = now;
+    }
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('X-Overview-Generated-At', overviewCache.generated_at);
+    jsonOk(res, overviewCache);
+  } catch (err) {
+    console.error('[overview] buildOverviewPayload error:', err.message);
+    // Stale-on-error: serve cached response if one exists
+    if (overviewCache) {
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      res.setHeader('X-Overview-Generated-At', overviewCache.generated_at);
+      res.setHeader('X-Overview-Stale', 'true');
+      jsonOk(res, overviewCache);
+    } else {
+      jsonErr(res, 503, 'overview not yet available: ' + err.message);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/primitives — list the primitive library
+// GET /api/primitives/<name> — single primitive detail with script content
+// GET /api/entities/<handle>/primitives — installed primitives per entity
+// POST /api/primitives/provision?entity=<handle> — manual provision trigger
+//
+// These implement VESTA-SPEC-136 §9.1–9.4.
+// ---------------------------------------------------------------------------
+
+const primitivesFsPath = Npm.require('path');
+const primitivesFs = Npm.require('fs');
+const primitivesHome = process.env.HOME;
+
+function loadPrimitivesLibraryForApi() {
+  if (globalThis.PrimitivesLibrary && globalThis.PrimitivesLibrary.loadPrimitiveLibrary) {
+    return globalThis.PrimitivesLibrary.loadPrimitiveLibrary();
+  }
+  return [];
+}
+
+// GET /api/primitives/<name> — must be registered before /api/primitives
+app.use('/api/primitives', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  // Strip query string and leading path prefix
+  const stripped = url.replace(/^\/api\/primitives\/?/, '').split('?')[0].replace(/\/$/, '');
+
+  if (!stripped || stripped === 'provision') return next(); // let /api/primitives (list) or /provision handler catch
+
+  // Single primitive detail: GET /api/primitives/<name>
+  const name = decodeURIComponent(stripped);
+  try {
+    const library = loadPrimitivesLibraryForApi();
+    const primitive = library.find(p => p.name === name);
+    if (!primitive) return jsonErr(res, 404, `Primitive '${name}' not found`);
+
+    let script = null;
+    try {
+      script = primitivesFs.readFileSync(primitive.scriptPath, 'utf8');
+    } catch (e) {}
+
+    const { scriptPath, ...rest } = primitive;
+    jsonOk(res, Object.assign({}, rest, { script }));
+  } catch (err) {
+    console.error('[API/primitives/:name] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/primitives — list all primitives in library
+app.use('/api/primitives', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/primitives')) return next();
+  try {
+    const library = loadPrimitivesLibraryForApi();
+    const primitives = library.map(({ scriptPath, ...rest }) => rest);
+    jsonOk(res, { status: 'ok', count: primitives.length, primitives });
+  } catch (err) {
+    console.error('[API/primitives] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// POST /api/primitives/provision?entity=<handle> — manual provision
+app.use('/api/primitives/provision', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const entityHandle = q.entity || null;
+
+    const entities = entityHandle
+      ? EntityScanner.Entities.find({ handle: entityHandle }).fetch()
+      : EntityScanner.Entities.find().fetch();
+
+    if (entityHandle && entities.length === 0) {
+      return jsonErr(res, 404, `Entity '${entityHandle}' not found`);
+    }
+
+    const library = loadPrimitivesLibraryForApi();
+
+    // Re-use the provisioner logic by calling provisionOnce via globalThis
+    // provisioner.js exports nothing directly — we re-implement the sweep here
+    // using the shared library loader and the same pattern. The provisioner
+    // worker will also sweep on its next interval, but this gives an immediate
+    // synchronous summary for the caller.
+
+    const results = [];
+    const pathMod = Npm.require('path');
+    const fsMod = Npm.require('fs');
+    const cryptoMod = Npm.require('crypto');
+
+    function hashFile(fp) {
+      try {
+        const c = fsMod.readFileSync(fp);
+        return 'sha256:' + cryptoMod.createHash('sha256').update(c).digest('hex');
+      } catch (e) { return null; }
+    }
+
+    function readRecord(entityPath, name) {
+      try {
+        return JSON.parse(fsMod.readFileSync(pathMod.join(entityPath, '.patched', name + '.json'), 'utf8'));
+      } catch (e) { return null; }
+    }
+
+    function hasOptout(entityPath, name) {
+      try { fsMod.accessSync(pathMod.join(entityPath, '.patched', name + '.optout')); return true; }
+      catch (e) { return false; }
+    }
+
+    for (const entity of entities) {
+      if (!entity.path) continue;
+      for (const primitive of library) {
+        if (!primitive.roles.includes('*') && entity.role && !primitive.roles.includes(entity.role)) continue;
+        if (!primitive.roles.includes('*') && !entity.role) continue;
+
+        const name = primitive.name;
+        let action = 'no_op';
+
+        if (hasOptout(entity.path, name)) {
+          action = 'skipped_optout';
+        } else {
+          const record = readRecord(entity.path, name);
+          if (!record) {
+            action = 'eligible_not_installed';
+          } else {
+            const currentHash = hashFile(record.install_path);
+            const cmp = (function semCmp(a, b) {
+              const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+              for (let i = 0; i < 3; i++) {
+                const na = pa[i] || 0, nb = pb[i] || 0;
+                if (na < nb) return -1; if (na > nb) return 1;
+              }
+              return 0;
+            })(record.version, primitive.version);
+            if (cmp < 0 && currentHash === record.source_hash) action = 'upgrade_notice_emitted';
+            else if (cmp < 0) action = 'skipped_customized';
+            else if (cmp > 0) action = 'version_anomaly';
+            else if (currentHash !== record.source_hash) action = 'skipped_customized';
+            else action = 'no_op';
+          }
+        }
+
+        results.push({ entity: entity.handle, primitive: name, action });
+      }
+    }
+
+    jsonOk(res, {
+      status: 'ok',
+      ran_at: new Date().toISOString(),
+      entity: entityHandle || 'all',
+      summary: results,
+    });
+  } catch (err) {
+    console.error('[API/primitives/provision] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/entities/<handle>/primitives — installed primitives state per entity
+// Must be registered BEFORE /api/entities to avoid prefix shadowing.
+app.use('/api/entities', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  const m = url.match(/^\/api\/entities\/([^/?]+)\/primitives/);
+  if (!m) return next();
+
+  const handle = decodeURIComponent(m[1]);
+  try {
+    const entity = await EntityScanner.Entities.findOneAsync({ handle });
+    if (!entity) return jsonErr(res, 404, `Entity '${handle}' not found`);
+
+    const library = loadPrimitivesLibraryForApi();
+    const entityPath = entity.path;
+    const fsMod = Npm.require('fs');
+    const pathMod = Npm.require('path');
+    const cryptoMod = Npm.require('crypto');
+
+    function hashFile(fp) {
+      try {
+        const c = fsMod.readFileSync(fp);
+        return 'sha256:' + cryptoMod.createHash('sha256').update(c).digest('hex');
+      } catch (e) { return null; }
+    }
+
+    function readRecord(name) {
+      try {
+        return JSON.parse(fsMod.readFileSync(pathMod.join(entityPath, '.patched', name + '.json'), 'utf8'));
+      } catch (e) { return null; }
+    }
+
+    function checkOptout(name) {
+      try { fsMod.accessSync(pathMod.join(entityPath, '.patched', name + '.optout')); return true; }
+      catch (e) { return false; }
+    }
+
+    const entries = [];
+
+    // Add all library primitives eligible for this entity + opted-out ones
+    const seen = new Set();
+    for (const primitive of library) {
+      const { name, kind, version: libVersion } = primitive;
+      seen.add(name);
+      const roleMatches = primitive.roles.includes('*') || (entity.role && primitive.roles.includes(entity.role));
+
+      if (checkOptout(name)) {
+        entries.push({ name, kind, status: 'opted_out', installed_version: null, library_version: libVersion, customized: false, pinned: false, opted_out: true });
+        continue;
+      }
+
+      if (!roleMatches) {
+        entries.push({ name, kind, status: 'role_mismatch', installed_version: null, library_version: libVersion, customized: false, pinned: false, opted_out: false });
+        continue;
+      }
+
+      const record = readRecord(name);
+      if (!record) {
+        entries.push({ name, kind, status: 'not_installed', installed_version: null, library_version: libVersion, customized: false, pinned: false, opted_out: false });
+        continue;
+      }
+
+      const currentHash = hashFile(record.install_path);
+      const customized = !currentHash || currentHash !== record.source_hash;
+      const pinned = record.pinned || false;
+
+      const semCmp = (function(a, b) {
+        const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+        for (let i = 0; i < 3; i++) {
+          const na = pa[i] || 0, nb = pb[i] || 0;
+          if (na < nb) return -1; if (na > nb) return 1;
+        }
+        return 0;
+      })(record.version, libVersion);
+
+      let status;
+      if (semCmp > 0) status = 'version_anomaly';
+      else if (semCmp < 0 && !customized) status = 'upgrade_available';
+      else if (customized) status = 'customized';
+      else status = 'current';
+
+      entries.push({ name, kind, status, installed_version: record.version, library_version: libVersion, customized, pinned, opted_out: false });
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    jsonOk(res, { status: 'ok', entity: handle, count: entries.length, primitives: entries });
+  } catch (err) {
+    console.error('[API/entities/:handle/primitives] error:', err.message);
     jsonErr(res, 500, err.message);
   }
 });

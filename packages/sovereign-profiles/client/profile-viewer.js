@@ -17,15 +17,8 @@
 
 import { SovereignProfile, canonicalPreImage, computeCid, toBase64Url, fromBase64Url } from './profile-builder.js';
 
-let dagJsonDecode, dagJsonEncode, CID, sha256, ed;
-async function ensureDeps() {
-  if (!dagJsonDecode) {
-    ({ decode: dagJsonDecode, encode: dagJsonEncode } = await import('@ipld/dag-json'));
-    ({ CID } = await import('multiformats/cid'));
-    ({ sha256 } = await import('multiformats/hashes/sha2'));
-    ed = await import('@noble/ed25519');
-  }
-}
+// Shared crypto deps from koad:io-core — populated in koad.deps before this module loads.
+const { dagJsonEncode, dagJsonDecode, CID, sha256, ed } = koad.deps;
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
 
@@ -57,7 +50,6 @@ async function fetchEntry(cid) {
  * @returns {Promise<{ valid: boolean, error: string|null }>}
  */
 async function verifyEntry(cid, entry, authSet) {
-  await ensureDeps();
   // Step 1: recompute CID from entry bytes, assert match
   const bytes = dagJsonEncode(entry);
   const recomputedCid = await computeCid(bytes);
@@ -77,7 +69,7 @@ async function verifyEntry(cid, entry, authSet) {
   for (const pubkeyB64 of authSet) {
     try {
       const pubkeyBytes = fromBase64Url(pubkeyB64);
-      const ok = await ed.verify(sigBytes, preImage, pubkeyBytes);
+      const ok = await ed.verifyAsync(sigBytes, preImage, pubkeyBytes);
       if (ok) { verified = true; break; }
     } catch (_) {
       // key format error — try next key
@@ -121,7 +113,7 @@ async function applyDeviceKeyEntry(entry, authSet) {
     try {
       const devPubBytes = fromBase64Url(device_pubkey);
       const revSigBytes = fromBase64Url(reverse_sig);
-      const ok = await ed.verify(revSigBytes, reversePre, devPubBytes);
+      const ok = await ed.verifyAsync(revSigBytes, reversePre, devPubBytes);
       if (!ok) {
         return { ok: false, error: 'device-key-add: reverse_sig verification failed' };
       }

@@ -1,0 +1,9 @@
+{
+  "name": "sibling-error-awareness",
+  "kind": "trigger",
+  "version": "1.0.0",
+  "description": "Appends any error emission from another entity to ~/.entity/streams/sibling-errors.log for kingdom-wide situational awareness.",
+  "roles": ["*"],
+  "requires": [],
+  "tags": ["emissions", "observability", "errors"]
+}

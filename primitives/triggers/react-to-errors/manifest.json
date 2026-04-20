@@ -1,0 +1,9 @@
+{
+  "name": "react-to-errors",
+  "kind": "trigger",
+  "version": "1.0.0",
+  "description": "Opens a heal flight parented to any error emission and captures context to a dated heal log in ~/.entity/heals/.",
+  "roles": ["healer"],
+  "requires": ["KOAD_IO_EMIT"],
+  "tags": ["emissions", "healing", "errors", "flights"]
+}

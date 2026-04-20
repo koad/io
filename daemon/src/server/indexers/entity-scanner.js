@@ -4,6 +4,33 @@
 
 const fs = Npm.require('fs');
 const path = Npm.require('path');
+const { execFileSync } = Npm.require('child_process');
+
+// Read the last git commit timestamp for an entity dir, or null if not a git
+// repo / git unavailable. Used as a baseline for lastActivity so dormant
+// entities don't all collapse to "never seen" after a daemon restart — if
+// they have any commit history, we can show their last-activity meaningfully.
+function lastGitCommitDate(entityPath) {
+  try {
+    const ts = execFileSync('git', ['-C', entityPath, 'log', '-1', '--format=%ct'], {
+      encoding: 'utf8',
+      timeout: 500,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const epoch = parseInt(ts, 10);
+    if (!epoch || isNaN(epoch)) return null;
+    return new Date(epoch * 1000);
+  } catch (e) {
+    return null; // not a git repo, git missing, timeout, empty repo — fine
+  }
+}
+
+// Take the max of two dates (either can be null). Returns null if both null.
+function maxDate(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
 
 const Entities = new Mongo.Collection('Entities', { connection: null });
 
@@ -107,17 +134,35 @@ function syncEntities() {
     foundHandles.add(handle);
     const entityPath = path.join(homePath, folder);
 
-    // Extract role from .env (KOAD_IO_ENTITY_ROLE=<word>)
+    // Extract the PUBLIC-SAFE fields from .env. We do NOT index the full
+    // .env anymore — that's the env-indexer's job and it's been deprecated
+    // to keep secrets out of the daemon entirely. Here we only grep specific
+    // non-sensitive keys: role, home machine, harness preference.
     const entityEnvPath = path.join(entityPath, '.env');
-    let role = null;
+    let role = null, homeMachine = null, harness = null;
     try {
       const envContent = fs.readFileSync(entityEnvPath, 'utf8');
       const roleMatch = envContent.match(/^KOAD_IO_ENTITY_ROLE=(.+)$/m);
       if (roleMatch) role = roleMatch[1].trim();
-    } catch (e) { /* no .env or unreadable — role stays null */ }
+      const hostMatch = envContent.match(/^KOAD_IO_HOME_MACHINE=(.+)$/m);
+      if (hostMatch) homeMachine = hostMatch[1].trim();
+      const harnessMatch = envContent.match(/^KOAD_IO_DEFAULT_HARNESS=(.+)$/m);
+      if (harnessMatch) harness = harnessMatch[1].trim();
+    } catch (e) { /* no .env or unreadable — fields stay null */ }
 
     // Read ENTITY.md
     const { entityMd, tagline } = readEntityMd(entityPath);
+
+    // Baseline lastActivity = max(last git commit, ENTITY.md mtime, .env mtime).
+    // Flights and emissions push it forward to their own timestamps if newer.
+    // Without this baseline, dormant entities (no flights, no emissions) show
+    // "never seen" — with it, at least we know when their config last changed
+    // or a commit landed in their repo.
+    const gitDate = lastGitCommitDate(entityPath);
+    let mdDate = null, envDate = null;
+    try { mdDate = fs.statSync(path.join(entityPath, 'ENTITY.md')).mtime; } catch (e) {}
+    try { envDate = fs.statSync(entityEnvPath).mtime; } catch (e) {}
+    const baseline = maxDate(gitDate, maxDate(mdDate, envDate));
 
     if (!knownHandles.has(handle)) {
       Entities.insert({
@@ -125,13 +170,23 @@ function syncEntities() {
         folder,
         path: entityPath,
         role,
+        homeMachine,
+        harness,
         tagline,
         entityMd,
+        lastActivity: baseline,
         detectedAt: new Date(),
       });
       console.log(`[ENTITIES] + ${handle} (${role || 'no role'})`);
     } else {
-      Entities.update({ handle }, { $set: { role, tagline, entityMd } });
+      const existing = Entities.findOne({ handle });
+      const existingActivity = existing && existing.lastActivity ? new Date(existing.lastActivity) : null;
+      // Only update lastActivity if the baseline is newer (don't regress a live stamp)
+      const set = { role, homeMachine, harness, tagline, entityMd };
+      if (baseline && (!existingActivity || baseline > existingActivity)) {
+        set.lastActivity = baseline;
+      }
+      Entities.update({ handle }, { $set: set });
     }
 
     // Watch ENTITY.md for live edits

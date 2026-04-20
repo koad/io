@@ -227,6 +227,50 @@ fi
 [ "$CONTINUE" = "1" ] && echo "continue      : yes (opencode -c — resume last session)"
 echo
 
+# --- Harness lifecycle emissions -------------------------------------------
+#
+# Same pattern as the claude harness: one emission per session, updated
+# as it progresses, closed on exit. Resume reconnects to the existing one.
+
+source "$HOME/.koad-io/helpers/emit.sh" 2>/dev/null
+
+_harness_pid_dir="$ENTITY_DIR/.local/state/harness"
+_harness_pid_file="$_harness_pid_dir/harness.pid"
+mkdir -p "$_harness_pid_dir" 2>/dev/null
+echo $$ > "$_harness_pid_file" 2>/dev/null
+
+export KOAD_IO_EMISSION_ID_FILE="$_harness_pid_dir/emission.id"
+
+_mode="interactive"
+[ -n "$PROMPT" ] && _mode="one-shot"
+
+_emit_type="session"
+[ -n "$PROMPT" ] && _emit_type="flight"
+
+_emit_meta="{\"harness\":\"opencode\",\"model\":\"$MODEL_RESOLVED\",\"pid\":$$,\"host\":\"$(hostname -s)\",\"cwd\":\"$WORK_DIR\",\"provider\":\"$PROVIDER\"}"
+
+if [ "$CONTINUE" = "1" ] && [ -f "$KOAD_IO_EMISSION_ID_FILE" ]; then
+  koad_io_emit_resume "resumed: opencode $MODEL_RESOLVED ($_mode)" "$_emit_meta"
+else
+  koad_io_emit_open "$_emit_type" "harness opened: opencode $MODEL_RESOLVED ($_mode)" "$_emit_meta"
+fi
+
+_harness_exit_emitted=""
+_harness_on_exit() {
+  local rc=$?
+  rm -f "$_harness_pid_file" 2>/dev/null
+  [ -n "$_harness_exit_emitted" ] && return
+  _harness_exit_emitted=1
+  if [ "$rc" -eq 0 ]; then
+    koad_io_emit_close "harness closed: opencode $MODEL_RESOLVED ($_mode, clean exit)"
+  elif [ "$rc" -eq 130 ]; then
+    koad_io_emit_close "harness closed: opencode $MODEL_RESOLVED ($_mode, interrupted)"
+  else
+    koad_io_emit_close "harness closed: opencode $MODEL_RESOLVED ($_mode, exit $rc)"
+  fi
+}
+trap _harness_on_exit EXIT
+
 # --- Opencode env flags ---------------------------------------------------
 
 export OPENCODE_DISABLE_CLAUDE_CODE=true
@@ -245,10 +289,20 @@ export OPENCODE_DISABLE_TERMINAL_TITLE=true
 # they're doing), leave it alone.
 
 if [ -f "$HOME/.koad-io/harness/startup.sh" ]; then
+  koad_io_emit_update "context assembly started"
   SYSTEM_PROMPT="$("$HOME/.koad-io/harness/startup.sh")" || {
     echo "Warning: startup.sh failed (exit $?), proceeding without context assembly" >&2
+    koad_io_emit_update "context assembly failed (exit $?)"
   }
   export SYSTEM_PROMPT
+  koad_io_emit_update "context assembly complete"
+fi
+
+# Append CWD primer as system context (same as claude harness).
+if [ -n "${KOAD_IO_CWD_PRIMER:-}" ]; then
+  SYSTEM_PROMPT="${SYSTEM_PROMPT:+$SYSTEM_PROMPT
+
+}$KOAD_IO_CWD_PRIMER"
 fi
 
 # Read outfit color from passenger.json (if present)
