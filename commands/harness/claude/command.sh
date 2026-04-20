@@ -220,6 +220,10 @@ if [ "$CONTINUE" = "1" ] && command -v jq >/dev/null 2>&1; then
 fi
 echo
 
+# --- Load emission helpers (before first koad_io_emit_update use) ----------
+
+source "$HOME/.koad-io/helpers/emit.sh" 2>/dev/null
+
 # --- Context assembly (VESTA-SPEC-067) ------------------------------------
 #
 # Identity always loads. Run startup.sh to assemble KOAD_IO.md → ENTITY.md →
@@ -320,8 +324,6 @@ fi
 # We never `exec` claude anymore — always run as a child process so the
 # EXIT trap fires reliably. The overhead is one extra bash process in the
 # tree, negligible for sessions that run minutes to hours.
-
-source "$HOME/.koad-io/helpers/emit.sh" 2>/dev/null
 
 _harness_pid_dir="$ENTITY_DIR/.local/state/harness"
 _harness_pid_file="$_harness_pid_dir/harness.pid"
