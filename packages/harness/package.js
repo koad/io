@@ -48,6 +48,10 @@ Package.onUse(function (api) {
   api.addFiles('server/bond-types.js', 'server');
   api.addFiles('server/collections/user-memories.js', 'server');
 
+  // VESTA-SPEC-134: Phase 2 (MemoryStore + MockIPFS)
+  // Loads after UserMemories collection (declared above).
+  api.addFiles('server/memory-store.js', 'server');
+
   // VESTA-SPEC-134: Relational Memory Protocol — Phase 1 (client-side crypto primitives)
   // Browser-only: WebCrypto KEK derivation, blob encryption, IndexedDB KEK storage.
   // argon2-browser (Npm.depends) provides Argon2id via WebAssembly in the browser.
@@ -77,6 +81,8 @@ Package.onUse(function (api) {
   // VESTA-SPEC-134: bond type registry + UserMemories collection
   api.export('KoadHarnessBondTypes', 'server');
   api.export('UserMemories', 'server');
+  // VESTA-SPEC-134 Phase 2: MemoryStore + MockIPFS
+  api.export('MemoryStore', 'server');
   // VESTA-SPEC-134 Phase 1: client-side crypto exports (browser only)
   api.export('KoadKEKStorage', 'client');
 });
@@ -91,4 +97,6 @@ Package.onTest(function (api) {
   api.addFiles('test/feedback-extractor-test.js', 'server');
   // VESTA-SPEC-134 Phase 0 tests
   api.addFiles('test/bond-types-test.js', 'server');
+  // VESTA-SPEC-134 Phase 2 tests (Tinytest — Node-runnable variant is phase2-node-test.js)
+  api.addFiles('test/memory-store-test.js', 'server');
 });
