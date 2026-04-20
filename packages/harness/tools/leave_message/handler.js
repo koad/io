@@ -36,12 +36,12 @@ module.exports = async function leaveMessageHandler(params, context) {
     throw new Error('body must be 1–4000 characters');
   }
 
-  // KoadHarnessMessageTool is a global set by message-tool.js (loaded first in package.js)
-  if (typeof KoadHarnessMessageTool === 'undefined' || !KoadHarnessMessageTool._callback) {
+  const callback = globalThis._koadLeaveMessageCallback;
+  if (!callback) {
     throw new Error('leave_message: no callback registered — hosting app must call KoadHarnessMessageTool.register()');
   }
 
-  await KoadHarnessMessageTool._callback({
+  await callback({
     entity:    context.entity,
     sessionId: context.sessionId,
     userId:    context.userId,

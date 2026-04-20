@@ -10,10 +10,10 @@
 //
 // Returns a tool registry for use by provider normalization and handler dispatch.
 
-'use strict';
-
 const fs   = require('fs');
 const path = require('path');
+const Module = require('module');
+const _nodeRequire = Module.createRequire(process.cwd() + '/package.json');
 
 // Supported JSON Schema top-level keywords for parameters validation.
 const SUPPORTED_SCHEMA_KEYWORDS = new Set([
@@ -117,7 +117,7 @@ function _loadTool(toolDir) {
   // Load handler
   let handler;
   try {
-    handler = require(handlerPath);
+    handler = _nodeRequire(handlerPath);
   } catch (e) {
     console.warn(`[harness:tools] skipping ${dirName} — handler.js load error: ${e.message}`);
     return null;
@@ -155,7 +155,7 @@ function _listToolDirs(dir) {
   }
 }
 
-globalThis.KoadHarnessToolCascade = {
+module.exports = KoadHarnessToolCascade = {
 
   // load(entity, entityBaseDir, frameworkToolsDir) → toolRegistry
   //
@@ -172,10 +172,9 @@ globalThis.KoadHarnessToolCascade = {
   //   .invoke(name, params, context) → Promise<result> — execute a handler by name
 
   load(entity, entityBaseDir, frameworkToolsDir) {
-    // Default framework tools dir: sibling of this file's package
     if (!frameworkToolsDir) {
-      // __dirname is server/, tools/ is at packages/harness/tools/
-      frameworkToolsDir = path.resolve(__dirname, '..', 'tools');
+      const home = process.env.HOME || '/home/koad';
+      frameworkToolsDir = path.join(home, '.koad-io', 'packages', 'harness', 'tools');
     }
 
     // Tier 1: entity tools

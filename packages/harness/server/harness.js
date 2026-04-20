@@ -1,4 +1,5 @@
 const fs = require('fs');
+const KoadHarnessToolCascade = require('./tool-cascade.js');
 
 /*
  * koad:harness — Entity conversation harness for Meteor
@@ -421,7 +422,7 @@ class HarnessInstance {
     // Discover entity + framework tools. Runs synchronously (fs.readdirSync).
     // Silent on failure — session continues without tools if cascade errors.
     let toolRegistry = null;
-    if (typeof KoadHarnessToolCascade !== 'undefined') {
+    if (KoadHarnessToolCascade) {
       try {
         toolRegistry = KoadHarnessToolCascade.load(
           entityHandle,

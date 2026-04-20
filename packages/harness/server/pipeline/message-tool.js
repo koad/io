@@ -58,6 +58,7 @@ KoadHarnessMessageTool = {
   // The callback may be async; message-tool does not await (fire-and-forget).
   register(callback) {
     _callback = callback;
+    globalThis._koadLeaveMessageCallback = callback;
   },
 
   // parse(responseText, context) → cleanedText
