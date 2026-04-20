@@ -39,7 +39,7 @@ koad_io_emit_open flight \
   "{\"parentId\":\"${EMISSION_ID}\",\"trigger\":\"react-to-errors\",\"targetEntity\":\"${EMISSION_ENTITY}\"}"
 
 # Capture error context to a dated heal log
-HEAL_DIR="$HOME/heals/$(date +%Y-%m-%d)-auto"
+HEAL_DIR="$ENTITY_DIR/heals/$(date +%Y-%m-%d)-auto"
 mkdir -p "$HEAL_DIR"
 
 cat > "$HEAL_DIR/${EMISSION_ENTITY}-${EMISSION_ID}.md" <<HEALLOG

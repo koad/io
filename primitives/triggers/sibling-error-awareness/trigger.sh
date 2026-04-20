@@ -28,7 +28,7 @@ if [ -z "${EMISSION_ENTITY:-}" ] || [ -z "${EMISSION_BODY:-}" ]; then
   exit 0
 fi
 
-LOG_DIR="$HOME/streams"
+LOG_DIR="$ENTITY_DIR/streams"
 mkdir -p "$LOG_DIR"
 
 LOG_FILE="$LOG_DIR/sibling-errors.log"

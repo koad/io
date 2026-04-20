@@ -44,13 +44,14 @@ function parseTriggerHeader(content) {
   let event = 'any';
   let debounce = 0;
   for (const line of lines) {
-    const m = line.match(/^#\s*trigger:\s*(.+)$/);
+    // Case-insensitive per VESTA-SPEC-136 §4.3 — headers canonized as # TRIGGER/EVENT/DEBOUNCE
+    const m = line.match(/^#\s*trigger:\s*(.+)$/i);
     if (m) {
       try { selector = JSON.parse(m[1]); } catch (e) {}
     }
-    const e = line.match(/^#\s*event:\s*(.+)$/);
+    const e = line.match(/^#\s*event:\s*(.+)$/i);
     if (e) event = e[1].trim();
-    const d = line.match(/^#\s*debounce:\s*(\d+)/);
+    const d = line.match(/^#\s*debounce:\s*(\d+)/i);
     if (d) debounce = parseInt(d[1], 10);
   }
   return selector ? { selector, event, debounce } : null;
@@ -134,7 +135,12 @@ function matchesSelector(doc, selector) {
       continue;
     }
     const actual = key.includes('.') ? getNested(doc, key) : doc[key];
-    if (actual !== value) return false;
+    // Array value = "any of these" (OR semantics)
+    if (Array.isArray(value)) {
+      if (!value.includes(actual)) return false;
+    } else if (actual !== value) {
+      return false;
+    }
   }
   return true;
 }
@@ -144,7 +150,15 @@ function fireTrigger(trigger, doc, event) {
   if (trigger.debounce && (now - trigger.lastFiredAt < trigger.debounce * 1000)) return;
   trigger.lastFiredAt = now;
 
+  // Owner context — the entity that authored/owns this trigger. Scripts
+  // use ENTITY_DIR for entity-scoped paths; HOME stays as koad's so framework
+  // helpers at $HOME/.koad-io/... remain resolvable.
+  const ownerDir = path.join(process.env.HOME || '/home/koad', '.' + trigger.entity);
+
   const env = Object.assign({}, process.env, {
+    ENTITY: trigger.entity,
+    ENTITY_DIR: ownerDir,
+    // Emission context — the event that fired the trigger
     EMISSION_ID: doc._id || '',
     EMISSION_ENTITY: doc.entity || '',
     EMISSION_TYPE: doc.type || '',

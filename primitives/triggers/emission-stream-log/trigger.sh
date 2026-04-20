@@ -25,7 +25,7 @@ if [ -z "${EMISSION_ENTITY:-}" ] || [ -z "${EMISSION_BODY:-}" ]; then
   exit 0
 fi
 
-STREAMS_DIR="$HOME/streams"
+STREAMS_DIR="$ENTITY_DIR/streams"
 mkdir -p "$STREAMS_DIR"
 
 DATE_TAG="$(date +%Y-%m-%d)"
