@@ -453,9 +453,22 @@ class HarnessInstance {
     const provider = KoadHarnessProviders.get(providerName);
     // Provider options: from providers.<name> block (SPEC-133 config shape)
     // or legacy provider.<name> block
-    const providerOpts = (this.config.providers && this.config.providers[providerName])
-                         || (this.config.provider && this.config.provider[providerName])
-                         || {};
+    const providerOpts = Object.assign(
+      {},
+      (this.config.providers && this.config.providers[providerName])
+        || (this.config.provider && this.config.provider[providerName])
+        || {}
+    );
+
+    // Wire tool-result bridge: when a server-side tool fires, emit a
+    // tool_result SSE event so the client UI can react immediately.
+    providerOpts.onToolResult = (toolName, params, result) => {
+      KoadHarnessSSE.writeEvent(res, 'tool_result', {
+        tool:   toolName,
+        params: params,
+        result: result,
+      });
+    };
 
     let fullText = '';
 
