@@ -111,6 +111,106 @@ Set `KOAD_IO_ROOTED=true` in `~/.<entity>/.env` if the entity has an office — 
 
 **Rooted**: The entity's folder IS the workspace. Orchestrators, protocol keepers, entities that manage themselves. `$CWD` is recorded as `call_dir` for context but the harness opens in `$ENTITY_DIR`.
 
+## Destination Memory
+
+Roaming entities can leave notes for themselves about workspaces they've visited. Notes live in the entity's own home, keyed by hostname and path:
+
+```
+~/.<entity>/destinations/<hostname>/<absolute-path>/
+  notes.md        ← whatever the entity wants to remember about this place
+```
+
+On session start, the harness checks for `~/.<entity>/destinations/$HOSTNAME/$CWD/`. If found, it lists the files so the entity knows it has prior context. Rooted entities skip this check (home is not a destination). The destination stays clean — only its PRIMER is ambient. The entity's notes about a place live in the entity's house, not scattered across the filesystem.
+
+## Kingdom Search
+
+`~/.koad-io/bin/search` is the kingdom's query engine. It waterfalls through every entity's operational folders and the framework, treating the filesystem as a distributed markdown database and frontmatter as its schema.
+
+### Text Search
+
+```bash
+search "telemetry"                        # grep across all entities + framework
+search "blocked" --entity juno            # narrow to one entity
+search "oauth" --framework               # framework dirs only
+```
+
+### Frontmatter Queries
+
+Every `.md` file with YAML frontmatter is queryable by its metadata — status, priority, entities, tags, or any key you put there.
+
+```bash
+search --where status=ready               # all files with status: ready
+search --where "priority=high" --skip-complete  # high-priority, still open
+search --where "entities~vulcan"          # anything involving vulcan
+search "blocked" --where status!=landed   # text search filtered by frontmatter
+```
+
+Where operators: `=` exact, `!=` not equal, `~` contains (for arrays/partial). Multiple `--where` flags are AND conditions.
+
+### Constellation — `--related`
+
+Given a file, follows its frontmatter references (relates-to, entities, issues) and finds everything connected to it across the kingdom.
+
+```bash
+search --related ~/.juno/briefs/daemon-flight-telemetry.md
+```
+
+Shows the full web around an idea — the assessments that flagged it, the flights that built it, the specs it depends on, the posts queued behind it.
+
+### Forgotten Work — `--stale`
+
+Finds files with a non-done status that haven't been modified in N days. The open loops nobody is looking at.
+
+```bash
+search --stale              # untouched > 7 days (default)
+search --stale 14           # untouched > 2 weeks
+search --stale 3 --entity juno  # juno's recent stale work
+```
+
+### Kingdom Dashboard — `--atlas`
+
+All frontmattered files across the kingdom, grouped by status. The Monday morning view.
+
+```bash
+search --atlas              # full kingdom
+search --atlas --entity juno  # one entity's state
+```
+
+Shows active work (ready, draft, filed, dispatched, in-progress), completed work (landed, shipped, archived), and a summary count.
+
+### Topic Echo — `--echo`
+
+Fuzzy topic match against titles, descriptions, tags, and filenames. Not grep — semantic proximity.
+
+```bash
+search --echo "oauth"       # anything about oauth
+search --echo "daemon"      # the daemon constellation
+search --echo "sigchain" --skip-complete  # open sigchain work
+```
+
+### Modifiers
+
+| Flag | Effect |
+|------|--------|
+| `--entity X` | Narrow to one entity |
+| `--framework` | Framework dirs only |
+| `--skip-complete` | Exclude files with done-status frontmatter (landed, shipped, archived, canonical, complete, delivered, closed, merged, resolved) |
+
+### What Gets Searched
+
+Per entity: `briefs/`, `memories/`, `tickler/`, `horizons/`, `trust/bonds/`, `commands/`, `hooks/`, `skills/`, `destinations/`, `control/`, `ARCHITECTURE/`, `PROJECTS/`, `assessments/`, `reports/`, `heals/`, `reviews/`, `specs/`, `posts/`, `queues/`, and top-level identity files.
+
+Framework: `commands/`, `harness/`, `skeletons/`, `helpers/`, `bin/`.
+
+Noise exclusions baked in: `.git`, `node_modules`, `.meteor`, `.npm`, `.claude`, `.opencode`, `packages/`, `dist/`, `id/`, `builds/`, `.trash/`, `.archive/`, `*.asc`, `*.gpg`, `*.pem`.
+
+### Complementary Tools
+
+| Tool | Scope | When |
+|------|-------|------|
+| `search` | All entities + framework | "Where in the kingdom is this?" |
+| `sin` | Current directory, recursive | "What's in this project?" |
+
 ## Memory Convention
 
 Your memories folder — `~/.<entity>/memories/` — is canon. Write long-term memory there as markdown with frontmatter, organized semantically by topic. On session start, read your memories folder before acting.
@@ -142,6 +242,103 @@ koad (human sovereign)
 Bonds are GPG-clearsigned, dual-filed (authorizer + recipient repos), and auditable. The recipient never self-files their incoming bond.
 
 Bond types: `authorized-agent`, `authorized-builder`, `authorized-specialist`, `peer`, `family`, `friend`, `employee`, `member`, `vendor`, `customer`.
+
+## Emissions
+
+The kingdom has a nervous system. The koad:io daemon (default `http://10.10.10.10:28282`) accepts emissions from any entity, indexes them in real time, and fires reactive triggers when patterns match. You announce yourself; the daemon listens and signals.
+
+### How to emit
+
+Source the helper and call from any bash command:
+
+```bash
+source "$HOME/.koad-io/helpers/emit.sh" 2>/dev/null
+
+# Fire-and-forget — single record, no follow-up
+koad_io_emit notice "tests passing"
+koad_io_emit warning "rate limit at 80%"
+koad_io_emit error "settings file missing"
+
+# Lifecycle — open one record, narrate it, close it
+koad_io_emit_open session "harness opened: claude opus-4-6"
+koad_io_emit_update "context assembled"
+koad_io_emit_update "first response sent"
+koad_io_emit_close "clean exit"
+```
+
+From Python (hooks, scanners, daemons):
+
+```python
+sys.path.insert(0, os.path.expanduser('~/.koad-io/helpers'))
+from emit import emit_open, emit_update, emit_close
+eid = emit_open('vulcan', 'flight', 'building /traffic', meta={'parentId': conv_id})
+emit_update(eid, 'tests passing')
+emit_close(eid, 'shipped')
+```
+
+Both interfaces are wrappers around the same `~/.koad-io/helpers/emit.py` — one wire protocol, two callers.
+
+### Gate
+
+`KOAD_IO_EMIT=1` opt-in per entity (set in `~/.<entity>/.env`). Default disabled. Daemon-down emits silently no-op — telemetry never blocks the work.
+
+### Types
+
+| Type | Meaning |
+|------|---------|
+| `session` | Interactive harness — human at terminal |
+| `flight` | Dispatched agent — one-shot, subagent, scheduled |
+| `service` | Long-running process — daemon, app, screen-managed |
+| `conversation` | Multi-party flow — round table, party line |
+| `hook` | Lifecycle event from a hook firing |
+| `notice` / `warning` / `error` / `request` | Fire-and-forget |
+
+### Nesting (round tables)
+
+Pass `meta.parentId` to nest a child under a parent. The daemon enriches with `meta.rootId`, `meta.depth`, `meta.path`. Query the whole tree:
+
+```bash
+curl http://10.10.10.10:28282/api/emissions/tree/<rootId>
+```
+
+Used for round tables: open a `conversation` emission, dispatch each participant with `meta.parentId` pointing to the conversation. The whole flow is one queryable tree.
+
+### Reactive triggers
+
+Drop a bash script in `~/.<entity>/triggers/*.sh` with a header that declares which emissions you care about:
+
+```bash
+#!/bin/bash
+# trigger: { "type": "error" }
+# event: any           # open|update|close|emit|any
+# debounce: 5          # seconds — coalesce repeats
+
+# Receives: emission JSON on stdin, plus EMISSION_* env vars
+echo "$EMISSION_ENTITY: $EMISSION_BODY" >> /tmp/error-log
+```
+
+The daemon watches your triggers dir, reloads on change, and execs matching scripts when emissions arrive. Selectors match top-level fields (`entity`, `type`, `status`), nested via dot notation (`meta.parentId`), or regex via `bodyMatch`.
+
+This is how entities coordinate: Salus subscribes to `error` emissions and auto-opens heal investigations; Mercury triggers on Faber publishing a content plan; Argus gates the next dispatch on `flight close`.
+
+### Querying
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/emissions/active` | Open + active lifecycle records |
+| `GET /api/emissions?entity=X` | Filter by entity |
+| `GET /api/emissions?status=X` | Filter by status (open/active/closed) |
+| `GET /api/emissions?parent=<id>` | Immediate children |
+| `GET /api/emissions/tree/<id>` | Full nested descendant tree |
+| `GET /api/triggers` | All loaded reactive triggers |
+
+### Subagent dispatch
+
+When Juno (or any orchestrator) dispatches an Agent, hooks open a `flight` emission automatically. The subagent's `KOAD_IO_EMISSION_ID` is injected into every Bash call's env — meaning subagents can `source ~/.koad-io/helpers/emit.sh && koad_io_emit_update "halfway done"` and the orchestrator sees progress in real time. The flight closes with the agent's return summary.
+
+### Archive
+
+Closed emissions, landed flights, and ended sessions older than `KOAD_IO_ARCHIVE_DAYS` (default 7) sweep to `~/.koad-io/daemon/archive/<collection>/YYYY-MM-DD.jsonl`. Active records are never touched. Hourly automatic, manual via `POST /api/archive/sweep`.
 
 ## Entity Relationships
 

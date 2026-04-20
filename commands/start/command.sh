@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: 0BSD
 
+source "$HOME/.koad-io/helpers/emit.sh" 2>/dev/null
+
+# Lifecycle emission for the start process
+koad_io_emit_open service "start: initializing"
+
 # Get the current date and time (down to seconds for log uniqueness)
 CURRENTDATETIME=$(date +"%Y-%m-%d-%H-%M-%S")
 
@@ -93,6 +98,8 @@ echo "Settings: $SETTINGS_FILE";
 echo "Listening: $KOAD_IO_BIND_IP:$KOAD_IO_PORT"
 echo "App Name: $KOAD_IO_APP_NAME"
 
+koad_io_emit_update "validated: $KOAD_IO_APP_NAME on $KOAD_IO_BIND_IP:$KOAD_IO_PORT"
+
 # Derive screen session name from DATADIR path
 SCREEN_NAME=$(echo "$DATADIR" | sed "s|$HOME/\.||; s|/|-|g")
 
@@ -100,12 +107,14 @@ SCREEN_NAME=$(echo "$DATADIR" | sed "s|$HOME/\.||; s|/|-|g")
 if screen -list | grep -q "$SCREEN_NAME"; then
     echo "Already running: screen -r $SCREEN_NAME"
     echo "Tail log: tail -f $DATADIR/builds/latest/*.log"
+    koad_io_emit_close "start: already running (screen $SCREEN_NAME)"
     exit 0
 fi
 
 if lsof -i :$KOAD_IO_PORT -sTCP:LISTEN &>/dev/null; then
     echo "Port $KOAD_IO_PORT already in use (no screen found)"
     echo "Check: lsof -i :$KOAD_IO_PORT"
+    koad_io_emit_close "start: port $KOAD_IO_PORT already in use"
     exit 1
 fi
 
@@ -152,6 +161,7 @@ if [[ -f ./builds/latest/bundle/main.js ]] && [[ "$LOCAL_BUILD" != "true" ]]; th
     cd builds/latest/bundle
     $SCREEN_CMD "$SCREEN_NAME" bash -c "BIND_IP=$KOAD_IO_BIND_IP PORT=$KOAD_IO_PORT node main.js 2>&1 | tee \"$LOGFILE\""
     [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME"
+    koad_io_emit_update "started $KOAD_IO_DOMAIN on :$KOAD_IO_PORT (screen $SCREEN_NAME)"
 
 elif [[ -f ./src/.meteor/release ]]; then
 
@@ -165,9 +175,11 @@ elif [[ -f ./src/.meteor/release ]]; then
     meteor npm install
     $SCREEN_CMD "$SCREEN_NAME" bash -c "cd \"$PWD\" && meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
     [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME" && echo "Tail log: tail -f $LOGFILE"
+    koad_io_emit_update "started dev on :$KOAD_IO_PORT (screen $SCREEN_NAME)"
 
 else
     echo -e "\033[31mkoad/io application not found.\033[0m"
+    koad_io_emit_close "start: application not found in $DATADIR"
     exit 1
 fi
 

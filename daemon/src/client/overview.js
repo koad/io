@@ -14,8 +14,10 @@ globalThis.KeysIndex = new Mongo.Collection('KeysIndex');
 globalThis.TicklerIndex = new Mongo.Collection('TicklerIndex');
 globalThis.Emissions = new Mongo.Collection('Emissions');
 globalThis.Flights = new Mongo.Collection('Flights');
+globalThis.HarnessSessions = new Mongo.Collection('HarnessSessions');
 globalThis.Kingdoms = new Mongo.Collection('Kingdoms');
 globalThis.CrossKingdomBonds = new Mongo.Collection('CrossKingdomBonds');
+globalThis.EnvIndex = new Mongo.Collection('EnvIndex');
 
 // Passengers and Alerts are declared in application-logic.js
 // (accessed via globalThis.Passengers, globalThis.Alerts in the package)
@@ -30,9 +32,12 @@ Meteor.startup(function () {
   Meteor.subscribe('emissions');
   Meteor.subscribe('flights.active');
   Meteor.subscribe('flights.recent');
+  Meteor.subscribe('harnesses.active');
+  Meteor.subscribe('harnesses.recent');
   Meteor.subscribe('alerts');
   Meteor.subscribe('kingdoms.all');
   Meteor.subscribe('crossKingdomBonds');
+  Meteor.subscribe('env');
 });
 
 // Configure profile URL for daemon context — links out to the public site.

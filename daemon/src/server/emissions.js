@@ -2,9 +2,35 @@
 // Entities push notices/warnings/errors/requests via DDP method or REST
 // Operator subscribes via DDP to see them in real time
 
-const VALID_TYPES = ['notice', 'warning', 'error', 'request'];
+const VALID_TYPES = ['notice', 'warning', 'error', 'request', 'session', 'flight', 'service', 'conversation', 'hook'];
 
 const Emissions = new Mongo.Collection('Emissions', { connection: null });
+
+// Server-side ancestry enrichment.
+//
+// When an emission carries meta.parentId, look up the parent and stamp:
+//   meta.rootId  — top of the tree (parent's rootId, or parent._id if parent is root)
+//   meta.depth   — distance from root (parent.depth + 1, or 1 if parent is root)
+//   meta.path    — ordered ancestor IDs from root to immediate parent
+//
+// Cost: one findOne per insert with a parentId. Pays back hugely on tree
+// queries — `find({ 'meta.path': X })` finds all descendants in one selector.
+//
+// If the parent doesn't exist (race or already archived), the meta is left
+// as-is — child orphans are preserved with whatever parentId the caller sent.
+function enrichAncestry(meta) {
+  if (!meta || !meta.parentId) return meta || {};
+  const parent = Emissions.findOne(meta.parentId);
+  if (!parent) return meta;
+
+  const parentMeta = parent.meta || {};
+  const enriched = Object.assign({}, meta);
+  enriched.rootId = parentMeta.rootId || parent._id;
+  enriched.depth = (parentMeta.depth || 0) + 1;
+  enriched.path = [...(parentMeta.path || []), parent._id];
+  return enriched;
+}
+globalThis.enrichEmissionAncestry = enrichAncestry;
 
 Meteor.methods({
   getHostname() {
@@ -17,23 +43,88 @@ Meteor.methods({
       entity: String,
       type: String,
       body: String,
+      lifecycle: Match.Optional(String),
+      meta: Match.Optional(Object),
     });
 
     if (!VALID_TYPES.includes(data.type)) {
       throw new Meteor.Error('invalid-type', `Type must be one of: ${VALID_TYPES.join(', ')}`);
     }
 
+    const now = new Date();
+    const isLifecycle = data.lifecycle === 'open';
+
     const doc = {
       entity: data.entity,
       type: data.type,
       body: data.body,
-      timestamp: new Date(),
+      timestamp: now,
     };
 
+    if (data.meta) doc.meta = enrichAncestry(data.meta);
+
+    if (isLifecycle) {
+      doc.status = 'open';
+      doc.startedAt = now;
+      doc.updatedAt = now;
+      doc.history = [{ body: data.body, at: now }];
+    }
+
     const id = Emissions.insert(doc);
-    EntityScanner.Entities.update({ handle: data.entity }, { $set: { lastActivity: doc.timestamp } });
-    console.log(`[EMIT] ${data.entity}/${data.type}: ${data.body}`);
+    EntityScanner.Entities.update({ handle: data.entity }, { $set: { lastActivity: now } });
+    console.log(`[EMIT] ${data.entity}/${data.type}: ${data.body}${isLifecycle ? ' (lifecycle:open)' : ''}`);
+
+    // Reactive layer — fire matching triggers
+    if (globalThis.evaluateEmissionTriggers) {
+      const event = isLifecycle ? 'open' : 'emit';
+      globalThis.evaluateEmissionTriggers(Object.assign({}, doc, { _id: id }), event);
+    }
+
     return { _id: id };
+  },
+
+  'entity.emit.update'(_id, body, action, meta) {
+    check(_id, String);
+    check(body, String);
+    check(action, Match.Optional(String));
+    check(meta, Match.Optional(Object));
+
+    const existing = Emissions.findOne(_id);
+    if (!existing) {
+      throw new Meteor.Error('not-found', `Emission ${_id} not found`);
+    }
+
+    const now = new Date();
+    const update = {
+      $set: { body, updatedAt: now },
+      $push: { history: { body, at: now } },
+    };
+
+    if (action === 'close') {
+      update.$set.status = 'closed';
+      update.$set.closedAt = now;
+    } else if (existing.status === 'open') {
+      update.$set.status = 'active';
+    }
+
+    // Merge meta — new keys overlay, existing keys preserved
+    if (meta && typeof meta === 'object') {
+      const merged = Object.assign({}, existing.meta || {}, meta);
+      update.$set.meta = merged;
+    }
+
+    Emissions.update(_id, update);
+    EntityScanner.Entities.update({ handle: existing.entity }, { $set: { lastActivity: now } });
+    console.log(`[EMIT] ${existing.entity}/${existing.type}: ${body} (${action || 'update'})`);
+
+    // Reactive layer — fire matching triggers
+    if (globalThis.evaluateEmissionTriggers) {
+      const after = Emissions.findOne(_id);
+      const event = action === 'close' ? 'close' : 'update';
+      if (after) globalThis.evaluateEmissionTriggers(after, event);
+    }
+
+    return { _id };
   },
 
   'emissions.clear'(entity) {

@@ -13,13 +13,76 @@ if (!globalThis.indexerReady) globalThis.indexerReady = {};
 
 app.use(bodyParser.json());
 
-const VALID_TYPES = ['notice', 'warning', 'error', 'request'];
+const VALID_TYPES = ['notice', 'warning', 'error', 'request', 'session', 'flight', 'service', 'conversation', 'hook'];
+
+// POST /emit/update — update a lifecycle emission
+// Must be registered BEFORE /emit because connect prefix-matches.
+app.use('/emit/update', (req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.writeHead(204);
+    return res.end();
+  }
+  if (req.method !== 'POST') return next();
+
+  const { _id, body, action, meta } = req.body || {};
+
+  if (!_id || typeof _id !== 'string') {
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing "_id"' }));
+  }
+  if (!body || typeof body !== 'string') {
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing "body"' }));
+  }
+
+  const existing = EmissionsCollection.findOne(_id);
+  if (!existing) {
+    res.writeHead(404);
+    return res.end(JSON.stringify({ status: 'error', message: `Emission ${_id} not found` }));
+  }
+
+  const now = new Date();
+  const update = {
+    $set: { body, updatedAt: now },
+    $push: { history: { body, at: now } },
+  };
+
+  if (action === 'close') {
+    update.$set.status = 'closed';
+    update.$set.closedAt = now;
+  } else if (existing.status === 'open') {
+    update.$set.status = 'active';
+  }
+
+  if (meta && typeof meta === 'object') {
+    update.$set.meta = Object.assign({}, existing.meta || {}, meta);
+  }
+
+  EmissionsCollection.update(_id, update);
+  EntityScanner.Entities.update({ handle: existing.entity }, { $set: { lastActivity: now } });
+  console.log(`[EMIT/REST] ${existing.entity}/${existing.type}: ${body} (${action || 'update'})`);
+
+  // Reactive layer — fire matching triggers
+  if (globalThis.evaluateEmissionTriggers) {
+    const after = EmissionsCollection.findOne(_id);
+    const event = action === 'close' ? 'close' : 'update';
+    if (after) globalThis.evaluateEmissionTriggers(after, event);
+  }
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.writeHead(200);
+  res.end(JSON.stringify({ status: 'success', _id }));
+});
 
 // POST /emit — entity notification endpoint
 app.use('/emit', (req, res, next) => {
   if (req.method !== 'POST') return next();
 
-  const { entity, type, body } = req.body || {};
+  const { entity, type, body, lifecycle, meta } = req.body || {};
 
   // Validate
   if (!entity || typeof entity !== 'string') {
@@ -35,18 +98,38 @@ app.use('/emit', (req, res, next) => {
     return res.end(JSON.stringify({ status: 'error', message: 'Missing or invalid "body" field' }));
   }
 
+  const now = new Date();
+  const isLifecycle = lifecycle === 'open';
+
   const doc = {
     entity,
     type,
     body,
-    timestamp: new Date(),
+    timestamp: now,
   };
 
+  if (meta && typeof meta === 'object') {
+    doc.meta = globalThis.enrichEmissionAncestry
+      ? globalThis.enrichEmissionAncestry(meta)
+      : meta;
+  }
+
+  if (isLifecycle) {
+    doc.status = 'open';
+    doc.startedAt = now;
+    doc.updatedAt = now;
+    doc.history = [{ body, at: now }];
+  }
+
   const id = EmissionsCollection.insert(doc);
-  // Stamp lastActivity on the entity so card glows light up on the overview.
-  // Parallels the DDP `entity.emit` method; REST path had been missing it.
-  EntityScanner.Entities.update({ handle: entity }, { $set: { lastActivity: doc.timestamp } });
-  console.log(`[EMIT/REST] ${entity}/${type}: ${body}`);
+  EntityScanner.Entities.update({ handle: entity }, { $set: { lastActivity: now } });
+  console.log(`[EMIT/REST] ${entity}/${type}: ${body}${isLifecycle ? ' (lifecycle:open)' : ''}`);
+
+  // Reactive layer — fire matching triggers
+  if (globalThis.evaluateEmissionTriggers) {
+    const event = isLifecycle ? 'open' : 'emit';
+    globalThis.evaluateEmissionTriggers(Object.assign({}, doc, { _id: id }), event);
+  }
 
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -242,7 +325,7 @@ app.use('/api/health', async (req, res, next) => {
     const Flights = globalThis.FlightsCollection;
     const Emissions = globalThis.EmissionsCollection;
     const ready = globalThis.indexerReady || {};
-    const allReady = ['entities', 'passengers', 'alerts'].every(k => ready[k]);
+    const allReady = ['entities', 'passengers', 'alerts', 'sessions'].every(k => ready[k]);
 
     const payload = {
       status: allReady ? 'ok' : 'starting',
@@ -256,6 +339,7 @@ app.use('/api/health', async (req, res, next) => {
         flights: Flights ? await Flights.find().countAsync() : null,
         emissions: Emissions ? await Emissions.find().countAsync() : null,
         passengers: await PassengersRef.find().countAsync(),
+        sessions: globalThis.SessionsCollection ? await globalThis.SessionsCollection.find().countAsync() : null,
       },
       time: new Date().toISOString(),
     };
@@ -315,9 +399,148 @@ app.use('/api/flights', async (req, res, next) => {
   }
 });
 
+// GET /api/sessions/active — active harness sessions only
+app.use('/api/sessions/active', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/sessions/active')) return next();
+  try {
+    const Sessions = globalThis.SessionsCollection;
+    if (!Sessions) return jsonErr(res, 503, 'Sessions collection not initialized');
+
+    const sessions = await Sessions.find(
+      { status: 'active' },
+      { sort: { lastSeen: -1 }, limit: 200 }
+    ).fetchAsync();
+
+    const totalCost = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
+
+    jsonOk(res, { status: 'ok', count: sessions.length, totalCost, sessions });
+  } catch (err) {
+    console.error('[API/sessions/active] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/sessions — all indexed sessions
+// GET /api/sessions?entity=juno — filter by entity
+// GET /api/sessions?status=active — filter by status (active, stale)
+// GET /api/sessions?limit=50 — default 50, max 500
+app.use('/api/sessions', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/sessions')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const Sessions = globalThis.SessionsCollection;
+    if (!Sessions) return jsonErr(res, 503, 'Sessions collection not initialized');
+
+    const selector = {};
+    if (q.status) selector.status = q.status;
+    if (q.entity) selector.entity = q.entity;
+
+    const limit = Math.min(parseInt(q.limit || '50', 10) || 50, 500);
+    const sessions = await Sessions.find(selector, {
+      sort: { lastSeen: -1 },
+      limit,
+    }).fetchAsync();
+
+    const totalCost = sessions.reduce((sum, s) => sum + (s.cost || 0), 0);
+
+    jsonOk(res, { status: 'ok', count: sessions.length, totalCost, sessions });
+  } catch (err) {
+    console.error('[API/sessions] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/triggers — list all loaded reactive triggers
+app.use('/api/triggers', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/triggers')) return next();
+  try {
+    const list = globalThis.listEmissionTriggers ? globalThis.listEmissionTriggers() : [];
+    jsonOk(res, { status: 'ok', count: list.length, triggers: list });
+  } catch (err) {
+    console.error('[API/triggers] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/emissions/tree/<id> — full descendant tree under an emission
+// Returns a nested structure: { ...node, children: [{ ...child, children: [...] }] }
+// The requested id is the root of the returned tree (not necessarily the
+// ancestral root). Includes the requested node itself + every descendant
+// reachable via meta.path.
+app.use('/api/emissions/tree', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  try {
+    const url = req.originalUrl || req.url || '';
+    // /api/emissions/tree/<id> — connect strips the prefix, so req.url is /<id>
+    // But pathIs uses originalUrl which is unstripped. Strip prefix manually.
+    const stripped = url.replace(/^\/api\/emissions\/tree\/?/, '').split('?')[0].replace(/\/$/, '');
+    const id = decodeURIComponent(stripped);
+    if (!id) return jsonErr(res, 400, 'Missing emission id in path');
+
+    const Emissions = globalThis.EmissionsCollection;
+    if (!Emissions) return jsonErr(res, 503, 'Emissions collection not initialized');
+
+    const root = await Emissions.findOne(id);
+    if (!root) return jsonErr(res, 404, `Emission ${id} not found`);
+
+    // Find every doc whose path includes this id — those are all descendants
+    const descendants = await Emissions.find({ 'meta.path': id }).fetchAsync();
+
+    // Build a parent → children index for O(N) tree assembly
+    const byParent = {};
+    for (const doc of descendants) {
+      const pid = doc.meta && doc.meta.parentId;
+      if (!pid) continue;
+      if (!byParent[pid]) byParent[pid] = [];
+      byParent[pid].push(doc);
+    }
+
+    function attach(node) {
+      const kids = byParent[node._id] || [];
+      kids.sort((a, b) => new Date(a.startedAt || a.timestamp) - new Date(b.startedAt || b.timestamp));
+      return Object.assign({}, node, {
+        children: kids.map(attach),
+      });
+    }
+
+    const tree = attach(root);
+    const totalNodes = 1 + descendants.length;
+    jsonOk(res, { status: 'ok', rootId: id, totalNodes, tree });
+  } catch (err) {
+    console.error('[API/emissions/tree] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/emissions/active — open or active lifecycle emissions
+// GET /api/emissions/active?entity=vulcan — filter by entity
+app.use('/api/emissions/active', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/emissions/active')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const Emissions = globalThis.EmissionsCollection;
+    if (!Emissions) return jsonErr(res, 503, 'Emissions collection not initialized');
+
+    const selector = { status: { $in: ['open', 'active'] } };
+    if (q.entity) selector.entity = q.entity;
+
+    const emissions = await Emissions.find(selector, {
+      sort: { startedAt: -1 },
+      limit: 200,
+    }).fetchAsync();
+
+    jsonOk(res, { status: 'ok', count: emissions.length, emissions });
+  } catch (err) {
+    console.error('[API/emissions/active] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
 // GET /api/emissions — recent emissions (newest first)
 // GET /api/emissions?entity=juno — filter
 // GET /api/emissions?type=warning — filter
+// GET /api/emissions?status=open — filter by lifecycle status
+// GET /api/emissions?parent=abc123 — children of a conversation/parent emission
 // GET /api/emissions?limit=50 — default 50, max 500
 app.use('/api/emissions', async (req, res, next) => {
   if (req.method !== 'GET' || !pathIs(req, '/api/emissions')) return next();
@@ -329,6 +552,8 @@ app.use('/api/emissions', async (req, res, next) => {
     const selector = {};
     if (q.entity) selector.entity = q.entity;
     if (q.type) selector.type = q.type;
+    if (q.status) selector.status = q.status;
+    if (q.parent) selector['meta.parentId'] = q.parent;
 
     const limit = Math.min(parseInt(q.limit || '50', 10) || 50, 500);
     const emissions = await Emissions.find(selector, {
@@ -594,6 +819,19 @@ async function buildOverviewPayload() {
       ).fetchAsync()
     : [];
 
+  // Sessions — active harness sessions; cost + model visible, cwd excluded
+  const SessionsCol = globalThis.SessionsCollection;
+  const sessions = SessionsCol
+    ? await SessionsCol.find(
+        { status: 'active' },
+        {
+          sort: { lastSeen: -1 },
+          limit: 50,
+          fields: { entity: 1, model: 1, contextPct: 1, cost: 1, lastSeen: 1, host: 1, status: 1, _id: 0 },
+        }
+      ).fetchAsync()
+    : [];
+
   // Emissions (24h) — type + entity + timestamp only; body excluded per §4.5
   const Emissions = globalThis.EmissionsCollection;
   const emissions = Emissions
@@ -616,6 +854,14 @@ async function buildOverviewPayload() {
       entityMd: e.entityMd || null,
     })),
     bond_graph: { edges },
+    sessions: sessions.map(s => ({
+      entity: s.entity,
+      model: s.model || null,
+      contextPct: s.contextPct != null ? Number(s.contextPct) : null,
+      cost: s.cost != null ? Number(s.cost) : null,
+      lastSeen: s.lastSeen ? s.lastSeen.toISOString() : null,
+      host: s.host || null,
+    })),
     activity: {
       flights_24h: flights.map(f => ({
         entity: f.entity,

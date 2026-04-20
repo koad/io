@@ -179,11 +179,62 @@ cat <<'EOF'
 EOF
 _ls "$ENTITY_DIR/memories" | { grep '\.md$' || true; } | sed 's/\.md$//' | sed 's/^/- /'
 
+# --- Destination memory (entity's recollection of this workspace) ----------
+# If the entity has visited $HARNESS_WORK_DIR on this host before, it may have
+# left notes for itself at ~/.<entity>/destinations/$HOSTNAME/<path>/. Surface
+# those files so the entity knows it has prior context for this location.
+# The entity decides whether to read them — the harness just discloses.
+# Rooted entities always open in $ENTITY_DIR — that's home, not a destination.
+_dest_dir="$ENTITY_DIR/destinations/$_HOST$HARNESS_WORK_DIR"
+if [ "${KOAD_IO_ROOTED:-}" = "true" ]; then
+  echo "[startup] destinations: skipped (rooted entity)" >&2
+elif [ -d "$_dest_dir" ]; then
+  _dest_files="$(_ls "$_dest_dir" | { grep '\.md$' || true; })"
+  if [ -n "$_dest_files" ]; then
+    echo "[startup] destinations: prior visit notes found at $_dest_dir" >&2
+    cat <<EOF
+
+### Destination Memory ($HARNESS_WORK_DIR on $_HOST)
+
+You have been here before. Notes from prior visits:
+EOF
+    echo "$_dest_files" | sed 's/\.md$//' | sed 's/^/- /'
+    printf '\nRead from: `%s`\n' "$_dest_dir"
+  fi
+else
+  echo "[startup] destinations: no prior visits to $HARNESS_WORK_DIR on $_HOST" >&2
+fi
+
 cat <<'EOF'
 
 ### Skills
 EOF
 _ls "$ENTITY_DIR/skills" | sed 's/^/- /'
+
+# --- Daemon status -----------------------------------------------------------
+# Quick health check against the daemon. If reachable, splice a summary into
+# the system prompt so every entity wakes up knowing the daemon's state.
+# Unreachable = skip silently. Never block startup on telemetry.
+_daemon_url="${KOAD_IO_DAEMON_URL:-http://10.10.10.10:28282}"
+_daemon_health="$(curl -sSf --max-time 1 "$_daemon_url/api/health" 2>/dev/null || true)"
+if [ -n "$_daemon_health" ] && command -v jq >/dev/null 2>&1; then
+  _d_status=$(echo "$_daemon_health" | jq -r '.status // "unknown"')
+  _d_uptime=$(echo "$_daemon_health" | jq -r '.uptime_s // 0')
+  _d_flights=$(echo "$_daemon_health" | jq -r '.counts.flights // 0')
+  _d_emissions=$(echo "$_daemon_health" | jq -r '.counts.emissions // 0')
+  _d_sessions=$(echo "$_daemon_health" | jq -r '.counts.sessions // 0')
+  echo "[startup] daemon: reachable (status=$_d_status uptime=${_d_uptime}s)" >&2
+  cat <<EOF
+
+### Daemon ($_daemon_url)
+
+- status: $_d_status
+- uptime: ${_d_uptime}s
+- flights: $_d_flights, emissions: $_d_emissions, sessions: $_d_sessions
+EOF
+else
+  echo "[startup] daemon: unreachable or no jq, skipped" >&2
+fi
 
 # --- Active Flights (Section 5a — VESTA-SPEC-110) ----------------------------
 # If the entity has a control flight scanner, run it with --active and splice
@@ -240,11 +291,10 @@ if [ -x "$_tickler_scan" ]; then
   _tickler_out="$("$_tickler_scan" 2>/dev/null || true)"
   if [ -n "$_tickler_out" ] && [ "$_tickler_out" != "Tickler: no tickles right now" ]; then
     echo "[startup] tickler: spliced into system prompt" >&2
-    # Tickle party — the human at the CLI sees the same surface the entity
-    # sees in its system prompt. startup.sh's stderr passes through to the
-    # terminal (the hook only captures stdout into $SYSTEM_PROMPT), so
-    # echoing here reaches both parties with a single source of truth.
-    printf '\n%s\n\n' "$_tickler_out" >&2
+    # Tickle party — the human at the CLI sees the colored version on stderr;
+    # the entity gets the plain version in its system prompt (stdout).
+    _tickler_color="$("$_tickler_scan" --color 2>/dev/null || true)"
+    printf '\n%s\n\n' "$_tickler_color" >&2
     printf '\n### Pending Tickles\n\n```\n%s\n```\n' "$_tickler_out"
   else
     echo "[startup] tickler: loader present, nothing due" >&2
