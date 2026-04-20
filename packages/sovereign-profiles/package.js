@@ -1,7 +1,7 @@
 Package.describe({
   name: 'koad:io-sovereign-profiles',
-  version: '0.1.0',
-  summary: 'Sovereign profile management via SPEC-111 sigchain entries. Editor/signer components for Passenger; viewer/verifier components for any koad:io app.',
+  version: '0.2.0',
+  summary: 'Sovereign profile management via SPEC-111 sigchain entries. Create, sign, authenticate, and publish profiles. Viewer/verifier components for any koad:io app.',
   documentation: 'README.md'
 });
 
@@ -23,6 +23,11 @@ Package.onUse(function(api) {
   api.use('ecmascript');
   api.use('blaze-html-templates');
   api.use('templating');
+
+  // Weak dependency on sigchain-discovery for chain broadcast.
+  // sovereign-profiles works standalone (render, sign, verify) without it.
+  // Chain broadcast via publishToChain() is a no-op unless sigchain-discovery is present.
+  api.use('ecoincore:sigchain-discovery', 'server', { weak: true });
 
   // Core profile logic — both sides consume
   api.addFiles([
@@ -51,9 +56,12 @@ Package.onUse(function(api) {
     'client/templates/key-generate-form.js',
   ], 'client');
 
-  // Server-side verification + pinning stubs
+  // Server-side: keystore reader, auth flow, profile server methods
+  // Load order: keystore first (auth depends on it), then auth, then profile-server
   api.addFiles([
-    'server/profile-server.js',
+    'server/keystore.js',      // file-based entity keystore reader (SovereignProfileKeystore)
+    'server/auth.js',          // challenge-response auth (SovereignAuth)
+    'server/profile-server.js', // server-side profile API (fromEntityDir, verify, pin, publishToChain)
   ], 'server');
 
   // Client exports — SovereignProfile is the primary API surface.
@@ -62,6 +70,8 @@ Package.onUse(function(api) {
 
   // Server exports
   api.export('SovereignProfile', 'server');
+  api.export('SovereignProfileKeystore', 'server');
+  api.export('SovereignAuth', 'server');
 });
 
 
@@ -69,5 +79,7 @@ Package.onTest(function(api) {
   api.use('koad:io-sovereign-profiles');
   api.use('tinytest');
   api.use('test-helpers');
+  api.use('ecmascript');
   api.addFiles('test/sovereign-profiles-tests.js', 'client');
+  api.addFiles('test/sovereign-profiles-server-tests.js', 'server');
 });
