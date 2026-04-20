@@ -322,7 +322,7 @@ Template.KingdomOverview.helpers({
     const Emissions = _col('Emissions');
     if (!Emissions) return [];
     tick1m.depend();
-    return Emissions.find({}, { sort: { timestamp: -1 }, limit: 100 }).map(function (em) {
+    return Emissions.find({}, { sort: { timestamp: -1 }, limit: 3 }).map(function (em) {
       return {
         entity: em.entity,
         type: em.type,
