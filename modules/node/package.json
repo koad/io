@@ -1,0 +1,29 @@
+{
+  "name": "@koad-io/node",
+  "version": "1.0.0",
+  "description": "Core koad object and shared crypto/IPFS dependencies — standalone Node.js module. The Meteor package koad:io-core imports from here; CLI tools and the daemon can too.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./index.js",
+      "require": "./index.cjs"
+    },
+    "./deps": {
+      "import": "./deps.js",
+      "require": "./deps.cjs"
+    },
+    "./identity": {
+      "import": "./identity.js",
+      "require": "./identity.cjs"
+    }
+  },
+  "main": "./index.cjs",
+  "dependencies": {
+    "@ipld/dag-json": "10.2.7",
+    "@noble/ed25519": "2.1.0",
+    "multiformats": "13.4.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
