@@ -212,6 +212,30 @@ const MemoryStore = {
     return serverDecryptBlob(paddedCiphertext, dek);
   },
 
+  // unpin(cid) → void
+  //
+  // Unpins a CID from the IPFS backend.
+  // Phase 5 (MockIPFS): removes the blob from MockIPFSBlobs collection.
+  // Phase 6: calls the real kingdom cluster API unpin endpoint.
+  async unpin(cid) {
+    if (!cid) throw new Error('MemoryStore.unpin: cid is required');
+    // Remove from MockIPFS (Phase 5 path)
+    try {
+      await MockIPFSBlobs.removeAsync({ _id: cid });
+    } catch (err) {
+      // Swallow — blob may already be gone or may not exist in mock store
+    }
+    // Phase 6: call globalThis.KoadMemoryStoreIPFS.unpin(cid)
+    if (globalThis.KoadMemoryStoreIPFS && typeof globalThis.KoadMemoryStoreIPFS.unpin === 'function') {
+      try {
+        await globalThis.KoadMemoryStoreIPFS.unpin(cid);
+      } catch (err) {
+        // Log but don't throw — unpin failure is non-fatal per §9.2
+        console.warn(`MemoryStore.unpin: IPFS unpin failed for ${cid}: ${err.message}`);
+      }
+    }
+  },
+
   // readAll(user_id, entity, kek) → Array<{ _id, plaintext, doc }>
   //
   // Fetches all active UserMemories for (user_id, entity) where

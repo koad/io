@@ -220,6 +220,58 @@ if [ "$CONTINUE" = "1" ] && command -v jq >/dev/null 2>&1; then
 fi
 echo
 
+# --- VESTA-SPEC-134 §6.2 Path C: Local-harness KEK ceremony ──────────────
+#
+# If KOAD_IO_MEMORY_ENABLED=1 is set in the entity's .env, run the KEK
+# ceremony before launching the entity. The ceremony prompts for the memory
+# passphrase on stderr (terminal), writes a JSON result to stdout, and exits.
+#
+# Ceremony result shape: { status, kek_b64? }
+#   status=loaded           → KEK active; entity has memories this session
+#   status=loaded-empty     → KEK active; no memories yet (first post-setup)
+#   status=rotation-required → KEK active; some blobs need re-wrap
+#   status=aborted          → 3 failures or user opt-out; proceed without memories
+#   status=revoked          → bond revoked; proceed without memories
+#
+# The ceremony runs only if:
+#   1. KOAD_IO_MEMORY_ENABLED=1
+#   2. The ceremony script exists
+#   3. Node.js is available
+#
+# The derived kek_b64 is exported as KOAD_IO_SESSION_KEK for the entity session.
+# Phase 6 wires this into the DDP session-KEK transport.
+
+CEREMONY_SCRIPT="$HOME/.koad-io/harness/memory-kek-ceremony.js"
+
+if [ "${KOAD_IO_MEMORY_ENABLED:-0}" = "1" ] && [ -f "$CEREMONY_SCRIPT" ] && command -v node >/dev/null 2>&1; then
+  # Forward all relevant env vars to the ceremony
+  export KOAD_IO_MEMORY_FIRST_TIME_DEVICE="${KOAD_IO_MEMORY_FIRST_TIME_DEVICE:-0}"
+  export KOAD_IO_MEMORY_KEK_STATUS="${KOAD_IO_MEMORY_KEK_STATUS:-}"
+  export KOAD_IO_MEMORY_KEY_VERSION="${KOAD_IO_MEMORY_KEY_VERSION:-1}"
+  export KOAD_IO_MEMORY_SALT_B64="${KOAD_IO_MEMORY_SALT_B64:-}"
+  export KOAD_IO_MEMORY_COUNT="${KOAD_IO_MEMORY_COUNT:-0}"
+
+  # Run ceremony; capture stdout (JSON result), let stderr (UI) flow to terminal
+  _ceremony_result="$(node "$CEREMONY_SCRIPT" 2>/dev/tty || echo '{"status":"aborted"}')"
+  _ceremony_status="$(echo "$_ceremony_result" | python3 -c 'import sys,json; d=json.loads(sys.stdin.read()); print(d.get("status","aborted"))' 2>/dev/null || echo 'aborted')"
+  _ceremony_kek="$(echo "$_ceremony_result" | python3 -c 'import sys,json; d=json.loads(sys.stdin.read()); print(d.get("kek_b64",""))' 2>/dev/null || echo '')"
+
+  case "$_ceremony_status" in
+    loaded|loaded-empty|rotation-required)
+      # Session has memories — export KEK for Phase 6 wire
+      export KOAD_IO_SESSION_KEK="$_ceremony_kek"
+      export KOAD_IO_MEMORY_CEREMONY_STATUS="$_ceremony_status"
+      ;;
+    aborted|revoked)
+      # No memories this session — entity proceeds normally
+      export KOAD_IO_MEMORY_CEREMONY_STATUS="$_ceremony_status"
+      unset KOAD_IO_SESSION_KEK
+      ;;
+  esac
+
+  unset _ceremony_result _ceremony_status _ceremony_kek
+fi
+
 # --- Load emission helpers (before first koad_io_emit_update use) ----------
 
 source "$HOME/.koad-io/helpers/emit.sh" 2>/dev/null
