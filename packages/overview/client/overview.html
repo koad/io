@@ -1,8 +1,5 @@
 <template name="KingdomOverview">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #121212 !important; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: auto !important; }
-
     .overview-header {
       padding: 16px 32px 12px;
       border-bottom: 1px solid #2a2a2a;
@@ -555,7 +552,7 @@
             <div class="entity-card {{#if isExpanded}}expanded{{/if}} {{#if isActiveNow}}active-now{{/if}} {{#if isActive5m}}active-5m{{/if}}" data-handle="{{handle}}" style="border-left-color: {{accentColor}}; --entity-hue: {{entityHue}};">
             <div class="entity-card-inner">
               <div class="entity-card-top">
-                <a href="{{entityProfileUrl handle}}" target="mainwebsite" class="entity-avatar entity-profile-link" style="background: {{accentColor}};" title="Open {{handle}} profile">
+                <a href="{{entityProfileUrl handle}}" class="entity-avatar entity-profile-link" style="background: {{accentColor}};" title="Open {{handle}} profile">
                   {{#if avatarImage}}
                     <img src="{{avatarImage}}" alt="{{handle}}">
                   {{else}}
@@ -677,7 +674,7 @@
           </div>
           <div class="bullpen">
             {{#each bullpenEntities}}
-              <a href="{{entityProfileUrl handle}}" target="mainwebsite"
+              <a href="{{entityProfileUrl handle}}"
                  class="bullpen-avatar {{#if isActive5m}}active-5m{{/if}}"
                  style="background: {{accentColor}}; --entity-hue: {{entityHue}};"
                  title="{{handle}}{{#if lastSeenText}} — {{lastSeenText}}{{/if}}">
