@@ -1,6 +1,6 @@
 Package.describe({
   name: 'koad:io-harness',
-  version: '1.0.0',
+  version: '1.1.0',
   summary: 'Entity conversation harness — serve AI entities over HTTP/SSE from any koad:io Meteor app',
   documentation: 'README.md',
 });
@@ -43,6 +43,29 @@ Package.onUse(function (api) {
   api.addFiles('server/budget.js', 'server');        // Headroom gate
   api.addFiles('server/access-gate.js', 'server');   // Three-gate stack
 
+  // VESTA-SPEC-134: Relational Memory Protocol — Phase 0 (bond types + collection)
+  // Bond type registry must load before any collection that may be validated.
+  api.addFiles('server/bond-types.js', 'server');
+  api.addFiles('server/collections/user-memories.js', 'server');
+
+  // VESTA-SPEC-134: Phase 2 (MemoryStore + MockIPFS)
+  // Loads after UserMemories collection (declared above).
+  api.addFiles('server/memory-store.js', 'server');
+
+  // VESTA-SPEC-134: Phase 3 — signal extraction + FORGET resolver
+  api.addFiles('server/pipeline/memory-signal-parser.js', 'server');
+  api.addFiles('server/pipeline/forget-resolver.js', 'server');
+
+  // VESTA-SPEC-134: Phase 4 — Layer 4a context loader
+  api.addFiles('server/memory-context-loader.js', 'server');
+
+  // VESTA-SPEC-134: Relational Memory Protocol — Phase 1 (client-side crypto primitives)
+  // Browser-only: WebCrypto KEK derivation, blob encryption, IndexedDB KEK storage.
+  // argon2-browser (Npm.depends) provides Argon2id via WebAssembly in the browser.
+  api.addFiles('client/crypto/kek-derive.js', 'client');
+  api.addFiles('client/crypto/blob-crypto.js', 'client');
+  api.addFiles('client/crypto/kek-storage.js', 'client');
+
   // OG / oembed injector (juno#90)
   api.addFiles('server/og-injector.js', 'server');
 
@@ -62,6 +85,18 @@ Package.onUse(function (api) {
   // VESTA-SPEC-133: access gate + budget exported for hosting-app quota debit wiring
   api.export('KoadHarnessAccessGate', 'server');
   api.export('KoadHarnessBudget', 'server');
+  // VESTA-SPEC-134: bond type registry + UserMemories collection
+  api.export('KoadHarnessBondTypes', 'server');
+  api.export('UserMemories', 'server');
+  // VESTA-SPEC-134 Phase 2: MemoryStore + MockIPFS
+  api.export('MemoryStore', 'server');
+  // VESTA-SPEC-134 Phase 3: memory signal parser + FORGET resolver
+  api.export('KoadHarnessMemoryParser', 'server');
+  api.export('KoadHarnessForgetResolver', 'server');
+  // VESTA-SPEC-134 Phase 4: Layer 4a context loader
+  api.export('KoadHarnessMemoryContextLoader', 'server');
+  // VESTA-SPEC-134 Phase 1: client-side crypto exports (browser only)
+  api.export('KoadKEKStorage', 'client');
 });
 
 Package.onTest(function (api) {
@@ -72,4 +107,12 @@ Package.onTest(function (api) {
   api.addFiles('test/entity-loader-test.js', 'server');
   api.addFiles('test/og-injector-test.js', 'server');
   api.addFiles('test/feedback-extractor-test.js', 'server');
+  // VESTA-SPEC-134 Phase 0 tests
+  api.addFiles('test/bond-types-test.js', 'server');
+  // VESTA-SPEC-134 Phase 2 tests (Tinytest — Node-runnable variant is phase2-node-test.js)
+  api.addFiles('test/memory-store-test.js', 'server');
+  // VESTA-SPEC-134 Phase 3 tests — memory signal parser + FORGET resolver
+  api.addFiles('test/memory-signal-parser-test.js', 'server');
+  // VESTA-SPEC-134 Phase 4 tests — Layer 4a context loader
+  api.addFiles('test/memory-context-loader-test.js', 'server');
 });

@@ -23,10 +23,10 @@ Npm.depends({
 	"ipfs-core": "0.18.1", // IPFS implementation for distributed storage
 	"ipfs-http-client": "60.0.1", // IPFS HTTP client
 
-	// ── Shared crypto/IPFS deps (centralized from sovereign-profiles, ipfs-client, activity-stream) ──
-	"multiformats": "13.4.2",         // CIDv1 computation and codec framework
-	"@noble/ed25519": "2.1.0",        // Ed25519 signing and verification (SPEC-111)
-	"@ipld/dag-json": "10.2.7"        // Canonical dag-json serialization (SPEC-111 §3.1)
+	// ── Shared crypto/IPFS deps (multiformats, @noble/ed25519, @ipld/dag-json) ──
+	// Removed in phase 2: these now live in ~/.koad-io/modules/node/ and are
+	// accessed via @koad-io/node declared in daemon/src/package.json.
+	// client/deps.js imports from '@koad-io/node/deps' instead of bare specifiers.
 });
 
 Package.onUse(function(api) {

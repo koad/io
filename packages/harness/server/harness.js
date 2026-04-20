@@ -353,8 +353,61 @@ class HarnessInstance {
     }
     const cleanMessage = inputCheck.message;
 
+    // ── VESTA-SPEC-134 §8: Layer 4a — per-user memories ──────────────────────────
+    // Load per-user memories for this sponsor. Requires:
+    //   - authenticated sponsor (sponsorUserId)
+    //   - sharedKnowledgeToken bond active (checked via userDoc.memoryBondActive)
+    //   - profile_quality >= basic
+    //   - KEK available (kek from session or harness config; Phase 1/2 mock path)
+    // Silent omission if any condition fails — entity proceeds without Layer 4a.
+
+    let userMemoriesBlock = '';
+    if (
+      sponsorUserId &&
+      typeof KoadHarnessMemoryContextLoader !== 'undefined'
+    ) {
+      try {
+        // Fetch user doc for profile_quality + bond active status
+        // (fire-and-forget if we can't fetch; fallback to empty)
+        const memUserDoc = await Meteor.users.findOneAsync(sponsorUserId, {
+          fields: { profile_quality: 1, memoryBondActive: 1 },
+        }).catch(() => null);
+
+        const profileQuality = memUserDoc && memUserDoc.profile_quality;
+        const bondActive     = !!(memUserDoc && memUserDoc.memoryBondActive);
+
+        // KEK is provided by the hosting app via KoadHarnessMemoryContextLoader
+        // registry. For Phase 2-4 (mock IPFS), the KEK must be available on the
+        // server (the hosting app registers it via KoadHarnessMemoryContextLoader).
+        // Harness itself doesn't hold the KEK; it calls load() which checks for it.
+        // For now: pass null KEK — hosting app may override by registering a
+        // getKek(userId) resolver via KoadHarnessMemoryContextLoader.registerKekProvider().
+        let kek = null;
+        if (globalThis.KoadHarnessMemoryKekProvider) {
+          try {
+            kek = await globalThis.KoadHarnessMemoryKekProvider(sponsorUserId);
+          } catch (kekErr) {
+            // KEK unavailable → Layer 4a silently omitted (§8.1)
+          }
+        }
+
+        userMemoriesBlock = await KoadHarnessMemoryContextLoader.load({
+          userId:         sponsorUserId,
+          entity:         entityHandle,
+          kek,
+          profileQuality,
+          bondActive,
+          maxMemories:    this.config.maxMemories,
+        });
+      } catch (memErr) {
+        // Any error → silent omit (§8.1); Layer 4a empty
+        this.log(`memory context load failed (silent omit): ${memErr.message}`);
+      }
+    }
+    // ── End Layer 4a ──────────────────────────────────────────────────────────
+
     // Build prompts
-    const systemPrompt = KoadHarnessPrompt.buildSystemPrompt(entity, this.config.contextLayers);
+    const systemPrompt = KoadHarnessPrompt.buildSystemPrompt(entity, this.config.contextLayers, userMemoriesBlock);
     const history = this.sessions.getHistory(session.id);
     const prompt = KoadHarnessPrompt.buildPrompt(history, cleanMessage);
 
@@ -432,12 +485,27 @@ class HarnessInstance {
           content: m.content,
           at: new Date(m.timestamp || Date.now()),
         }));
-        const cleanedText = KoadHarnessFeedbackExtractor.extract(finalText, {
+        const feedbackCleanedText = KoadHarnessFeedbackExtractor.extract(finalText, {
           entity: entityHandle,
           sessionId: session.id,
           userId: sponsorUserId,
           sessionHistory,
         });
+
+        // ── VESTA-SPEC-134 §3: Memory signal extraction ───────────────────────
+        // Extract and strip <<REMEMBER>>, <<CONSOLIDATE>>, <<FORGET>> markers.
+        // Fires registered callback (fire-and-forget). Must not block delivery.
+        let cleanedText = feedbackCleanedText;
+        if (typeof KoadHarnessMemoryParser !== 'undefined') {
+          cleanedText = KoadHarnessMemoryParser.parse(feedbackCleanedText, {
+            entity:      entityHandle,
+            sessionId:   session.id,
+            userId:      sponsorUserId,
+            harnessType: this.config.harnessType || 'pwa',
+            entityName:  entityHandle,
+          });
+        }
+        // ── End memory signal extraction ──────────────────────────────────────
 
         const outputCheck = KoadHarnessOutputFilter.scan(cleanedText, entity);
         if (!outputCheck.clean) {

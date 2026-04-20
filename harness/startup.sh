@@ -301,6 +301,26 @@ if [ -x "$_tickler_scan" ]; then
   fi
 fi
 
+# --- Message inbox (Section 5c) ----------------------------------------------
+# Count pending messages in ~/.koad-io/messages/<entity>/ (excluding processed/).
+# If any exist, tell the entity the count so it knows to check its inbox.
+# Never reads message content — count only.
+_messages_dir="${KOAD_IO_DIR}/messages/${ENTITY}"
+if [ -d "$_messages_dir" ]; then
+  _msg_count=$(find "$_messages_dir" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${_msg_count:-0}" -gt 0 ]; then
+    echo "[startup] inbox: $_msg_count message(s) in $_messages_dir" >&2
+    printf '\n### Inbox (%s messages)\n\n' "$_msg_count"
+    printf 'You have **%s unread message(s)** in `%s`.\n' "$_msg_count" "$_messages_dir"
+    printf 'Read them with: `ls %s`\n' "$_messages_dir"
+    printf 'Move to processed when done: `mv %s/<filename> %s/processed/`\n\n' "$_messages_dir" "$_messages_dir"
+  else
+    echo "[startup] inbox: no messages for $ENTITY" >&2
+  fi
+else
+  echo "[startup] inbox: no inbox dir for $ENTITY" >&2
+fi
+
 # If roaming, show what's in the working directory too
 if [ "$HARNESS_WORK_DIR" != "$ENTITY_DIR" ]; then
   cat <<EOF

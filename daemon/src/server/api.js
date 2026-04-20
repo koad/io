@@ -5,7 +5,53 @@ import { WebApp } from 'meteor/webapp';
 import bodyParser from 'body-parser';
 
 const os = Npm.require('os');
+const fs = Npm.require('fs');
+const path = Npm.require('path');
 const app = WebApp.connectHandlers;
+
+// ---------------------------------------------------------------------------
+// Message inbox writer — disk persistence for `request` type emissions.
+// When a request emission arrives, write it as a frontmatter markdown file
+// to ~/.koad-io/messages/<entity>/ for the target entity to read on startup.
+// The daemon NEVER reads message content — only counts files.
+// ---------------------------------------------------------------------------
+const MESSAGES_BASE = path.join(os.homedir(), '.koad-io', 'messages');
+
+function writeMessageToDisk(entity, emissionId, body, meta, timestamp) {
+  try {
+    const entityDir = path.join(MESSAGES_BASE, entity);
+    if (!fs.existsSync(entityDir)) {
+      fs.mkdirSync(entityDir, { recursive: true });
+    }
+
+    const iso = timestamp.toISOString().replace(/:/g, '').replace(/\./g, '').slice(0, 15) + 'Z';
+    const action = (meta && typeof meta.action === 'string' && /^[a-z0-9_-]+$/i.test(meta.action))
+      ? meta.action
+      : 'request';
+    const filename = `${iso}-${action}.md`;
+    const filepath = path.join(entityDir, filename);
+
+    const frontmatter = [
+      '---',
+      `emission_id: ${emissionId}`,
+      `entity: ${entity}`,
+      `type: request`,
+      `action: ${action}`,
+      `timestamp: ${timestamp.toISOString()}`,
+    ];
+    if (meta && typeof meta === 'object') {
+      const metaStr = JSON.stringify(meta);
+      frontmatter.push(`meta: '${metaStr.replace(/'/g, "''")}'`);
+    }
+    frontmatter.push('---', '', body, '');
+
+    fs.writeFileSync(filepath, frontmatter.join('\n'), 'utf8');
+    console.log(`[MESSAGES] wrote ${entity}/${filename}`);
+  } catch (err) {
+    // Non-fatal — message write failure must not affect the emission path
+    console.error(`[MESSAGES] write failed for ${entity}: ${err.message}`);
+  }
+}
 
 // Indexer readiness registry — each indexer stamps its key when initial scan completes.
 // Health endpoint reads this to report whether the daemon is fully indexed.
@@ -129,6 +175,13 @@ app.use('/emit', (req, res, next) => {
   if (globalThis.evaluateEmissionTriggers) {
     const event = isLifecycle ? 'open' : 'emit';
     globalThis.evaluateEmissionTriggers(Object.assign({}, doc, { _id: id }), event);
+  }
+
+  // Message inbox — persist request emissions to disk for entity pickup on session start.
+  // Determine target entity: meta.target overrides meta.entity which falls back to entity field.
+  if (type === 'request') {
+    const targetEntity = (meta && (meta.target || meta.entity)) || entity;
+    writeMessageToDisk(targetEntity, id, body, meta || {}, now);
   }
 
   res.setHeader('Content-Type', 'application/json');
@@ -778,6 +831,33 @@ app.use('/api/workers', async (req, res, next) => {
     jsonOk(res, { status: 'ok', count: workers.length, workers });
   } catch (err) {
     console.error('[API/workers] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/messages/counts — inbox file counts per entity (never reads content)
+// Returns { entity: count } for each entity that has a messages directory.
+// Processed/ subdirectory is excluded from the count.
+app.use('/api/messages/counts', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/messages/counts')) return next();
+  try {
+    const counts = {};
+    if (fs.existsSync(MESSAGES_BASE)) {
+      const entries = fs.readdirSync(MESSAGES_BASE, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const entityHandle = entry.name;
+        const entityDir = path.join(MESSAGES_BASE, entityHandle);
+        const files = fs.readdirSync(entityDir).filter(f => f !== 'processed' && f.endsWith('.md'));
+        if (files.length > 0) {
+          counts[entityHandle] = files.length;
+        }
+      }
+    }
+    const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+    jsonOk(res, { status: 'ok', total, counts });
+  } catch (err) {
+    console.error('[API/messages/counts] error:', err.message);
     jsonErr(res, 500, err.message);
   }
 });

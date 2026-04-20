@@ -23,16 +23,29 @@ HARD CONSTRAINTS — violating these breaks the interface:
 
 // VESTA-SPEC-067: Context load order
 // Layer 1: Kingdom (KOAD_IO.md) → Layer 2: Entity (ENTITY.md) → Layer 3: Implement (CLAUDE.md)
-// → Layer 4: Location (PRIMER.md) → Layer 5: Memory → Layer 6: Guardrails (safety cap)
+// → Layer 4a: Per-user memories from UserMemories (VESTA-SPEC-134 §8) ← NEW
+// → Layer 4b: Entity's per-user local notes (local harness only)
+// → Layer 5: PRIMER / current state → Layer 6: Guardrails (safety cap)
 //
 // contextLayers config (optional array) controls which layers are included.
-// Valid layer names: "kingdom", "entity", "implement", "primer", "memory", "guardrails"
+// Valid layer names: "kingdom", "entity", "implement", "user-memories", "primer", "memory", "guardrails"
 // Default (no config): all layers included.
-// Example: ["entity", "primer", "guardrails"] — skips kingdom, implement, memory.
+// "memory" = Layer 4b (entity's local per-user notes); "user-memories" = Layer 4a (SPEC-134 §8).
+// Example: ["entity", "primer", "guardrails"] — skips kingdom, implement, memory layers.
+//
+// Layer 4a (user-memories) is populated asynchronously at session start via
+// KoadHarnessMemoryContextLoader.load(). The string is passed as entity.userMemoriesBlock.
+// If absent or empty, Layer 4a is silently omitted.
 
-const ALL_LAYERS = ['kingdom', 'entity', 'implement', 'primer', 'memory', 'guardrails'];
+const ALL_LAYERS = ['kingdom', 'entity', 'implement', 'user-memories', 'primer', 'memory', 'guardrails'];
 
-function buildSystemPrompt(entity, contextLayers) {
+// buildSystemPrompt(entity, contextLayers, userMemoriesBlock)
+//
+// userMemoriesBlock: optional string — Layer 4a content assembled by
+// KoadHarnessMemoryContextLoader.load() per-request. NOT stored on the
+// cached entity object (entity is shared across users; Layer 4a is per-user).
+// Pass the assembled string here; omit or pass '' to skip Layer 4a.
+function buildSystemPrompt(entity, contextLayers, userMemoriesBlock) {
   const layers = contextLayers && contextLayers.length > 0 ? contextLayers : ALL_LAYERS;
   const parts = [];
 
@@ -48,6 +61,15 @@ function buildSystemPrompt(entity, contextLayers) {
     parts.push(entity.claudeMd.trim());
   }
 
+  // Layer 4a — per-user memories from UserMemories (VESTA-SPEC-134 §8.2)
+  // Provided as a pre-assembled string per-request (not cached on entity).
+  // Silently omitted if absent or empty.
+  const memBlock = userMemoriesBlock || (entity.userMemoriesBlock) || '';
+  if (layers.includes('user-memories') && memBlock.trim()) {
+    parts.push(memBlock.trim());
+  }
+
+  // Layer 4b — entity's per-user local notes (local harness only) + PRIMER
   if (layers.includes('primer') && entity.primerMd) {
     parts.push('## Current State\n');
     parts.push(entity.primerMd.trim());
