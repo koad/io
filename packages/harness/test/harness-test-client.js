@@ -21,9 +21,11 @@ const http = require('http');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const ENTITY  = process.argv[2];
-const MESSAGE = process.argv[3];
-const BASE    = process.argv[4] || 'http://10.10.10.10:20522';
+const ENTITY       = process.argv[2];
+const MESSAGE      = process.argv[3];
+const BASE         = process.argv[4] || 'http://10.10.10.10:20522';
+const LEARNER_ID   = process.env.LEARNER_ID   || null;
+const DISPLAY_NAME = process.env.DISPLAY_NAME || null;
 
 if (!ENTITY || !MESSAGE) {
   console.error('Usage: node harness-test-client.js <entity> "<message>" [base-url]');
@@ -122,10 +124,14 @@ function acquireToken() {
 function chat(entity, message, ddpToken) {
   return new Promise((resolve, reject) => {
     const path    = `/harness/${entity}/chat`;
-    const payload = JSON.stringify({ entity, message, sessionId: null, ddpToken });
+    const bodyObj = { entity, message, sessionId: null, ddpToken };
+    if (LEARNER_ID)   bodyObj.learner_id   = LEARNER_ID;
+    if (DISPLAY_NAME) bodyObj.display_name = DISPLAY_NAME;
+    const payload = JSON.stringify(bodyObj);
 
     console.log(`[chat] POST ${HOST}:${PORT}${path}`);
     console.log(`[chat] entity=${entity} message="${message}"`);
+    if (LEARNER_ID) console.log(`[chat] learner_id=${LEARNER_ID} display_name=${DISPLAY_NAME || '(none)'}`);
     console.log('');
 
     const req = http.request(

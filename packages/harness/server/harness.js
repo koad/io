@@ -239,7 +239,7 @@ class HarnessInstance {
       return this.json(res, 400, { error: err.message });
     }
 
-    const { entity: entityHandle, message, sessionId, ddpToken } = body;
+    const { entity: entityHandle, message, sessionId, ddpToken, learner_id, display_name } = body;
 
     // Resolve sponsor userId from the DDP token (null for anonymous sessions)
     const sponsorUserId = KoadHarnessDdpGate.getTokenUserId(ddpToken);
@@ -407,8 +407,19 @@ class HarnessInstance {
     }
     // ── End Layer 4a ──────────────────────────────────────────────────────────
 
+    // Build learner context block (injected into system prompt when learner_id is present)
+    let learnerContextBlock = '';
+    if (learner_id && typeof learner_id === 'string' && /^[a-zA-Z0-9_.\-]+$/.test(learner_id) && learner_id.length <= 64) {
+      const safeDisplayName = (display_name && typeof display_name === 'string')
+        ? display_name.slice(0, 100).replace(/[^\w\s.\-]/g, '')
+        : '';
+      learnerContextBlock = safeDisplayName
+        ? `Known learner: ${safeDisplayName} (learner_id: ${learner_id}). Use this learner_id when calling save_learner_state, mark_sight_visited, or get_learner_profile.`
+        : `Known learner_id: ${learner_id}. Use this learner_id when calling save_learner_state, mark_sight_visited, or get_learner_profile.`;
+    }
+
     // Build prompts
-    const systemPrompt = KoadHarnessPrompt.buildSystemPrompt(entity, this.config.contextLayers, userMemoriesBlock);
+    const systemPrompt = KoadHarnessPrompt.buildSystemPrompt(entity, this.config.contextLayers, userMemoriesBlock, learnerContextBlock);
     const history = this.sessions.getHistory(session.id);
     const prompt = KoadHarnessPrompt.buildPrompt(history, cleanMessage);
 
@@ -494,10 +505,12 @@ class HarnessInstance {
     // options and silently ignore unknown keys — no provider code changes needed
     // for those until they implement VESTA-SPEC-137 normalization.
     const toolContext = {
-      entity:    entityHandle,
-      sessionId: session.id,
-      userId:    sponsorUserId,
-      settings:  Meteor.settings,
+      entity:      entityHandle,
+      sessionId:   session.id,
+      userId:      sponsorUserId,
+      settings:    Meteor.settings,
+      learnerId:   (learner_id   && typeof learner_id   === 'string') ? learner_id   : null,
+      displayName: (display_name && typeof display_name === 'string') ? display_name : null,
     };
     if (toolRegistry) {
       providerOpts.tools       = toolRegistry;

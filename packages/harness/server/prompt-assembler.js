@@ -40,13 +40,17 @@ HARD CONSTRAINTS — violating these breaks the interface:
 
 const ALL_LAYERS = ['kingdom', 'entity', 'implement', 'user-memories', 'primer', 'memory', 'guardrails'];
 
-// buildSystemPrompt(entity, contextLayers, userMemoriesBlock)
+// buildSystemPrompt(entity, contextLayers, userMemoriesBlock, learnerContextBlock)
 //
 // userMemoriesBlock: optional string — Layer 4a content assembled by
 // KoadHarnessMemoryContextLoader.load() per-request. NOT stored on the
 // cached entity object (entity is shared across users; Layer 4a is per-user).
 // Pass the assembled string here; omit or pass '' to skip Layer 4a.
-function buildSystemPrompt(entity, contextLayers, userMemoriesBlock) {
+//
+// learnerContextBlock: optional one-line string — injected when a known learner_id
+// is present in the chat request (e.g. "Known learner: Sam (learner_id: uuid).
+// Use this learner_id when calling save_learner_state, ..."). Prepended to guardrails.
+function buildSystemPrompt(entity, contextLayers, userMemoriesBlock, learnerContextBlock) {
   const layers = contextLayers && contextLayers.length > 0 ? contextLayers : ALL_LAYERS;
   const parts = [];
 
@@ -81,6 +85,13 @@ function buildSystemPrompt(entity, contextLayers, userMemoriesBlock) {
     for (const mem of entity.memories) {
       parts.push(mem.trim());
     }
+  }
+
+  // Session learner context — injected when the client passes a known learner_id.
+  // One or two lines only; sits just before guardrails so Alice has it in scope
+  // when deciding whether to call save_learner_state or mark_sight_visited.
+  if (learnerContextBlock && typeof learnerContextBlock === 'string' && learnerContextBlock.trim()) {
+    parts.push(`## Session Context\n\n${learnerContextBlock.trim()}`);
   }
 
   if (layers.includes('guardrails')) {
