@@ -52,6 +52,20 @@ function profileQualityMeetsBasic(pq) {
 
 KoadHarnessMemoryContextLoader = {
 
+  // registerKekProvider(fn)
+  //
+  // Hosting app registers a function that takes a userId and returns a Promise<CryptoKey|null>.
+  // Called per-request at chat time to provide the KEK for the authenticated user.
+  // If null is returned, Layer 4a is silently omitted for that session.
+  //
+  // Example registration in the hosting app:
+  //   KoadHarnessMemoryContextLoader.registerKekProvider(async (userId) => {
+  //     // ... return user's KEK (from session, IndexedDB proxy, or test stub) ...
+  //   });
+  registerKekProvider(fn) {
+    globalThis.KoadHarnessMemoryKekProvider = fn;
+  },
+
   // load(opts) → Promise<String>
   // Returns the Layer 4a block text, or '' if any silent-omission condition applies.
   async load({ userId, entity, kek, profileQuality, bondActive, maxMemories } = {}) {
