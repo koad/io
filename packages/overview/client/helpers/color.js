@@ -30,11 +30,6 @@ KoadOverview.configure = function (opts) {
   if (opts && opts.profileBaseUrl != null) {
     KoadOverview._settings.profileBaseUrl = opts.profileBaseUrl;
   }
-  // publicTierHint: when true, show "24h for members" nudge on empty-state panels.
-  // Set by host app when serving public (unauthenticated) visitors.
-  if (opts && opts.publicTierHint != null) {
-    KoadOverview._settings.publicTierHint = !!opts.publicTierHint;
-  }
 };
 
 KoadOverview._entityProfileUrl = function (handle) {

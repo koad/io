@@ -29,11 +29,10 @@ Package.onUse(function(api) {
   // Chain broadcast via publishToChain() is a no-op unless sigchain-discovery is present.
   api.use('ecoincore:sigchain-discovery', 'server', { weak: true });
 
-  // Core profile logic — both sides consume
-  api.addFiles([
-    'client/profile-builder.js',  // create/update/sign/publish (passenger)
-    'client/profile-viewer.js',   // resolve/verify/render (any app)
-  ], 'client');
+  // Client mainModule — statically imports ESM-only npm deps (dag-json, multiformats,
+  // noble/ed25519) so Meteor's bundler resolves them at build time.
+  // profile-builder.js and profile-viewer.js import from ./main.js.
+  api.mainModule('client/main.js', 'client');
 
   // Blaze templates + component stylesheet (all templates share one CSS file)
   api.addFiles([

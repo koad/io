@@ -335,10 +335,6 @@ Template.KingdomOverview.helpers({
     if (!n) return '0.00';
     return n.toFixed(2);
   },
-
-  publicTierHint() {
-    return !!(KoadOverview._settings && KoadOverview._settings.publicTierHint);
-  },
 });
 
 // Compute per-entity render data, shared by activeEntities/bullpenEntities.
@@ -465,10 +461,10 @@ function _computeAllEntities() {
 }
 
 // =====================================================================
-// EntityProfilePanel template
+// EntityProfile template
 // =====================================================================
 
-Template.EntityProfilePanel.helpers({
+Template.EntityProfile.helpers({
   entityData() {
     const handle = Template.instance().data && Template.instance().data.handle;
     if (!handle) return null;
