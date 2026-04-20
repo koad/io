@@ -325,7 +325,13 @@
       opacity: 1;
       box-shadow: 0 0 0 2px hsla(var(--entity-hue, 180), 70%, 55%, 0.6);
     }
-    .entity-card-top { display: flex; align-items: flex-start; gap: 12px; }
+    .entity-card-top { 
+      display: flex; 
+      align-items: flex-start; 
+      min-height: 106px;
+      gap: 12px; 
+    }
+
     .entity-avatar {
       width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
@@ -356,7 +362,7 @@
     .entity-last-seen.live { color: #5bd5b5; }
     .entity-last-seen.recent { color: #d4a535; }
 
-    .entity-tagline { font-size: 11px; color: #777; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic; }
+    .entity-tagline { font-size: 11px; color: #777; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; font-style: italic; }
     .entity-meta { display: flex; gap: 6px; margin-top: 5px; flex-wrap: wrap; align-items: center; }
     .entity-stat { font-size: 10px; color: #666; }
     .entity-stat .stat-val { color: #999; font-weight: 600; }
