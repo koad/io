@@ -31,13 +31,13 @@ function loadPassengerConfig(entityPath) {
     const content = fs.readFileSync(passengerJsonPath, 'utf8');
     const config = JSON.parse(content);
 
-    // Embed avatar as base64 data URL if it's a file reference
-    if (config.avatar && !config.avatar.startsWith('data:')) {
+    // Embed avatar as base64 data URL — try the file even if not declared
+    if (!config.avatar || !config.avatar.startsWith('data:')) {
       try {
         const imageBuffer = fs.readFileSync(avatarPath);
         config.avatar = `data:image/png;base64,${imageBuffer.toString('base64')}`;
       } catch (e) {
-        config.avatar = `/${config.handle}/avatar.png`;
+        config.avatar = config.avatar || null;
       }
     }
 
@@ -52,11 +52,17 @@ function indexEntity(handle, entityPath) {
   const config = loadPassengerConfig(entityPath);
 
   if (config) {
+    const rawOutfit = config.outfit || generateDefaultOutfit(handle);
     const doc = {
       handle: config.handle || handle,
       name: config.name,
       image: config.avatar || `/${handle}/avatar.png`,
-      outfit: config.outfit || generateDefaultOutfit(handle),
+      outfit: {
+        hue: rawOutfit.hue != null ? rawOutfit.hue : (rawOutfit.h != null ? rawOutfit.h : 200),
+        saturation: rawOutfit.saturation != null ? rawOutfit.saturation : (rawOutfit.s != null ? rawOutfit.s : 30),
+        brightness: rawOutfit.brightness != null ? rawOutfit.brightness : (rawOutfit.b != null ? rawOutfit.b : 30),
+        visual: rawOutfit.visual || {},
+      },
       buttons: config.buttons || [],
       scannedAt: new Date(),
     };
