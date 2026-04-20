@@ -173,7 +173,7 @@ const IPFSClient = {
    */
   async pin(cid) {
     await this.ready();
-    const { CID } = await import('multiformats/cid');
+    const { CID } = koad.deps;
     const parsedCID = CID.parse(cid);
     await _heliaNode.pins.add(parsedCID);
   },
@@ -188,7 +188,7 @@ const IPFSClient = {
    */
   async unpin(cid) {
     await this.ready();
-    const { CID } = await import('multiformats/cid');
+    const { CID } = koad.deps;
     const parsedCID = CID.parse(cid);
     await _heliaNode.pins.rm(parsedCID);
   },
@@ -207,9 +207,7 @@ const IPFSClient = {
    */
   async put(data) {
     await this.ready();
-    const { CID } = await import('multiformats/cid');
-    const { sha256 } = await import('multiformats/hashes/sha2');
-    const { encode: dagJsonEncode } = await import('@ipld/dag-json');
+    const { CID, sha256, dagJsonEncode } = koad.deps;
 
     const bytes = (data instanceof Uint8Array) ? data : dagJsonEncode(data);
 
@@ -233,7 +231,7 @@ const IPFSClient = {
    */
   async get(cid) {
     const bytes = await this.resolve(cid);
-    const { decode: dagJsonDecode } = await import('@ipld/dag-json');
+    const { dagJsonDecode } = koad.deps;
     return dagJsonDecode(bytes);
   },
 
@@ -246,7 +244,7 @@ const IPFSClient = {
    */
   async has(cid) {
     await this.ready();
-    const { CID } = await import('multiformats/cid');
+    const { CID } = koad.deps;
     const parsedCID = CID.parse(cid);
     return await _heliaNode.blockstore.has(parsedCID.multihash);
   },
