@@ -21,7 +21,12 @@ Npm.depends({
 	"ssh2": "1.14.0",
 	"kbpgp": "2.1.15", // Keybase PGP for identity and cryptography
 	"ipfs-core": "0.18.1", // IPFS implementation for distributed storage
-	"ipfs-http-client": "60.0.1" // IPFS HTTP client
+	"ipfs-http-client": "60.0.1", // IPFS HTTP client
+
+	// ── Shared crypto/IPFS deps (centralized from sovereign-profiles, ipfs-client, activity-stream) ──
+	"multiformats": "13.4.2",         // CIDv1 computation and codec framework
+	"@noble/ed25519": "2.1.0",        // Ed25519 signing and verification (SPEC-111)
+	"@ipld/dag-json": "10.2.7"        // Canonical dag-json serialization (SPEC-111 §3.1)
 });
 
 Package.onUse(function(api) {
@@ -100,6 +105,11 @@ Package.onUse(function(api) {
 		"client/identity.js",
 	], "client");
 
+	// Eagerly load shared crypto/IPFS deps on the client.
+	// mainModule establishes the ESM import tree; addFiles above load as legacy scripts.
+	// profile-builder.js, ipfs-client.js, and stream.js all read from koad.deps.
+	api.mainModule("client/deps.js", "client");
+
 
 	api.export("GlobalSearch", "server");
 	api.export("SearchHistory", 'client');
@@ -126,6 +136,10 @@ Package.onUse(function(api) {
 
 	// Export the koad object created by this package...
 	api.export("koad");
+
+	// Export shared crypto/IPFS symbols populated by client/deps.js
+	// Other packages can import these by name instead of going through koad.deps.
+	api.export(["dagJsonEncode", "dagJsonDecode", "CID", "sha256", "ed"], "client");
 
 });
 
