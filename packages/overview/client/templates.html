@@ -78,7 +78,7 @@
             <div class="entity-card {{#if isSelected}}selected{{/if}} {{#if isActiveNow}}active-now{{/if}} {{#if isActive5m}}active-5m{{/if}}" data-handle="{{handle}}" style="border-left-color: {{accentColor}}; --entity-hue: {{entityHue}}; --entity-saturation: {{entitySat}}%;">
             <div class="entity-card-inner">
               <div class="entity-card-top">
-                <a href="{{entityProfileUrl handle}}" target="mainwebsite" class="entity-avatar entity-profile-link" style="background: {{accentColor}};" title="Open {{handle}} profile">
+                <a href="{{entityProfileUrl handle}}" class="entity-avatar entity-profile-link" style="background: {{accentColor}};" title="Open {{handle}} profile">
                   {{#if avatarImage}}
                     <img src="{{avatarImage}}" alt="{{handle}}">
                   {{else}}
@@ -154,7 +154,7 @@
           </div>
           <div class="bullpen">
             {{#each bullpenEntities}}
-              <a href="{{entityProfileUrl handle}}" target="mainwebsite"
+              <a href="{{entityProfileUrl handle}}" 
                  class="bullpen-avatar {{#if isActive5m}}active-5m{{/if}}"
                  style="background: {{accentColor}}; --entity-hue: {{entityHue}}; --entity-saturation: {{entitySat}}%;"
                  title="{{handle}}{{#if lastSeenText}} — {{lastSeenText}}{{/if}}">
