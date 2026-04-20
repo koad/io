@@ -48,6 +48,13 @@ Package.onUse(function (api) {
   api.addFiles('server/bond-types.js', 'server');
   api.addFiles('server/collections/user-memories.js', 'server');
 
+  // VESTA-SPEC-134: Relational Memory Protocol — Phase 1 (client-side crypto primitives)
+  // Browser-only: WebCrypto KEK derivation, blob encryption, IndexedDB KEK storage.
+  // argon2-browser (Npm.depends) provides Argon2id via WebAssembly in the browser.
+  api.addFiles('client/crypto/kek-derive.js', 'client');
+  api.addFiles('client/crypto/blob-crypto.js', 'client');
+  api.addFiles('client/crypto/kek-storage.js', 'client');
+
   // OG / oembed injector (juno#90)
   api.addFiles('server/og-injector.js', 'server');
 
@@ -70,6 +77,8 @@ Package.onUse(function (api) {
   // VESTA-SPEC-134: bond type registry + UserMemories collection
   api.export('KoadHarnessBondTypes', 'server');
   api.export('UserMemories', 'server');
+  // VESTA-SPEC-134 Phase 1: client-side crypto exports (browser only)
+  api.export('KoadKEKStorage', 'client');
 });
 
 Package.onTest(function (api) {
