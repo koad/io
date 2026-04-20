@@ -5,15 +5,8 @@ Package.describe({
   documentation: 'README.md'
 });
 
-// npm deps:
-//   multiformats — CIDv1 computation (dag-json codec, sha2-256)
-//   @noble/ed25519 — Ed25519 signing and verification
-//   @ipld/dag-json — canonical dag-json serialization per SPEC-111 §3.1
-Npm.depends({
-  'multiformats': '13.4.2',
-  '@noble/ed25519': '2.1.0',
-  '@ipld/dag-json': '10.2.7'
-});
+// npm deps: multiformats, @noble/ed25519, @ipld/dag-json are centralized in koad:io-core.
+// No Npm.depends() needed here — core is an api.use() dependency.
 
 Package.onUse(function(api) {
   api.versionsFrom(['3.0', '3.3']);
@@ -29,10 +22,12 @@ Package.onUse(function(api) {
   // Chain broadcast via publishToChain() is a no-op unless sigchain-discovery is present.
   api.use('ecoincore:sigchain-discovery', 'server', { weak: true });
 
-  // Client mainModule — statically imports ESM-only npm deps (dag-json, multiformats,
-  // noble/ed25519) so Meteor's bundler resolves them at build time.
-  // profile-builder.js and profile-viewer.js import from ./main.js.
-  api.mainModule('client/main.js', 'client');
+  // Client files — deps now come from koad:io-core's client/deps.js via koad.deps global.
+  // profile-builder loads first (defines SovereignProfile); profile-viewer extends it.
+  api.addFiles([
+    'client/profile-builder.js',
+    'client/profile-viewer.js',
+  ], 'client');
 
   // Blaze templates + component stylesheet (all templates share one CSS file)
   api.addFiles([

@@ -16,7 +16,9 @@
 // All methods return Promises. Requires koad:io-ipfs-client for IPFS fetch.
 
 import { SovereignProfile, canonicalPreImage, computeCid, toBase64Url, fromBase64Url } from './profile-builder.js';
-import { dagJsonEncode, dagJsonDecode, CID, sha256, ed } from './main.js';
+
+// Shared crypto deps from koad:io-core — populated in koad.deps before this module loads.
+const { dagJsonEncode, dagJsonDecode, CID, sha256, ed } = koad.deps;
 
 // ── Fetch helper ──────────────────────────────────────────────────────────────
 

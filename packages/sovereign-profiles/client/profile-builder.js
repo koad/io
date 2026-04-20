@@ -16,7 +16,9 @@
 // All methods return Promises. Signing requires @noble/ed25519.
 // Publishing requires koad:io-ipfs-client (IPFSClient) to be initialized.
 
-import { dagJsonEncode, CID, sha256, ed } from './main.js';
+// Shared crypto deps provided by koad:io-core client/deps.js (loads first via api.imply).
+// koad.deps is populated before this file runs — core is the first package in the load chain.
+const { dagJsonEncode, CID, sha256, ed } = koad.deps;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
