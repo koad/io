@@ -5,8 +5,11 @@ Package.describe({
   documentation: 'README.md'
 });
 
-// npm deps: multiformats, @noble/ed25519, @ipld/dag-json are centralized in koad:io-core.
-// No Npm.depends() needed here — core is an api.use() dependency.
+// Client-side crypto deps (multiformats, dag-json, noble/ed25519) come from koad:io-core via koad.deps.
+// Server-side needs @noble/ed25519 locally for SovereignAuth.verify — the server has no koad.deps pattern.
+Npm.depends({
+  '@noble/ed25519': '2.1.0',
+});
 
 Package.onUse(function(api) {
   api.versionsFrom(['3.0', '3.3']);
@@ -50,13 +53,9 @@ Package.onUse(function(api) {
     'client/templates/key-generate-form.js',
   ], 'client');
 
-  // Server-side: keystore reader, auth flow, profile server methods
-  // Load order: keystore first (auth depends on it), then auth, then profile-server
-  api.addFiles([
-    'server/keystore.js',      // file-based entity keystore reader (SovereignProfileKeystore)
-    'server/auth.js',          // challenge-response auth (SovereignAuth)
-    'server/profile-server.js', // server-side profile API (fromEntityDir, verify, pin, publishToChain)
-  ], 'server');
+  // Server mainModule wires up keystore, auth, and profile-server via ESM re-exports,
+  // so api.export('SovereignAuth', 'server') picks up the actual module exports.
+  api.mainModule('server/main.js', 'server');
 
   // Client exports — SovereignProfile is the primary API surface.
   // Attaches to koad.sovereign.profile per brief; also exported standalone.

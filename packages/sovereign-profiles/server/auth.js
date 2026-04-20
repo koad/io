@@ -114,7 +114,7 @@ SovereignAuth.challenge = function() {
 SovereignAuth.respond = async function(nonce, privateKey) {
   await ensureEd();
   const message = challengeMessage(nonce);
-  const sigBytes = await ed.sign(message, privateKey);
+  const sigBytes = await ed.signAsync(message, privateKey);
   return { nonce, signature: toBase64Url(sigBytes) };
 };
 
@@ -159,7 +159,7 @@ SovereignAuth.verify = async function(nonce, signatureB64, pubKeyB64) {
   const message = challengeMessage(nonce);
   let ok;
   try {
-    ok = await ed.verify(sigBytes, message, pubKeyBytes);
+    ok = await ed.verifyAsync(sigBytes, message, pubKeyBytes);
   } catch (e) {
     return { valid: false, error: `auth: signature verification error: ${e.message}` };
   }
