@@ -1,25 +1,20 @@
-// deps.js — Shared crypto/IPFS dependency hub for koad:io-core
+// deps.js — Shared crypto/IPFS dependency hub for koad:io-core (client)
 //
-// Centralizes the ESM-only npm deps used across sovereign-profiles, ipfs-client,
-// and activity-stream. Static imports allow Meteor's bundler to resolve and
-// bundle these packages at build time (requires patch-npm-exports.js to have
-// run so that each package has a `main` field Meteor can follow).
+// Phase 2: Re-exports from @koad-io/node/deps (the standalone Node.js module at
+// ~/.koad-io/modules/node/) instead of importing directly from @ipld/dag-json,
+// multiformats, and @noble/ed25519. Those three packages are no longer in
+// Npm.depends(); they live in the node module's own node_modules/ and are
+// accessed via the @koad-io/node package declared in daemon/src/package.json.
 //
-// Consumers read from koad.deps:
+// Public API unchanged — koad.deps.* and named exports are the same.
 //   koad.deps.dagJsonEncode(obj) → Uint8Array
 //   koad.deps.dagJsonDecode(bytes) → any
 //   koad.deps.CID                 — multiformats CID class
 //   koad.deps.sha256              — multiformats sha2-256 hasher
 //   koad.deps.base64              — multiformats base64 codec
 //   koad.deps.ed                  — @noble/ed25519 namespace
-//
-// Also exported as named Meteor package symbols (see package.js api.export).
 
-import { encode as dagJsonEncode, decode as dagJsonDecode } from '@ipld/dag-json';
-import { CID } from 'multiformats/cid';
-import { sha256 } from 'multiformats/hashes/sha2';
-import { base64 } from 'multiformats/bases/base64';
-import * as ed from '@noble/ed25519';
+import { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed } from '@koad-io/node/deps';
 
 // Attach to koad global so consumers can use koad.deps.* at runtime
 // without a direct import (cross-package Meteor globals pattern).
