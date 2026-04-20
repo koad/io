@@ -23,16 +23,17 @@ import * as ed from '@noble/ed25519';
 
 // Attach to koad global so consumers can use koad.deps.* at runtime
 // without a direct import (cross-package Meteor globals pattern).
-if (typeof koad !== 'undefined') {
-  koad.deps = koad.deps || {};
-  Object.assign(koad.deps, {
-    dagJsonEncode,
-    dagJsonDecode,
-    CID,
-    sha256,
-    base64,
-    ed,
-  });
-}
+// Initialize koad if missing — core can load before `koad:io` defines the
+// global, so we must not depend on order of evaluation.
+globalThis.koad = globalThis.koad || {};
+koad.deps = koad.deps || {};
+Object.assign(koad.deps, {
+  dagJsonEncode,
+  dagJsonDecode,
+  CID,
+  sha256,
+  base64,
+  ed,
+});
 
 export { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed };
