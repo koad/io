@@ -406,6 +406,17 @@ function periodicStaleCheck() {
       }
     }
 
+    // Zero-cost ghost: session file exists but nothing ever happened.
+    // If untouched for 5 minutes, mark ended and remove the file.
+    if (session.source === 'json' && session.cost === 0 && session.tokensOut === 0 && ageMs > 5 * 60 * 1000) {
+      Sessions.update(session._id, { $set: { status: 'ended', endedAt: new Date() } });
+      // Remove the ghost file so it doesn't reappear on next scan
+      const entityPath = path.join(process.env.HOME, '.' + session.entity);
+      const sessFile = path.join(entityPath, '.local', 'state', 'harness', 'sessions', `${session.sessionId || session._id}.json`);
+      try { fs.unlinkSync(sessFile); } catch (e) { /* already gone */ }
+      return;
+    }
+
     // Time-based stale
     if (session.lastSeen < staleCutoff) {
       Sessions.update(session._id, { $set: { status: 'stale' } });
