@@ -413,9 +413,14 @@ class HarnessInstance {
       const safeDisplayName = (display_name && typeof display_name === 'string')
         ? display_name.slice(0, 100).replace(/[^\w\s.\-]/g, '')
         : '';
-      learnerContextBlock = safeDisplayName
-        ? `Known learner: ${safeDisplayName} (learner_id: ${learner_id}). Use this learner_id when calling save_learner_state, mark_sight_visited, or get_learner_profile.`
-        : `Known learner_id: ${learner_id}. Use this learner_id when calling save_learner_state, mark_sight_visited, or get_learner_profile.`;
+      const identity = safeDisplayName
+        ? `Known learner: ${safeDisplayName} (learner_id: ${learner_id})`
+        : `Known learner_id: ${learner_id}`;
+      learnerContextBlock = `${identity}.
+
+When this learner states a durable fact about themselves (name, goal, why it matters, concrete detail, OS, hardware, experience), call \`save_learner_state\` in the same turn you reply. This is not optional — it is how the relationship persists across sessions. The call happens silently; your text reply stays warm and focused on the learner without narrating the capture.
+
+Use this learner_id in all calls to save_learner_state, mark_sight_visited, and get_learner_profile.`;
     }
 
     // Build prompts
