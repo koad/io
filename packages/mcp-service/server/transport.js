@@ -190,7 +190,87 @@ function mountMcpTransport() {
   const app = WebApp.rawConnectHandlers;
 
   // -------------------------------------------------------------------------
-  // GET /mcp/sse — SSE stream for notifications + responses
+  // GET /mcp — SSE stream (MCP streamable HTTP transport, MCP spec 2024-11-05)
+  // Claude Code GETs the same endpoint URL it POSTs to in order to open the
+  // SSE notification stream.  Without this handler the request fell through
+  // all connect middleware and hit Blaze's HTML catch-all; the SDK tried to
+  // parse HTML as JSON and failed.
+  //
+  // Auth: prefer Bearer token (creates/finds session), fall back to
+  // Mcp-Session-Id header so the existing /mcp/sse sub-path behaviour
+  // is mirrored exactly.
+  // -------------------------------------------------------------------------
+  app.use('/mcp', (req, res, next) => {
+    if (req.method !== 'GET') return next();
+
+    const McpAuth    = globalThis.McpServiceAuth;
+    const McpSession = globalThis.McpServiceSession;
+
+    if (!McpSession) {
+      res.writeHead(503);
+      return res.end(JSON.stringify({ error: 'MCP service not ready' }));
+    }
+
+    // Resolve session — Bearer token takes priority, then Mcp-Session-Id header
+    let sessionId = null;
+    let session   = null;
+
+    const authHeader = req.headers['authorization'] || '';
+    const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (tokenMatch && McpAuth) {
+      const token   = tokenMatch[1];
+      const profile = McpAuth.authenticateSession(token);
+      if (!profile) {
+        res.writeHead(401);
+        return res.end(JSON.stringify({ error: 'Unauthorized: invalid or expired session token' }));
+      }
+      // Re-use any existing session for this profile, or create a new one
+      sessionId = McpSession.createSession(profile);
+      session   = McpSession.getSession(sessionId);
+    } else {
+      sessionId = req.headers['mcp-session-id'];
+      if (!sessionId) {
+        res.writeHead(400);
+        return res.end(JSON.stringify({ error: 'Missing Authorization or Mcp-Session-Id header' }));
+      }
+      session = McpSession.getSession(sessionId);
+      if (!session) {
+        res.writeHead(401);
+        return res.end(JSON.stringify({ error: 'Invalid or expired session' }));
+      }
+    }
+
+    // Set up SSE stream
+    res.writeHead(200, {
+      'Content-Type':  'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection':    'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Mcp-Session-Id': sessionId,
+    });
+    res.write('\n'); // flush headers
+
+    // Attach to session
+    McpSession.attachSSE(sessionId, res);
+    console.log(`[mcp-service:sse] stream opened session=${sessionId} entity=${session.profile.entity}`);
+
+    // Keep-alive ping every 30s
+    const ping = Meteor.setInterval(() => {
+      try { res.write(': ping\n\n'); } catch (e) {
+        Meteor.clearInterval(ping);
+        McpSession.closeSession(sessionId);
+      }
+    }, 30000);
+
+    req.on('close', () => {
+      Meteor.clearInterval(ping);
+      McpSession.closeSession(sessionId);
+      console.log(`[mcp-service:sse] stream closed session=${sessionId}`);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /mcp/sse — legacy SSE path kept for backward compatibility
   // -------------------------------------------------------------------------
   app.use('/mcp/sse', (req, res, next) => {
     if (req.method !== 'GET') return next();
@@ -350,7 +430,7 @@ function mountMcpTransport() {
     res.end(JSON.stringify(response));
   });
 
-  console.log('[mcp-service] MCP endpoint mounted at /mcp (POST) and /mcp/sse (GET)');
+  console.log('[mcp-service] MCP endpoint mounted at /mcp (GET SSE + POST JSON-RPC) and /mcp/sse (GET legacy)');
 }
 
 globalThis.McpServiceTransport = { mountMcpTransport };
