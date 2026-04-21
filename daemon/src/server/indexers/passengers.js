@@ -1,5 +1,6 @@
 // Passengers indexer — live (fs.watch)
-// Reads ~/.<entity>/passenger.json, indexes UI registration + outfit + buttons + avatar
+// Reads ~/.<entity>/passenger.json, indexes UI registration + outfit + buttons
+// Avatar served from forge public folder as /<handle>.png — no base64 embedding
 // Refactored from the original passenger-methods.js
 
 const fs = Npm.require('fs');
@@ -22,25 +23,13 @@ function generateDefaultOutfit(name) {
   };
 }
 
-// Load passenger.json from an entity folder and embed avatar
+// Load passenger.json from an entity folder
 function loadPassengerConfig(entityPath) {
   const passengerJsonPath = path.join(entityPath, 'passenger.json');
-  const avatarPath = path.join(entityPath, 'avatar.png');
 
   try {
     const content = fs.readFileSync(passengerJsonPath, 'utf8');
     const config = JSON.parse(content);
-
-    // Embed avatar as base64 data URL — try the file even if not declared
-    if (!config.avatar || !config.avatar.startsWith('data:')) {
-      try {
-        const imageBuffer = fs.readFileSync(avatarPath);
-        config.avatar = `data:image/png;base64,${imageBuffer.toString('base64')}`;
-      } catch (e) {
-        config.avatar = config.avatar || null;
-      }
-    }
-
     return config;
   } catch (e) {
     return null;
@@ -56,7 +45,7 @@ function indexEntity(handle, entityPath) {
     const doc = {
       handle: config.handle || handle,
       name: config.name,
-      image: config.avatar || `/${handle}/avatar.png`,
+      image: config.avatar || `/${handle}.png`,
       outfit: {
         hue: rawOutfit.hue != null ? rawOutfit.hue : (rawOutfit.h != null ? rawOutfit.h : 200),
         saturation: rawOutfit.saturation != null ? rawOutfit.saturation : (rawOutfit.s != null ? rawOutfit.s : 30),
