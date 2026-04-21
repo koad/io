@@ -302,10 +302,10 @@ if [ -x "$_tickler_scan" ]; then
 fi
 
 # --- Message inbox (Section 5c) ----------------------------------------------
-# Count pending messages in ~/.koad-io/messages/<entity>/ (excluding processed/).
+# Count pending messages in $KOAD_IO_MESSAGES_DIR/<entity>/ (excluding processed/).
 # If any exist, tell the entity the count so it knows to check its inbox.
 # Never reads message content — count only.
-_messages_dir="${KOAD_IO_DIR}/messages/${ENTITY}"
+_messages_dir="${KOAD_IO_MESSAGES_DIR:-$HOME/.forge/messages}/${ENTITY}"
 if [ -d "$_messages_dir" ]; then
   _msg_count=$(find "$_messages_dir" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
   if [ "${_msg_count:-0}" -gt 0 ]; then

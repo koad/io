@@ -12,10 +12,10 @@ const app = WebApp.connectHandlers;
 // ---------------------------------------------------------------------------
 // Message inbox writer — disk persistence for `request` type emissions.
 // When a request emission arrives, write it as a frontmatter markdown file
-// to ~/.koad-io/messages/<entity>/ for the target entity to read on startup.
+// to $KOAD_IO_MESSAGES_DIR/<entity>/ for the target entity to read on startup.
 // The daemon NEVER reads message content — only counts files.
 // ---------------------------------------------------------------------------
-const MESSAGES_BASE = path.join(os.homedir(), '.koad-io', 'messages');
+const MESSAGES_BASE = process.env.KOAD_IO_MESSAGES_DIR || path.join(os.homedir(), '.forge', 'messages');
 
 function writeMessageToDisk(entity, emissionId, body, meta, timestamp) {
   try {
