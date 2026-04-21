@@ -403,6 +403,34 @@ app.use('/api/health', async (req, res, next) => {
   }
 });
 
+// GET /api/flights/:id — single flight by _id
+// Register BEFORE /api/flights and /api/flights/active (prefix-match order).
+app.use('/api/flights', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  // Match /api/flights/<id> — id is everything after the last slash, no query
+  const m = url.match(/^\/api\/flights\/([^/?]+)/);
+  if (!m) return next();
+
+  const id = decodeURIComponent(m[1]);
+  // Don't match known sub-paths like "active"
+  if (id === 'active') return next();
+
+  try {
+    const Flights = globalThis.FlightsCollection;
+    if (!Flights) return jsonErr(res, 503, 'Flights collection not initialized');
+
+    const flight = await Flights.findOneAsync({ _id: id });
+    if (!flight) return jsonErr(res, 404, `Flight ${id} not found`);
+
+    jsonOk(res, { status: 'ok', flight });
+  } catch (err) {
+    console.error('[API/flights/:id] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
 // GET /api/flights/active — convenience: flying + stale only
 // Register BEFORE /api/flights because connect middleware processes in order
 // and /api/flights's prefix also matches /api/flights/active.
@@ -594,6 +622,7 @@ app.use('/api/emissions/active', async (req, res, next) => {
 // GET /api/emissions?type=warning — filter
 // GET /api/emissions?status=open — filter by lifecycle status
 // GET /api/emissions?parent=abc123 — children of a conversation/parent emission
+// GET /api/emissions?flightId=abc123 — emissions tied to a flight (via meta.flightId)
 // GET /api/emissions?limit=50 — default 50, max 500
 app.use('/api/emissions', async (req, res, next) => {
   if (req.method !== 'GET' || !pathIs(req, '/api/emissions')) return next();
@@ -607,6 +636,7 @@ app.use('/api/emissions', async (req, res, next) => {
     if (q.type) selector.type = q.type;
     if (q.status) selector.status = q.status;
     if (q.parent) selector['meta.parentId'] = q.parent;
+    if (q.flightId) selector['meta.flightId'] = q.flightId;
 
     const limit = Math.min(parseInt(q.limit || '50', 10) || 50, 500);
     const emissions = await Emissions.find(selector, {
