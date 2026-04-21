@@ -1279,3 +1279,103 @@ app.use('/api/entities', async (req, res, next) => {
     jsonErr(res, 500, err.message);
   }
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/session/register — pre-register a harness session token
+//
+// Called by the harness launcher BEFORE starting Claude Code so the token is
+// known to HarnessSessions when Claude Code reads .mcp.json and connects to
+// the MCP service. The MCP auth layer validates Bearer tokens by looking up
+// HarnessSessions._id — this endpoint creates that record ahead of time.
+//
+// Body: { entity, token, harness?, host?, pid?, cwd? }
+//   entity  — entity handle (e.g. "juno")
+//   token   — pre-generated UUID that will be used as Bearer token
+//   harness — harness name (default: "claude-code")
+//   host    — hostname (default: os.hostname())
+//   pid     — launcher PID (informational)
+//   cwd     — working directory (informational)
+//
+// The session-scanner will later enrich this record with live telemetry.
+// On clean exit the harness calls /api/session/close to mark it ended.
+// ---------------------------------------------------------------------------
+app.use('/api/session/register', (req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    res.writeHead(204);
+    return res.end();
+  }
+  if (req.method !== 'POST') return next();
+
+  const { entity, token, harness, host, pid, cwd } = req.body || {};
+
+  if (!entity || typeof entity !== 'string') {
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing "entity"' }));
+  }
+  if (!token || typeof token !== 'string' || token.length < 8) {
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing or too-short "token"' }));
+  }
+
+  const Sessions = globalThis.SessionsCollection;
+  if (!Sessions) {
+    res.writeHead(503);
+    return res.end(JSON.stringify({ status: 'error', message: 'SessionsCollection not available' }));
+  }
+
+  const now = new Date();
+  const doc = {
+    _id: token,
+    entity,
+    status: 'active',
+    source: 'pre-registered',
+    harness: harness || 'claude-code',
+    host: host || os.hostname(),
+    pid: pid ? Number(pid) : null,
+    cwd: cwd || '',
+    startedAt: now,
+    lastSeen: now,
+  };
+
+  // Upsert — if the token already exists (e.g. from a prior crashed session),
+  // refresh it rather than failing.
+  const existing = Sessions.findOne({ _id: token });
+  if (existing) {
+    Sessions.update(token, { $set: { status: 'active', lastSeen: now, entity, harness: doc.harness } });
+    console.log(`[SESSION/REGISTER] refreshed pre-registered token for ${entity}: ${token.slice(0, 12)}...`);
+  } else {
+    Sessions.insert(doc);
+    console.log(`[SESSION/REGISTER] registered token for ${entity}: ${token.slice(0, 12)}...`);
+  }
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.writeHead(200);
+  res.end(JSON.stringify({ status: 'ok', token, entity }));
+});
+
+// POST /api/session/close — mark a pre-registered session as ended
+// Body: { token }
+app.use('/api/session/close', (req, res, next) => {
+  if (req.method !== 'POST') return next();
+
+  const { token } = req.body || {};
+  if (!token || typeof token !== 'string') {
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing "token"' }));
+  }
+
+  const Sessions = globalThis.SessionsCollection;
+  if (Sessions) {
+    Sessions.update({ _id: token }, { $set: { status: 'ended', endedAt: new Date() } });
+    console.log(`[SESSION/CLOSE] closed pre-registered token: ${token.slice(0, 12)}...`);
+  }
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.writeHead(200);
+  res.end(JSON.stringify({ status: 'ok', token }));
+});

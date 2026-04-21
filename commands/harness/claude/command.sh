@@ -420,6 +420,84 @@ _harness_on_exit() {
 }
 trap _harness_on_exit EXIT
 
+# --- MCP session token pre-registration (VESTA-SPEC-139) ------------------
+#
+# Claude Code reads .mcp.json at startup and substitutes ${KOAD_IO_MCP_SESSION_TOKEN}
+# before connecting to the kingdom MCP service. The MCP auth layer validates
+# Bearer tokens by looking up HarnessSessions._id in the daemon. Since Claude Code
+# assigns its own session UUID after startup, we pre-generate a UUID, register it
+# with the daemon NOW (before exec), and export it as KOAD_IO_MCP_SESSION_TOKEN.
+# The daemon's /api/session/register endpoint creates the HarnessSessions record
+# so it exists by the time Claude Code connects.
+#
+# Fallback: if the daemon is unreachable, the var is set to empty — .mcp.json
+# interpolation leaves an empty Bearer token and the MCP connection fails with
+# 401, but the harness still launches normally.
+#
+# Cleanup: on harness EXIT, call /api/session/close to mark the pre-registered
+# session ended (avoids ghost sessions in the daemon sessions list).
+#
+# KOAD_IO_MCP_SESSION_DAEMON stores the daemon URL for use in the EXIT trap;
+# using env vars (not shell locals) ensures the value survives scope.
+
+export KOAD_IO_MCP_SESSION_TOKEN=""
+export KOAD_IO_MCP_SESSION_DAEMON="${KOAD_IO_DAEMON_URL:-http://10.10.10.10:28282}"
+
+_mcp_token=""
+if command -v python3 >/dev/null 2>&1; then
+  _mcp_token="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+elif command -v uuidgen >/dev/null 2>&1; then
+  _mcp_token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+fi
+
+if [ -n "$_mcp_token" ]; then
+  _reg_resp="$(curl -sSf --max-time 3 \
+    -X POST "${KOAD_IO_MCP_SESSION_DAEMON}/api/session/register" \
+    -H 'Content-Type: application/json' \
+    -d "{\"entity\":\"${ENTITY}\",\"token\":\"${_mcp_token}\",\"harness\":\"claude-code\",\"host\":\"$(hostname -s)\",\"pid\":$$,\"cwd\":\"${WORK_DIR}\"}" \
+    2>/dev/null || echo '')"
+  if echo "$_reg_resp" | grep -q '"status":"ok"' 2>/dev/null; then
+    export KOAD_IO_MCP_SESSION_TOKEN="$_mcp_token"
+    echo "mcp_token     : ${_mcp_token:0:12}... (registered with daemon)"
+  else
+    echo "mcp_token     : registration failed (daemon unreachable or error)" >&2
+  fi
+else
+  echo "mcp_token     : uuid generation unavailable, MCP auth skipped" >&2
+fi
+unset _mcp_token _reg_resp
+
+# Augment the EXIT trap to close the pre-registered MCP session.
+# We redefine _harness_on_exit to wrap the original body with an MCP cleanup
+# call. The token and daemon URL are read from env vars, which survive scope.
+_harness_on_exit() {
+  local rc=$?
+  _lock_cleanup
+  rm -f "$_harness_pid_file" 2>/dev/null
+  [ -n "$_harness_exit_emitted" ] && {
+    if [ -n "$KOAD_IO_MCP_SESSION_TOKEN" ]; then
+      curl -sS --max-time 2 -X POST "${KOAD_IO_MCP_SESSION_DAEMON}/api/session/close" \
+        -H 'Content-Type: application/json' \
+        -d "{\"token\":\"${KOAD_IO_MCP_SESSION_TOKEN}\"}" >/dev/null 2>&1 || true
+    fi
+    return
+  }
+  _harness_exit_emitted=1
+  if [ "$rc" -eq 0 ]; then
+    koad_io_emit_close "harness closed: claude $MODEL_RESOLVED ($_mode, clean exit)"
+  elif [ "$rc" -eq 130 ]; then
+    koad_io_emit_close "harness closed: claude $MODEL_RESOLVED ($_mode, interrupted)"
+  else
+    koad_io_emit_close "harness closed: claude $MODEL_RESOLVED ($_mode, exit $rc)"
+  fi
+  if [ -n "$KOAD_IO_MCP_SESSION_TOKEN" ]; then
+    curl -sS --max-time 2 -X POST "${KOAD_IO_MCP_SESSION_DAEMON}/api/session/close" \
+      -H 'Content-Type: application/json' \
+      -d "{\"token\":\"${KOAD_IO_MCP_SESSION_TOKEN}\"}" >/dev/null 2>&1 || true
+  fi
+}
+# trap already set above — redefining _harness_on_exit is sufficient
+
 # --- JSON .result extraction (ENTITY_EXTRACT_RESULT) ----------------------
 #
 # When ENTITY_EXTRACT_RESULT=true AND this is -p one-shot mode, force
