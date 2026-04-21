@@ -21,9 +21,10 @@ KoadOverview._accentColor = function (handle) {
 };
 
 // Profile URL — configurable by host app via KoadOverview.configure().
-// Daemon sets baseUrl to 'https://kingofalldata.com'; forge uses relative '/'.
+// Each kingdom sets its own profileBaseUrl in settings.json.
+// Defaults to empty string (relative URLs) if not configured.
 KoadOverview._settings = {
-  profileBaseUrl: 'https://kingofalldata.com',
+  profileBaseUrl: '',
 };
 
 KoadOverview.configure = function (opts) {

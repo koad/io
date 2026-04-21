@@ -40,7 +40,13 @@ Meteor.startup(function () {
   Meteor.subscribe('env');
 });
 
-// Configure profile URL for daemon context — links out to the public site.
+// Configure profile URL for daemon context — links out to the operator's public site.
+// Set Meteor.settings.public.profileBaseUrl in your local settings.json.
 if (typeof KoadOverview !== 'undefined') {
-  KoadOverview.configure({ profileBaseUrl: 'https://kingofalldata.com' });
+  const profileBaseUrl =
+    (Meteor.settings && Meteor.settings.public && Meteor.settings.public.profileBaseUrl) ||
+    '';
+  if (profileBaseUrl) {
+    KoadOverview.configure({ profileBaseUrl });
+  }
 }
