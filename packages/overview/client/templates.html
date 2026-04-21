@@ -15,17 +15,21 @@
         <span class="val">{{allFlightsCount}}</span> flights{{#if flyingCount}} <span class="val" style="color: #5bd5b5; margin-left: 4px;">{{flyingCount}}</span> live{{/if}}
       </div>
       <div class="nav-tab {{activeClass 'bonds'}}" data-view="bonds">
-        <span class="val">{{totalBonds}}</span> bonds
+        {{#if totalBonds}}<span class="val">{{totalBonds}}</span> {{/if}}bonds
       </div>
+      {{#if crossKingdomCount}}
       <div class="nav-tab {{activeClass 'crosskingdom'}}" data-view="crosskingdom">
         <span class="val">{{crossKingdomCount}}</span> cross-k
       </div>
+      {{/if}}
       <div class="nav-tab {{activeClass 'keys'}}" data-view="keys">
-        <span class="val">{{totalKeys}}</span> keys
+        {{#if totalKeys}}<span class="val">{{totalKeys}}</span> {{/if}}keys
       </div>
+      {{#if totalTickles}}
       <div class="nav-tab {{activeClass 'tickles'}}" data-view="tickles">
         <span class="val">{{totalTickles}}</span> tickles
       </div>
+      {{/if}}
       {{#if alertCount}}
       <div class="nav-tab alert-tab {{activeClass 'alerts'}}" data-view="alerts">
         <span class="val">{{alertCount}}</span> alerts
