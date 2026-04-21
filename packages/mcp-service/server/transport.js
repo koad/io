@@ -183,9 +183,11 @@ async function dispatchMessage(message, profile) {
   return jsonRpcError(id || null, MCP_ERRORS.METHOD_NOT_FOUND, `Unknown method: ${method}`);
 }
 
-// Mount the MCP transport on WebApp.connectHandlers.
+// Mount the MCP transport on WebApp.rawConnectHandlers so it runs before
+// Meteor's Blaze HTML-serving catch-all, which would otherwise swallow the
+// /mcp and /mcp/sse routes and return the HTML shell instead of JSON-RPC/SSE.
 function mountMcpTransport() {
-  const app = WebApp.connectHandlers;
+  const app = WebApp.rawConnectHandlers;
 
   // -------------------------------------------------------------------------
   // GET /mcp/sse — SSE stream for notifications + responses
