@@ -251,6 +251,23 @@ function mountMcpTransport() {
   });
 
   // -------------------------------------------------------------------------
+  // Body-parser for /mcp POST — rawConnectHandlers doesn't include one
+  // -------------------------------------------------------------------------
+  app.use('/mcp', (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+      try {
+        req.body = JSON.parse(data);
+      } catch (e) {
+        req.body = null;
+      }
+      next();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // POST /mcp — JSON-RPC message dispatch
   // -------------------------------------------------------------------------
   app.use('/mcp', async (req, res, next) => {
@@ -259,7 +276,6 @@ function mountMcpTransport() {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
 
-    // Parse body (body-parser already ran on the daemon's app stack)
     const body = req.body;
     if (!body || typeof body !== 'object') {
       res.writeHead(400);
