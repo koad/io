@@ -45,7 +45,7 @@ function indexEntity(handle, entityPath) {
     const doc = {
       handle: config.handle || handle,
       name: config.name,
-      image: config.avatar || `/${handle}.png`,
+      image: `/${handle}.png`,
       outfit: {
         hue: rawOutfit.hue != null ? rawOutfit.hue : (rawOutfit.h != null ? rawOutfit.h : 200),
         saturation: rawOutfit.saturation != null ? rawOutfit.saturation : (rawOutfit.s != null ? rawOutfit.s : 30),
@@ -58,7 +58,7 @@ function indexEntity(handle, entityPath) {
 
     const existing = Passengers.findOne({ handle: doc.handle });
     if (existing) {
-      Passengers.update(existing._id, { $set: doc });
+      Passengers.update(existing._id, { $set: doc, $unset: { avatar: '' } });
     } else {
       Passengers.insert(doc);
       console.log(`[PASSENGERS] + ${doc.name || handle}`);
