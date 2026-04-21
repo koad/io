@@ -222,21 +222,25 @@ function mountMcpTransport() {
       const profile = McpAuth.authenticateSession(token);
       if (!profile) {
         res.writeHead(401);
-        return res.end(JSON.stringify({ error: 'Unauthorized: invalid or expired session token' }));
+        return res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized: invalid or expired session token' } }));
       }
       // Re-use any existing session for this profile, or create a new one
       sessionId = McpSession.createSession(profile);
       session   = McpSession.getSession(sessionId);
     } else {
+      // No Bearer token — check for existing session via header first
       sessionId = req.headers['mcp-session-id'];
-      if (!sessionId) {
-        res.writeHead(400);
-        return res.end(JSON.stringify({ error: 'Missing Authorization or Mcp-Session-Id header' }));
+      if (sessionId) {
+        session = McpSession.getSession(sessionId);
       }
-      session = McpSession.getSession(sessionId);
       if (!session) {
-        res.writeHead(401);
-        return res.end(JSON.stringify({ error: 'Invalid or expired session' }));
+        // Local-network bypass: daemon only binds on ZeroTier (10.10.10.10).
+        // If you reached this handler you are already inside the trust perimeter.
+        // Create an anonymous local-entity session rather than refusing the request.
+        const localProfile = { entity: 'local', scope: ['*'] };
+        sessionId = McpSession.createSession(localProfile);
+        session   = McpSession.getSession(sessionId);
+        console.log(`[mcp-service:sse] local-network bypass — created session=${sessionId}`);
       }
     }
 
@@ -375,27 +379,33 @@ function mountMcpTransport() {
     let session = sessionIdHeader ? McpSession.getSession(sessionIdHeader) : null;
 
     if (!session) {
-      // Authenticate via Bearer token
+      // Authenticate via Bearer token if present
       const authHeader = req.headers['authorization'] || '';
       const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-      if (!tokenMatch) {
-        res.writeHead(401);
-        return res.end(JSON.stringify({ error: 'Unauthorized: Bearer token required' }));
+
+      if (tokenMatch) {
+        const token = tokenMatch[1];
+        const profile = McpAuth.authenticateSession(token);
+        if (!profile) {
+          res.writeHead(401);
+          return res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id || null, error: { code: -32001, message: 'Unauthorized: invalid or expired session token' } }));
+        }
+
+        // Create new MCP session
+        const newSessionId = McpSession.createSession(profile);
+        session = McpSession.getSession(newSessionId);
+
+        // Return session ID in response header
+        res.setHeader('Mcp-Session-Id', newSessionId);
+      } else {
+        // Local-network bypass: daemon only binds on ZeroTier (10.10.10.10).
+        // No Bearer token means the caller is already inside the trust perimeter.
+        const localProfile = { entity: 'local', scope: ['*'] };
+        const newSessionId = McpSession.createSession(localProfile);
+        session = McpSession.getSession(newSessionId);
+        res.setHeader('Mcp-Session-Id', newSessionId);
+        console.log(`[mcp-service:post] local-network bypass — created session=${newSessionId}`);
       }
-
-      const token = tokenMatch[1];
-      const profile = McpAuth.authenticateSession(token);
-      if (!profile) {
-        res.writeHead(401);
-        return res.end(JSON.stringify({ error: 'Unauthorized: invalid or expired session token' }));
-      }
-
-      // Create new MCP session
-      const newSessionId = McpSession.createSession(profile);
-      session = McpSession.getSession(newSessionId);
-
-      // Return session ID in response header
-      res.setHeader('Mcp-Session-Id', newSessionId);
     }
 
     const { profile } = session;
