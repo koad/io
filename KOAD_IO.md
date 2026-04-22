@@ -11,6 +11,18 @@ You are an entity in the koad:io kingdom. This file is loaded before anything el
 - Not your keys, not your agent. Not your memory, not your story. Files on disk. Total evolution.
 - Every tool is inspectable, auditable, controllable.
 
+## Framework vs. Business
+
+`~/.koad-io/` is the **skeleton**. It ships clean: runtime, commands, cascade, daemon, hooks, helpers. Nothing kingdom-specific. A new operator clones koad:io and gets structure, not someone else's business.
+
+Business — the things a specific kingdom actually does (products, services, pricing, editorial voice, sponsor flows, storefronts) — lives in overlays:
+
+- `~/.<entity>/` — identity, keys, memories, the entity's own scope
+- `~/.forge/` — business machinery (websites, services, packages that are yours, not the framework's)
+- Any `~/.<your-namespace>/` — you can add your own shelves (`~/.pantry/`, `~/.garden/`, whatever)
+
+Tools and commands build up in your entity's dir first and graduate to the framework only when they are proven generic for a newly-installed user. Same for packages. The framework is a skeleton for many kingdoms, not a storage locker for one.
+
 ## Architecture
 
 ```
@@ -355,6 +367,43 @@ When Juno (or any orchestrator) dispatches an Agent, hooks open a `flight` emiss
 
 Closed emissions, landed flights, and ended sessions older than `KOAD_IO_ARCHIVE_DAYS` (default 7) sweep to `~/.koad-io/daemon/archive/<collection>/YYYY-MM-DD.jsonl`. Active records are never touched. Hourly automatic, manual via `POST /api/archive/sweep`.
 
+## MCP Tool Surface
+
+The daemon (and any bolt-on service like a business dance-hall) exposes tools to AI harnesses via Model Context Protocol — native function calls, not curl-and-parse. An entity in a Claude Code / opencode / compatible harness sees kingdom state as structured tools.
+
+Standard surfaces a kingdom's MCP layer typically exposes:
+- **Read:** emissions active, flights by entity, sessions active, entities list, kingdoms list, messages count, tickler due
+- **Write:** emission open/update/close, flight open/close, tickler defer, message drop
+- **Discovery:** ping, entity tool cascade (per-entity `tools/` dirs loaded as MCP tools per VESTA-SPEC-137)
+
+**Auth model:** the mesh overlay is the trust perimeter. Calls from the mesh are trusted; attribution is self-reported in tool args (caller declares which entity it is acting as). Bond-based scope gating is the spec'd evolution (VESTA-SPEC-140).
+
+**Where it lives:** MCP can be embedded in the daemon (simple kingdoms) or live in a standalone service (persistent across daemon rebuilds, decoupled lifecycle). Either shape is valid; the tool surface is uniform.
+
+## Pluggable Indexers — Declare, Don't Hardcode
+
+A service that writes data can declare it indexable by the daemon via a `.koad-io-index.yaml` file in its own directory. The daemon scans `$HOME/.*` and `$HOME/.<namespace>/*` for these declarations on startup and any time `POST /api/indexers/reload` is called.
+
+Example:
+```yaml
+indexers:
+  - name: announcement-surface
+    source: data/announcement.jsonl    # relative to this yaml file
+    collection: AnnouncementSurface
+    format: jsonl
+    mode: current-per-key              # or append-only, replay-derived
+    key: _id
+```
+
+**Modes:**
+- `current-per-key` — last entry per key is the doc (good for surfaces where each publish supersedes)
+- `append-only` — every entry is a doc (good for event logs, archives, tips)
+- `replay-derived` — run a reducer over all entries (good for aggregates, pool balances)
+
+The daemon projects each declared file into a named collection, publishes it via DDP as `indexed.<name>`, and watches the file for changes. Services own their storage; the daemon owns the projection.
+
+Users add new services by dropping a directory with a yaml — zero daemon code changes.
+
 ## Entity Relationships
 
 Not every relationship is a bond. Three distinct relationship types shape an entity's identity:
@@ -374,11 +423,24 @@ These are not interchangeable. An entity's creator, its custodian(s), and its bo
 | flowbie | Always-on, X11, OBS — content studio |
 
 Entities communicate via:
-- **GitHub Issues** — coordination protocol (auditable, addressable, sovereign)
-- **HTTP mesh** — direct entity-to-entity via opencode serve on ZeroTier
+- **Briefs** — markdown files in `~/.<recipient>/briefs/` (the canonical internal intake for dispatched work)
+- **MCP emissions** — the daemon's nervous system (open/update/close lifecycle, reactive triggers)
+- **Messages** — lightweight async notes via `leave_message` / `~/.forge/messages/<entity>/`
+- **HTTP mesh** — direct entity-to-entity over the mesh overlay (ZeroTier, Netbird, etc.)
 - **SSH** — cross-machine execution for rooted entities
+- **GitHub Issues** — public channel for users, sponsors, external contributors (NOT internal coordination)
 
-Network model: hard shell, soft interior. ZeroTier is the perimeter. nginx is the only public door. Never bind 0.0.0.0 on kingdom services.
+Network model: hard shell, soft interior. The mesh overlay is the perimeter. nginx is the only public door. Never bind `0.0.0.0` on kingdom services.
+
+## Repos — Keybase Private, GitHub Public
+
+Private entity and forge repos live on Keybase. Public-facing work lives on GitHub. The distinction is structural:
+
+- `keybase://team/<kingdom>.entities.<name>/self` — entity home, private, sovereign
+- `keybase://team/<kingdom>.forge.<name>/self` — forge business infrastructure, private
+- `github.com/<org>/<repo>` — open source, public specs, public documentation, user-facing
+
+Keybase teams have better audit, sovereign key control, and no "default-public" failure mode. GitHub is the window; Keybase is the house.
 
 ## The Operation Is the Demo
 
