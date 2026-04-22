@@ -41,7 +41,7 @@ vesta commit self              # Entity command: commit ~/.vesta
 vesta spec entity-model        # Entity command: draft/update a spec
 alice install nodejs           # Entity command: install Node.js
 koad-io spawn bare             # Global command: scaffold a bare project
-koad-io gestate maya           # Global command: create new entity
+koad-io gestate maya           # Global command: create new entity named maya
 ```
 
 The entity name in the invocation sets `ENTITY` and `ENTITY_DIR` for the duration of the command.

@@ -110,9 +110,9 @@
        CSS columns fills top-to-bottom per column. Reading order is column-major. */
     .entity-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 16px;
-      margin-bottom: 6px;
+      grid-template-columns: repeat(auto-fill, minmax(311px, 1fr));
+      gap: 12px;
+      margin-bottom: 4px;
 
     }
 
