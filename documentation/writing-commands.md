@@ -164,4 +164,4 @@ The cascade makes graduation a single `mv` plus a path fixup.
 
 - `~/.koad-io/KOAD_IO.md` — the kingdom lighthouse, loaded by every entity
 - `~/.koad-io/onboarding/commands.md` — onboarding walkthrough
-- `~/.koad-io/docs/kingdom-model.md` — architectural shape of the kingdom
+- `~/.koad-io/documentation/kingdom-model.md` — architectural shape of the kingdom
