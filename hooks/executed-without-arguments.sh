@@ -77,10 +77,16 @@ fi
 #
 # Each leaf harness (claude, opencode, pi, ...) runs startup.sh itself and
 # consumes SYSTEM_PROMPT in its own native way. default/ just routes.
+#
+# Harness directory resolution:
+#   $KOAD_IO_HARNESS               — business-layer override (e.g. ~/.forge/commands/harness)
+#   $HOME/.koad-io/harness         — framework default (minimal, opencode-only kindergarten)
 
-HARNESS_CMD="$HOME/.koad-io/commands/harness/default/command.sh"
+HARNESS_ROOT="${KOAD_IO_HARNESS:-$HOME/.koad-io/harness}"
+HARNESS_CMD="$HARNESS_ROOT/default/command.sh"
 if [ ! -f "$HARNESS_CMD" ]; then
   echo "[error] harness default not found: $HARNESS_CMD" >&2
+  echo "[error]   set KOAD_IO_HARNESS to override the harness directory" >&2
   exit 1
 fi
 
