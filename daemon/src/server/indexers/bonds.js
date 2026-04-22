@@ -40,6 +40,56 @@ function parseFrontmatter(filePath) {
   }
 }
 
+// Parse fromHandle/toHandle from a bond filename (e.g. "juno-to-vulcan.md" → {from:"juno",to:"vulcan"})
+function parseHandlesFromFilename(filename) {
+  const base = filename.replace(/\.(md|asc|json)$/, '');
+  const m = base.match(/^(.+?)-to-(.+)$/);
+  if (!m) return { fromHandle: null, toHandle: null };
+  return { fromHandle: m[1], toHandle: m[2] };
+}
+
+// Extract the first sentence of the Bond Statement blockquote (> lines after ## Bond Statement)
+// Returns a string truncated to 200 chars, or null if not found
+function parseBondSummary(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const sectionIdx = content.indexOf('## Bond Statement');
+    if (sectionIdx === -1) return null;
+    const after = content.slice(sectionIdx + '## Bond Statement'.length);
+    // Find first line starting with '>'
+    for (const line of after.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('>')) {
+        const text = trimmed.slice(1).trim();
+        if (!text) continue;
+        return text.length > 200 ? text.slice(0, 197) + '...' : text;
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Enrich a bond entry (.md file) with frontmatter fields, handle pair, and summary
+// Returns an object with enriched fields merged in
+function enrichBondEntry(entry, bondFilePath) {
+  const fm = parseFrontmatter(bondFilePath);
+  const { fromHandle, toHandle } = parseHandlesFromFilename(entry.filename);
+  const summary = parseBondSummary(bondFilePath);
+  const enriched = Object.assign({}, entry);
+  if (fromHandle) enriched.fromHandle = fromHandle;
+  if (toHandle)   enriched.toHandle   = toHandle;
+  if (fm.type)       enriched.bondType   = fm.type;
+  if (fm.from)       enriched.from       = fm.from;
+  if (fm.to)         enriched.to         = fm.to;
+  if (fm.status)     enriched.status     = fm.status;
+  if (fm.visibility) enriched.visibility = fm.visibility;
+  if (fm.created)    enriched.created    = fm.created;
+  if (summary)       enriched.summary    = summary;
+  return enriched;
+}
+
 // Determine if a bond crosses kingdom boundaries
 // Returns { crossKingdom, fromKingdomId, toKingdomId } or null if no kingdoms configured
 function detectCrossKingdom(issuerHandle, bondFilename, bondFilePath) {
@@ -142,11 +192,16 @@ function indexEntity(handle, entityPath) {
         upsertCrossKingdomBond(handle, filename, bondFilePath, detection);
         crossBondFilenames.add(filename);
       } else {
-        intraBonds.push({
+        const rawEntry = {
           filename,
           type: ext === '.asc' ? 'signed' : ext === '.md' ? 'bond' : 'other',
           base,
-        });
+        };
+        // Enrich .md bond files with frontmatter + summary
+        const finalEntry = (ext === '.md')
+          ? enrichBondEntry(rawEntry, bondFilePath)
+          : rawEntry;
+        intraBonds.push(finalEntry);
       }
     }
 
