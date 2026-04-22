@@ -1409,3 +1409,285 @@ app.use('/api/session/close', (req, res, next) => {
   res.writeHead(200);
   res.end(JSON.stringify({ status: 'ok', token }));
 });
+
+// ---------------------------------------------------------------------------
+// Storefront file API — serve entity public storefront content.
+// Endpoints read from ~/.forge/storefronts/entities/<handle>/ on disk.
+//
+// GET /api/storefront/:handle/tree  — recursive file tree (max depth 5)
+// GET /api/storefront/:handle/file?path=<rel> — single file content (text)
+// GET /api/storefront/:handle/raw?path=<rel>  — raw bytes with Content-Type
+//
+// Path safety: all requests are validated to stay within the storefront root.
+// No symlink traversal, no null bytes, no absolute paths.
+// ---------------------------------------------------------------------------
+
+const _storefrontBase = path.join(os.homedir(), '.forge', 'storefronts', 'entities');
+
+// Known entity handles — must have a directory in storefrontBase.
+// Validated dynamically (directory existence check), but handle itself must
+// be alphanumeric + hyphens only to prevent any path manipulation.
+const _handleRe = /^[a-zA-Z0-9-]+$/;
+
+const STOREFRONT_SKIP_NAMES  = new Set(['.git', '.meteor', 'node_modules', 'dist', 'builds']);
+const STOREFRONT_SKIP_PREFIX = '.'; // hidden files/dirs
+
+const STOREFRONT_TEXT_EXTS = new Set([
+  '.md', '.txt', '.json', '.yaml', '.yml', '.js', '.sh', '.bash', '.css',
+  '.html', '.htm', '.xml', '.toml', '.ini', '.conf', '.env', '.ts',
+  '.py', '.rb', '.rs', '.go', '.java', '.c', '.cpp', '.h',
+]);
+
+const STOREFRONT_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico']);
+
+const STOREFRONT_MAX_FILE_SIZE = 1 * 1024 * 1024; // 1 MB
+const STOREFRONT_MAX_DEPTH = 5;
+
+function _mime(extname) {
+  const map = {
+    '.md':   'text/markdown',
+    '.txt':  'text/plain',
+    '.json': 'application/json',
+    '.yaml': 'text/yaml',
+    '.yml':  'text/yaml',
+    '.js':   'application/javascript',
+    '.ts':   'application/typescript',
+    '.sh':   'text/x-sh',
+    '.bash': 'text/x-sh',
+    '.css':  'text/css',
+    '.html': 'text/html',
+    '.htm':  'text/html',
+    '.xml':  'application/xml',
+    '.svg':  'image/svg+xml',
+    '.png':  'image/png',
+    '.jpg':  'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif':  'image/gif',
+    '.webp': 'image/webp',
+    '.ico':  'image/x-icon',
+  };
+  return map[extname] || 'application/octet-stream';
+}
+
+// Validate handle and resolve storefront root. Returns the root path if valid,
+// or null if the handle is invalid or the directory does not exist.
+function _storefrontRoot(handle) {
+  if (!handle || !_handleRe.test(handle)) return null;
+  const root = path.join(_storefrontBase, handle);
+  try {
+    const st = fs.lstatSync(root);
+    if (!st.isDirectory()) return null;
+  } catch (e) {
+    return null;
+  }
+  return root;
+}
+
+// Validate that a resolved path is safely inside root (no escape, not a
+// symlink that exits the tree). Returns resolved absolute path or null.
+function _safePath(root, relPath) {
+  if (!relPath || typeof relPath !== 'string') return null;
+  // Reject null bytes and control characters
+  if (/[\x00-\x1f]/.test(relPath)) return null;
+  // Reject absolute paths
+  if (path.isAbsolute(relPath)) return null;
+  const resolved = path.resolve(root, relPath);
+  // Must stay within root
+  if (!resolved.startsWith(root + path.sep) && resolved !== root) return null;
+  // Check for symlinks that escape
+  try {
+    const real = fs.realpathSync(resolved);
+    if (!real.startsWith(root + path.sep) && real !== root) return null;
+  } catch (e) {
+    return null;
+  }
+  return resolved;
+}
+
+// Recursive tree walker.
+function _walkTree(dir, root, depth) {
+  if (depth > STOREFRONT_MAX_DEPTH) return [];
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    return [];
+  }
+
+  const dirs  = [];
+  const files = [];
+
+  for (const entry of entries) {
+    if (entry.name.startsWith(STOREFRONT_SKIP_PREFIX)) continue;
+    if (STOREFRONT_SKIP_NAMES.has(entry.name)) continue;
+
+    if (entry.isDirectory()) {
+      const children = _walkTree(path.join(dir, entry.name), root, depth + 1);
+      dirs.push({ name: entry.name, type: 'dir', children });
+    } else if (entry.isFile()) {
+      let size = 0;
+      try { size = fs.statSync(path.join(dir, entry.name)).size; } catch (e) {}
+      files.push({ name: entry.name, type: 'file', size });
+    }
+  }
+
+  dirs.sort((a, b)  => a.name.localeCompare(b.name));
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  return [...dirs, ...files];
+}
+
+// GET /api/storefront/:handle/tree
+app.use('/api/storefront', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  const m = url.match(/^\/api\/storefront\/([^/?]+)\/tree/);
+  if (!m) return next();
+
+  const handle = decodeURIComponent(m[1]);
+  const root = _storefrontRoot(handle);
+  if (!root) {
+    res.setHeader('Content-Type', 'application/json');
+    res.writeHead(404);
+    return res.end(JSON.stringify({ status: 'error', message: `Storefront '${handle}' not found` }));
+  }
+
+  try {
+    const tree = _walkTree(root, root, 1);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.writeHead(200);
+    res.end(JSON.stringify({ status: 'ok', handle, tree }));
+  } catch (err) {
+    console.error('[API/storefront/tree] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/storefront/:handle/file?path=<rel>
+app.use('/api/storefront', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  const m = url.match(/^\/api\/storefront\/([^/?]+)\/file/);
+  if (!m) return next();
+
+  const handle = decodeURIComponent(m[1]);
+  const root = _storefrontRoot(handle);
+  if (!root) {
+    res.setHeader('Content-Type', 'application/json');
+    res.writeHead(404);
+    return res.end(JSON.stringify({ status: 'error', message: `Storefront '${handle}' not found` }));
+  }
+
+  const q = parseQuery(url);
+  const relPath = q.path;
+  const absPath = _safePath(root, relPath);
+  if (!absPath) {
+    res.setHeader('Content-Type', 'application/json');
+    res.writeHead(400);
+    return res.end(JSON.stringify({ status: 'error', message: 'Invalid or unsafe path' }));
+  }
+
+  try {
+    const stat = fs.statSync(absPath);
+    if (!stat.isFile()) {
+      res.setHeader('Content-Type', 'application/json');
+      res.writeHead(400);
+      return res.end(JSON.stringify({ status: 'error', message: 'Path is not a file' }));
+    }
+
+    if (stat.size > STOREFRONT_MAX_FILE_SIZE) {
+      res.setHeader('Content-Type', 'application/json');
+      res.writeHead(413);
+      return res.end(JSON.stringify({ status: 'error', message: 'File exceeds 1 MB limit' }));
+    }
+
+    const ext = path.extname(absPath).toLowerCase();
+    const mimeType = _mime(ext);
+    const relOut = path.relative(root, absPath);
+
+    if (STOREFRONT_IMAGE_EXTS.has(ext)) {
+      // Images: return descriptor pointing to raw endpoint
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.writeHead(200);
+      return res.end(JSON.stringify({
+        status: 'ok', handle, path: relOut, size: stat.size, mimeType,
+        isImage: true,
+        rawUrl: `/api/storefront/${encodeURIComponent(handle)}/raw?path=${encodeURIComponent(relOut)}`,
+        content: null,
+      }));
+    }
+
+    const content = fs.readFileSync(absPath, 'utf8');
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.writeHead(200);
+    res.end(JSON.stringify({ status: 'ok', handle, path: relOut, size: stat.size, mimeType, content }));
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.setHeader('Content-Type', 'application/json');
+      res.writeHead(404);
+      return res.end(JSON.stringify({ status: 'error', message: 'File not found' }));
+    }
+    console.error('[API/storefront/file] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/storefront/:handle/raw?path=<rel> — stream raw bytes with Content-Type
+app.use('/api/storefront', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  const m = url.match(/^\/api\/storefront\/([^/?]+)\/raw/);
+  if (!m) return next();
+
+  const handle = decodeURIComponent(m[1]);
+  const root = _storefrontRoot(handle);
+  if (!root) {
+    res.writeHead(404);
+    return res.end('Not found');
+  }
+
+  const q = parseQuery(url);
+  const relPath = q.path;
+  const absPath = _safePath(root, relPath);
+  if (!absPath) {
+    res.writeHead(400);
+    return res.end('Invalid or unsafe path');
+  }
+
+  try {
+    const stat = fs.statSync(absPath);
+    if (!stat.isFile()) {
+      res.writeHead(400);
+      return res.end('Not a file');
+    }
+
+    const ext = path.extname(absPath).toLowerCase();
+    const mimeType = _mime(ext);
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.writeHead(200);
+
+    const stream = fs.createReadStream(absPath);
+    stream.on('error', (err) => {
+      console.error('[API/storefront/raw] stream error:', err.message);
+      res.end();
+    });
+    stream.pipe(res);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.writeHead(404);
+      return res.end('Not found');
+    }
+    console.error('[API/storefront/raw] error:', err.message);
+    res.writeHead(500);
+    res.end(err.message);
+  }
+});
