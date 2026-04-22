@@ -43,6 +43,21 @@ This applies to restarts too. If a service needs restarting, kill the managed pr
 
 **Flags:** Commands accept `--flag` arguments. The dispatcher separates flags from positional sub-command names automatically — `--local` is passed through to the command, not used for directory resolution.
 
+### Commands Don't Hardcode Paths
+
+Commands move. A command that lives in `~/.koad-io/commands/foo/` today may live in `~/.forge/commands/foo/`, `~/.<entity>/commands/foo/`, or any other dir on the `KOAD_IO_COMMANDS_DIRS` cascade tomorrow. Any path hardcoded into a `command.sh` becomes a latent break the moment someone reorganizes.
+
+**The rules:**
+
+- **Self-location** → `$(dirname "${BASH_SOURCE[0]}")`. The script always knows where it is, regardless of which cascade dir it got resolved from.
+- **Siblings & children** → relative to `BASH_SOURCE`. E.g. `"$(dirname "${BASH_SOURCE[0]}")/../set/hue/command.sh"`.
+- **Other commands** → iterate `KOAD_IO_COMMANDS_DIRS` yourself, or (better) invoke through the entity launcher so the cascade resolves it: `<entity> <other-command> [args]`.
+- **Framework primitives that stay put** (`assert/datadir`, `install/opencode`, etc. — the minimal kindergarten set) MAY be sourced from `$HOME/.koad-io/commands/`. These are the few paths stable enough to hardcode. When in doubt, use BASH_SOURCE.
+
+**Never hardcode a cascadable path.** If the first line of your command is `FOO_DIR=$HOME/.koad-io/commands/foo`, you've bound the command to a specific cascade dir that may not be its home for long. Use `$(dirname "${BASH_SOURCE[0]}")` and it works from any dir.
+
+This also applies to config paths, settings files, and `.env` references inside commands — cascade variables (`$ENTITY_DIR`, `$KOAD_IO_COMMANDS_DIRS`, `$COMMAND_LOCATION`) exist for good reason. Use them.
+
 ## Bash Is the Substrate
 
 Every harness — Claude Code, opencode, pi, the human at a terminal — transpires on bash. They are bash processes. The framework itself is bash scripts: `commands/`, `hooks/`, `helpers/`, the env cascade, the bin launchers. The dependency stack is bash, starship, and the filesystem. Nothing else is required.

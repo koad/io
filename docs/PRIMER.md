@@ -8,6 +8,7 @@ Framework-level architectural documentation. These are design docs for contribut
 
 - `kingdom-model.md` — The kingdom data model: what a kingdom is structurally, the three sovereignty models, how membership works, and why genesis CID is the identifier. Requires familiarity with VESTA-SPEC-111 (sigchains).
 - `multi-kingdom-operators.md` — Conceptual overview for operators who participate in more than one kingdom. Read this before `kingdom-model.md` if the topic is new.
+- `writing-commands.md` — How to author a `command.sh` that survives the cascade: BASH_SOURCE self-location, cascade env vars, portable paths, framework vs business layers. Required reading for any entity (Muse, Vulcan, others) authoring new commands.
 
 ## Who works here?
 
