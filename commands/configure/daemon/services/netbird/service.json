@@ -1,5 +1,0 @@
-{
-  "name": "netbird",
-  "description": "Netbird management server — self-hosted mesh VPN controller + STUN/TURN",
-  "version": "0.65.0"
-}

@@ -1,5 +1,0 @@
-[
-  { "id": "enabled",     "label": "Enable Netbird Management",  "default": true },
-  { "id": "dashboard",   "label": "Web Dashboard UI",           "default": true },
-  { "id": "coturn",      "label": "STUN/TURN relay server",     "default": true }
-]
