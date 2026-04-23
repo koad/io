@@ -1,0 +1,15 @@
+{
+  "_doc": "Per-1k-token pricing by provider/model. Sidecar computes cost from tokens × rates. Zero-cost providers (bundled billing) use all zeros.",
+  "anthropic": {
+    "claude-opus-4-6":   { "input": 0.015, "output": 0.075, "cache_read": 0.0015, "cache_write": 0.01875 },
+    "claude-opus-4-7":   { "input": 0.015, "output": 0.075, "cache_read": 0.0015, "cache_write": 0.01875 },
+    "claude-sonnet-4-6": { "input": 0.003, "output": 0.015, "cache_read": 0.0003, "cache_write": 0.00375 },
+    "claude-haiku-4-5":  { "input": 0.0008, "output": 0.004, "cache_read": 0.00008, "cache_write": 0.001 }
+  },
+  "opencode": {
+    "_default": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+  },
+  "ollama": {
+    "_default": { "input": 0, "output": 0, "cache_read": 0, "cache_write": 0 }
+  }
+}
