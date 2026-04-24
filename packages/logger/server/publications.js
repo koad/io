@@ -1,13 +1,11 @@
 import { Meteor } from 'meteor/meteor';
-import { Mongo } from 'meteor/mongo';
+// Mongo import removed — unused (all collections come from koad:io-core via imply)
 import os from 'os';
 
-Meteor.publish('counters', async function () {
-  const user = await Meteor.users.findOneAsync({ _id: this.userId });
-  if (user && await Roles.userIsInRoleAsync(user, ['super-admin', 'admin'])) {
-    return Counters.find();
-  }
-});
+// NOTE: Counters is minimongo ({connection: null}) — cannot be published via DDP.
+// This publication was a no-op (would return a minimongo cursor, not a real collection).
+// Removed. If you need a counter view, publish from a real Mongo collection instead.
+// Meteor.publish('counters', ...) — removed 2026-04-24
 
 ApplicationEvents.allow({
   insert() { return false; },
@@ -34,20 +32,38 @@ const logEvent = {
   error(method, msg, verbose, route, errorData) {
     logEvent._log('ERROR', method, msg, 'danger', 'fa fa-warning', route, errorData);
   },
-  _log(type, method, msg, cls, icon, route, dump) {
-    Meteor.call('logEvent', {
-      message: msg,
+  // Meteor 3: server-side callers write directly to ClientErrors — do not
+  // use Meteor.call('logEvent') from server context (Fiber-based, broken in M3).
+  async _log(type, method, msg, cls, icon, route, dump) {
+    const event = {
+      message: msg || 'no message',
       type,
       method,
       class: cls,
       icon,
-      route,
-      dump
-    });
+      route: route || 'server://',
+      dump: dump || false,
+      connection: 'server://',
+      user: 'localhost',
+      date: new Date(),
+      nodeVer: process.version,
+      subType: 'n/a'
+    };
+
+    const counterIndex = `el_${type}`;
+    const existingCounter = await Counters.findOneAsync({ _id: counterIndex });
+    if (!existingCounter) {
+      await Counters.insertAsync({ _id: counterIndex, created: new Date(), current: 1 });
+    } else {
+      await Counters.updateAsync({ _id: counterIndex }, { $inc: { current: 1 } });
+    }
+
+    await ClientErrors.insertAsync(event);
   }
 };
 
-this.logEvent = logEvent;
+// Meteor 3: bare `this` at module top level is undefined in Reify — use globalThis.
+globalThis.logEvent = logEvent;
 
 koad.log = logEvent;
 
@@ -140,7 +156,8 @@ Meteor.methods({
         ? { type: 'ERROR', created: { $lt: targetDate } }
         : { type: { $ne: 'ERROR' }, created: { $lt: targetDate } };
 
-      const oldEvents = await ApplicationEvents.find(query).toArray();
+      // Meteor 3: cursor.toArray() doesn't exist — use fetchAsync()
+      const oldEvents = await ApplicationEvents.find(query).fetchAsync();
       let counter = 0;
 
       for (const doc of oldEvents) {

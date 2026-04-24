@@ -128,6 +128,7 @@ window.onerror = function(errorMsg, url, lineNumber, column, errorObj) {
   Meteor.call('uncaughtError', errorData);
 };
 
-this.log = log;
-this.catchError = catchError;
-this.throwError = throwError;
+// Meteor 3: bare `this` at module top level is undefined in Reify — use globalThis.
+globalThis.log = log;
+globalThis.catchError = catchError;
+globalThis.throwError = throwError;
