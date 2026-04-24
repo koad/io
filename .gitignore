@@ -4,7 +4,6 @@ authenticator/**
 !authenticator/PRIMER.md
 patches/**
 !patches/PRIMER.md
-interface
 
 # Flight plans — ephemeral dispatch artifacts (durable record is commit trailer)
 flight-plans/
