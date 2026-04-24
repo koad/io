@@ -103,10 +103,21 @@ koad_io_emit_update "validated: $KOAD_IO_APP_NAME on $KOAD_IO_BIND_IP:$KOAD_IO_P
 # Derive screen session name from DATADIR path
 SCREEN_NAME=$(echo "$DATADIR" | sed "s|$HOME/\.||; s|/|-|g")
 
+# Decide where logs live, based on what we're actually going to run.
+# Production (a real build exists and --local not forced): logs live alongside
+#   the bundle in builds/latest/ — treated as a build artifact.
+# Local dev (explicit --local, OR fallthrough because no build exists): logs
+#   go to logs/ at project root; we don't create builds/latest/ at all.
+if [[ "$LOCAL_BUILD" == "true" ]] || [[ ! -f ./builds/latest/bundle/main.js ]]; then
+    LOGDIR="$DATADIR/logs"
+else
+    LOGDIR="$DATADIR/builds/latest"
+fi
+
 # Check if already running — screen first, then port
 if screen -list | grep -q "$SCREEN_NAME"; then
     echo "Already running: screen -r $SCREEN_NAME"
-    echo "Tail log: tail -f $DATADIR/builds/latest/*.log"
+    echo "Tail log: tail -f $LOGDIR/*.log"
     koad_io_emit_close "start: already running (screen $SCREEN_NAME)"
     exit 0
 fi
@@ -121,14 +132,7 @@ fi
 # Set the terminal title
 echo -ne "\033]0;$ENTITY $KOAD_IO_APP_NAME on $HOSTNAME\007"
 
-# Set up log directory.
-# Production: logs live alongside the built bundle in builds/latest/
-# Local dev: logs go to logs/ at project root (no build exists yet)
-if [[ "$LOCAL_BUILD" == "true" ]]; then
-    LOGDIR="$DATADIR/logs"
-else
-    LOGDIR="$DATADIR/builds/latest"
-fi
+# Create the log directory now that we've confirmed we're starting.
 mkdir -p "$LOGDIR"
 LOGFILE="$LOGDIR/$CURRENTDATETIME.log"
 echo "Screen: $SCREEN_NAME"
