@@ -4,69 +4,98 @@
 
 ## What this folder is
 
-Distilled teaching material about how the kingdom works. Paired with **inline `PRIMER:` comments in the code itself** — the code is the source of truth; this folder is the map and the textbook.
+The kingdom's **syllabus** — a top-level index of training topics, each pointing into the packages where the actual lessons live.
 
-Two audiences, one material:
+**Actual lesson content lives WITH the package it describes**, not here. That way teaching travels with the code, stays in sync when the code evolves, and belongs to the package's own repo.
 
-1. **New users learning the kingdom** — read top-down, topic by topic, building up a mental model
-2. **Practitioners re-remembering something** — search (book.koad.sh-style), jump to the cheatsheet or bug list, get unstuck fast
-
-## Shape of a training module
+## The layering
 
 ```
-training/<topic>/
-  index.md         — overview of the topic; mental model; how the pieces fit
-  <lesson>.md      — individual lesson per concept; links back to code
-  cheatsheet.md    — (optional) "how do I do X again?" quick reference
-  examples/        — (optional) working snippets
+~/.koad-io/training/                      ← syllabus: topics, overviews, cross-package maps
+    PRIMER.md                              (this file)
+    layout/
+        index.md                           ← "Layout is composed of nav + templating…"
+                                              links into:
+                                                ~/.forge/packages/navigation/training/...
+                                                ~/.forge/packages/templating/training/...
+    session/
+        index.md                           ← "Session is how reactive state works…"
+                                              links into:
+                                                ~/.koad-io/packages/session/training/...
+                                                ~/.forge/packages/templating/training/...
+
+~/.forge/packages/<pkg>/training/         ← per-package lesson content (lives with code)
+~/.koad-io/packages/<pkg>/training/       ← same convention for framework packages
+~/.<entity>/training/                     ← entities can own lessons too when relevant
 ```
 
-Each lesson file typically includes:
+## Three roles of `training/`
 
-- **Why** — when does this matter? what problem does the pattern solve?
-- **What exists today** — honest description of current state in the kingdom's code
-- **How to reach for it** — the minimal recipe
-- **Bugs in the wild** — known imperfections, why they haven't been fixed yet
-- **Open questions** — design space that's still being explored
-- **See also** — links to code files (`~/.forge/packages/<name>/...`), related lessons
+| Location | Role |
+|---|---|
+| `~/.koad-io/training/<topic>/index.md` | **Syllabus** — topic overview, mental model, map to per-package lessons |
+| `<package>/training/<lesson>.md` | **Lesson** — the actual teaching, belongs to the package that demonstrates it |
+| Inline `PRIMER:` in code | **Breadcrumb** — short note at the teachable moment, linking to the package's own training |
 
-## Relationship to inline primers
-
-Code contains short inline `PRIMER:` comments at teachable moments. Those primers:
-
-- Give the brief lesson RIGHT WHERE the pattern lives
-- Link out to the full lesson in `~/.koad-io/training/<topic>/<lesson>.md`
-- Never the reverse — training links INTO code, code doesn't link INTO training file paths that might break
-
-The convention:
+## Inline primer convention
 
 ```js
 // PRIMER: <short title>
 // <1-3 lines of context>
 //
-// Full: ~/.koad-io/training/<topic>/<lesson>.md
+// Full: training/<lesson>.md          ← path relative to package root
 ```
 
-Greppable: `grep -r "PRIMER:"` across the kingdom lists every inline lesson.
+Or for HTML:
+
+```html
+<!--
+  PRIMER: <short title>
+  ...
+  Full: ../training/<lesson>.md        ← relative from the file containing the primer
+-->
+```
+
+Relative paths inside a package mean the primer travels with the code regardless of where in the cascade the package is installed.
+
+## Lesson structure (what goes in a `<package>/training/<lesson>.md`)
+
+- **Why** — when does this matter?
+- **Mechanism** — what actually happens under the hood
+- **How to reach for it** — minimal recipe
+- **Bugs in the wild** — known imperfections, why they haven't been fixed yet
+- **Open questions** — design space still being worked out
+- **See also** — links to code (relative), other lessons, related syllabus topics
+
+Be honest about bugs. The lesson is MORE useful if it names the imperfection than if it pretends the code is clean.
+
+## Syllabus structure (what goes in `~/.koad-io/training/<topic>/index.md`)
+
+- **Topic overview** — the mental model, the shape of the concepts
+- **Compositional matrix** — if the topic involves multiple packages
+- **Lesson index** — pointers to per-package training files
+- **Related topics** — cross-links to other syllabi
+- **Key files** — canonical code locations that exemplify the topic
 
 ## How this grows
 
-- **New lesson emerges** — something gets explained once in a brief or a conversation
-- **Pattern appears twice** — distill it, put it here, link inline primers to it
-- **Bug discovered** — add to the "Bugs in the wild" section of the relevant lesson
-- **Design question opens** — note in "Open questions"; don't close prematurely
+- Someone walks through a file, identifies a teachable moment → inline PRIMER + lesson in package's training/
+- A new topic emerges spanning multiple packages → syllabus index at `~/.koad-io/training/<topic>/index.md`
+- A package is extracted/carved → its `training/` dir travels with it automatically
+- A lesson turns out to apply cross-package → migrate to syllabus level OR leave in one package and cross-link
 
-The training folder is never "done." It accumulates, gets distilled, gets reorganized as the kingdom's understanding deepens.
+The structure accumulates organically. No pre-designed taxonomy; topics emerge from the work.
 
 ## Status
 
-Currently seeded (2026-04-24):
+Seeded 2026-04-24:
 
-- `layout/` — the layout stack (nav + templating packages; ApplicationLayout; space reservation; body-merge)
-- (more topics to land as we walk the code during cleanup)
+- `layout/` syllabus (this folder's first topic)
+  - `~/.forge/packages/navigation/training/body-merge.md` (first lesson, paired with inline PRIMER in `navigation/client/body.html`)
+
+More lessons land as we walk the code during the audit-and-primer pass.
 
 ## See also
 
-- `~/.documentation/` — koad's personal working documentation (broader, more varied)
-- `~/.koad-io/skeletons/interface/` — the skeleton interface new users fork (future)
-- inline `PRIMER:` comments across `~/.forge/packages/`, `~/.koad-io/packages/`, `~/.<entity>/`
+- `~/.documentation/` — koad's broader personal manual, published at book.koad.sh
+- `~/.koad-io/skeletons/` — the skeleton set users fork

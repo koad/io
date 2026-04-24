@@ -17,32 +17,44 @@ Each cell is a valid choice. The app picks by including (or not) two packages:
 - `koad:io-navigation` — chrome (left sidebar + top bar)
 - `koad:io-templating` — workspace (`ApplicationLayout` with yield + panels)
 
-## Lessons in this topic
+## Lessons (in the packages that own them)
 
-- **[body-merge.md](./body-merge.md)** — How packages inject themselves into the app's `<body>` without the app author doing anything
-- **[space-reservation.md](./space-reservation.md)** — The three mechanisms by which contributors claim viewport space (static markup, CSS injection, imperative JS)
-- **[application-layout.md](./application-layout.md)** — The three-zone workspace: yield + dynamic left/right panel stacks with per-panel history
-- **[panels.md](./panels.md)** — Pushing dynamic panels into the layout at runtime
+**`koad:io-navigation`** — `~/.forge/packages/navigation/training/`:
+- [body-merge.md](../../../.forge/packages/navigation/training/body-merge.md) — how packages inject themselves into the app's `<body>`
+- space-reservation.md *(pending)* — the three mechanisms for claiming viewport space
+- top-bar.md *(pending)* — the top bar context nav, Session-driven NavItems
+- left-accordion.md *(pending)* — the sidebar tree for logged-in users
+
+**`koad:io-templating`** — `~/.forge/packages/templating/training/`:
+- application-layout.md *(pending)* — the three-zone workspace: yield + left/right panel stacks
+- panels.md *(pending)* — pushing dynamic panels with per-panel history
+- content-state.md *(pending)* — reactive CSS-class space reservation
+
+## Cross-package open questions
+
+- **Named yields vs reactive panels** — Iron Router supports named yields; `ApplicationLayout` uses reactive panel arrays. Two mental models not yet unified.
+- **Canonical space-reservation API** — navigation uses navPadding div + CSS injection + imperative JS (accordion). Could unify into one API.
+- **Zone visibility** — how does a route declare "I don't want the left zone"? Currently via CSS positioning (hide the nav assembly). Could be more explicit.
 
 ## Related topics
 
-- `training/navigation/` — the two nav surfaces (left sidebar tree, top bar context nav) in depth
-- `training/session/` — Session is the reactive state driving navbar items, panel arrays, and more
-- `training/router/` — Iron Router's named yields and how they relate to the layout's zones
+- `training/navigation/` *(pending)* — the two nav surfaces in depth
+- `training/session/` *(pending)* — Session is the reactive state driving navbar items, panel arrays
+- `training/router/` *(pending)* — Iron Router's named yields and how they relate to the layout's zones
 
-## Key files
+## Key files (canonical examples)
 
-Navigation package (`~/.forge/packages/navigation/`):
-- `client/body.html` — the body injection
-- `client/top-bar/templates.html` — top-bar assembly + space-reservation div + style injection
-- `client/top-bar/logic.js` — reactive nav items (Session-driven)
-- `client/left-accordion/templates.html` — left sidebar tree
-- `client/left-accordion/logic.js` — accordion behavior
+Navigation (`~/.forge/packages/navigation/`):
+- `client/body.html` — the body injection (4 lines; has inline PRIMER)
+- `client/top-bar/templates.html` — top-bar assembly + dual space-reservation
+- `client/top-bar/logic.js` — reactive nav items from Session
+- `client/left-accordion/templates.html` + `logic.js` — sidebar tree
+- `training/` — package's own lessons
 
-Templating package (`~/.forge/packages/templating/`):
-- `client/layout/templates.html` — `ApplicationLayout` template
+Templating (`~/.forge/packages/templating/`):
+- `client/layout/templates.html` — `ApplicationLayout` three-zone template
 - `client/layout/logic.js` — reactive helpers, panel events
 - `client/layout/engine.js` — `ApplicationLayout.open/close/toggle/back/forward` API
 - `client/layout/history.js` — per-panel history stack
-- `client/layout/gestures.js` — touch/swipe gestures for panels
-- `client/layout/styles.css` — the CSS rules that respond to contentState classes
+- `client/layout/styles.css` — CSS rules responding to contentState classes
+- `training/` *(pending)* — package's own lessons
