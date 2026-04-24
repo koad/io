@@ -320,9 +320,13 @@ Accounts.onLogin(async (loginInfo) => {
 // ============================================================================
 
 Meteor.startup(async () => {
+	if (koad.mongo?.connection === null) {
+		log.debug('[invitations] Skipping index creation (no mongo connection)');
+		return;
+	}
 	try {
 		log.debug('[invitations] Creating database indexes...');
-		
+
 		// Find invitations by creator
 		await ApplicationInvitations.createIndexAsync({ creator: 1 });
 		

@@ -265,9 +265,13 @@ Meteor.publish('searchHistory', function(limit = 10) {
 // ============================================================================
 
 Meteor.startup(async () => {
+	if (koad.mongo?.connection === null) {
+		log.debug('[search] Skipping index creation (no mongo connection)');
+		return;
+	}
 	try {
 		log.debug('[search] Creating database indexes...');
-		
+
 		// Find searches by user
 		await GlobalSearch.createIndexAsync({ userId: 1, timestamp: -1 });
 		

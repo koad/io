@@ -118,6 +118,10 @@ if(Package["matb33:collection-hooks"] && Meteor.users) {
 // TTL index: unconsumed consumables expire after 1 hour
 // Application logic enforces per-document TTL; this is the MongoDB-level safety net.
 Meteor.startup(async () => {
+	if (koad.mongo?.connection === null) {
+		log.debug('[collections] Skipping index creation (no mongo connection)');
+		return;
+	}
 	try {
 		await ApplicationConsumables.createIndexAsync(
 			{ when: 1 },
@@ -138,24 +142,7 @@ Kingdoms = new Mongo.Collection('Kingdoms', { connection: null });
 // Detection: bond's issuer and recipient belong to different kingdoms per kingdoms.json
 CrossKingdomBonds = new Mongo.Collection('CrossKingdomBonds', { connection: null });
 
-// Indexes added at startup
-Meteor.startup(async () => {
-	try {
-		await Kingdoms.createIndexAsync({ domain: 1 }, { name: 'kingdoms_domain' });
-	} catch (error) {
-		log.error('[collections] Failed to create Kingdoms domain index:', error.message);
-	}
-
-	try {
-		await CrossKingdomBonds.createIndexAsync(
-			{ fromKingdomId: 1, toKingdomId: 1 },
-			{ name: 'crossbonds_from_to' }
-		);
-		await CrossKingdomBonds.createIndexAsync({ fromEntity: 1 }, { name: 'crossbonds_from_entity' });
-		await CrossKingdomBonds.createIndexAsync({ toEntity: 1 }, { name: 'crossbonds_to_entity' });
-	} catch (error) {
-		log.error('[collections] Failed to create CrossKingdomBonds indexes:', error.message);
-	}
-});
+// Note: Kingdoms and CrossKingdomBonds use { connection: null } (always minimongo).
+// createIndexAsync on minimongo throws, so no startup index block for these collections.
 
 log.success('loaded koad-io-core/collections');

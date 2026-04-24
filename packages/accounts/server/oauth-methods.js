@@ -20,6 +20,10 @@ import { Accounts } from 'meteor/accounts-base';
 // ============================================================================
 
 Meteor.startup(async () => {
+	if (koad.mongo?.connection === null) {
+		log.debug('[oauth-methods] Skipping index creation (no mongo connection)');
+		return;
+	}
 	try {
 		await Meteor.users.createIndexAsync(
 			{ 'services.github.id': 1 },
