@@ -3,9 +3,14 @@
 // Syncs harness session telemetry into the in-memory HarnessSessions collection
 // so the overview dashboard and CLI see all active Claude Code sessions.
 //
-// Two session origins are tracked:
+// All write paths converge on a single upsertSession(entity, host, pid, enrichment)
+// function. The canonical _id is "<entity>:<host>:<pid>". No other _id shape is
+// created. See VESTA-SPEC-142 for the full invariant.
+//
+// Three session origins:
+//   source: 'pid-scanner'  — synthesized from harness.pid + last-payload.json, sparse
 //   source: 'json'         — written by harness into sessions/*.json, rich telemetry
-//   source: 'pid-inferred' — synthesized from harness.pid + last-payload.json, sparse
+//   source: 'emission'     — heartbeat from emissions.js (refreshes lastSeen only)
 //
 // PID tracking: reads harness.pid from the entity's state dir. When a session
 // is active but the harness PID is dead (and past a grace period), the session
@@ -95,65 +100,102 @@ function detectHarness(pid) {
   }
 }
 
-function upsertPidSession(handle, entityPath, pid) {
+// ---------------------------------------------------------------------------
+// SPEC-142: Shared canonical upsert
+// ---------------------------------------------------------------------------
+//
+// All write paths call this function. The _id is always "<entity>:<host>:<pid>".
+// enrichment fields are merged into the record; sources[] is accumulated with $addToSet.
+//
+// enrichment shape (all optional):
+//   source: String          — 'pid-scanner' | 'json' | 'emission'
+//   sessionId: String       — Claude Code stable UUID (null for opencode)
+//   harness: String         — 'claude-code' | 'opencode' | 'bash' | 'unknown'
+//   startedAt: Date         — best-available start time
+//   model: String
+//   modelId: String
+//   cwd: String
+//   version: String
+//   cost: Number
+//   durationMs: Number
+//   apiDurationMs: Number
+//   linesAdded: Number
+//   linesRemoved: Number
+//   contextPct: Number
+//   contextSize: Number
+//   tokensIn: Number
+//   tokensOut: Number
+//   transcriptPath: String
+//   rateLimits: Object
+//   enriched: Boolean
+//
+function upsertSession(handle, host, pid, enrichment) {
   const Sessions = globalThis.SessionsCollection;
   if (!Sessions) return;
+  if (!pid) return;
 
-  const id = `${handle}:${os.hostname()}:${pid}`;
+  const id = `${handle}:${host}:${pid}`;
   const now = new Date();
-
-  // Build base doc
-  const doc = {
-    entity: handle,
-    host: os.hostname(),
-    pid,
-    status: 'active',
-    lastSeen: now,
-    source: 'pid-inferred',
-    harness: detectHarness(pid),
-  };
-
-  // Start time — prefer /proc, fall back to pid-file mtime
-  const startedAt = pidStartedAt(pid);
-  if (startedAt) {
-    doc.startedAt = startedAt;
-  } else {
-    try {
-      const pidFile = path.join(entityPath, '.local', 'state', 'harness', 'harness.pid');
-      doc.startedAt = new Date(fs.statSync(pidFile).mtimeMs);
-    } catch (e) {
-      doc.startedAt = now;
-    }
-  }
-
-  // Enrich from last-payload.json when available
-  const payload = readLastPayload(entityPath);
-  if (payload) {
-    doc.enriched = true;
-    if (payload.model) {
-      doc.model = payload.model.display_name || payload.model.id || '';
-      doc.modelId = payload.model.id || '';
-    }
-    if (payload.context_window) {
-      doc.contextPct = Number(payload.context_window.used_percentage || 0);
-      doc.contextSize = Number(payload.context_window.context_window_size || 0);
-      doc.tokensIn = Number(payload.context_window.total_input_tokens || 0);
-      doc.tokensOut = Number(payload.context_window.total_output_tokens || 0);
-    }
-    if (payload.session_id) doc.sessionId = payload.session_id;
-    if (payload.transcript_path) doc.transcriptPath = payload.transcript_path;
-    if (payload.cost) {
-      doc.cost = Number(payload.cost.total_cost_usd || 0);
-    }
-  }
+  const source = enrichment.source;
 
   const existing = Sessions.findOne({ _id: id });
+
+  // PID reuse guard (SPEC-142 §3.2): don't reactivate a terminal record from a
+  // recycled PID unless the new process started after the old one ended.
+  if (existing && (existing.status === 'killed' || existing.status === 'ended')) {
+    const boundary = existing.endedAt || existing.lastSeen;
+    const newStart = enrichment.startedAt || now;
+    if (!boundary || new Date(newStart) <= new Date(boundary)) {
+      // Same or earlier start — PID not yet recycled, skip
+      return;
+    }
+    // New process genuinely started after the old one ended — fall through to insert
+    // (existing record stays in collection with terminal status; new canonical _id
+    // would collide, so we append a suffix to the old record to free the key).
+    Sessions.update(id, { $set: { _id: id + ':retired', migratedTo: id + ':new' } });
+    // Minimongo doesn't support _id mutation via update — instead mark retired in-place
+    // and let the archiver clean it. The new upsert below will insert fresh.
+    Sessions.update(id, { $set: { status: 'ended', endedAt: now, retiredBy: 'pid-reuse' } });
+  }
+
+  // Build the $set payload from enrichment (only defined keys)
+  const setFields = {
+    entity: handle,
+    host,
+    pid,
+    lastSeen: now,
+    status: 'active',
+  };
+
+  const copyFields = [
+    'sessionId', 'harness', 'startedAt',
+    'model', 'modelId', 'cwd', 'version',
+    'cost', 'durationMs', 'apiDurationMs',
+    'linesAdded', 'linesRemoved',
+    'contextPct', 'contextSize', 'tokensIn', 'tokensOut',
+    'transcriptPath', 'rateLimits', 'enriched',
+  ];
+  for (const f of copyFields) {
+    if (enrichment[f] !== undefined) setFields[f] = enrichment[f];
+  }
+
   if (existing) {
-    if (existing.status === 'killed' || existing.status === 'ended') return;
-    Sessions.update(id, { $set: doc });
+    // Preserve startedAt — don't overwrite a known start time with a later estimate
+    if (existing.startedAt && setFields.startedAt &&
+        new Date(setFields.startedAt) > new Date(existing.startedAt)) {
+      delete setFields.startedAt;
+    }
+    Sessions.update(id, {
+      $set: setFields,
+      $addToSet: source ? { sources: source } : {},
+    });
   } else {
-    Sessions.insert(Object.assign({ _id: id }, doc));
-    console.log(`[SESSION-SCANNER] pid-inferred session created: ${id} (${doc.harness})`);
+    const doc = Object.assign({ _id: id }, setFields);
+    if (!doc.startedAt) doc.startedAt = now;
+    doc.sources = source ? [source] : [];
+    doc.endedAt = null;
+    Sessions.insert(doc);
+    console.log(`[SESSION-SCANNER] session created: ${id} (${doc.harness || 'unknown'}) via ${source}`);
   }
 
   // Stamp entity lastActivity
@@ -187,21 +229,97 @@ function emitToDeamon(entity, type, body) {
   }
 }
 
-function upsertSession(handle, payload, fileMtime) {
+// ---------------------------------------------------------------------------
+// pid-scanner write path
+// ---------------------------------------------------------------------------
+function scanEntityPidSessions(handle, entityPath) {
+  // Scan harness.pid for this entity and create/refresh a pid-inferred session
+  // if the process is alive.
+  const pid = readHarnessPid(entityPath);
+  if (!pid) return;
+  if (!pidAlive(pid)) return;
+
+  const host = os.hostname();
+
+  // Build enrichment from available signals
+  const enrichment = {
+    source: 'pid-scanner',
+    harness: detectHarness(pid),
+  };
+
+  // Start time — prefer /proc, fall back to pid-file mtime
+  const startedAt = pidStartedAt(pid);
+  if (startedAt) {
+    enrichment.startedAt = startedAt;
+  } else {
+    try {
+      const pidFile = path.join(entityPath, '.local', 'state', 'harness', 'harness.pid');
+      enrichment.startedAt = new Date(fs.statSync(pidFile).mtimeMs);
+    } catch (e) {
+      enrichment.startedAt = new Date();
+    }
+  }
+
+  // Enrich from last-payload.json when available
+  const payload = readLastPayload(entityPath);
+  if (payload) {
+    enrichment.enriched = true;
+    if (payload.model) {
+      enrichment.model = payload.model.display_name || payload.model.id || '';
+      enrichment.modelId = payload.model.id || '';
+    }
+    if (payload.context_window) {
+      enrichment.contextPct = Number(payload.context_window.used_percentage || 0);
+      enrichment.contextSize = Number(payload.context_window.context_window_size || 0);
+      enrichment.tokensIn = Number(payload.context_window.total_input_tokens || 0);
+      enrichment.tokensOut = Number(payload.context_window.total_output_tokens || 0);
+    }
+    if (payload.session_id) enrichment.sessionId = payload.session_id;
+    if (payload.transcript_path) enrichment.transcriptPath = payload.transcript_path;
+    if (payload.cost) {
+      enrichment.cost = Number(payload.cost.total_cost_usd || 0);
+    }
+  }
+
+  upsertSession(handle, host, pid, enrichment);
+}
+
+// ---------------------------------------------------------------------------
+// json-scanner write path (SPEC-142 §4.2)
+// ---------------------------------------------------------------------------
+//
+// Claude Code session JSON has no pid field (confirmed 2026-04-23).
+// We fall back to harness.pid for the entity. This is safe because there is
+// at most one active harness per entity per host (SPEC-142 §5.1).
+function upsertFromSessionJson(handle, entityPath, payload, fileMtime) {
   const Sessions = globalThis.SessionsCollection;
   if (!Sessions) return;
 
   const sid = payload.session_id;
-  if (!sid) return;
+  if (!sid) return; // opencode sessions don't write statusline JSON — skip
 
-  const doc = {
-    entity: handle,
+  const host = os.hostname();
+
+  // §4.2.1: pid not in session JSON — fall back to harness.pid
+  const pid = readHarnessPid(entityPath);
+  if (!pid) {
+    // No pid available — can't form canonical _id. Skip this record.
+    // (The pid-scanner will create the canonical record on next tick.)
+    return;
+  }
+
+  const now = new Date();
+  const lastSeen = fileMtime ? new Date(fileMtime * 1000) : now;
+  const ageMs = now - lastSeen.getTime();
+
+  const enrichment = {
+    source: 'json',
     sessionId: sid,
-    host: os.hostname(),
     model: payload.model ? (payload.model.display_name || payload.model.id || '') : '',
     modelId: payload.model ? (payload.model.id || '') : '',
     cwd: payload.cwd || (payload.workspace && payload.workspace.current_dir) || '',
     version: payload.version || '',
+    harness: 'claude-code', // json source is always Claude Code (opencode doesn't write these)
 
     cost: payload.cost ? Number(payload.cost.total_cost_usd || 0) : 0,
     durationMs: payload.cost ? Number(payload.cost.total_duration_ms || 0) : 0,
@@ -229,34 +347,19 @@ function upsertSession(handle, payload, fileMtime) {
       } : null,
     },
 
-    lastSeen: fileMtime ? new Date(fileMtime * 1000) : new Date(),
-    status: 'active',
-    source: 'json',
+    enriched: true,
+    startedAt: pidStartedAt(pid), // null if /proc not available; upsertSession handles it
   };
 
-  // Mark stale if file is old
-  const ageMs = Date.now() - doc.lastSeen.getTime();
+  // If the file is stale, mark session stale — but let upsertSession create the record
+  // first (pid-scanner will confirm liveness on next tick and may promote back to active).
   if (ageMs > STALE_MS) {
-    doc.status = 'stale';
+    // Don't override — let stale check handle it via periodicStaleCheck
+    // Just don't create an 'active' record from a 2h+ stale file.
+    return;
   }
 
-  const existing = Sessions.findOne({ _id: sid });
-  if (existing) {
-    // Don't overwrite killed/ended status with active from a stale file read
-    if (existing.status === 'killed' || existing.status === 'ended') return;
-    Sessions.update(sid, { $set: doc });
-  } else {
-    Sessions.insert(Object.assign({ _id: sid }, doc));
-  }
-
-  // Stamp entity lastActivity
-  if (handle && doc.status === 'active') {
-    const entity = EntityScanner.Entities.findOne({ handle });
-    const existingActivity = entity && entity.lastActivity ? new Date(entity.lastActivity) : null;
-    if (!existingActivity || doc.lastSeen > existingActivity) {
-      EntityScanner.Entities.update({ handle }, { $set: { lastActivity: doc.lastSeen } });
-    }
-  }
+  upsertSession(handle, host, pid, enrichment);
 }
 
 function scanEntitySessions(handle, entityPath) {
@@ -273,7 +376,7 @@ function scanEntitySessions(handle, entityPath) {
       const filePath = path.join(sessionsDir, file);
       const mtime = fs.statSync(filePath).mtimeMs / 1000;
       const payload = readSessionJson(filePath);
-      if (payload) upsertSession(handle, payload, mtime);
+      if (payload) upsertFromSessionJson(handle, entityPath, payload, mtime);
     }
   } catch (e) {
     // Not readable
@@ -300,13 +403,15 @@ function watchEntitySessions(handle, entityPath) {
           const mtime = fs.statSync(filePath).mtimeMs / 1000;
           const payload = readSessionJson(filePath);
           if (payload) {
-            upsertSession(handle, payload, mtime);
+            upsertFromSessionJson(handle, entityPath, payload, mtime);
           }
         } catch (e) {
-          // File removed — remove from collection
+          // File removed — if this was a legacy UUID-keyed record, remove it.
+          // Canonical records are maintained by pid-scanner, not file presence.
           const sid = filename.replace('.json', '');
           const Sessions = globalThis.SessionsCollection;
-          if (Sessions) Sessions.remove({ _id: sid });
+          // Only remove if still using legacy UUID _id (no colons)
+          if (Sessions && !sid.includes(':')) Sessions.remove({ _id: sid });
         }
       }, 300);
     });
@@ -314,15 +419,6 @@ function watchEntitySessions(handle, entityPath) {
   } catch (e) {
     // Can't watch
   }
-}
-
-function scanEntityPidSessions(handle, entityPath) {
-  // Scan harness.pid for this entity and create/refresh a pid-inferred session
-  // if the process is alive.
-  const pid = readHarnessPid(entityPath);
-  if (!pid) return;
-  if (!pidAlive(pid)) return;
-  upsertPidSession(handle, entityPath, pid);
 }
 
 function scanAll() {
@@ -337,6 +433,111 @@ function scanAll() {
   console.log(`[SESSION-SCANNER] Scan complete: ${total} sessions across ${entities.length} entities`);
 }
 
+// ---------------------------------------------------------------------------
+// SPEC-142 §7: Migration sweep — run once after scanAll()
+// ---------------------------------------------------------------------------
+//
+// Reconciles legacy UUID-keyed records (source: 'json', _id = sessionId) into
+// canonical (entity:host:pid) records. Idempotent.
+function runMigration() {
+  const Sessions = globalThis.SessionsCollection;
+  if (!Sessions) return;
+
+  const host = os.hostname();
+  let merged = 0, killed = 0, ended = 0;
+
+  // Identify legacy records: _id is a UUID (contains '-' and no ':')
+  const legacyRecords = Sessions.find({}).fetch().filter(doc => {
+    return typeof doc._id === 'string' && doc._id.includes('-') && !doc._id.includes(':');
+  });
+
+  if (legacyRecords.length === 0) {
+    console.log('[SESSION-MIGRATION] No legacy records found — collection already canonical.');
+    return;
+  }
+
+  console.log(`[SESSION-MIGRATION] Found ${legacyRecords.length} legacy UUID-keyed records to reconcile.`);
+
+  for (const legacy of legacyRecords) {
+    const entity = legacy.entity;
+    if (!entity) {
+      Sessions.update(legacy._id, { $set: { status: 'ended', endedAt: new Date(), migratedTo: null } });
+      ended++;
+      continue;
+    }
+
+    // Get pid: stored in the doc if it was ever enriched, else read from harness.pid
+    let pid = legacy.pid;
+    if (!pid) {
+      const entityPath = path.join(process.env.HOME, '.' + entity);
+      pid = readHarnessPid(entityPath);
+    }
+
+    if (!pid) {
+      // No pid available — can't form canonical id; mark ended
+      Sessions.update(legacy._id, { $set: { status: 'ended', endedAt: new Date(), migratedNote: 'no-pid' } });
+      ended++;
+      continue;
+    }
+
+    const canonicalId = `${entity}:${host}:${pid}`;
+
+    if (pidAlive(pid)) {
+      // Process is alive — merge into canonical record
+      const existing = Sessions.findOne({ _id: canonicalId });
+      const enrichment = {
+        source: 'json',
+        sessionId: legacy.sessionId || legacy._id,
+        model: legacy.model,
+        modelId: legacy.modelId,
+        cwd: legacy.cwd,
+        version: legacy.version,
+        cost: legacy.cost,
+        durationMs: legacy.durationMs,
+        apiDurationMs: legacy.apiDurationMs,
+        linesAdded: legacy.linesAdded,
+        linesRemoved: legacy.linesRemoved,
+        contextPct: legacy.contextPct,
+        contextSize: legacy.contextSize,
+        tokensIn: legacy.tokensIn,
+        tokensOut: legacy.tokensOut,
+        transcriptPath: legacy.transcriptPath,
+        rateLimits: legacy.rateLimits,
+        enriched: legacy.enriched || true,
+        startedAt: legacy.startedAt,
+        harness: legacy.harness || 'claude-code',
+      };
+
+      if (existing) {
+        // Merge telemetry into existing canonical record
+        const setFields = {};
+        for (const [k, v] of Object.entries(enrichment)) {
+          if (k !== 'source' && v !== undefined && v !== null) setFields[k] = v;
+        }
+        Sessions.update(canonicalId, {
+          $set: setFields,
+          $addToSet: { sources: 'json' },
+        });
+      } else {
+        upsertSession(entity, host, pid, enrichment);
+      }
+
+      // Mark legacy record as migrated
+      Sessions.update(legacy._id, {
+        $set: { status: 'ended', endedAt: new Date(), migratedTo: canonicalId }
+      });
+      merged++;
+      console.log(`[SESSION-MIGRATION] merged ${legacy._id} → ${canonicalId}`);
+    } else {
+      // Process is dead — mark killed
+      Sessions.update(legacy._id, { $set: { status: 'killed', endedAt: new Date() } });
+      killed++;
+    }
+  }
+
+  console.log(`[SESSION-MIGRATION] complete: merged=${merged}, killed=${killed}, ended=${ended} of ${legacyRecords.length} legacy records`);
+}
+
 // Periodic sweep: two checks per active session.
 //
 // 1. Time-based stale: session file hasn't been updated in STALE_MS → stale.
@@ -349,9 +550,9 @@ function scanAll() {
 //    processes that never ran the EXIT trap. Emits a warning so the operator
 //    sees it in the emissions feed.
 //
-// 3. Pid-inferred refresh: for source:'pid-inferred' sessions, re-run
-//    upsertPidSession on each tick to pick up updated last-payload.json data
-//    and refresh lastSeen while the process is alive.
+// 3. Pid-scanner refresh: for sessions confirmed by pid-scanner, re-run
+//    scanEntityPidSessions on each tick to pick up updated last-payload.json data,
+//    refresh lastSeen, and create new records for post-boot harnesses.
 function periodicStaleCheck() {
   const Sessions = globalThis.SessionsCollection;
   if (!Sessions) return;
@@ -359,17 +560,27 @@ function periodicStaleCheck() {
   const now = Date.now();
   const staleCutoff = new Date(now - STALE_MS);
 
+  // First: refresh/create pid-scanner records for all known entities.
+  // This is what makes post-boot TUIs show up — the periodic worker runs every
+  // minute and will upsert a canonical record for any entity whose harness started
+  // after daemon boot.
+  if (EntityScanner && EntityScanner.Entities) {
+    EntityScanner.Entities.find().forEach(entity => {
+      if (entity.handle && entity.path) {
+        scanEntityPidSessions(entity.handle, entity.path);
+      }
+    });
+  }
+
   Sessions.find({ status: 'active' }).forEach(session => {
     const ageMs = now - new Date(session.lastSeen).getTime();
 
-    // Pid-inferred sessions: check PID directly since they carry their own pid field.
-    if (session.source === 'pid-inferred' && session.host === os.hostname()) {
-      if (pidAlive(session.pid)) {
-        // Still alive — refresh lastSeen and re-enrich from last-payload.json
-        const entityPath = path.join(process.env.HOME, '.' + session.entity);
-        upsertPidSession(session.entity, entityPath, session.pid);
+    // Canonical sessions (entity:host:pid _id) — check PID directly
+    if (session._id.includes(':') && session.host === os.hostname()) {
+      if (session.pid && pidAlive(session.pid)) {
+        // Still alive — pid-scanner refresh already handled above
         return;
-      } else if (ageMs > PID_GRACE_MS) {
+      } else if (session.pid && ageMs > PID_GRACE_MS) {
         // Dead and past grace period — mark killed
         const costStr = session.cost ? ` ($${session.cost.toFixed(2)})` : '';
         Sessions.update(session._id, {
@@ -380,14 +591,14 @@ function periodicStaleCheck() {
           'warning',
           `harness killed: ${session.harness || session.model || 'harness'} (pid ${session.pid} dead)${costStr}`
         );
-        console.log(`[SESSION-SCANNER] pid-inferred killed: ${session.entity}/${session._id} (pid ${session.pid})`);
+        console.log(`[SESSION-SCANNER] killed: ${session.entity}/${session._id} (pid ${session.pid})`);
         return;
       }
       // Within grace period — leave as-is
       return;
     }
 
-    // json-sourced sessions: check PID liveness via harness.pid file (same-host only)
+    // Legacy json-sourced sessions not yet migrated: check PID liveness via harness.pid
     if (session.host === os.hostname() && ageMs > PID_GRACE_MS) {
       const entityPath = path.join(process.env.HOME, '.' + session.entity);
       const pid = readHarnessPid(entityPath);
@@ -408,7 +619,10 @@ function periodicStaleCheck() {
 
     // Zero-cost ghost: session file exists but nothing ever happened.
     // If untouched for 5 minutes, mark ended and remove the file.
-    if (session.source === 'json' && session.cost === 0 && session.tokensOut === 0 && ageMs > 5 * 60 * 1000) {
+    const sources = session.sources || (session.source ? [session.source] : []);
+    const isJsonOnly = sources.length === 0 || (sources.length === 1 && sources[0] === 'json');
+    const isLegacyJson = session.source === 'json' && !session._id.includes(':');
+    if ((isJsonOnly || isLegacyJson) && session.cost === 0 && session.tokensOut === 0 && ageMs > 5 * 60 * 1000) {
       Sessions.update(session._id, { $set: { status: 'ended', endedAt: new Date() } });
       // Remove the ghost file so it doesn't reappear on next scan
       const entityPath = path.join(process.env.HOME, '.' + session.entity);
@@ -427,6 +641,7 @@ function periodicStaleCheck() {
 Meteor.startup(async () => {
   Meteor.setTimeout(async () => {
     scanAll();
+    runMigration();
     periodicStaleCheck();
 
     // Watch for new entities
@@ -480,7 +695,7 @@ Meteor.startup(async () => {
       });
     } else {
       console.warn('[SESSION-SCANNER] koad.workers unavailable — falling back to Meteor.setInterval');
-      Meteor.setInterval(() => periodicStaleCheck(), 30000);
+      Meteor.setInterval(() => periodicStaleCheck(), 60000);
     }
   }, 2000);
 });
