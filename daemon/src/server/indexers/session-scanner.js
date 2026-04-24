@@ -291,41 +291,42 @@ function scanEntityPidSessions(handle, entityPath) {
 }
 
 // ---------------------------------------------------------------------------
-// json-scanner write path (SPEC-142 §4.2)
+// json-scanner write path
 // ---------------------------------------------------------------------------
 //
-// Claude Code session JSON has no pid field (confirmed 2026-04-23).
-// We fall back to harness.pid for the entity. This is safe because there is
-// at most one active harness per entity per host (SPEC-142 §5.1).
+// Each session JSON file gets its own UUID-keyed record (_id = session_id).
+// This supports multiple concurrent terminals per entity — each terminal
+// writes its own sessions/<session_id>.json and gets its own record.
+// The pid-scanner separately maintains pid-keyed records for liveness.
+// The conversation materializer groups records sharing the same sessionId.
 function upsertFromSessionJson(handle, entityPath, payload, fileMtime) {
   const Sessions = globalThis.SessionsCollection;
   if (!Sessions) return;
 
   const sid = payload.session_id;
-  if (!sid) return; // opencode sessions don't write statusline JSON — skip
+  if (!sid) return;
 
   const host = os.hostname();
-
-  // §4.2.1: pid not in session JSON — fall back to harness.pid
-  const pid = readHarnessPid(entityPath);
-  if (!pid) {
-    // No pid available — can't form canonical _id. Skip this record.
-    // (The pid-scanner will create the canonical record on next tick.)
-    return;
-  }
-
   const now = new Date();
   const lastSeen = fileMtime ? new Date(fileMtime * 1000) : now;
   const ageMs = now - lastSeen.getTime();
 
-  const enrichment = {
-    source: 'json',
+  if (ageMs > STALE_MS) return;
+
+  const doc = {
+    entity: handle,
+    host,
     sessionId: sid,
+    source: 'json',
+    sources: ['json'],
+    harness: 'claude-code',
+    status: 'active',
+    lastSeen,
+
     model: payload.model ? (payload.model.display_name || payload.model.id || '') : '',
     modelId: payload.model ? (payload.model.id || '') : '',
     cwd: payload.cwd || (payload.workspace && payload.workspace.current_dir) || '',
     version: payload.version || '',
-    harness: 'claude-code', // json source is always Claude Code (opencode doesn't write these)
 
     cost: payload.cost ? Number(payload.cost.total_cost_usd || 0) : 0,
     durationMs: payload.cost ? Number(payload.cost.total_duration_ms || 0) : 0,
@@ -354,18 +355,29 @@ function upsertFromSessionJson(handle, entityPath, payload, fileMtime) {
     },
 
     enriched: true,
-    startedAt: pidStartedAt(pid), // null if /proc not available; upsertSession handles it
   };
 
-  // If the file is stale, mark session stale — but let upsertSession create the record
-  // first (pid-scanner will confirm liveness on next tick and may promote back to active).
-  if (ageMs > STALE_MS) {
-    // Don't override — let stale check handle it via periodicStaleCheck
-    // Just don't create an 'active' record from a 2h+ stale file.
-    return;
+  const existing = Sessions.findOne({ _id: sid });
+  if (existing) {
+    doc.startedAt = existing.startedAt;
+    Sessions.update(sid, { $set: doc });
+  } else {
+    doc._id = sid;
+    doc.startedAt = now;
+    doc.endedAt = null;
+    Sessions.insert(doc);
+    console.log(`[SESSION-SCANNER] session created: ${sid} (${handle}, json-source)`);
   }
 
-  upsertSession(handle, host, pid, enrichment);
+  // Stamp entity lastActivity
+  if (EntityScanner && EntityScanner.Entities) {
+    EntityScanner.Entities.update({ handle }, { $set: { lastActivity: now } });
+  }
+
+  // Rebuild conversation thread
+  if (globalThis.ConversationMaterializer && globalThis.ConversationMaterializer.rebuild) {
+    globalThis.ConversationMaterializer.rebuild(handle, sid);
+  }
 }
 
 function scanEntitySessions(handle, entityPath) {
