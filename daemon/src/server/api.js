@@ -531,6 +531,100 @@ app.use('/api/sessions', async (req, res, next) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Conversation thread endpoints (VESTA-SPEC-143)
+// Specific paths registered BEFORE the :id catch-all.
+// ---------------------------------------------------------------------------
+
+// GET /api/conversations/active — threads with status "active"
+app.use('/api/conversations/active', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/conversations/active')) return next();
+  try {
+    const Convos = globalThis.ConversationsCollection;
+    if (!Convos) return jsonErr(res, 503, 'Conversations collection not initialized');
+
+    const conversations = await Convos.find(
+      { status: 'active' },
+      { sort: { lastSeen: -1 } }
+    ).fetchAsync();
+
+    jsonOk(res, { ok: true, conversations });
+  } catch (err) {
+    console.error('[API/conversations/active] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/conversations/recent — dormant threads seen in last 24h
+app.use('/api/conversations/recent', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/conversations/recent')) return next();
+  try {
+    const Convos = globalThis.ConversationsCollection;
+    if (!Convos) return jsonErr(res, 503, 'Conversations collection not initialized');
+
+    const cutoff = new Date(Date.now() - 24 * 3600 * 1000);
+    const conversations = await Convos.find(
+      { status: 'dormant', lastSeen: { $gte: cutoff } },
+      { sort: { lastSeen: -1 } }
+    ).fetchAsync();
+
+    jsonOk(res, { ok: true, conversations });
+  } catch (err) {
+    console.error('[API/conversations/recent] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/conversations/by-entity/:entity — all threads for one entity, sorted by lastSeen desc
+app.use('/api/conversations/by-entity', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  const url = req.originalUrl || req.url || '';
+  const m = url.match(/^\/api\/conversations\/by-entity\/([^/?]+)/);
+  if (!m) return next();
+
+  const entity = decodeURIComponent(m[1]);
+  try {
+    const Convos = globalThis.ConversationsCollection;
+    if (!Convos) return jsonErr(res, 503, 'Conversations collection not initialized');
+
+    const conversations = await Convos.find(
+      { entity },
+      { sort: { lastSeen: -1 } }
+    ).fetchAsync();
+
+    jsonOk(res, { ok: true, conversations });
+  } catch (err) {
+    console.error('[API/conversations/by-entity] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/conversations/:id — single thread by _id (session_id or session record id)
+// Registered AFTER the more-specific paths above.
+app.use('/api/conversations', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  const url = req.originalUrl || req.url || '';
+  const m = url.match(/^\/api\/conversations\/([^/?]+)/);
+  if (!m) return next();
+
+  const id = decodeURIComponent(m[1]);
+  // Don't swallow requests meant for sub-paths not yet registered
+  if (id === 'active' || id === 'recent' || id === 'by-entity') return next();
+
+  try {
+    const Convos = globalThis.ConversationsCollection;
+    if (!Convos) return jsonErr(res, 503, 'Conversations collection not initialized');
+
+    const conversation = await Convos.findOneAsync({ _id: id });
+    if (!conversation) return jsonErr(res, 404, `Conversation ${id} not found`);
+
+    jsonOk(res, { ok: true, conversation });
+  } catch (err) {
+    console.error('[API/conversations/:id] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
 // GET /api/triggers — list all loaded reactive triggers
 app.use('/api/triggers', async (req, res, next) => {
   if (req.method !== 'GET' || !pathIs(req, '/api/triggers')) return next();

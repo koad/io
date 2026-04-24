@@ -206,6 +206,12 @@ function upsertSession(handle, host, pid, enrichment) {
       EntityScanner.Entities.update({ handle }, { $set: { lastActivity: now } });
     }
   }
+
+  // SPEC-143: rebuild conversation thread for this session
+  if (globalThis.ConversationMaterializer && globalThis.ConversationMaterializer.rebuild) {
+    const threadKey = enrichment.sessionId || (existing && existing.sessionId) || id;
+    globalThis.ConversationMaterializer.rebuild(handle, threadKey);
+  }
 }
 
 function emitToDeamon(entity, type, body) {
@@ -643,6 +649,11 @@ Meteor.startup(async () => {
     scanAll();
     runMigration();
     periodicStaleCheck();
+
+    // SPEC-143: rebuild all conversation threads from current sessions
+    if (globalThis.ConversationMaterializer && globalThis.ConversationMaterializer.rebuildAll) {
+      globalThis.ConversationMaterializer.rebuildAll();
+    }
 
     // Watch for new entities
     EntityScanner.Entities.find().observeChanges({
