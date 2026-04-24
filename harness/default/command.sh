@@ -90,6 +90,17 @@ if [ -f "$HOME/.koad-io/harness/startup.sh" ]; then
   export SYSTEM_PROMPT
 fi
 
+# Append caller's PRIMER.md as context (not prompt) if set by the hook
+if [ -n "${KOAD_IO_CWD_PRIMER:-}" ] && [ -f "${KOAD_IO_CWD_PRIMER}" ]; then
+  _cwd_primer_content="$(cat "$KOAD_IO_CWD_PRIMER")"
+  SYSTEM_PROMPT="${SYSTEM_PROMPT:+$SYSTEM_PROMPT
+
+}Project context (from $KOAD_IO_CWD_PRIMER):
+$_cwd_primer_content"
+  export SYSTEM_PROMPT
+  unset _cwd_primer_content
+fi
+
 # --- Opencode env flags ---------------------------------------------------
 
 export OPENCODE_DISABLE_CLAUDE_CODE=true

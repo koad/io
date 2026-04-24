@@ -66,10 +66,10 @@ if [ -f "$CALL_DIR/PRIMER.md" ] && [ "$CALL_DIR" != "$ENTITY_DIR" ]; then
   _primer="$(cat "$CALL_DIR/PRIMER.md")"
   if [ -n "${PROMPT:-}" ]; then
     PROMPT="$(printf 'Project context (from %s/PRIMER.md):\n%s\n\n---\n\n%s' "$CALL_DIR" "$_primer" "$PROMPT")"
+    export PROMPT
   else
-    PROMPT="$(printf 'Project context (from %s/PRIMER.md):\n%s' "$CALL_DIR" "$_primer")"
+    export KOAD_IO_CWD_PRIMER="$CALL_DIR/PRIMER.md"
   fi
-  export PROMPT
   unset _primer
 fi
 
