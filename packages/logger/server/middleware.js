@@ -19,6 +19,12 @@
 
 import os from 'os';
 
+// koad:io-core exports `log` (which is the Signale instance, aliased via
+// `log = logger` at the end of core/server/logger.js).  Under Meteor 3 Reify,
+// bare `logger` does not cross the package boundary, but `log` does because
+// it's declared in core's api.export('log','server').
+const logger = log;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
