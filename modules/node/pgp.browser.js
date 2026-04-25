@@ -130,7 +130,11 @@ export async function verify(clearsignArmored, publicKey) {
 
       try {
         const lit = literals[0];
-        const body = lit.toString();
+        // SPEC-148 §3.3: strip BOM and normalize line endings to LF.
+        // kbpgp's lit.toString() returns CRLF; this module owns the normalization.
+        let body = lit.toString();
+        if (body.charCodeAt(0) === 0xFEFF) body = body.slice(1);
+        body = body.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         const ds = lit.get_data_signer();
         const signerKm = ds ? ds.get_key_manager() : null;
         const fpBuf = signerKm ? signerKm.get_pgp_fingerprint() : null;
