@@ -45,6 +45,19 @@ koad.generate.cid = function(e) {
     return cid
 }
 
+// koad.generate.cid.fromBytes — VESTA-SPEC-147 §3.2
+// Hash raw bytes directly (no handle normalization). Used for declaration body CID
+// where the input must be hashed verbatim (canonical form bytes, not lowercased handle).
+// Output: same 17-char EASILY_RECOGNIZABLE alphabet as koad.generate.cid().
+koad.generate.cid.fromBytes = function(bytes) {
+    const crypto = require('crypto');
+    const digest = crypto.createHash("sha256").update(bytes).digest();
+    let cid = "";
+    for (let i = 0; i < 17; i++)
+        cid += EASILY_RECOGNIZABLE[digest[i] % EASILY_RECOGNIZABLE.length];
+    return cid;
+};
+
 koad.generate.uuid = function() {
   return Random.id();
 };
