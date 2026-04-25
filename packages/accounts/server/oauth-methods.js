@@ -14,6 +14,8 @@
  */
 
 import { Accounts } from 'meteor/accounts-base';
+import { check, Match } from 'meteor/check';
+import { Random } from 'meteor/random';
 
 // ============================================================================
 // Startup index
@@ -170,11 +172,11 @@ Meteor.methods({
 		}
 
 		// ── Validate username ────────────────────────────────────────────────
-		const usernameRegex = /^[a-zA-Z0-9-]{5,24}$/;
+		const usernameRegex = /^[a-zA-Z0-9-]{4,24}$/;
 		if (!usernameRegex.test(username)) {
 			throw new Meteor.Error(
 				'invalid-username',
-				'Username must be 5–24 characters and contain only letters, numbers, and dashes'
+				'Username must be 4–24 characters and contain only letters, numbers, and dashes'
 			);
 		}
 
@@ -210,11 +212,14 @@ Meteor.methods({
 			throw new Meteor.Error('user-creation-failed', 'Failed to create user account');
 		}
 
-		// Write sponsor tier onto user doc (not covered by onCreateUser which only sees options/user)
+		// Write GitHub identity + sponsor tier onto user doc.
+		// Accounts.createUser ignores the services field in options —
+		// services.github must be set manually for returning-user lookup.
 		await Meteor.users.updateAsync(
 			{ _id: userId },
 			{
 				$set: {
+					'services.github': consumable.githubData,
 					sponsorTier: consumable.sponsorTier,
 					tierLabel:   consumable.tierLabel || null,
 				},

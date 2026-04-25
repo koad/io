@@ -11,6 +11,8 @@ Package.onUse(function(api) {
 	api.use("templating", "client");
 	// api.use("matb33:collection-hooks");
   api.use("accounts-base");
+  api.use("check");
+  api.use("random");
 	api.imply('accounts-password');
 
 	api.imply('roles');

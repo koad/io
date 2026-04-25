@@ -124,6 +124,8 @@ Meteor.setTimeout(() => {
 		return;
 	}
 
+	if (typeof ApplicationSessions === 'undefined') return;
+
 	Tracker.autorun(() => {
 		const sessionData = ApplicationSessions.find({ _id: sessionId });
 		
