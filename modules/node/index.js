@@ -14,7 +14,7 @@
 // The koad object shape mirrors both/initial.js exactly so phase 2 wiring
 // is a drop-in replacement.
 
-import { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed } from './deps.js';
+import { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed, pgp } from './deps.js';
 import { createIdentityShape } from './identity.js';
 
 // ── Core koad object ─────────────────────────────────────────────────────────
@@ -57,9 +57,11 @@ const koad = {
     sha256,
     base64,
     ed,
+    pgp,
   },
 };
 
 export { koad };
-export { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed } from './deps.js';
+export { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed, pgp } from './deps.js';
+export { clearsign, verify } from './pgp.js';
 export { createIdentityShape, createIdentity } from './identity.js';

@@ -4,16 +4,13 @@
 // This module provides the base identity shape. Runtime environments (Meteor
 // server, CLI, daemon) layer their own key-loading logic on top.
 //
-// The server-side kbpgp key operations (sign/verify/encrypt/decrypt) are NOT
-// included here — kbpgp is a Meteor-era dep that won't run in plain Node
-// without the Meteor runtime. Those remain in packages/core/server/identity.js
-// for now. Phase 2 will introduce an ed25519-based identity layer here using
-// @noble/ed25519 (already a dep).
+// Server-side kbpgp key operations (sign/verify) are now in ./pgp.js, exposed as
+// koad.deps.pgp per VESTA-SPEC-148. Both Node and Meteor contexts use the same
+// shared module — no runtime-specific code paths required.
 //
 // What IS here:
 //   - The identity shape that koad.identity is initialized to
 //   - Helper constructors for building identity objects
-//   - Placeholder stubs for sign/verify using @noble/ed25519 (future)
 
 /**
  * Create the base identity shape that koad.identity starts as.

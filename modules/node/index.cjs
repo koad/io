@@ -50,6 +50,7 @@ const _loadDeps = import('./deps.js').then(function(m) {
     sha256: m.sha256,
     base64: m.base64,
     ed: m.ed,
+    pgp: m.pgp,
   });
   _depsLoaded = true;
 });

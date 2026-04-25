@@ -15,12 +15,17 @@
     "./identity": {
       "import": "./identity.js",
       "require": "./identity.cjs"
+    },
+    "./pgp": {
+      "import": "./pgp.js",
+      "require": "./pgp.cjs"
     }
   },
   "main": "./index.cjs",
   "dependencies": {
     "@ipld/dag-json": "10.2.7",
     "@noble/ed25519": "2.1.0",
+    "kbpgp": "2.1.17",
     "multiformats": "13.4.2"
   },
   "engines": {

@@ -5,7 +5,7 @@
 // source; the Meteor package will import from here in phase 2.
 //
 // Consumers:
-//   import { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed } from '@koad-io/node/deps';
+//   import { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed, pgp } from '@koad-io/node/deps';
 //
 // Or via the koad object:
 //   import { koad } from '@koad-io/node';
@@ -15,11 +15,14 @@
 //   koad.deps.sha256               — multiformats sha2-256 hasher
 //   koad.deps.base64               — multiformats base64 codec
 //   koad.deps.ed                   — @noble/ed25519 namespace
+//   koad.deps.pgp                  — { clearsign, verify } per VESTA-SPEC-148
 
 import { encode as dagJsonEncode, decode as dagJsonDecode } from '@ipld/dag-json';
 import { CID } from 'multiformats/cid';
 import { sha256 } from 'multiformats/hashes/sha2';
 import { base64 } from 'multiformats/bases/base64';
 import * as ed from '@noble/ed25519';
+import { clearsign, verify } from './pgp.js';
 
+export const pgp = { clearsign, verify };
 export { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed };

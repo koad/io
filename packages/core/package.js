@@ -19,7 +19,7 @@ Npm.depends({
 	"@scure/bip39": "1.2.1", // https://github.com/paulmillr/scure-bip39
 	// "ethereum-cryptography": "2.1.2",
 	"ssh2": "1.14.0",
-	"kbpgp": "2.1.15", // Keybase PGP for identity and cryptography
+	"kbpgp": "2.1.17", // Keybase PGP for identity and cryptography — VESTA-SPEC-148
 	"ipfs-core": "0.18.1", // IPFS implementation for distributed storage
 	"ipfs-http-client": "60.0.1" // IPFS HTTP client
 
@@ -41,8 +41,8 @@ Package.onUse(function(api) {
 	api.imply("reactive-dict");
 	api.imply("tracker");
 
-	api.imply("standard-minifier-css@1.9.3");
-	api.imply("standard-minifier-js@3.1.0");
+	api.imply("standard-minifier-css");
+	api.imply("standard-minifier-js");
 
 	api.imply("es5-shim");
 	api.imply("ecmascript");
