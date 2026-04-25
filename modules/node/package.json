@@ -17,6 +17,7 @@
       "require": "./identity.cjs"
     },
     "./pgp": {
+      "browser": "./pgp.browser.js",
       "import": "./pgp.js",
       "require": "./pgp.cjs"
     }

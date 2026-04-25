@@ -139,7 +139,9 @@ Package.onUse(function(api) {
 
 	// Export shared crypto/IPFS symbols populated by client/deps.js
 	// Other packages can import these by name instead of going through koad.deps.
+	// koad.deps.pgp lazy-loads the kbpgp browser bundle on first call.
 	api.export(["dagJsonEncode", "dagJsonDecode", "CID", "sha256", "ed"], "client");
+	api.export(["clearsign", "verify"], "client");
 
 });
 
