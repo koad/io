@@ -64,3 +64,5 @@
 !daemon/**
 !feedback
 !feedback/**
+!emit
+!emit/**

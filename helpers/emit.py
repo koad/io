@@ -145,6 +145,33 @@ def emit_update(_id, body, meta=None):
     return result.get('_id') if result else None
 
 
+def emit_status(_id, status_line):
+    """Set the current activity headline on an open emission (replaced each call)."""
+    if not _id or not status_line:
+        return None
+    payload = {'_id': _id, 'status_line': status_line[:500]}
+    result = _post('/emit/update', payload)
+    return result.get('_id') if result else None
+
+
+def emit_note(_id, note):
+    """Append a timeline note to an open emission (never replaced, push-only)."""
+    if not _id or not note:
+        return None
+    payload = {'_id': _id, 'note': note[:2000]}
+    result = _post('/emit/update', payload)
+    return result.get('_id') if result else None
+
+
+def emit_results(_id, results, results_type='markdown'):
+    """Set the results payload on an emission. Replaces any prior results."""
+    if not _id or results is None:
+        return None
+    payload = {'_id': _id, 'results': results, 'results_type': results_type}
+    result = _post('/emit/update', payload)
+    return result.get('_id') if result else None
+
+
 def emit_close(_id, body=None):
     """Close a lifecycle emission."""
     if not _id:
@@ -219,6 +246,26 @@ def _cli():
     p_resume.add_argument('--id-file', dest='id_file', required=True)
     p_resume.add_argument('--meta')
 
+    # Structured narration fields
+    p_status = sub.add_parser('status-line',
+        help='Set the current activity headline (replaced on each call)')
+    p_status.add_argument('text')
+    p_status.add_argument('--id')
+    p_status.add_argument('--id-file', dest='id_file')
+
+    p_note = sub.add_parser('note',
+        help='Append a timeline note (never replaced, push-only)')
+    p_note.add_argument('text')
+    p_note.add_argument('--id')
+    p_note.add_argument('--id-file', dest='id_file')
+
+    p_results = sub.add_parser('results',
+        help='Set the results payload (replaces prior results)')
+    p_results.add_argument('text')
+    p_results.add_argument('--id')
+    p_results.add_argument('--id-file', dest='id_file')
+    p_results.add_argument('--type', dest='results_type', default='markdown')
+
     args = parser.parse_args()
     meta = json.loads(args.meta) if getattr(args, 'meta', None) else None
 
@@ -251,6 +298,21 @@ def _cli():
         eid = emit_resume(args.id_file, args.body, meta)
         if eid:
             print(eid)
+
+    elif args.action == 'status-line':
+        eid = _resolve_id(args)
+        if eid:
+            emit_status(eid, args.text)
+
+    elif args.action == 'note':
+        eid = _resolve_id(args)
+        if eid:
+            emit_note(eid, args.text)
+
+    elif args.action == 'results':
+        eid = _resolve_id(args)
+        if eid:
+            emit_results(eid, args.text, getattr(args, 'results_type', 'markdown'))
 
 
 if __name__ == '__main__':

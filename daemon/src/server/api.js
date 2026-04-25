@@ -73,15 +73,18 @@ app.use('/emit/update', (req, res, next) => {
   }
   if (req.method !== 'POST') return next();
 
-  const { _id, body, action, meta } = req.body || {};
+  const { _id, body, action, meta, status_line, note, results, results_type } = req.body || {};
 
   if (!_id || typeof _id !== 'string') {
     res.writeHead(400);
     return res.end(JSON.stringify({ status: 'error', message: 'Missing "_id"' }));
   }
-  if (!body || typeof body !== 'string') {
+
+  // body is optional when using structured fields (status_line / note / results)
+  const hasStructuredField = status_line != null || note != null || results != null;
+  if (!hasStructuredField && (!body || typeof body !== 'string')) {
     res.writeHead(400);
-    return res.end(JSON.stringify({ status: 'error', message: 'Missing "body"' }));
+    return res.end(JSON.stringify({ status: 'error', message: 'Missing "body" (or provide status_line / note / results)' }));
   }
 
   const existing = EmissionsCollection.findOne(_id);
@@ -91,9 +94,10 @@ app.use('/emit/update', (req, res, next) => {
   }
 
   const now = new Date();
+  const effectiveBody = body || status_line || note || '(field update)';
   const update = {
-    $set: { body, updatedAt: now },
-    $push: { history: { body, at: now } },
+    $set: { body: effectiveBody, updatedAt: now },
+    $push: { history: { body: effectiveBody, at: now } },
   };
 
   if (action === 'close') {
@@ -107,9 +111,25 @@ app.use('/emit/update', (req, res, next) => {
     update.$set.meta = Object.assign({}, existing.meta || {}, meta);
   }
 
+  // Structured narration fields:
+  //   status_line — current activity headline, replaced on each call
+  //   note        — append-only timeline entry (pushed to notes[])
+  //   results     — markdown payload set when work completes (replaced)
+  if (typeof status_line === 'string') {
+    update.$set.status_line = status_line;
+  }
+  if (typeof note === 'string') {
+    if (!update.$push) update.$push = {};
+    update.$push.notes = { body: note, at: now };
+  }
+  if (typeof results === 'string') {
+    update.$set.results = results;
+    update.$set.results_type = (typeof results_type === 'string' && results_type) ? results_type : 'markdown';
+  }
+
   EmissionsCollection.update(_id, update);
   EntityScanner.Entities.update({ handle: existing.entity }, { $set: { lastActivity: now } });
-  console.log(`[EMIT/REST] ${existing.entity}/${existing.type}: ${body} (${action || 'update'})`);
+  console.log(`[EMIT/REST] ${existing.entity}/${existing.type}: ${effectiveBody} (${action || 'update'})`);
 
   // Reactive layer — fire matching triggers
   if (globalThis.evaluateEmissionTriggers) {

@@ -105,21 +105,29 @@ Meteor.methods({
     return { _id: id };
   },
 
-  'entity.emit.update'(_id, body, action, meta) {
+  'entity.emit.update'(_id, body, action, meta, fields) {
     check(_id, String);
-    check(body, String);
+    check(body, Match.Optional(String));
     check(action, Match.Optional(String));
     check(meta, Match.Optional(Object));
+    check(fields, Match.Optional(Object));  // { status_line, note, results, results_type }
 
     const existing = Emissions.findOne(_id);
     if (!existing) {
       throw new Meteor.Error('not-found', `Emission ${_id} not found`);
     }
 
+    const f = fields || {};
+    const hasStructuredField = f.status_line != null || f.note != null || f.results != null;
+    if (!hasStructuredField && !body) {
+      throw new Meteor.Error('missing-body', 'Provide body or structured fields (status_line / note / results)');
+    }
+
     const now = new Date();
+    const effectiveBody = body || f.status_line || f.note || '(field update)';
     const update = {
-      $set: { body, updatedAt: now },
-      $push: { history: { body, at: now } },
+      $set: { body: effectiveBody, updatedAt: now },
+      $push: { history: { body: effectiveBody, at: now } },
     };
 
     if (action === 'close') {
@@ -135,9 +143,25 @@ Meteor.methods({
       update.$set.meta = merged;
     }
 
+    // Structured narration fields:
+    //   status_line — current activity headline, replaced on each call
+    //   note        — append-only timeline entry (pushed to notes[])
+    //   results     — markdown payload set when work completes (replaced)
+    if (typeof f.status_line === 'string') {
+      update.$set.status_line = f.status_line;
+    }
+    if (typeof f.note === 'string') {
+      if (!update.$push) update.$push = {};
+      update.$push.notes = { body: f.note, at: now };
+    }
+    if (typeof f.results === 'string') {
+      update.$set.results = f.results;
+      update.$set.results_type = (typeof f.results_type === 'string' && f.results_type) ? f.results_type : 'markdown';
+    }
+
     Emissions.update(_id, update);
     EntityScanner.Entities.update({ handle: existing.entity }, { $set: { lastActivity: now } });
-    console.log(`[EMIT] ${existing.entity}/${existing.type}: ${body} (${action || 'update'})`);
+    console.log(`[EMIT] ${existing.entity}/${existing.type}: ${effectiveBody} (${action || 'update'})`);
 
     // Reactive layer — fire matching triggers
     if (globalThis.evaluateEmissionTriggers) {
