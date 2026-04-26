@@ -269,6 +269,17 @@ function createKoadIdentity() {
     get masterPublicKey() { return _s.masterPublicKey; },
     get type() { return 'pgp'; },
     get posture() { return _s.posture; },
+    /**
+     * Returns the loaded device leaf keyManager, or null if no leaf is loaded.
+     * Use this to access the underlying kbpgp KeyManager for operations that
+     * the substrate doesn't directly expose (e.g., custom signing modes,
+     * key export for at-rest encryption).
+     *
+     * @returns {object|null} kbpgp KeyManager or null
+     */
+    getKeyManager() { return _s.device ? _s.device.keyManager : null; },
+
+    /** @deprecated Use getKeyManager() instead. Backwards-compat alias. */
     get _keyManager() { return _s.device ? _s.device.keyManager : null; },
 
     // Backwards-compat shim for identity-init.js

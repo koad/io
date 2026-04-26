@@ -443,10 +443,23 @@ export function createKoadIdentity() {
     // -----------------------------------------------------------------------
 
     /**
+     * Returns the loaded device leaf keyManager, or null if no leaf is loaded.
+     * Use this to access the underlying kbpgp KeyManager for operations that
+     * the substrate doesn't directly expose (e.g., custom signing modes,
+     * key export for at-rest encryption).
+     *
+     * @returns {object|null} kbpgp KeyManager or null
+     */
+    getKeyManager() {
+      return _s.device ? _s.device.keyManager : null;
+    },
+
+    /**
      * Expose internal device keyManager for bootstrap modules that need to
      * wire legacy koad.identity.setFromKeyManager() callers.
      *
-     * @private — do not use from consumer code.
+     * @deprecated Use getKeyManager() instead.
+     * @private — backwards-compat alias, will be removed in a future cycle.
      */
     get _keyManager() {
       return _s.device ? _s.device.keyManager : null;

@@ -493,6 +493,23 @@ createKoadIdentity = function createKoadIdentity() {
 
 		get posture() { _depend(); return _s.posture; },
 
+		/**
+		 * Returns the loaded device leaf keyManager, or null if no leaf is loaded.
+		 * Registers a Tracker dependency so Blaze templates that read the keyManager
+		 * re-render correctly when it changes (load/lockdown/setFromKeyManager).
+		 *
+		 * Use this to access the underlying kbpgp KeyManager for operations that
+		 * the substrate doesn't directly expose (e.g., custom signing modes,
+		 * key export for at-rest encryption on the desktop leaf-at-rest path).
+		 *
+		 * @returns {object|null} kbpgp KeyManager or null
+		 */
+		getKeyManager: function getKeyManager() {
+			_depend();
+			return _s.device ? _s.device.keyManager : null;
+		},
+
+		/** @deprecated Use getKeyManager() instead. Backwards-compat alias. */
 		// Internal: expose device keyManager for bootstrap modules
 		get _keyManager() { return _s.device ? _s.device.keyManager : null; },
 
