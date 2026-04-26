@@ -395,7 +395,374 @@ export async function signEntry(unsignedEntry, identity, { useMaster = false } =
 }
 
 // ---------------------------------------------------------------------------
-// Verify
+// Chain walker
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk a chain of sigchain entries from genesis to tip, validating each
+ * entry's signature and CID link, and producing the current authorized-leaf-set.
+ *
+ * Entries MUST be provided in chain order (oldest first — genesis at index 0).
+ *
+ * Implements VESTA-SPEC-111 v1.11 §6 + §5.8.
+ *
+ * @param {Array<object>} entries — ordered entry objects (from genesis to tip)
+ *   Each element is a { entry, cid } pair OR a plain entry object with a `_cid`
+ *   property. For convenience the walker also accepts an array of plain signed
+ *   entry objects if the caller has already computed CIDs — in that case the
+ *   walker recomputes each CID itself.
+ *
+ *   SIMPLEST FORM: pass `[{ entry, cid }, ...]` pairs produced by signEntry().
+ *
+ * @returns {Promise<{
+ *   valid: boolean,
+ *   entity_handle: string|null,
+ *   masterFingerprint: string|null,
+ *   masterPublicKey: string|null,
+ *   sigchainHeadCID: string|null,
+ *   leafSet: Array<{ fingerprint, pubkey, device_label, authorized_at }>,
+ *   errors: Array<{ index: number, type: string, error: string }>
+ * }>}
+ */
+export async function verifyChain(entries) {
+  // Canonical empty result
+  const _empty = (extra = {}) => ({
+    valid: false,
+    entity_handle: null,
+    masterFingerprint: null,
+    masterPublicKey: null,
+    sigchainHeadCID: null,
+    leafSet: [],
+    errors: [],
+    ...extra,
+  });
+
+  // Guard: empty array
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return _empty({ errors: [{ index: -1, type: 'empty-chain', error: 'empty chain' }] });
+  }
+
+  // Normalize input: accept either { entry, cid } pairs or plain entry objects.
+  // For plain entries we compute the CID ourselves.
+  const normalized = [];
+  for (let i = 0; i < entries.length; i++) {
+    const item = entries[i];
+    if (item && typeof item === 'object' && 'entry' in item && 'cid' in item) {
+      // Already a { entry, cid } pair from signEntry()
+      normalized.push({ entry: item.entry, cid: item.cid });
+    } else if (item && typeof item === 'object' && item.signature) {
+      // Plain signed entry — compute CID now
+      const cid = await computeCID(item);
+      normalized.push({ entry: item, cid });
+    } else {
+      return _empty({
+        errors: [{
+          index: i,
+          type: 'invalid-entry-shape',
+          error: `entry at index ${i} is not a valid signed entry or {entry,cid} pair`,
+        }],
+      });
+    }
+  }
+
+  // State
+  let entity_handle = null;
+  let masterFingerprint = null;
+  let masterPublicKey = null;
+  let leafSet = [];              // Array<{ fingerprint, pubkey, device_label, authorized_at }>
+  let pruned = false;            // true after prune-all; next authorize should be by master
+  const errors = [];
+  let criticalError = false;     // CID link break or genesis failure → halt
+
+  let prevCID = null;            // CID of the previous entry (for link validation)
+
+  for (let i = 0; i < normalized.length; i++) {
+    const { entry, cid } = normalized[i];
+    const type = entry.type;
+
+    // -----------------------------------------------------------------------
+    // Step A: Genesis
+    // -----------------------------------------------------------------------
+    if (i === 0) {
+      if (type !== 'koad.identity.genesis' && type !== 'koad.genesis') {
+        errors.push({
+          index: 0,
+          type: 'invalid-genesis-type',
+          error: `genesis entry must be koad.identity.genesis or koad.genesis, got: ${type}`,
+        });
+        criticalError = true;
+        break;
+      }
+
+      // previous must be null for genesis
+      if (entry.previous !== null) {
+        errors.push({
+          index: 0,
+          type: 'genesis-previous-not-null',
+          error: 'genesis entry must have previous=null',
+        });
+        criticalError = true;
+        break;
+      }
+
+      if (type === 'koad.identity.genesis') {
+        // koad.identity.genesis — SPEC-111 §5.8
+        const p = entry.payload || {};
+        entity_handle = p.entity_handle || null;
+        masterFingerprint = p.master_fingerprint || null;
+        masterPublicKey = p.master_pubkey_armored || null;
+
+        if (!entity_handle || !masterFingerprint || !masterPublicKey) {
+          errors.push({
+            index: 0,
+            type: 'genesis-missing-fields',
+            error: 'koad.identity.genesis payload missing required fields: entity_handle, master_fingerprint, master_pubkey_armored',
+          });
+          criticalError = true;
+          break;
+        }
+
+        // Verify signature against master pubkey
+        const verResult = await verifyEntry(entry, cid, masterPublicKey);
+        if (!verResult.valid) {
+          errors.push({ index: 0, type: 'genesis-signature-invalid', error: verResult.error });
+          criticalError = true;
+          break;
+        }
+      } else {
+        // koad.genesis — legacy entity chain (§4) — no master model
+        const p = entry.payload || {};
+        entity_handle = p.entity || null;
+        const pubkey = p.pubkey || null;
+
+        if (!entity_handle || !pubkey) {
+          errors.push({
+            index: 0,
+            type: 'legacy-genesis-missing-fields',
+            error: 'koad.genesis payload missing required fields: entity, pubkey',
+          });
+          criticalError = true;
+          break;
+        }
+
+        // Verify signature against the entity pubkey
+        const verResult = await verifyEntry(entry, cid, pubkey);
+        if (!verResult.valid) {
+          errors.push({ index: 0, type: 'genesis-signature-invalid', error: verResult.error });
+          criticalError = true;
+          break;
+        }
+
+        // In the legacy model there is no master — use entity pubkey as the
+        // stand-in so that downstream callers can still work.
+        masterPublicKey = pubkey;
+      }
+
+      prevCID = cid;
+      continue;
+    }
+
+    // -----------------------------------------------------------------------
+    // Step B: CID link check — entry.previous MUST equal the prior CID
+    // -----------------------------------------------------------------------
+    if (entry.previous !== prevCID) {
+      errors.push({
+        index: i,
+        type: 'cid-link-mismatch',
+        error: `entry ${i} previous field (${entry.previous}) does not match prior CID (${prevCID})`,
+      });
+      criticalError = true;
+      break;
+    }
+
+    // -----------------------------------------------------------------------
+    // Step C: Dispatch by type
+    // -----------------------------------------------------------------------
+
+    if (type === 'koad.identity.leaf-authorize') {
+      const p = entry.payload || {};
+      const authorizer = p.authorized_by_fingerprint;
+      const leafFp = p.leaf_fingerprint;
+      const leafPub = p.leaf_pubkey_armored;
+      const deviceLabel = p.device_label || null;
+      const authorizedAt = p.authorized_at || null;
+
+      // Determine which key to verify against
+      let signerPubKey = null;
+      if (authorizer === masterFingerprint) {
+        signerPubKey = masterPublicKey;
+      } else {
+        const authorizer_leaf = leafSet.find(l => l.fingerprint === authorizer);
+        if (authorizer_leaf) {
+          signerPubKey = authorizer_leaf.pubkey;
+        }
+      }
+
+      if (!signerPubKey) {
+        errors.push({
+          index: i,
+          type: 'leaf-authorize-unknown-authorizer',
+          error: `leaf-authorize at index ${i}: authorized_by_fingerprint (${authorizer}) matches no current authority`,
+        });
+        // Not critical — chain link is still valid; skip effect
+      } else {
+        const verResult = await verifyEntry(entry, cid, signerPubKey);
+        if (!verResult.valid) {
+          errors.push({
+            index: i,
+            type: 'leaf-authorize-signature-invalid',
+            error: verResult.error,
+          });
+          // Skip effect — bad signature doesn't authorize
+        } else {
+          // Idempotent: if fingerprint already in leafSet, update (latest wins)
+          const existing = leafSet.findIndex(l => l.fingerprint === leafFp);
+          const leaf = { fingerprint: leafFp, pubkey: leafPub, device_label: deviceLabel, authorized_at: authorizedAt };
+          if (existing >= 0) {
+            leafSet[existing] = leaf;
+          } else {
+            leafSet.push(leaf);
+          }
+          pruned = false; // A valid master-signed leaf-authorize after prune clears the pruned flag
+        }
+      }
+
+    } else if (type === 'koad.identity.leaf-revoke') {
+      const p = entry.payload || {};
+      const revokedFp = p.leaf_fingerprint;
+
+      // Self-revocation check — the signing identity is the one being revoked.
+      // Detect: if the entry was signed by the leaf being revoked, reject.
+      // We detect this by trying to verify against revokedFp's pubkey first;
+      // if that succeeds, it's self-revocation.
+      const revokedLeaf = leafSet.find(l => l.fingerprint === revokedFp);
+
+      let isSelfRevoke = false;
+      if (revokedLeaf) {
+        const selfCheck = await verifyEntry(entry, cid, revokedLeaf.pubkey);
+        if (selfCheck.valid) {
+          isSelfRevoke = true;
+        }
+      }
+
+      if (isSelfRevoke) {
+        errors.push({
+          index: i,
+          type: 'self-revocation-rejected',
+          error: `leaf-revoke at index ${i}: self-revocation rejected — leaf cannot revoke itself`,
+        });
+        // No effect
+      } else {
+        // Must be signed by any currently authorized leaf (other than the one
+        // being revoked) OR master pubkey.
+        const otherLeaves = leafSet.filter(l => l.fingerprint !== revokedFp);
+        const candidates = [
+          ...(masterPublicKey ? [masterPublicKey] : []),
+          ...otherLeaves.map(l => l.pubkey),
+        ];
+
+        let revokeValid = false;
+        for (const pub of candidates) {
+          const verResult = await verifyEntry(entry, cid, pub);
+          if (verResult.valid) {
+            revokeValid = true;
+            break;
+          }
+        }
+
+        if (!revokeValid) {
+          errors.push({
+            index: i,
+            type: 'leaf-revoke-signature-invalid',
+            error: `leaf-revoke at index ${i}: signature could not be verified against any current authority`,
+          });
+          // No effect
+        } else {
+          leafSet = leafSet.filter(l => l.fingerprint !== revokedFp);
+        }
+      }
+
+    } else if (type === 'koad.identity.prune-all') {
+      // Must be signed by master only
+      const verResult = masterPublicKey
+        ? await verifyEntry(entry, cid, masterPublicKey)
+        : { valid: false, error: 'no master public key on record' };
+
+      if (!verResult.valid) {
+        errors.push({
+          index: i,
+          type: 'prune-all-signature-invalid',
+          error: verResult.error,
+        });
+        // No effect
+      } else {
+        leafSet = [];
+        pruned = true;
+      }
+
+    } else if (type === 'koad.identity.key-succession') {
+      // Must be signed by the OLD master pubkey
+      const verResult = masterPublicKey
+        ? await verifyEntry(entry, cid, masterPublicKey)
+        : { valid: false, error: 'no master public key on record' };
+
+      if (!verResult.valid) {
+        errors.push({
+          index: i,
+          type: 'key-succession-signature-invalid',
+          error: verResult.error,
+        });
+        // No effect — old master key still stands
+      } else {
+        const p = entry.payload || {};
+        masterFingerprint = p.new_master_fingerprint || masterFingerprint;
+        masterPublicKey = p.new_master_pubkey_armored || masterPublicKey;
+        // leafSet is preserved through succession
+      }
+
+    } else if (type === 'koad.bond') {
+      // Bond entries: verify the CID link (done above) but no leaf-set effect.
+      // Signature verification is out of scope for the identity walker.
+      // Continue silently.
+
+    } else {
+      // Unknown type — warn but continue
+      errors.push({
+        index: i,
+        type: 'unknown-entry-type',
+        error: `unknown entry type: ${type} (entry ${i}) — skipped`,
+      });
+    }
+
+    prevCID = cid;
+  }
+
+  // -----------------------------------------------------------------------
+  // Post-walk: warn if chain ended in pruned state without re-authorization
+  // -----------------------------------------------------------------------
+  if (!criticalError && pruned && leafSet.length === 0) {
+    errors.push({
+      index: normalized.length - 1,
+      type: 'chain-ends-in-pruned-state',
+      error: 'chain ends in prune-all state with no subsequent master-signed leaf-authorize — chain is in invalid authorized-leaf state',
+    });
+  }
+
+  const sigchainHeadCID = criticalError ? null : (prevCID || null);
+
+  return {
+    valid: !criticalError,
+    entity_handle,
+    masterFingerprint,
+    masterPublicKey,
+    sigchainHeadCID,
+    leafSet,
+    errors,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Verify (single entry)
 // ---------------------------------------------------------------------------
 
 /**

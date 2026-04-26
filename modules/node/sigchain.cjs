@@ -85,6 +85,11 @@ async function verifyEntry(entry, expectedCID, signerPublicKey) {
   return m.verifyEntry(entry, expectedCID, signerPublicKey);
 }
 
+async function verifyChain(entries) {
+  const m = await _load();
+  return m.verifyChain(entries);
+}
+
 module.exports = {
   buildIdentityGenesis,
   buildLeafAuthorize,
@@ -97,4 +102,5 @@ module.exports = {
   computeCID,
   signEntry,
   verifyEntry,
+  verifyChain,
 };
