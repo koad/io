@@ -8,7 +8,7 @@
  * 2. If not, generate a new kbpgp key pair
  * 3. Save the keys to ~/.$ENTITY/id/kbpgp_key and ~/.$ENTITY/id/kbpgp_key.pub
  * 4. Load the key into koad.identity
- * 5. Set koad.entity to the key fingerprint
+ * 5. Set koad.entity to the entity handle string (SPEC-149 §3)
  */
 
 const fs = require('fs');
@@ -181,9 +181,9 @@ Meteor.startup(function() {
 					return;
 				}
 
-				// Set koad.entity to the fingerprint
-				koad.entity = koad.identity.fingerprint;
-				log.success('[identity] Entity fingerprint:', koad.entity);
+				// Set koad.entity to the entity handle (SPEC-149 §3 — not the fingerprint)
+				koad.entity = entityName;
+				log.success('[identity] Entity handle:', koad.entity);
 			});
 		});
 	} else {
@@ -212,9 +212,9 @@ Meteor.startup(function() {
 						return;
 					}
 
-					// Set koad.entity to the fingerprint
-					koad.entity = koad.identity.fingerprint;
-					log.success('[identity] New entity created with fingerprint:', koad.entity);
+					// Set koad.entity to the entity handle (SPEC-149 §3 — not the fingerprint)
+					koad.entity = entityName;
+					log.success('[identity] New entity created, handle:', koad.entity);
 				});
 			});
 		});
