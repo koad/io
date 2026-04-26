@@ -59,7 +59,11 @@ if (!globalThis.indexerReady) globalThis.indexerReady = {};
 
 app.use(bodyParser.json());
 
-const VALID_TYPES = ['notice', 'warning', 'error', 'request', 'session', 'flight', 'service', 'conversation', 'hook'];
+// Built-in lifecycle types: session, flight, service, conversation, hook
+// Built-in fire-and-forget types: notice, warning, error, request
+// Type is open-vocabulary — consumers assign meaning; daemon stores any valid-shape string.
+// Convention: noun.verb for event types (e.g. commit.signed, bond.witnessed, brief.dispatched)
+const TYPE_PATTERN = /^[a-z0-9_][a-z0-9_.:-]{0,98}$/i;
 
 // POST /emit/update — update a lifecycle emission
 // Must be registered BEFORE /emit because connect prefix-matches.
@@ -155,9 +159,9 @@ app.use('/emit', (req, res, next) => {
     res.writeHead(400);
     return res.end(JSON.stringify({ status: 'error', message: 'Missing or invalid "entity" field' }));
   }
-  if (!type || !VALID_TYPES.includes(type)) {
+  if (!type || typeof type !== 'string' || !TYPE_PATTERN.test(type)) {
     res.writeHead(400);
-    return res.end(JSON.stringify({ status: 'error', message: `"type" must be one of: ${VALID_TYPES.join(', ')}` }));
+    return res.end(JSON.stringify({ status: 'error', message: '"type" must be a non-empty string (max 100 chars, alphanumeric + . : - _)' }));
   }
   if (!body || typeof body !== 'string') {
     res.writeHead(400);

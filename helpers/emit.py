@@ -27,16 +27,21 @@ Env:
     ENTITY              entity handle (derived from ENTITY_DIR if unset)
     ENTITY_DIR          fallback for entity derivation
 
-Valid types:
+Type is an open-vocabulary string (max 100 chars, alphanumeric + . : - _).
+Convention: noun.verb for event types (e.g. commit.signed, bond.witnessed, brief.dispatched).
+
+Built-in lifecycle types (support open/update/close):
     session       interactive harness (human at terminal)
     flight        dispatched agent (one-shot, subagent)
     service       long-running process (daemon, app)
     conversation  multi-party flow (round table, party line)
     hook          lifecycle event from a hook
-    notice        fire-and-forget informational
-    warning       fire-and-forget warning
-    error         fire-and-forget error
-    request       fire-and-forget request
+
+Built-in fire-and-forget types:
+    notice        informational
+    warning       warning
+    error         error
+    request       inbox-routed request (written to entity disk inbox)
 
 Nesting: pass meta.parentId to link child emissions to a parent.
 Query children via /api/emissions?parent=<id>.
