@@ -76,13 +76,18 @@ def _entity():
 
 
 def _check_health():
-    """Cache health for the life of this process — one check per invocation."""
+    """Cache health for the life of this process — one check per invocation.
+
+    Validates that the response is JSON with status='ok', not just an HTTP 200.
+    A Meteor compile-error page returns 200 with HTML — that must count as down.
+    """
     global _health_cache
     if _health_cache is not None:
         return _health_cache
     try:
-        urllib.request.urlopen(DAEMON_URL + '/api/health', timeout=HEALTH_TIMEOUT)
-        _health_cache = True
+        resp = urllib.request.urlopen(DAEMON_URL + '/api/health', timeout=HEALTH_TIMEOUT)
+        data = json.loads(resp.read())
+        _health_cache = data.get('status') == 'ok'
     except Exception:
         _health_cache = False
     return _health_cache
