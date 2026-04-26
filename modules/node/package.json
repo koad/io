@@ -23,6 +23,10 @@
     },
     "./ceremony": {
       "import": "./ceremony.js"
+    },
+    "./sigchain": {
+      "import": "./sigchain.js",
+      "require": "./sigchain.cjs"
     }
   },
   "main": "./index.cjs",
