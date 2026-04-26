@@ -1,7 +1,7 @@
 // test-sigchain.js — Flight D sigchain entry layer tests
 //
 // Tests:
-//   1.  buildSpiritGenesis: required fields enforced, optional fields permitted
+//   1.  buildIdentityGenesis: required fields enforced, optional fields permitted
 //   2.  buildLeafAuthorize: required fields enforced, optional device_label
 //   3.  buildLeafRevoke: required fields enforced, optional reason
 //   4.  buildPruneAll: required fields enforced, reason must be non-empty
@@ -9,7 +9,7 @@
 //   6.  wrapEntry: canonical envelope shape
 //   7.  canonicalDagJson: stable bytes — same input → same output; key order
 //   8.  computeCID: stable CIDs — same entry → same CID; correct 'bagu' prefix
-//   9.  signEntry end-to-end: create identity, sign spirit-genesis with master
+//   9.  signEntry end-to-end: create identity, sign identity.genesis with master
 //   10. verifyEntry round-trip: signEntry → verifyEntry returns valid=true
 //   11. verifyEntry rejects modified entries (CID mismatch on tampered bytes)
 //   12. verifyEntry rejects entries signed by wrong key
@@ -17,7 +17,7 @@
 // Run: node modules/node/test-sigchain.js
 
 import {
-  buildSpiritGenesis,
+  buildIdentityGenesis,
   buildLeafAuthorize,
   buildLeafRevoke,
   buildPruneAll,
@@ -57,30 +57,30 @@ function assertThrows(fn, label) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1: buildSpiritGenesis
+// Test 1: buildIdentityGenesis
 // ---------------------------------------------------------------------------
 
-async function test1_buildSpiritGenesis() {
-  console.log('\n1. buildSpiritGenesis — shape + required field enforcement');
+async function test1_buildIdentityGenesis() {
+  console.log('\n1. buildIdentityGenesis — shape + required field enforcement');
 
-  const { type, payload } = buildSpiritGenesis({
-    spirit_handle: 'koad',
+  const { type, payload } = buildIdentityGenesis({
+    entity_handle: 'koad',
     master_fingerprint: 'ABCD1234'.repeat(5),
     master_pubkey_armored: '-----BEGIN PGP PUBLIC KEY BLOCK-----\nexample\n-----END PGP PUBLIC KEY BLOCK-----',
     created: '2026-04-25T22:00:00Z',
-    description: 'test spirit',
+    description: 'test entity',
   });
 
-  assert(type === 'koad.spirit-genesis', 'type is koad.spirit-genesis');
-  assert(payload.spirit_handle === 'koad', 'payload.spirit_handle set');
+  assert(type === 'koad.identity.genesis', 'type is koad.identity.genesis');
+  assert(payload.entity_handle === 'koad', 'payload.entity_handle set');
   assert(payload.master_fingerprint === 'ABCD1234'.repeat(5), 'payload.master_fingerprint set');
   assert(typeof payload.master_pubkey_armored === 'string', 'payload.master_pubkey_armored set');
   assert(payload.created === '2026-04-25T22:00:00Z', 'payload.created set');
-  assert(payload.description === 'test spirit', 'optional description included when provided');
+  assert(payload.description === 'test entity', 'optional description included when provided');
 
   // Without description
-  const { payload: p2 } = buildSpiritGenesis({
-    spirit_handle: 'koad',
+  const { payload: p2 } = buildIdentityGenesis({
+    entity_handle: 'koad',
     master_fingerprint: 'ABCD1234'.repeat(5),
     master_pubkey_armored: 'armored',
     created: '2026-04-25T22:00:00Z',
@@ -88,17 +88,17 @@ async function test1_buildSpiritGenesis() {
   assert(!('description' in p2), 'description omitted when not provided');
 
   // Required field enforcement
-  assertThrows(() => buildSpiritGenesis({}), 'throws when spirit_handle missing');
+  assertThrows(() => buildIdentityGenesis({}), 'throws when entity_handle missing');
   assertThrows(
-    () => buildSpiritGenesis({ spirit_handle: 'koad' }),
+    () => buildIdentityGenesis({ entity_handle: 'koad' }),
     'throws when master_fingerprint missing'
   );
   assertThrows(
-    () => buildSpiritGenesis({ spirit_handle: 'koad', master_fingerprint: 'fp' }),
+    () => buildIdentityGenesis({ entity_handle: 'koad', master_fingerprint: 'fp' }),
     'throws when master_pubkey_armored missing'
   );
   assertThrows(
-    () => buildSpiritGenesis({ spirit_handle: 'koad', master_fingerprint: 'fp', master_pubkey_armored: 'pub' }),
+    () => buildIdentityGenesis({ entity_handle: 'koad', master_fingerprint: 'fp', master_pubkey_armored: 'pub' }),
     'throws when created missing'
   );
 }
@@ -118,7 +118,7 @@ async function test2_buildLeafAuthorize() {
     authorized_at: '2026-04-25T22:01:00Z',
   });
 
-  assert(type === 'koad.leaf-authorize', 'type is koad.leaf-authorize');
+  assert(type === 'koad.identity.leaf-authorize', 'type is koad.identity.leaf-authorize');
   assert(payload.leaf_fingerprint === 'LEAF5678'.repeat(5), 'leaf_fingerprint set');
   assert(payload.leaf_pubkey_armored === 'leaf-pub-armored', 'leaf_pubkey_armored set');
   assert(payload.device_label === 'wonderland — primary workstation', 'device_label included');
@@ -163,7 +163,7 @@ async function test3_buildLeafRevoke() {
     reason: 'device lost',
   });
 
-  assert(type === 'koad.leaf-revoke', 'type is koad.leaf-revoke');
+  assert(type === 'koad.identity.leaf-revoke', 'type is koad.identity.leaf-revoke');
   assert(payload.leaf_fingerprint === 'LEAF5678'.repeat(5), 'leaf_fingerprint set');
   assert(payload.revoked_at === '2026-04-25T22:02:00Z', 'revoked_at set');
   assert(payload.reason === 'device lost', 'optional reason included');
@@ -193,7 +193,7 @@ async function test4_buildPruneAll() {
     reason: 'all devices compromised — emergency recovery',
   });
 
-  assert(type === 'koad.prune-all', 'type is koad.prune-all');
+  assert(type === 'koad.identity.prune-all', 'type is koad.identity.prune-all');
   assert(payload.pruned_at === '2026-04-25T22:03:00Z', 'pruned_at set');
   assert(payload.reason === 'all devices compromised — emergency recovery', 'reason set');
 
@@ -227,7 +227,7 @@ async function test5_buildKeySuccession() {
     reason: 'scheduled rotation',
   });
 
-  assert(type === 'koad.key-succession', 'type is koad.key-succession');
+  assert(type === 'koad.identity.key-succession', 'type is koad.identity.key-succession');
   assert(payload.old_master_fingerprint === 'OLDMASTER'.repeat(4) + 'XXXX', 'old_master_fingerprint set');
   assert(payload.new_master_fingerprint === 'NEWMASTER'.repeat(4) + 'XXXX', 'new_master_fingerprint set');
   assert(payload.new_master_pubkey_armored === 'new-master-armored', 'new_master_pubkey_armored set');
@@ -259,15 +259,15 @@ async function test6_wrapEntry() {
   const entry = wrapEntry({
     entity: 'koad',
     timestamp: '2026-04-25T22:00:00Z',
-    type: 'koad.spirit-genesis',
-    payload: { spirit_handle: 'koad', master_fingerprint: 'FP', master_pubkey_armored: 'PUB', created: '2026-04-25T22:00:00Z' },
+    type: 'koad.identity.genesis',
+    payload: { entity_handle: 'koad', master_fingerprint: 'FP', master_pubkey_armored: 'PUB', created: '2026-04-25T22:00:00Z' },
     previous: null,
   });
 
   assert(entry.version === 1, 'version is 1');
   assert(entry.entity === 'koad', 'entity set');
   assert(entry.timestamp === '2026-04-25T22:00:00Z', 'timestamp set');
-  assert(entry.type === 'koad.spirit-genesis', 'type set');
+  assert(entry.type === 'koad.identity.genesis', 'type set');
   assert(typeof entry.payload === 'object', 'payload is object');
   assert(entry.previous === null, 'previous is null for genesis');
   assert(!('signature' in entry), 'no signature field on unsigned entry');
@@ -276,7 +276,7 @@ async function test6_wrapEntry() {
   const entry2 = wrapEntry({
     entity: 'koad',
     timestamp: '2026-04-25T22:01:00Z',
-    type: 'koad.leaf-authorize',
+    type: 'koad.identity.leaf-authorize',
     payload: { leaf_fingerprint: 'FP', leaf_pubkey_armored: 'PUB', authorized_by_fingerprint: 'FP', authorized_at: '2026-04-25T22:01:00Z' },
     previous: 'baguczsaa_example_cid',
   });
@@ -301,8 +301,8 @@ async function test7_canonicalDagJson() {
     version: 1,
     entity: 'koad',
     timestamp: '2026-04-25T22:00:00Z',
-    type: 'koad.spirit-genesis',
-    payload: { spirit_handle: 'koad', master_fingerprint: 'ABCDEF1234567890ABCDEF1234567890ABCDEF12', master_pubkey_armored: 'PUB', created: '2026-04-25T22:00:00Z' },
+    type: 'koad.identity.genesis',
+    payload: { entity_handle: 'koad', master_fingerprint: 'ABCDEF1234567890ABCDEF1234567890ABCDEF12', master_pubkey_armored: 'PUB', created: '2026-04-25T22:00:00Z' },
     previous: null,
   };
 
@@ -329,7 +329,7 @@ async function test7_canonicalDagJson() {
   assert(keys[4] === 'type', 'fifth key is type');
   assert(keys[5] === 'version', 'sixth key is version');
 
-  // Reversed input object should produce same bytes
+  // Reversed input object should produce same bytes (payload field name is entity_handle per v1.11)
   const reversedEntry = { previous: null, type: entry.type, version: 1, entity: 'koad', timestamp: entry.timestamp, payload: entry.payload };
   const bytes3 = canonicalDagJson(reversedEntry);
   assert(
@@ -360,8 +360,8 @@ async function test8_computeCID() {
     version: 1,
     entity: 'koad',
     timestamp: '2026-04-25T22:00:00Z',
-    type: 'koad.spirit-genesis',
-    payload: { spirit_handle: 'koad', master_fingerprint: 'ABCDEF1234567890ABCDEF1234567890ABCDEF12', master_pubkey_armored: 'PUB', created: '2026-04-25T22:00:00Z' },
+    type: 'koad.identity.genesis',
+    payload: { entity_handle: 'koad', master_fingerprint: 'ABCDEF1234567890ABCDEF1234567890ABCDEF12', master_pubkey_armored: 'PUB', created: '2026-04-25T22:00:00Z' },
     previous: null,
     signature: 'example-sig-for-cid-test',
   };
@@ -390,7 +390,7 @@ async function test8_computeCID() {
 // ---------------------------------------------------------------------------
 
 async function test9_signEntry() {
-  console.log('\n9. signEntry end-to-end — create identity, sign spirit-genesis with master');
+  console.log('\n9. signEntry end-to-end — create identity, sign identity.genesis with master');
 
   // Create a real koad.identity in ceremony posture
   const identity = createKoadIdentity();
@@ -399,13 +399,13 @@ async function test9_signEntry() {
   assert(identity.posture === 'ceremony', 'identity in ceremony posture');
   assert(identity.isMasterLoaded, 'master key loaded');
 
-  // Build a spirit-genesis entry
-  const { type, payload } = buildSpiritGenesis({
-    spirit_handle: identity.handle,
+  // Build an identity.genesis entry
+  const { type, payload } = buildIdentityGenesis({
+    entity_handle: identity.handle,
     master_fingerprint: identity.masterFingerprint,
     master_pubkey_armored: identity.masterPublicKey,
     created: '2026-04-25T22:00:00Z',
-    description: 'test spirit genesis for Flight D',
+    description: 'test identity genesis for Flight D',
   });
 
   const unsignedEntry = wrapEntry({
@@ -427,7 +427,7 @@ async function test9_signEntry() {
   // Verify all other entry fields are preserved
   assert(entry.version === 1, 'version preserved');
   assert(entry.entity === 'koad', 'entity preserved');
-  assert(entry.type === 'koad.spirit-genesis', 'type preserved');
+  assert(entry.type === 'koad.identity.genesis', 'type preserved');
   assert(entry.previous === null, 'previous preserved as null');
 
   // CID should match recomputing from the signed entry
@@ -502,7 +502,7 @@ async function run() {
   console.log('\n=== Flight D: sigchain entry layer tests ===\n');
 
   try {
-    await test1_buildSpiritGenesis();
+    await test1_buildIdentityGenesis();
     await test2_buildLeafAuthorize();
     await test3_buildLeafRevoke();
     await test4_buildPruneAll();

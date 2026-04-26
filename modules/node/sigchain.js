@@ -1,13 +1,13 @@
 // sigchain.js — Sigchain entry layer (ESM)
 //
-// Implements VESTA-SPEC-111 v1.9 §3–5.8.
+// Implements VESTA-SPEC-111 v1.11 §3–5.8.
 //
 // Pure-functional library for constructing, serializing, CID-computing,
 // signing, and verifying SPEC-111 sigchain entries.
 //
-// Five spirit entry types (SPEC-111 §5.8):
-//   koad.spirit-genesis, koad.leaf-authorize, koad.leaf-revoke,
-//   koad.prune-all, koad.key-succession
+// Five identity entry types (SPEC-111 §5.8):
+//   koad.identity.genesis, koad.identity.leaf-authorize, koad.identity.leaf-revoke,
+//   koad.identity.prune-all, koad.identity.key-succession
 //
 // Canonical serialization: dag-json (IPLD codec 0x0129), keys sorted
 // lexicographically. CID: CIDv1, sha2-256, base32upper → "bagu" prefix.
@@ -23,7 +23,7 @@
 // API surface:
 //
 //   Constructors (pure data — no signing):
-//     buildSpiritGenesis({ spirit_handle, master_fingerprint, master_pubkey_armored, created, description })
+//     buildIdentityGenesis({ entity_handle, master_fingerprint, master_pubkey_armored, created, description })
 //     buildLeafAuthorize({ leaf_fingerprint, leaf_pubkey_armored, device_label, authorized_by_fingerprint, authorized_at })
 //     buildLeafRevoke({ leaf_fingerprint, revoked_at, reason })
 //     buildPruneAll({ pruned_at, reason })
@@ -59,31 +59,31 @@ const DAG_JSON_CODEC = 0x0129;
 // ---------------------------------------------------------------------------
 
 /**
- * Build payload for koad.spirit-genesis entry.
- * SPEC-111 §5.8 — first entry in a spirit sigchain. Signed by master.
+ * Build payload for koad.identity.genesis entry.
+ * SPEC-111 §5.8 — first entry in an entity identity sigchain. Signed by master.
  *
  * @param {object} opts
- * @param {string} opts.spirit_handle           REQUIRED
+ * @param {string} opts.entity_handle           REQUIRED
  * @param {string} opts.master_fingerprint      REQUIRED (40-hex)
  * @param {string} opts.master_pubkey_armored   REQUIRED (PGP-armored)
  * @param {string} opts.created                 REQUIRED (ISO 8601 UTC)
  * @param {string} [opts.description]           OPTIONAL
  * @returns {{ type: string, payload: object }}
  */
-export function buildSpiritGenesis({
-  spirit_handle,
+export function buildIdentityGenesis({
+  entity_handle,
   master_fingerprint,
   master_pubkey_armored,
   created,
   description,
 } = {}) {
-  if (!spirit_handle) throw new Error('[sigchain] buildSpiritGenesis: spirit_handle is required');
-  if (!master_fingerprint) throw new Error('[sigchain] buildSpiritGenesis: master_fingerprint is required');
-  if (!master_pubkey_armored) throw new Error('[sigchain] buildSpiritGenesis: master_pubkey_armored is required');
-  if (!created) throw new Error('[sigchain] buildSpiritGenesis: created is required');
+  if (!entity_handle) throw new Error('[sigchain] buildIdentityGenesis: entity_handle is required');
+  if (!master_fingerprint) throw new Error('[sigchain] buildIdentityGenesis: master_fingerprint is required');
+  if (!master_pubkey_armored) throw new Error('[sigchain] buildIdentityGenesis: master_pubkey_armored is required');
+  if (!created) throw new Error('[sigchain] buildIdentityGenesis: created is required');
 
   const payload = {
-    spirit_handle,
+    entity_handle,
     master_fingerprint,
     master_pubkey_armored,
     created,
@@ -92,11 +92,11 @@ export function buildSpiritGenesis({
     payload.description = description;
   }
 
-  return { type: 'koad.spirit-genesis', payload };
+  return { type: 'koad.identity.genesis', payload };
 }
 
 /**
- * Build payload for koad.leaf-authorize entry.
+ * Build payload for koad.identity.leaf-authorize entry.
  * SPEC-111 §5.8 — authorizes a device leaf PGP key.
  * Signed by master (first leaf) or an authorized leaf (subsequent additions).
  *
@@ -130,11 +130,11 @@ export function buildLeafAuthorize({
     payload.device_label = device_label;
   }
 
-  return { type: 'koad.leaf-authorize', payload };
+  return { type: 'koad.identity.leaf-authorize', payload };
 }
 
 /**
- * Build payload for koad.leaf-revoke entry.
+ * Build payload for koad.identity.leaf-revoke entry.
  * SPEC-111 §5.8 — revokes a device leaf.
  * Signed by any currently authorized leaf (not the one being revoked), or master.
  *
@@ -157,11 +157,11 @@ export function buildLeafRevoke({
     payload.reason = reason;
   }
 
-  return { type: 'koad.leaf-revoke', payload };
+  return { type: 'koad.identity.leaf-revoke', payload };
 }
 
 /**
- * Build payload for koad.prune-all entry.
+ * Build payload for koad.identity.prune-all entry.
  * SPEC-111 §5.8 — recovery: revokes ALL current leaves simultaneously.
  * Signed by master ONLY.
  *
@@ -177,11 +177,11 @@ export function buildPruneAll({
   if (!pruned_at) throw new Error('[sigchain] buildPruneAll: pruned_at is required');
   if (!reason || reason.trim() === '') throw new Error('[sigchain] buildPruneAll: reason is required and must not be empty');
 
-  return { type: 'koad.prune-all', payload: { pruned_at, reason } };
+  return { type: 'koad.identity.prune-all', payload: { pruned_at, reason } };
 }
 
 /**
- * Build payload for koad.key-succession entry.
+ * Build payload for koad.identity.key-succession entry.
  * SPEC-111 §5.8 — master key rotation. Signed by OLD master.
  *
  * @param {object} opts
@@ -214,7 +214,7 @@ export function buildKeySuccession({
     payload.reason = reason;
   }
 
-  return { type: 'koad.key-succession', payload };
+  return { type: 'koad.identity.key-succession', payload };
 }
 
 // ---------------------------------------------------------------------------
@@ -229,9 +229,9 @@ export function buildKeySuccession({
  * timestamp + previous to produce the full unsigned entry.
  *
  * @param {object} opts
- * @param {string} opts.entity      Spirit handle or entity name
+ * @param {string} opts.entity      Entity handle
  * @param {string} opts.timestamp   ISO 8601 UTC
- * @param {string} opts.type        Entry type string (e.g. 'koad.spirit-genesis')
+ * @param {string} opts.type        Entry type string (e.g. 'koad.identity.genesis')
  * @param {object} opts.payload     Type-specific payload object
  * @param {string|null} opts.previous  CID of predecessor, null for genesis
  * @returns {object} Unsigned entry (version, entity, timestamp, type, payload, previous)
@@ -357,9 +357,9 @@ export async function computeCID(entry) {
  * a UTF-8 string and passed to identity.sign(). The resulting RFC 4880 armored
  * clearsign block is stored verbatim in the `signature` field.
  *
- * Callers should pass { useMaster: true } for spirit entries that require the
- * master key (koad.spirit-genesis, koad.prune-all, koad.key-succession, and
- * the first koad.leaf-authorize).
+ * Callers should pass { useMaster: true } for identity entries that require the
+ * master key (koad.identity.genesis, koad.identity.prune-all, koad.identity.key-succession,
+ * and the first koad.identity.leaf-authorize).
  *
  * @param {object} unsignedEntry    Unsigned entry from wrapEntry()
  * @param {object} identity         koad.identity object (from createKoadIdentity())

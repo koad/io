@@ -7,7 +7,7 @@
 // using dynamic import() to bridge the ESM↔CJS boundary.
 //
 // Usage (CommonJS):
-//   const { buildSpiritGenesis, signEntry, verifyEntry } = require('@koad-io/node/sigchain');
+//   const { buildIdentityGenesis, signEntry, verifyEntry } = require('@koad-io/node/sigchain');
 //
 // Note: because sigchain.js is ESM and uses top-level async (sha256.digest),
 // all exports from this CJS wrapper are async-resolved via the module promise.
@@ -30,9 +30,9 @@ function _load() {
 // actual function's return value. This matches how Node handles CJS↔ESM.
 // ---------------------------------------------------------------------------
 
-async function buildSpiritGenesis(opts) {
+async function buildIdentityGenesis(opts) {
   const m = await _load();
-  return m.buildSpiritGenesis(opts);
+  return m.buildIdentityGenesis(opts);
 }
 
 async function buildLeafAuthorize(opts) {
@@ -86,7 +86,7 @@ async function verifyEntry(entry, expectedCID, signerPublicKey) {
 }
 
 module.exports = {
-  buildSpiritGenesis,
+  buildIdentityGenesis,
   buildLeafAuthorize,
   buildLeafRevoke,
   buildPruneAll,
