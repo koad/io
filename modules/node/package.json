@@ -31,6 +31,10 @@
     "./sigchain": {
       "import": "./sigchain.js",
       "require": "./sigchain.cjs"
+    },
+    "./identity-submission": {
+      "import": "./identity-submission.js",
+      "require": "./identity-submission.cjs"
     }
   },
   "main": "./index.cjs",
