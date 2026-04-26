@@ -19,7 +19,7 @@ Npm.depends({
 	"@scure/bip39": "1.2.1", // https://github.com/paulmillr/scure-bip39
 	// "ethereum-cryptography": "2.1.2",
 	"ssh2": "1.14.0",
-	"kbpgp": "2.1.17", // Keybase PGP for identity and cryptography — VESTA-SPEC-148
+	"kbpgp": "2.1.15", // Keybase PGP. Reverted from 2.1.17 — Meteor build-cache wedge on bump (rename ENOENT during ipfs-core dep cascade). SPEC-148 §6 pin-agreement violation pending fix.
 	"ipfs-core": "0.18.1", // IPFS implementation for distributed storage
 	"ipfs-http-client": "60.0.1" // IPFS HTTP client
 
@@ -88,6 +88,7 @@ Package.onUse(function(api) {
 		"both/time-constants.js",
 		"both/global-helpers.js",
 		"both/router.js",
+		"both/identity-factory.js",  // createKoadIdentity() — consumed by server/identity.js and client/identity.js
 	]);
 
 	api.addFiles([
@@ -137,10 +138,11 @@ Package.onUse(function(api) {
 	// Export the koad object created by this package...
 	api.export("koad");
 
-	// Export shared crypto/IPFS symbols populated by client/deps.js
-	// Other packages can import these by name instead of going through koad.deps.
+	// Export crypto symbols populated by client/deps.js.
+	// IPLD primitives (dagJson*, CID, sha256, base64) are server-only —
+	// they're not consumed by client code today; see client/deps.js note.
 	// koad.deps.pgp lazy-loads the kbpgp browser bundle on first call.
-	api.export(["dagJsonEncode", "dagJsonDecode", "CID", "sha256", "ed"], "client");
+	api.export(["ed"], "client");
 	api.export(["clearsign", "verify"], "client");
 
 });
