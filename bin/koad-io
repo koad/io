@@ -206,11 +206,19 @@ set -a
 
 # Check and load any environment details from the entity's folder.
 if [ -d "$ENTITY_DIR" ]; then
-    [ -f $ENTITY_DIR/.env ] && echo "absorbing $ENTITY_DIR/.env" && set -a && source $ENTITY_DIR/.env 
-    [ -f $ENTITY_DIR/.credentials ] && echo "absorbing $ENTITY_DIR/.credentials" && set -a && source $ENTITY_DIR/.credentials 
+    [ -f $ENTITY_DIR/.env ] && echo "absorbing $ENTITY_DIR/.env" && set -a && source $ENTITY_DIR/.env
+    [ -f $ENTITY_DIR/.credentials ] && echo "absorbing $ENTITY_DIR/.credentials" && set -a && source $ENTITY_DIR/.credentials
 else
     echo "No configurations found for entity: $ENTITY"
 fi
+
+# Package resolution — single source of truth. After all .env files have
+# had a chance to set or override KOAD_IO_PACKAGE_DIRS, enforce a floor of
+# ~/.koad-io/packages and sync Meteor's expected env var to match. Anything
+# downstream (Meteor builds, harness shells, sub-processes) inherits the
+# canonical cascade without needing the deprecated shim in .env.
+export KOAD_IO_PACKAGE_DIRS="${KOAD_IO_PACKAGE_DIRS:-$HOME/.koad-io/packages}"
+export METEOR_PACKAGE_DIRS="$KOAD_IO_PACKAGE_DIRS"
 
 set +a
 
