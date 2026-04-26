@@ -1,6 +1,6 @@
 // ceremony.js — BIP39 → Ed25519 → kbpgp KeyManager derivation helpers (ESM)
 //
-// Implements the key-derivation internals for VESTA-SPEC-149 v1.0 Flight B.
+// Implements the key-derivation internals for VESTA-SPEC-149 v1.3 Flight B + §8.1.
 //
 // All helpers are pure functions that accept explicit inputs and return values.
 // No side effects. State lives in identity.js.
@@ -285,4 +285,97 @@ export async function extractKMInfo(km) {
   });
 
   return { fingerprint, publicKey };
+}
+
+// ---------------------------------------------------------------------------
+// Leaf at-rest encryption (VESTA-SPEC-149 v1.3 §8.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a device-bound passphrase: 32 random bytes, hex-encoded.
+ * This is the value stored as `device.key` and used as the passphrase
+ * for encrypting the leaf private key block (SPEC-149 §8.1.3 Path B).
+ * Pure entropy — not derived from anything. 64-char hex string (32 bytes).
+ *
+ * @returns {string} 64-char hex string
+ */
+export function generateDeviceKey() {
+  try {
+    const { randomBytes } = require('crypto');
+    return randomBytes(32).toString('hex');
+  } catch (_) {
+    // Browser fallback (should not reach here in Node, but guards isomorphic use)
+    if (typeof globalThis !== 'undefined' && globalThis.crypto && globalThis.crypto.getRandomValues) {
+      const bytes = new Uint8Array(32);
+      globalThis.crypto.getRandomValues(bytes);
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    throw new Error('[koad/ceremony] generateDeviceKey: no cryptographic random source available');
+  }
+}
+
+/**
+ * Encrypt a leaf KeyManager's private material for at-rest storage.
+ * Uses kbpgp's export_pgp_private with a passphrase — produces an armored
+ * PGP PRIVATE KEY BLOCK with internal AES-256-CFB S2K encryption.
+ * Conforms to SPEC-149 §8.1.2–§8.1.4.
+ *
+ * @param {object} km - kbpgp KeyManager with the leaf private key loaded
+ * @param {string} passphrase - The passphrase (typically a hex-encoded 32-byte device key)
+ * @returns {Promise<string>} Armored encrypted private key block
+ */
+export async function encryptLeafForStorage(km, passphrase) {
+  if (!km || typeof km.export_pgp_private !== 'function') {
+    throw new Error('[koad/ceremony] encryptLeafForStorage: km must be a kbpgp KeyManager');
+  }
+  if (typeof passphrase !== 'string' || passphrase.length === 0) {
+    throw new Error('[koad/ceremony] encryptLeafForStorage: passphrase must be a non-empty string (SPEC-149 §8.1.1 no-plaintext prohibition)');
+  }
+
+  return new Promise((resolve, reject) => {
+    km.export_pgp_private({ passphrase }, (err, armored) => {
+      if (err) return reject(new Error('[koad/ceremony] encryptLeafForStorage: export_pgp_private failed: ' + err.message));
+      if (!armored || !armored.includes('BEGIN PGP PRIVATE KEY BLOCK')) {
+        return reject(new Error('[koad/ceremony] encryptLeafForStorage: unexpected output — expected PGP PRIVATE KEY BLOCK'));
+      }
+      resolve(armored);
+    });
+  });
+}
+
+/**
+ * Decrypt an at-rest leaf private key block back into a kbpgp KeyManager.
+ * Reverses encryptLeafForStorage. Conforms to SPEC-149 §8.1.
+ *
+ * @param {string} armoredEncrypted - Armored PGP PRIVATE KEY BLOCK
+ * @param {string} passphrase - The passphrase used to encrypt
+ * @returns {Promise<object>} kbpgp KeyManager with private key unlocked
+ */
+export async function decryptLeafFromStorage(armoredEncrypted, passphrase) {
+  if (typeof armoredEncrypted !== 'string' || !armoredEncrypted.includes('BEGIN PGP PRIVATE KEY BLOCK')) {
+    throw new Error('[koad/ceremony] decryptLeafFromStorage: armoredEncrypted must be a PGP PRIVATE KEY BLOCK string');
+  }
+  if (typeof passphrase !== 'string' || passphrase.length === 0) {
+    throw new Error('[koad/ceremony] decryptLeafFromStorage: passphrase must be a non-empty string');
+  }
+
+  const { KeyManager } = require('kbpgp/lib/openpgp/keymanager');
+
+  // Step 1: import armored private key block into a new KeyManager
+  const km = await new Promise((resolve, reject) => {
+    KeyManager.import_from_armored_pgp({ armored: armoredEncrypted }, (err, loaded) => {
+      if (err) return reject(new Error('[koad/ceremony] decryptLeafFromStorage: import_from_armored_pgp failed: ' + err.message));
+      resolve(loaded);
+    });
+  });
+
+  // Step 2: unlock the private key material using the passphrase
+  await new Promise((resolve, reject) => {
+    km.unlock_pgp({ passphrase }, (err) => {
+      if (err) return reject(new Error('[koad/ceremony] decryptLeafFromStorage: unlock_pgp failed — wrong passphrase or corrupted data: ' + err.message));
+      resolve();
+    });
+  });
+
+  return km;
 }

@@ -291,3 +291,84 @@ export async function extractKMInfo(km) {
 
   return { fingerprint, publicKey };
 }
+
+// ---------------------------------------------------------------------------
+// Leaf at-rest encryption (VESTA-SPEC-149 v1.3 §8.1) — browser version
+// See packages/core/client/ceremony-browser.js for the canonical Meteor version.
+// This copy is used for reference/testing in modules/node context.
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a device-bound passphrase: 32 random bytes, hex-encoded.
+ * Browser version uses Web Crypto API (window.crypto.getRandomValues).
+ *
+ * @returns {string} 64-char lowercase hex string (32 bytes)
+ */
+export function generateDeviceKey() {
+  const bytes = new Uint8Array(32);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Encrypt a leaf KeyManager's private material for at-rest storage.
+ * Conforms to SPEC-149 §8.1.2–§8.1.4.
+ *
+ * @param {object} km - kbpgp KeyManager with the leaf private key loaded
+ * @param {string} passphrase - The passphrase (typically a hex-encoded 32-byte device key)
+ * @returns {Promise<string>} Armored encrypted private key block
+ */
+export async function encryptLeafForStorage(km, passphrase) {
+  if (!km || typeof km.export_pgp_private !== 'function') {
+    throw new Error('[ceremony-browser] encryptLeafForStorage: km must be a kbpgp KeyManager');
+  }
+  if (typeof passphrase !== 'string' || passphrase.length === 0) {
+    throw new Error('[ceremony-browser] encryptLeafForStorage: passphrase must be a non-empty string (SPEC-149 §8.1.1 no-plaintext prohibition)');
+  }
+
+  return new Promise((resolve, reject) => {
+    km.export_pgp_private({ passphrase }, (err, armored) => {
+      if (err) return reject(new Error('[ceremony-browser] encryptLeafForStorage: export_pgp_private failed: ' + err.message));
+      if (!armored || !armored.includes('BEGIN PGP PRIVATE KEY BLOCK')) {
+        return reject(new Error('[ceremony-browser] encryptLeafForStorage: unexpected output — expected PGP PRIVATE KEY BLOCK'));
+      }
+      resolve(armored);
+    });
+  });
+}
+
+/**
+ * Decrypt an at-rest leaf private key block back into a kbpgp KeyManager.
+ * Reverses encryptLeafForStorage. Conforms to SPEC-149 §8.1.
+ *
+ * @param {string} armoredEncrypted - Armored PGP PRIVATE KEY BLOCK
+ * @param {string} passphrase - The passphrase used to encrypt
+ * @returns {Promise<object>} kbpgp KeyManager with private key unlocked
+ */
+export async function decryptLeafFromStorage(armoredEncrypted, passphrase) {
+  if (typeof armoredEncrypted !== 'string' || !armoredEncrypted.includes('BEGIN PGP PRIVATE KEY BLOCK')) {
+    throw new Error('[ceremony-browser] decryptLeafFromStorage: armoredEncrypted must be a PGP PRIVATE KEY BLOCK string');
+  }
+  if (typeof passphrase !== 'string' || passphrase.length === 0) {
+    throw new Error('[ceremony-browser] decryptLeafFromStorage: passphrase must be a non-empty string');
+  }
+
+  const kbpgp = await _loadKbpgpBundle();
+  const { KeyManager } = kbpgp;
+
+  const km = await new Promise((resolve, reject) => {
+    KeyManager.import_from_armored_pgp({ armored: armoredEncrypted }, (err, loaded) => {
+      if (err) return reject(new Error('[ceremony-browser] decryptLeafFromStorage: import_from_armored_pgp failed: ' + err.message));
+      resolve(loaded);
+    });
+  });
+
+  await new Promise((resolve, reject) => {
+    km.unlock_pgp({ passphrase }, (err) => {
+      if (err) return reject(new Error('[ceremony-browser] decryptLeafFromStorage: unlock_pgp failed — wrong passphrase or corrupted data: ' + err.message));
+      resolve();
+    });
+  });
+
+  return km;
+}
