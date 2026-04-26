@@ -8,8 +8,7 @@
 // the result to globalThis.koad.identity.
 //
 // Flight A: API shape + state wiring + real sign/verify delegation.
-//           Ceremony internals (BIP39 derivation, OPFS, sigchain writes)
-//           are stubbed and throw clearly — see Flight B markers below.
+// Flight B: BIP39 derivation + Ed25519 PGP KeyManager construction + lockdown.
 //
 // API surface (SPEC-149 §7, corrected for entity=spirit):
 //
@@ -39,6 +38,20 @@
 //   import { createKoadIdentity } from '@koad-io/node/identity';
 //   globalThis.koad.identity = createKoadIdentity();
 //   await koad.identity.load({ keyPath, sigchainHeadCID });
+
+// ---------------------------------------------------------------------------
+// Ceremony imports — lazy-loaded to avoid circular deps in browser bundles
+// ---------------------------------------------------------------------------
+
+/**
+ * Lazy-load ceremony helpers. Isolates the Node-only BIP39/kbpgp internals
+ * from contexts where only the API shape is needed (e.g., type-checking).
+ *
+ * @returns {Promise<object>} ceremony module exports
+ */
+async function _ceremony() {
+  return import('./ceremony.js');
+}
 
 // ---------------------------------------------------------------------------
 // Internal state — private to this factory closure
@@ -116,16 +129,58 @@ export function createKoadIdentity() {
     async create({ handle, userid } = {}) {
       if (!handle) throw new Error('[koad/identity] create() requires handle');
       if (!userid) throw new Error('[koad/identity] create() requires userid');
-      // Flight B: BIP39 entropy → mnemonic → seed → master Ed25519 PGP keypair.
-      // Flight B: Device leaf generation (independent of mnemonic).
-      // Flight B: Genesis sigchain entry + leaf-authorize entry (SPEC-111 v1.9 §5.8).
-      // Flight C: Mnemonic display UI (§6 step 3) + confirmation quiz (§6 step 5).
-      // Flight B: Lockdown (§6 step 6) — zero mnemonic + master private from memory,
-      //           persist leaf encrypted-at-rest, persist master pubkey, publish to IPFS.
-      throw new Error(
-        '[koad/identity] create() — not yet implemented. Ceremony internals land in Flight B.' +
-        ' (BIP39 derivation, sigchain genesis, lockdown scrub, IPFS publish)'
-      );
+
+      const {
+        generateEntropySync,
+        entropyToMnemonicString,
+        mnemonicToSeed,
+        mnemonicToBuffer,
+        buildMasterKeyManager,
+        buildLeafKeyManager,
+        extractKMInfo,
+      } = await _ceremony();
+
+      // Step 1: Generate 32 bytes of entropy and derive 24-word mnemonic
+      const entropy = generateEntropySync();
+      const mnemonicStr = entropyToMnemonicString(entropy);
+
+      // Step 2: Derive 32-byte master seed from mnemonic (raw entropy path)
+      const masterSeed = mnemonicToSeed(mnemonicStr);
+
+      // Step 3: Derive master Ed25519 KeyManager from seed (deterministic)
+      const masterKM = await buildMasterKeyManager(masterSeed, userid);
+      const { fingerprint: masterFP, publicKey: masterPub } = await extractKMInfo(masterKM);
+
+      // Step 4: Generate independent device leaf (random EDDSA — not from mnemonic)
+      const leafKM = await buildLeafKeyManager(userid);
+      const { fingerprint: leafFP, publicKey: leafPub } = await extractKMInfo(leafKM);
+
+      // Step 5: Store mnemonic as a Uint8Array for deterministic zeroing later
+      const mnemonicBytes = mnemonicToBuffer(mnemonicStr);
+
+      // Step 6: Set state — posture = 'ceremony', both master and device loaded
+      _s.handle = handle;
+      _s.mnemonic = mnemonicBytes;             // Uint8Array — fill(0x00) on lockdown
+      _s.master = { keyManager: masterKM, type: 'ed25519-pgp' };
+      _s.masterFingerprint = masterFP;
+      _s.masterPublicKey = masterPub;
+      _s.device = {
+        fingerprint: leafFP,
+        publicKey: leafPub,
+        keyManager: leafKM,
+        type: 'ed25519-pgp',
+      };
+      _s.sigchainHeadCID = null;
+      _s.posture = 'ceremony';
+
+      // Step 7: Return material for UI display (mnemonic as string for display only)
+      // The caller (UI) shows the words, runs the quiz, then calls lockdown().
+      // create() does NOT call lockdown() — that's the UI's job.
+      return {
+        mnemonic: mnemonicStr,                 // string for display — UI should clear DOM after quiz
+        masterFingerprint: masterFP,
+        leafFingerprint: leafFP,
+      };
     },
 
     /**
@@ -183,12 +238,19 @@ export function createKoadIdentity() {
      * @returns {void}
      */
     lockdown() {
-      // Zero the mnemonic string if possible. JS strings are immutable, so we
-      // can only drop the reference — the V8 GC will handle reclaim. A future
-      // Flight B implementation may use a Buffer or Uint8Array for the mnemonic
-      // to enable deterministic zeroing.
+      // Zero the mnemonic Uint8Array in-place before releasing the reference.
+      // This is the best available scrub in JS — references held elsewhere
+      // (e.g. in a UI variable) are not zeroed, but the internal buffer is cleared.
+      if (_s.mnemonic instanceof Uint8Array) {
+        _s.mnemonic.fill(0x00);
+      }
       _s.mnemonic = null;
+
+      // Null out master keyManager — the private key material becomes unreachable.
+      // masterFingerprint and masterPublicKey are NOT nulled — they persist as
+      // non-sensitive identifiers used by load() and sigchain readers.
       _s.master = null;
+
       if (_s.posture === 'ceremony' || _s.posture === 'recovery') {
         _s.posture = 'routine';
       }
@@ -204,15 +266,55 @@ export function createKoadIdentity() {
      * @param {string} opts.mnemonic - 24-word BIP39 mnemonic (space-separated)
      * @returns {Promise<void>}
      */
-    async importMnemonic({ mnemonic } = {}) {
+    async importMnemonic({ mnemonic, userid } = {}) {
       if (!mnemonic) throw new Error('[koad/identity] importMnemonic() requires mnemonic');
-      // Flight B: BIP39 seed derivation → master Ed25519 PGP keypair reconstitution.
-      // Flight B: koad.prune-all sigchain entry (master-signed, SPEC-111 v1.9 §5.8).
-      // Flight B: Fresh device leaf generation + koad.leaf-authorize entry.
-      // Flight B: Lockdown after new leaf is authorized.
-      throw new Error(
-        '[koad/identity] importMnemonic() — not yet implemented. Recovery ceremony lands in Flight B.'
-      );
+      if (!userid) throw new Error('[koad/identity] importMnemonic() requires userid');
+
+      const {
+        isValidMnemonic,
+        mnemonicToSeed,
+        mnemonicToBuffer,
+        buildMasterKeyManager,
+        buildLeafKeyManager,
+        extractKMInfo,
+      } = await _ceremony();
+
+      // Step 1: Validate mnemonic
+      if (!isValidMnemonic(mnemonic)) {
+        throw new Error('[koad/identity] importMnemonic() — invalid BIP39 mnemonic');
+      }
+
+      // Step 2: Derive master seed from mnemonic (same path as create())
+      const masterSeed = mnemonicToSeed(mnemonic);
+
+      // Step 3: Reconstitute master KeyManager (deterministic — same mnemonic → same fingerprint)
+      const masterKM = await buildMasterKeyManager(masterSeed, userid);
+      const { fingerprint: masterFP, publicKey: masterPub } = await extractKMInfo(masterKM);
+
+      // Step 4: Generate fresh device leaf (random — independent of mnemonic)
+      const leafKM = await buildLeafKeyManager(userid);
+      const { fingerprint: leafFP, publicKey: leafPub } = await extractKMInfo(leafKM);
+
+      // Step 5: Store mnemonic bytes for zeroing
+      const mnemonicBytes = mnemonicToBuffer(mnemonic);
+
+      // Step 6: Set state — posture = 'recovery'
+      // Caller uses master to sign prune-all + leaf-authorize sigchain entries (Flight D),
+      // then calls lockdown().
+      _s.handle = _s.handle || null;           // handle may already be set from a previous load()
+      _s.mnemonic = mnemonicBytes;
+      _s.master = { keyManager: masterKM, type: 'ed25519-pgp' };
+      _s.masterFingerprint = masterFP;
+      _s.masterPublicKey = masterPub;
+      _s.device = {
+        fingerprint: leafFP,
+        publicKey: leafPub,
+        keyManager: leafKM,
+        type: 'ed25519-pgp',
+      };
+      _s.posture = 'recovery';
+
+      return { masterFingerprint: masterFP, leafFingerprint: leafFP };
     },
 
     // -----------------------------------------------------------------------

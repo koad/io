@@ -4,7 +4,19 @@
 // with older wiring, require()-based tooling). The API shape is identical
 // to identity.js. Sign/verify delegation to koad.deps.pgp works the same way.
 //
-// Flight A: Full API surface + state wiring. Ceremony internals stubbed.
+// Flight A: Full API surface + state wiring.
+// Flight B: BIP39 derivation + Ed25519 PGP KeyManager construction + lockdown.
+//
+// ceremony.js is ESM-only; this file uses dynamic import() to load it.
+// Dynamic import() is supported in Node.js 12+.
+
+/**
+ * Lazy-load ceremony helpers from ceremony.js (ESM).
+ * @returns {Promise<object>}
+ */
+async function _ceremony() {
+  return import('./ceremony.js');
+}
 
 'use strict';
 
@@ -104,14 +116,36 @@ function createKoadIdentity() {
     async create({ handle, userid } = {}) {
       if (!handle) throw new Error('[koad/identity] create() requires handle');
       if (!userid) throw new Error('[koad/identity] create() requires userid');
-      // Flight B: BIP39 entropy → mnemonic → seed → master Ed25519 PGP keypair.
-      // Flight B: Device leaf generation (independent of mnemonic).
-      // Flight B: Genesis sigchain entry + leaf-authorize entry (SPEC-111 v1.9 §5.8).
-      // Flight C: Mnemonic display UI + confirmation quiz.
-      // Flight B: Lockdown — zero mnemonic + master private, persist leaf + master pubkey, IPFS publish.
-      throw new Error(
-        '[koad/identity] create() — not yet implemented. Ceremony internals land in Flight B.'
-      );
+
+      const {
+        generateEntropySync,
+        entropyToMnemonicString,
+        mnemonicToSeed,
+        mnemonicToBuffer,
+        buildMasterKeyManager,
+        buildLeafKeyManager,
+        extractKMInfo,
+      } = await _ceremony();
+
+      const entropy = generateEntropySync();
+      const mnemonicStr = entropyToMnemonicString(entropy);
+      const masterSeed = mnemonicToSeed(mnemonicStr);
+      const masterKM = await buildMasterKeyManager(masterSeed, userid);
+      const { fingerprint: masterFP, publicKey: masterPub } = await extractKMInfo(masterKM);
+      const leafKM = await buildLeafKeyManager(userid);
+      const { fingerprint: leafFP, publicKey: leafPub } = await extractKMInfo(leafKM);
+      const mnemonicBytes = mnemonicToBuffer(mnemonicStr);
+
+      _s.handle = handle;
+      _s.mnemonic = mnemonicBytes;
+      _s.master = { keyManager: masterKM, type: 'ed25519-pgp' };
+      _s.masterFingerprint = masterFP;
+      _s.masterPublicKey = masterPub;
+      _s.device = { fingerprint: leafFP, publicKey: leafPub, keyManager: leafKM, type: 'ed25519-pgp' };
+      _s.sigchainHeadCID = null;
+      _s.posture = 'ceremony';
+
+      return { mnemonic: mnemonicStr, masterFingerprint: masterFP, leafFingerprint: leafFP };
     },
 
     load({
@@ -144,6 +178,9 @@ function createKoadIdentity() {
     },
 
     lockdown() {
+      if (_s.mnemonic instanceof Uint8Array) {
+        _s.mnemonic.fill(0x00);
+      }
       _s.mnemonic = null;
       _s.master = null;
       if (_s.posture === 'ceremony' || _s.posture === 'recovery') {
@@ -151,15 +188,39 @@ function createKoadIdentity() {
       }
     },
 
-    async importMnemonic({ mnemonic } = {}) {
+    async importMnemonic({ mnemonic, userid } = {}) {
       if (!mnemonic) throw new Error('[koad/identity] importMnemonic() requires mnemonic');
-      // Flight B: BIP39 seed derivation → master reconstitution.
-      // Flight B: koad.prune-all sigchain entry.
-      // Flight B: Fresh device leaf generation + koad.leaf-authorize entry.
-      // Flight B: Lockdown after new leaf authorized.
-      throw new Error(
-        '[koad/identity] importMnemonic() — not yet implemented. Recovery ceremony lands in Flight B.'
-      );
+      if (!userid) throw new Error('[koad/identity] importMnemonic() requires userid');
+
+      const {
+        isValidMnemonic,
+        mnemonicToSeed,
+        mnemonicToBuffer,
+        buildMasterKeyManager,
+        buildLeafKeyManager,
+        extractKMInfo,
+      } = await _ceremony();
+
+      if (!isValidMnemonic(mnemonic)) {
+        throw new Error('[koad/identity] importMnemonic() — invalid BIP39 mnemonic');
+      }
+
+      const masterSeed = mnemonicToSeed(mnemonic);
+      const masterKM = await buildMasterKeyManager(masterSeed, userid);
+      const { fingerprint: masterFP, publicKey: masterPub } = await extractKMInfo(masterKM);
+      const leafKM = await buildLeafKeyManager(userid);
+      const { fingerprint: leafFP, publicKey: leafPub } = await extractKMInfo(leafKM);
+      const mnemonicBytes = mnemonicToBuffer(mnemonic);
+
+      _s.handle = _s.handle || null;
+      _s.mnemonic = mnemonicBytes;
+      _s.master = { keyManager: masterKM, type: 'ed25519-pgp' };
+      _s.masterFingerprint = masterFP;
+      _s.masterPublicKey = masterPub;
+      _s.device = { fingerprint: leafFP, publicKey: leafPub, keyManager: leafKM, type: 'ed25519-pgp' };
+      _s.posture = 'recovery';
+
+      return { masterFingerprint: masterFP, leafFingerprint: leafFP };
     },
 
     // -----------------------------------------------------------------------
