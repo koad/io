@@ -24,12 +24,19 @@
     "./ceremony": {
       "import": "./ceremony.js"
     },
+    "./ceremony-browser": {
+      "browser": "./ceremony-browser.js",
+      "import": "./ceremony-browser.js"
+    },
     "./sigchain": {
       "import": "./sigchain.js",
       "require": "./sigchain.cjs"
     }
   },
   "main": "./index.cjs",
+  "scripts": {
+    "build:browser": "browserify -i sodium -s kbpgp ./browser/kbpgp-with-internals.js -o ./browser/kbpgp.bundle.js && npx uglify-js ./browser/kbpgp.bundle.js -o ./browser/kbpgp.bundle.min.js --compress --mangle && echo 'Bundle built. Copy to forge/websites/kingofalldata.com/src/public/ manually or via sync script.'"
+  },
   "dependencies": {
     "@ipld/dag-json": "10.2.7",
     "@noble/ed25519": "2.1.0",

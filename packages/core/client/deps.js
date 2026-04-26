@@ -13,12 +13,14 @@
 
 import * as ed from '@noble/ed25519';
 import { clearsign, verify } from './pgp.js';
+import * as ceremony from './ceremony-browser.js';
 
 globalThis.koad = globalThis.koad || {};
 koad.deps = koad.deps || {};
 Object.assign(koad.deps, {
   ed,
   pgp: { clearsign, verify },
+  ceremony,
 });
 
 export { ed };

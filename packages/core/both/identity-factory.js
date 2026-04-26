@@ -105,6 +105,106 @@ createKoadIdentity = function createKoadIdentity() {
 		}
 	}
 
+	// Browser ceremony accessor — reads koad.deps.ceremony, which is wired
+	// by client/deps.js (imported from client/ceremony-browser.js via mainModule).
+	// deps.js runs before identity-factory.js is consumed, so this is always populated
+	// by the time create() or importMnemonic() is called in a browser context.
+	function _getCeremonyBrowser() {
+		if (
+			typeof globalThis !== 'undefined' &&
+			globalThis.koad &&
+			globalThis.koad.deps &&
+			globalThis.koad.deps.ceremony
+		) {
+			return globalThis.koad.deps.ceremony;
+		}
+		throw new Error(
+			'[koad/identity] koad.deps.ceremony is not loaded. ' +
+			'Ensure client/deps.js has initialized (koad:io-core mainModule).'
+		);
+	}
+
+	// ---------------------------------------------------------------------------
+	// Browser ceremony helpers — called from create() and importMnemonic() browser branches.
+	// These live outside the identity object so they can mutate _s directly.
+	// ---------------------------------------------------------------------------
+
+	async function _createBrowser(opts, state) {
+		var ceremony = _getCeremonyBrowser();
+
+		// Step 1: Generate entropy + mnemonic
+		var entropy = await ceremony.generateEntropy();
+		var mnemonic = ceremony.entropyToMnemonicString(entropy);
+
+		// Step 2: Derive master seed from mnemonic
+		var seed = ceremony.mnemonicToSeed(mnemonic);
+
+		// Step 3: Build master KeyManager
+		var masterKM = await ceremony.buildMasterKeyManager(seed, opts.userid);
+		var masterInfo = await ceremony.extractKMInfo(masterKM);
+
+		// Step 4: Build leaf (device) KeyManager
+		var leafKM = await ceremony.buildLeafKeyManager(opts.userid);
+		var leafInfo = await ceremony.extractKMInfo(leafKM);
+
+		// Step 5: Adopt state
+		state.handle = opts.handle;
+		state.posture = 'ceremony';
+		state.masterFingerprint = masterInfo.fingerprint;
+		state.masterPublicKey = masterInfo.publicKey;
+		state.master = { keyManager: masterKM, type: 'ed25519-pgp' };
+		state.device = {
+			fingerprint: leafInfo.fingerprint,
+			publicKey: leafInfo.publicKey,
+			keyManager: leafKM,
+			type: 'ed25519-pgp',
+		};
+		state.mnemonic = null; // returned as string; caller is responsible for display and scrub
+
+		return {
+			mnemonic: mnemonic,
+			masterFingerprint: masterInfo.fingerprint,
+			leafFingerprint: leafInfo.fingerprint,
+		};
+	}
+
+	async function _importMnemonicBrowser(opts, state) {
+		var ceremony = _getCeremonyBrowser();
+
+		if (!ceremony.isValidMnemonic(opts.mnemonic)) {
+			throw new Error('[koad/identity] importMnemonic(): invalid BIP39 mnemonic');
+		}
+
+		// Step 1: Derive master seed from mnemonic
+		var seed = ceremony.mnemonicToSeed(opts.mnemonic);
+
+		// Step 2: Build master KeyManager
+		var masterKM = await ceremony.buildMasterKeyManager(seed, opts.userid);
+		var masterInfo = await ceremony.extractKMInfo(masterKM);
+
+		// Step 3: Build new leaf KeyManager (randomly generated — device-specific)
+		var leafKM = await ceremony.buildLeafKeyManager(opts.userid);
+		var leafInfo = await ceremony.extractKMInfo(leafKM);
+
+		// Step 4: Adopt state
+		state.posture = 'recovery';
+		state.masterFingerprint = masterInfo.fingerprint;
+		state.masterPublicKey = masterInfo.publicKey;
+		state.master = { keyManager: masterKM, type: 'ed25519-pgp' };
+		state.device = {
+			fingerprint: leafInfo.fingerprint,
+			publicKey: leafInfo.publicKey,
+			keyManager: leafKM,
+			type: 'ed25519-pgp',
+		};
+		state.mnemonic = null;
+
+		return {
+			masterFingerprint: masterInfo.fingerprint,
+			leafFingerprint: leafInfo.fingerprint,
+		};
+	}
+
 	var identity = {
 
 		// -----------------------------------------------------------------------
@@ -127,11 +227,9 @@ createKoadIdentity = function createKoadIdentity() {
 			if (!opts.handle) throw new Error('[koad/identity] create() requires handle');
 			if (!opts.userid) throw new Error('[koad/identity] create() requires userid');
 
+			// Browser path — use ceremony-browser.js (wired onto koad.deps.ceremony by deps.js)
 			if (typeof Meteor !== 'undefined' && !Meteor.isServer) {
-				throw new Error(
-					'[koad/identity] create() is not available in the browser. ' +
-					'Use the desktop client or dark-passenger for ceremony operations.'
-				);
+				return _createBrowser(opts, _s);
 			}
 
 			// Server: delegate to the full CJS substrate which has the BIP39/ceremony chain.
@@ -243,11 +341,9 @@ createKoadIdentity = function createKoadIdentity() {
 			if (!opts.mnemonic) throw new Error('[koad/identity] importMnemonic() requires mnemonic');
 			if (!opts.userid) throw new Error('[koad/identity] importMnemonic() requires userid');
 
+			// Browser path — use ceremony-browser.js (wired onto koad.deps.ceremony by deps.js)
 			if (typeof Meteor !== 'undefined' && !Meteor.isServer) {
-				throw new Error(
-					'[koad/identity] importMnemonic() is not available in the browser. ' +
-					'Use the desktop client or dark-passenger for recovery operations.'
-				);
+				return _importMnemonicBrowser(opts, _s);
 			}
 
 			var mod;
