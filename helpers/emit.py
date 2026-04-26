@@ -69,6 +69,9 @@ def _entity():
         d = os.environ.get('ENTITY_DIR', '')
         if d:
             e = os.path.basename(d).lstrip('.')
+    if not e:
+        # No entity context — fall back to OS username (the human sovereign)
+        e = os.environ.get('USER', '')
     return e or 'unknown'
 
 
