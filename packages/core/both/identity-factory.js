@@ -93,6 +93,20 @@ function _delegateVerifySync(armored, pubkey) {
 createKoadIdentity = function createKoadIdentity() {
 	var _s = _makeIdentityState();
 
+	// ---------------------------------------------------------------------------
+	// Reactivity — Tracker.Dependency (browser/Meteor only; no-op in Node)
+	// ---------------------------------------------------------------------------
+
+	var _readyDep = (typeof Tracker !== 'undefined') ? new Tracker.Dependency() : null;
+
+	function _invalidate() {
+		if (_readyDep) _readyDep.changed();
+	}
+
+	function _depend() {
+		if (_readyDep) _readyDep.depend();
+	}
+
 	function _assertLoaded() {
 		if (!_s.device || !_s.device.keyManager) {
 			throw new Error('[koad/identity] No leaf key loaded. Call load() or create() first.');
@@ -161,6 +175,8 @@ createKoadIdentity = function createKoadIdentity() {
 		};
 		state.mnemonic = null; // returned as string; caller is responsible for display and scrub
 
+		_invalidate();
+
 		return {
 			mnemonic: mnemonic,
 			masterFingerprint: masterInfo.fingerprint,
@@ -198,6 +214,8 @@ createKoadIdentity = function createKoadIdentity() {
 			type: 'ed25519-pgp',
 		};
 		state.mnemonic = null;
+
+		_invalidate();
 
 		return {
 			masterFingerprint: masterInfo.fingerprint,
@@ -271,6 +289,7 @@ createKoadIdentity = function createKoadIdentity() {
 			// For the full ceremony flow (master signing of genesis entries), use the CJS module
 			// directly (Flight D). This instance is ready for leaf signing via sign().
 
+			_invalidate();
 			return result;
 		},
 
@@ -309,6 +328,7 @@ createKoadIdentity = function createKoadIdentity() {
 			_s.mnemonic = null;
 			_s.sigchainHeadCID = opts.sigchainHeadCID || null;
 			_s.posture = 'routine';
+			_invalidate();
 		},
 
 		/**
@@ -324,6 +344,7 @@ createKoadIdentity = function createKoadIdentity() {
 			if (_s.posture === 'ceremony' || _s.posture === 'recovery') {
 				_s.posture = 'routine';
 			}
+			_invalidate();
 		},
 
 		/**
@@ -376,6 +397,7 @@ createKoadIdentity = function createKoadIdentity() {
 			// NOTE: master keyManager stays in cjsIdentity closure (same as create()).
 			// Flight D will provide a fuller ceremony harness if master signing is needed.
 
+			_invalidate();
 			return result;
 		},
 
@@ -430,7 +452,19 @@ createKoadIdentity = function createKoadIdentity() {
 		// State — read-only getters (SPEC-149 §7)
 		// -----------------------------------------------------------------------
 
+		/**
+		 * ready() — reactive read. Returns true when a device leaf is loaded.
+		 * Registers a Tracker dependency so Blaze helpers/autoruns recompute when
+		 * load(), lockdown(), create(), importMnemonic(), or setFromKeyManager() fire.
+		 * In Node (no Tracker), behaves identically to isLoaded.
+		 */
+		ready: function ready() {
+			_depend();
+			return _s.posture !== null && _s.device !== null;
+		},
+
 		get isLoaded() {
+			_depend();
 			return !!(
 				_s.device &&
 				_s.device.keyManager &&
@@ -439,24 +473,25 @@ createKoadIdentity = function createKoadIdentity() {
 		},
 
 		get isMasterLoaded() {
+			_depend();
 			return !!(_s.master && _s.master.keyManager);
 		},
 
-		get handle() { return _s.handle; },
+		get handle() { _depend(); return _s.handle; },
 
-		get fingerprint() { return _s.device ? _s.device.fingerprint : null; },
+		get fingerprint() { _depend(); return _s.device ? _s.device.fingerprint : null; },
 
-		get masterFingerprint() { return _s.masterFingerprint; },
+		get masterFingerprint() { _depend(); return _s.masterFingerprint; },
 
-		get sigchainHeadCID() { return _s.sigchainHeadCID; },
+		get sigchainHeadCID() { _depend(); return _s.sigchainHeadCID; },
 
-		get publicKey() { return _s.device ? _s.device.publicKey : null; },
+		get publicKey() { _depend(); return _s.device ? _s.device.publicKey : null; },
 
-		get masterPublicKey() { return _s.masterPublicKey; },
+		get masterPublicKey() { _depend(); return _s.masterPublicKey; },
 
 		get type() { return 'pgp'; },
 
-		get posture() { return _s.posture; },
+		get posture() { _depend(); return _s.posture; },
 
 		// Internal: expose device keyManager for bootstrap modules
 		get _keyManager() { return _s.device ? _s.device.keyManager : null; },
@@ -498,6 +533,7 @@ createKoadIdentity = function createKoadIdentity() {
 						type: 'ed25519-pgp',
 					};
 					_s.posture = 'routine';
+					_invalidate();
 					if (cb) cb(null, true);
 				});
 			} catch (err) {
