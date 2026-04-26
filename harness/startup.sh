@@ -368,13 +368,36 @@ fi
 
 printf '\n---\n\n'
 
-# --- Layer 1: Kingdom ---
+# --- Layer 1: Kingdom (multi-source) ---
+# Loads ~/.koad-io/KOAD_IO.md first (framework lighthouse), then any other
+# ~/.*/KOAD_IO.md files found, in alphabetical order. Adding a KOAD_IO.md to
+# any hidden directory under $HOME (e.g. ~/.forge/, ~/.pantry/) is sufficient
+# to inject it into every entity's session context — no code changes needed.
+_layer1_loaded=()
+
+# Framework first
 if [ -f "$KOAD_IO_DIR/KOAD_IO.md" ]; then
   _subst < "$KOAD_IO_DIR/KOAD_IO.md"
   printf '\n\n---\n\n'
-  echo "[startup] layer1: KOAD_IO.md ($(wc -c < "$KOAD_IO_DIR/KOAD_IO.md") bytes)" >&2
+  _layer1_loaded+=("$KOAD_IO_DIR/KOAD_IO.md")
+  echo "[startup] layer1: $KOAD_IO_DIR/KOAD_IO.md ($(wc -c < "$KOAD_IO_DIR/KOAD_IO.md") bytes)" >&2
 else
-  echo "[startup] layer1: KOAD_IO.md not found, skipped" >&2
+  echo "[startup] layer1: $KOAD_IO_DIR/KOAD_IO.md not found, skipped" >&2
+fi
+
+# Other ~/.<folder>/KOAD_IO.md, alphabetical
+for _kio in "$HOME"/.*/KOAD_IO.md; do
+  [ -f "$_kio" ] || continue
+  # Skip framework (already loaded above)
+  [ "$_kio" = "$KOAD_IO_DIR/KOAD_IO.md" ] && continue
+  _subst < "$_kio"
+  printf '\n\n---\n\n'
+  _layer1_loaded+=("$_kio")
+  echo "[startup] layer1: $_kio ($(wc -c < "$_kio") bytes)" >&2
+done
+
+if [ ${#_layer1_loaded[@]} -eq 0 ]; then
+  echo "[startup] layer1: no KOAD_IO.md files found" >&2
 fi
 
 # --- Layer 2: Entity ---
