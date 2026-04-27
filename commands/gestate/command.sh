@@ -60,54 +60,8 @@ DATADIR="$HOME/.${ENTITY,,}"
 
 [ -d $DATADIR ] && echo 'Directory already exists, cannot proceed.' && exit 1
 
-function shutdown() {
-  [[ "$KOAD_IO_QUIET" != "1" ]] && tput cnorm # reset cursor
-}
-trap shutdown EXIT
-
-function cursorBack() {
-  echo -en "\033[$1D"
-}
-
-if [ -z "${KOAD_IO_BUSY_CURSOR+x}" ]; then
-  KOAD_IO_BUSY_CURSOR='⠁⠂⠠⢀⡀⠄⠐⠈⠃⠢⢠⣀⡄⠔⠘⠉⠣⢢⣠⣄⡔⠜⠙⠋⢣⣢⣤⣔⡜⠝⠛⠫⣣⣦⣴⣜⡝⠟⠻⢫⣧⣶⣼⣝⡟⠿⢻⣫⣷⣾⣽⣟⡿⢿⣻⣯⣧⣶⣼⣝⡟⠿⢻⣫⣣⣦⣴⣜⡝⠟⠻⢫⢣⣢⣤⣔⡜⠝⠛⠫⠣⢢⣠⣄⡔⠜⠙⠋⠃⠢⢠⣀⡄⠔⠘⠉'
-fi
-
-SPINNER_POS=0
-function spinner() {
-
-  local LC_CTYPE=C
-  local pid=$1 # Process Id of the previous running command
-  local SLICE_SIZE=3
-
-  # In quiet mode: skip animation entirely, just wait for the process.
-  if [[ "$KOAD_IO_QUIET" == "1" ]]; then
-    wait $pid
-    return $?
-  fi
-
-  tput civis # cursor invisible
-  while kill -0 $pid 2>/dev/null; do
-    SPINNER_POS=$(((SPINNER_POS + $SLICE_SIZE) % ${#KOAD_IO_BUSY_CURSOR}))
-    printf "%s" "${KOAD_IO_BUSY_CURSOR:$SPINNER_POS:$SLICE_SIZE}"
-
-    cursorBack 1
-    sleep .06
-  done
-  tput cnorm
-  wait $pid # capture exit code
-  return $?
-}
-
-# pause N — decorative delay with spinner for human terminals.
-# In quiet mode the pause is skipped entirely so scripts run at full speed.
-function pause() {
-  local duration=${1:-1}
-  if [[ "$KOAD_IO_QUIET" == "1" ]]; then
-    return 0
-  fi
-  sleep "$duration" & spinner $!
-}
+source "$HOME/.koad-io/helpers/spinner.sh"
+trap _spinner_shutdown EXIT
 
 # Resolve domain — use KOAD_IO_DOMAIN from env, fall back to prompt
 if [ -z "${KOAD_IO_DOMAIN}" ]; then
