@@ -139,15 +139,32 @@ if [ "$HARNESS_WORK_DIR" != "$ENTITY_DIR" ] && [ -d "$HARNESS_WORK_DIR/.git" ]; 
   echo
 fi
 
-# Active briefs (symlinks = dispatched work orders)
-_briefs_count=0
+# Active briefs — skip files whose frontmatter status is a done-status.
+# Canonical list matches ~/.koad-io/bin/search --skip-complete.
+_DONE_STATUSES="landed|shipped|archived|canonical|complete|completed|delivered|closed|merged|resolved"
+
+_is_brief_done() {
+  head -15 "$1" 2>/dev/null | grep -qiE "^status:[[:space:]]*($_DONE_STATUSES)" && return 0
+  return 1
+}
+
+_briefs_lines=""
 if [ -d "$ENTITY_DIR/briefs" ]; then
-  _briefs_count=$(ls -1 "$ENTITY_DIR/briefs/" 2>/dev/null | wc -l)
+  for _bf in "$ENTITY_DIR/briefs"/*; do
+    [ -e "$_bf" ] || continue
+    _bname="$(basename "$_bf")"
+    if [ -f "$_bf" ] && _is_brief_done "$_bf"; then
+      continue
+    fi
+    _briefs_lines="${_briefs_lines}- ${_bname}
+"
+  done
 fi
+_briefs_count=$(printf '%s' "$_briefs_lines" | grep -c '^-' || true)
 if [ "$_briefs_count" -gt 0 ]; then
   echo "### Active Briefs ($_briefs_count)"
   echo
-  ls -1 "$ENTITY_DIR/briefs/" 2>/dev/null | sed 's/^/- /'
+  printf '%s' "$_briefs_lines"
   echo
 fi
 
