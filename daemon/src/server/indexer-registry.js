@@ -16,6 +16,15 @@
 //       mode: current-per-key
 //       key: _id
 //
+//   For glob sources (VESTA-SPEC-141 v1.2 §3.5):
+//     - name: channel-turns
+//       source_glob: "*.jsonl"            # glob pattern; mutually exclusive with source
+//       collection: ChannelTurns
+//       format: jsonl
+//       mode: append-only                 # MUST be append-only for source_glob
+//       slug_field: slug                  # required; field projector injects per record
+//       exclude_glob: "index.jsonl"       # optional; files matching this are excluded
+//
 // Modes:
 //   current-per-key — last entry per key is the doc (e.g. announcement surface)
 //   append-only     — every entry is a new doc (e.g. archive, tips)
@@ -90,6 +99,23 @@ function resolveSource(config) {
     return path.resolve(path.dirname(config._yamlFile), config.source);
   }
   return config.source;
+}
+
+// ---------------------------------------------------------------------------
+// Resolve glob pattern for source_glob / exclude_glob to an absolute base dir
+// and a pattern string. Returns { baseDir, pattern } or null if not set.
+// The pattern is kept relative to baseDir (used by glob matching in projector).
+// ---------------------------------------------------------------------------
+
+function resolveGlob(rawGlob, yamlFile) {
+  if (!rawGlob) return null;
+  // If the pattern is absolute, split into dir + pattern components.
+  // For simple patterns like "*.jsonl", base dir comes from the yaml file dir.
+  if (path.isAbsolute(rawGlob)) {
+    return { baseDir: path.dirname(rawGlob), pattern: path.basename(rawGlob) };
+  }
+  const baseDir = yamlFile ? path.dirname(yamlFile) : process.cwd();
+  return { baseDir, pattern: rawGlob };
 }
 
 // ---------------------------------------------------------------------------
@@ -176,17 +202,46 @@ function load() {
     }
   }
 
-  // Normalize all configs: resolve source paths for settings-sourced configs
-  const configs = Object.values(byName).map(cfg => {
+  // Normalize all configs: resolve source paths and glob patterns
+  const configs = [];
+  for (let cfg of Object.values(byName)) {
+    // Resolve single-file source path
     if (!cfg.sourcePath && cfg.source) {
       cfg = Object.assign({}, cfg, { sourcePath: resolveSource(cfg) });
     }
-    return cfg;
-  });
+
+    // Resolve source_glob and exclude_glob
+    if (cfg.source_glob) {
+      // Validate: source_glob requires mode: append-only (SPEC-141 §3.5)
+      if (cfg.mode && cfg.mode !== 'append-only') {
+        console.error(`[indexer-registry] ${cfg.name}: source_glob requires mode: append-only (got ${cfg.mode}) — skipping`);
+        continue;
+      }
+      // Validate: source_glob requires slug_field
+      if (!cfg.slug_field) {
+        console.error(`[indexer-registry] ${cfg.name}: source_glob requires slug_field — skipping`);
+        continue;
+      }
+      // Resolve glob patterns relative to yaml file dir
+      const yamlFile = cfg._yamlFile || null;
+      const sourceGlobResolved = resolveGlob(cfg.source_glob, yamlFile);
+      const excludeGlobResolved = cfg.exclude_glob ? resolveGlob(cfg.exclude_glob, yamlFile) : null;
+      cfg = Object.assign({}, cfg, {
+        mode: 'append-only',
+        sourceGlob: sourceGlobResolved,
+        excludeGlob: excludeGlobResolved,
+      });
+    }
+
+    configs.push(cfg);
+  }
 
   console.log(`[indexer-registry] total indexers registered: ${configs.length}`);
   for (const cfg of configs) {
-    console.log(`[indexer-registry]   ${cfg.name} → ${cfg.collection} (${cfg.mode || 'append-only'}) from ${cfg.sourcePath || cfg.source || '?'}`);
+    const src = cfg.sourceGlob
+      ? `glob:${cfg.sourceGlob.baseDir}/${cfg.sourceGlob.pattern}`
+      : (cfg.sourcePath || cfg.source || '?');
+    console.log(`[indexer-registry]   ${cfg.name} → ${cfg.collection} (${cfg.mode || 'append-only'}) from ${src}`);
   }
 
   return configs;
