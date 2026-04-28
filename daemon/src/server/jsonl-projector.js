@@ -303,7 +303,9 @@ function startGlob(config) {
   // Watch the base directory for file changes
   // File deletion: per spec §3.5, records from deleted files are NOT removed
   // (append-only semantics hold — once projected, records persist until daemon restart)
-  let debounce = null;
+  // Use per-file debounces so rapid concurrent events (new-file + index-write)
+  // don't coalesce and drop the new-file event.
+  const debounces = {}; // filename → timeout handle
   let watcher = null;
 
   try {
@@ -311,9 +313,9 @@ function startGlob(config) {
       if (!filename) return;
       const filePath = path.join(baseDir, filename);
 
-      if (debounce) clearTimeout(debounce);
-      debounce = Meteor.setTimeout(() => {
-        debounce = null;
+      if (debounces[filename]) clearTimeout(debounces[filename]);
+      debounces[filename] = Meteor.setTimeout(() => {
+        delete debounces[filename];
         if (fs.existsSync(filePath)) {
           refreshFile(filePath, `fs.watch ${eventType}`);
         } else {
