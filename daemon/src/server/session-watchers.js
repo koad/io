@@ -35,7 +35,7 @@ const WATCHERS_DIR = path.join(RUNTIME_DIR, 'session-watchers');
 const INBOX_DIR = path.join(RUNTIME_DIR, 'session-inbox');
 
 // Sessions older than 8 hours are considered stale (skipped, not deleted).
-// The watch command uses KOAD_IO_EMISSION_ID as the session ID, which is
+// The watch command uses HARNESS_SESSION_ID as the session ID, which is
 // flight-scoped; 8 h covers any reasonable flight duration.
 const SESSION_TTL_MS = 8 * 3600 * 1000;
 

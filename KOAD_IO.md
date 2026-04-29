@@ -361,7 +361,7 @@ This is how entities coordinate: Salus subscribes to `error` emissions and auto-
 
 ### Subagent dispatch
 
-When Juno (or any orchestrator) dispatches an Agent, hooks open a `flight` emission automatically. The subagent's `KOAD_IO_EMISSION_ID` is injected into every Bash call's env — meaning subagents can `source ~/.koad-io/helpers/emit.sh && koad_io_emit_update "halfway done"` and the orchestrator sees progress in real time. The flight closes with the agent's return summary.
+When Juno (or any orchestrator) dispatches an Agent, hooks open a `flight` emission automatically. The subagent's `HARNESS_EMISSION_ID` is injected into every Bash call's env — meaning subagents can `source ~/.koad-io/helpers/emit.sh && koad_io_emit_update "halfway done"` and the orchestrator sees progress in real time. The flight closes with the agent's return summary.
 
 ### Archive
 

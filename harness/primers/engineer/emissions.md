@@ -4,7 +4,7 @@ You build. The daemon's emission system is how you narrate work in flight so coo
 
 ## You're already in a flight
 
-When you're dispatched as a subagent, the orchestrator's PreToolUse hook opened a `flight` emission for you and injected `KOAD_IO_EMISSION_ID` into your bash env. **Don't open a new lifecycle emission** — you're already in one.
+When you're dispatched as a subagent, the orchestrator's PreToolUse hook opened a `flight` emission for you and injected `HARNESS_EMISSION_ID` into your bash env. **Don't open a new lifecycle emission** — you're already in one.
 
 What you do instead: emit updates as your work progresses. Coordinators watching the tree see your narration in real time.
 
@@ -61,4 +61,4 @@ Updates are for milestones a watcher would care about, not for "ran ls" / "ran g
 
 ## When you're not dispatched
 
-If you're running interactively (no `KOAD_IO_EMISSION_ID` in env), you're in a `session` emission, not a `flight`. Same advice: don't open a new lifecycle, just `emit_update` if narration helps. Use `notice`/`warning`/`error` for one-shot signals.
+If you're running interactively (no `HARNESS_EMISSION_ID` in env), you're in a `session` emission, not a `flight`. Same advice: don't open a new lifecycle, just `emit_update` if narration helps. Use `notice`/`warning`/`error` for one-shot signals.

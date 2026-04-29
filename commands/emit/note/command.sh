@@ -16,7 +16,7 @@
 #   --quiet    Suppress stdout confirmation
 #
 # Requires:
-#   KOAD_IO_EMISSION_ID  — _id of the open emission to update
+#   HARNESS_EMISSION_ID  — _id of the open emission to update
 #   KOAD_IO_EMIT=1       — emission gate (silently no-ops if unset)
 
 set -euo pipefail
@@ -37,8 +37,8 @@ done
 unset _arg
 
 # --- gate checks ---
-if [ -z "${KOAD_IO_EMISSION_ID:-}" ]; then
-  echo "emit note: KOAD_IO_EMISSION_ID is not set" >&2
+if [ -z "${HARNESS_EMISSION_ID:-}" ]; then
+  echo "emit note: HARNESS_EMISSION_ID is not set" >&2
   echo "  Set it to the _id of an open emission before calling this command." >&2
   exit 1
 fi
@@ -50,7 +50,7 @@ if [ -z "$TEXT" ]; then
 fi
 
 # --- emit ---
-python3 "$_EMIT_PY" note "$TEXT" --id "$KOAD_IO_EMISSION_ID" 2>/dev/null || true
+python3 "$_EMIT_PY" note "$TEXT" --id "$HARNESS_EMISSION_ID" 2>/dev/null || true
 
 if [ "$QUIET" = false ]; then
   echo "emit note: ${TEXT}"
