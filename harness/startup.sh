@@ -29,6 +29,17 @@
 #
 set -euo pipefail
 
+# --- Light mode flag ---
+# --light (arg) or KOAD_IO_STARTUP_LIGHT=1 (env) activates light mode.
+# Light mode: session header + git status + KOAD_IO.md + ENTITY.md + role primers only.
+# Skips: briefs, pre-emptive primitives, daemon status, flights, questions, tickles,
+#        inbox, working dir listing, local .koad-io/, parties, destinations, location PRIMER.
+_LIGHT_MODE=0
+for _startup_arg in "$@"; do
+  [ "$_startup_arg" = "--light" ] && _LIGHT_MODE=1
+done
+[ "${KOAD_IO_STARTUP_LIGHT:-0}" = "1" ] && _LIGHT_MODE=1
+
 ENTITY="${ENTITY:?ENTITY not set}"
 ENTITY_DIR="${ENTITY_DIR:-$HOME/.$ENTITY}"
 KOAD_IO_DIR="${KOAD_IO_DIR:-$HOME/.koad-io}"
@@ -139,6 +150,7 @@ if [ "$HARNESS_WORK_DIR" != "$ENTITY_DIR" ] && [ -d "$HARNESS_WORK_DIR/.git" ]; 
   echo
 fi
 
+if [ "$_LIGHT_MODE" = "0" ]; then
 # Active briefs — skip files whose frontmatter status is a done-status.
 # Canonical list matches ~/.koad-io/bin/search --skip-complete.
 _DONE_STATUSES="landed|shipped|archived|canonical|complete|completed|delivered|closed|merged|resolved"
@@ -383,6 +395,10 @@ EOF
   fi
 fi
 
+else
+  echo "[startup] light mode: skipped briefs, primitives, daemon, flights, questions, tickles, inbox, workdir, .koad-io/, destinations" >&2
+fi # end light mode skip
+
 printf '\n---\n\n'
 
 # --- Layer 1: Kingdom ---
@@ -435,8 +451,13 @@ fi
 # that directory. Rooted entities never read their own PRIMER (they wrote
 # the sign). Roaming entities read the PRIMER of wherever they've been
 # sent — that's the whole point of roaming.
+#
+# In light mode the conversation dispatcher provides its own topic PRIMER, so
+# loading the location PRIMER is redundant and skipped.
 
-if [ "${KOAD_IO_ROOTED:-}" = "true" ]; then
+if [ "$_LIGHT_MODE" = "1" ]; then
+  echo "[startup] primer: skipped (light mode)" >&2
+elif [ "${KOAD_IO_ROOTED:-}" = "true" ]; then
   echo "[startup] primer: skipped (rooted entity — CWD primers don't apply)" >&2
 else
   PRIMER_FILE=""
