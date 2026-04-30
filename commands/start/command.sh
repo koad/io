@@ -114,8 +114,8 @@ else
     LOGDIR="$DATADIR/builds/latest"
 fi
 
-# Check if already running — screen first, then port
-if screen -list | grep -q "$SCREEN_NAME"; then
+# Check if already running — screen first (skip for --local), then port
+if [[ "$LOCAL_BUILD" != "true" ]] && screen -list | grep -q "$SCREEN_NAME"; then
     echo "Already running: screen -r $SCREEN_NAME"
     echo "Tail log: tail -f $LOGDIR/*.log"
     koad_io_emit_close "start: already running (screen $SCREEN_NAME)"
@@ -177,9 +177,16 @@ elif [[ -f ./src/.meteor/release ]]; then
 
     cd $PWD/src
     meteor npm install
-    $SCREEN_CMD "$SCREEN_NAME" bash -c "cd \"$PWD\" && meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
-    [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME" && echo "Tail log: tail -f $LOGFILE"
-    koad_io_emit_update "started dev on :$KOAD_IO_PORT (screen $SCREEN_NAME)"
+
+    if [[ "$LOCAL_BUILD" == "true" ]]; then
+      # --local: run directly in the foreground, no screen
+      koad_io_emit_update "started dev (foreground) on :$KOAD_IO_PORT"
+      exec meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee "$LOGFILE"
+    else
+      $SCREEN_CMD "$SCREEN_NAME" bash -c "cd \"$PWD\" && meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
+      [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME" && echo "Tail log: tail -f $LOGFILE"
+      koad_io_emit_update "started dev on :$KOAD_IO_PORT (screen $SCREEN_NAME)"
+    fi
 
 else
     echo -e "\033[31mkoad/io application not found.\033[0m"
