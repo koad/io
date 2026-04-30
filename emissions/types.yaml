@@ -1,0 +1,25 @@
+# Framework emission type declarations
+# Loaded by the daemon on startup and on POST /api/emissions/types/reload
+# Schema: ~/.koad-io/daemon/src/server/emission-type-registry.js (per VESTA-SPEC-141 v1.3)
+#
+# Naming convention (per Copia's 2026-04-30 ruling):
+#   colons (:) — accounting / category hierarchy (e.g. expenses:ai:adas)
+#   dots (.)   — operational events (e.g. flight.landed, learner.returned)
+#
+# Framework-level types: lifecycle and infrastructure events emitted by the daemon
+# and core helpers. Add new types here as they emerge organically.
+
+emits:
+  - name: service
+    description: "Lifecycle event from a framework service (daemon, hook, scanner, helper). Used for stale-checks, lifecycle transitions, and substrate health."
+    meta_schema:
+      service: string  # service name (e.g. "session-scanner", "indexer-registry", "trigger-runner")
+      action: string   # what happened (e.g. "stale-check", "reload", "started", "stopped", "error")
+      detail: string   # optional human-readable detail
+    example:
+      entity: koad-io
+      type: service
+      body: "stale check: 0 sessions marked inactive"
+      meta: { service: session-scanner, action: stale-check }
+
+listens: []
