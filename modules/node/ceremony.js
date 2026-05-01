@@ -24,7 +24,7 @@
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
-import { entropyToMnemonic, mnemonicToEntropy, validateMnemonic, generateMnemonic } from '@scure/bip39';
+import { entropyToMnemonic, mnemonicToEntropy, mnemonicToSeedSync, validateMnemonic, generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 
 const EdDSAPair = require('kbpgp/lib/ecc/eddsa').Pair;
@@ -116,6 +116,47 @@ export function entropyToMnemonicString(entropy) {
 export function mnemonicToSeed(mnemonic) {
   const entropy = mnemonicToEntropy(mnemonic, wordlist);
   return Buffer.from(entropy);
+}
+
+/**
+ * Derive a 32-byte seed from a BIP39 mnemonic using the standard PBKDF2 path.
+ *
+ * This is the BIP39 spec-compliant derivation: seed = PBKDF2-HMAC-SHA512(
+ *   password  = NFKD(mnemonic),
+ *   salt      = "mnemonic" + NFKD(passphrase),
+ *   rounds    = 2048,
+ *   keylen    = 64 bytes
+ * )
+ * The first 32 bytes of that output are returned as the Ed25519 seed (since
+ * kbnacl.genFromSeed() requires exactly 32 bytes).
+ *
+ * Use this when the caller provides a --bip39-passphrase. Without a passphrase,
+ * mnemonicToSeed() (raw-entropy path) produces a different key than this function
+ * with passphrase=''. The two paths are intentionally distinct: raw-entropy is
+ * used for the genesis key (backward-compat), PBKDF2 is used when a passphrase
+ * guard is explicitly requested.
+ *
+ * WARNING: a key derived with mnemonicToSeedBip39(mnemonic, '') will NOT match
+ * a key derived with mnemonicToSeed(mnemonic). Use consistently within one
+ * identity's lifecycle. The ceremony command signals which path to use via the
+ * presence or absence of --bip39-passphrase.
+ *
+ * @param {string} mnemonic - space-separated BIP39 mnemonic (24 words)
+ * @param {string} [passphrase=''] - optional passphrase (BIP39 §5)
+ * @returns {Buffer} 32-byte seed (first 32 bytes of 64-byte PBKDF2 output)
+ */
+export function mnemonicToSeedBip39(mnemonic, passphrase = '') {
+  if (typeof mnemonic !== 'string' || !mnemonic.trim()) {
+    throw new Error('[koad/ceremony] mnemonicToSeedBip39: mnemonic must be a non-empty string');
+  }
+  if (typeof passphrase !== 'string') {
+    throw new Error('[koad/ceremony] mnemonicToSeedBip39: passphrase must be a string (use empty string for no passphrase)');
+  }
+  // @scure/bip39 mnemonicToSeedSync applies NFKD normalization and PBKDF2-HMAC-SHA512
+  // exactly per BIP39 §5: salt = "mnemonic" + passphrase, 2048 rounds, 64-byte output.
+  const seed64 = mnemonicToSeedSync(mnemonic, passphrase);
+  // Take first 32 bytes for Ed25519 seed input (kbnacl.genFromSeed requires 32 bytes)
+  return Buffer.from(seed64.slice(0, 32));
 }
 
 /**

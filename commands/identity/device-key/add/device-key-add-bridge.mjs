@@ -49,7 +49,7 @@ try {
 const { buildLeafAuthorize, wrapEntry, signEntry, computeCID } = sigchainMod;
 const { createKoadIdentity } = identityMod;
 const {
-  isValidMnemonic, mnemonicToSeed, buildMasterKeyManager, buildLeafKeyManager,
+  isValidMnemonic, mnemonicToSeed, mnemonicToSeedBip39, buildMasterKeyManager, buildLeafKeyManager,
   extractKMInfo, generateDeviceKey, encryptLeafForStorage, decryptLeafFromStorage,
 } = ceremonyMod;
 
@@ -136,11 +136,18 @@ if (mnemonicEnv) {
     process.exit(1);
   }
 
+  // Derive seed: PBKDF2 path when --bip39-passphrase provided, raw-entropy otherwise.
+  // These two paths produce different keys for the same mnemonic — by design.
+  // The identity.json masterFingerprint was generated at genesis time and determines
+  // which path is expected here. If the fingerprint doesn't match, the wrong path or
+  // passphrase was used.
+  let seed;
   if (bip39Passphrase) {
-    console.error('[device-key-add] NOTE: --bip39-passphrase accepted but not yet applied (ceremony.js uses raw-entropy path)');
+    console.error(`[device-key-add] Deriving seed via BIP39 PBKDF2 path (passphrase provided)...`);
+    seed = mnemonicToSeedBip39(mnemonicEnv.trim(), bip39Passphrase);
+  } else {
+    seed = mnemonicToSeed(mnemonicEnv.trim());
   }
-
-  const seed = mnemonicToSeed(mnemonicEnv.trim());
   const userid = `${entity} <${entity}@kingofalldata.com>`;
   const masterKM = await buildMasterKeyManager(seed, userid);
   const { fingerprint: reconFP } = await extractKMInfo(masterKM);
