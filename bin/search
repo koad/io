@@ -261,7 +261,7 @@ _query_files_in_dir() {
 _op_dirs=(
   briefs memories tickler horizons trust/bonds commands hooks skills
   destinations control ARCHITECTURE PROJECTS assessments reports
-  heals reviews specs posts queues
+  heals reviews specs posts queues docs documentation
 )
 
 _op_files=(ENTITY.md PRIMER.md OPERATIONS.md GOVERNANCE.md TEAM_STRUCTURE.md BUSINESS_MODEL.md)
