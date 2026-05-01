@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# koad-io identity — entity identity lifecycle commands (VESTA-SPEC-149)
+# koad-io identity — entity identity lifecycle commands (VESTA-SPEC-149, SPEC-150)
 #
 # Subcommands:
-#   init   — generate a fresh entity identity (BIP39 master + device leaf)
+#   init    — generate a fresh entity identity (BIP39 master + device leaf)
+#   submit  — publish sigchain to IPFS + anchor on-chain (SPEC-150)
+#   verify  — verify sigchain integrity (SPEC-111 + SPEC-150)
 #
 # Usage:
 #   koad-io identity init [--entity <name>] [--mnemonic <phrase>] [--dry-run]
+#   koad-io identity submit [--entity <name>] [--dry-run] [--anchor-chain cdn]
+#   koad-io identity verify [--entity <name>] [--verbose]
 
 set -euo pipefail
 
@@ -21,6 +25,8 @@ if [ -z "$SUBCMD" ]; then
   echo "" >&2
   echo "Subcommands:" >&2
   echo "  init    Generate a fresh entity identity (BIP39 master + device leaf)" >&2
+  echo "  submit  Publish sigchain to IPFS + notify Vesta + optional chain anchor" >&2
+  echo "  verify  Verify sigchain integrity (signatures, CID links, Vesta consistency)" >&2
   echo "" >&2
   source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint
   exit 0
