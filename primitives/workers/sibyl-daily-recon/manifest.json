@@ -1,0 +1,12 @@
+{
+  "name": "sibyl-daily-recon",
+  "kind": "worker",
+  "version": "1.0.0",
+  "description": "Runs Sibyl's daily intelligence recon sweep via hooks/daily-recon.sh. M-F at 09:00 local. Emits a service lifecycle around each run.",
+  "roles": ["researcher"],
+  "requires": [],
+  "tags": ["research", "recon", "intelligence", "daily"],
+  "interval": 1440,
+  "delay": 0,
+  "runImmediately": false
+}

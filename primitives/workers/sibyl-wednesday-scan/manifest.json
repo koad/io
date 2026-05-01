@@ -1,0 +1,12 @@
+{
+  "name": "sibyl-wednesday-scan",
+  "kind": "worker",
+  "version": "1.0.0",
+  "description": "Runs Sibyl's weekly Wednesday research scan via hooks/wednesday-scan.sh. Every Wednesday at 10:00 local. Emits a service lifecycle around each run.",
+  "roles": ["researcher"],
+  "requires": [],
+  "tags": ["research", "scan", "wednesday", "intelligence"],
+  "interval": 10080,
+  "delay": 0,
+  "runImmediately": false
+}
