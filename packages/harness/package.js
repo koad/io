@@ -52,6 +52,11 @@ Package.onUse(function (api) {
   // Loads after UserMemories collection (declared above).
   api.addFiles('server/memory-store.js', 'server');
 
+  // VESTA-SPEC-134: Phase 6 (real IPFS backend — replaces MockIPFS when configured)
+  // Loads after memory-store.js so it can override KoadMemoryStoreIPFS at startup.
+  // No-op when KOAD_IO_IPFS_API_URL is not set (MockIPFS stays active).
+  api.addFiles('server/ipfs-backend.js', 'server');
+
   // VESTA-SPEC-134: Phase 3 — signal extraction + FORGET resolver
   api.addFiles('server/pipeline/memory-signal-parser.js', 'server');
   api.addFiles('server/pipeline/forget-resolver.js', 'server');
