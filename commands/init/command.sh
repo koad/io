@@ -31,7 +31,40 @@ else
 fi
 
 [ ! -d "$WORKING_DIRECTORY" ] && echo "directory does not exist: $WORKING_DIRECTORY" && exit 64
-[ ! -f "$WORKING_DIRECTORY/.env" ] && echo "Error: .env file not found in $WORKING_DIRECTORY" && exit 64
+
+# Scaffold .env from kingdom defaults if missing — entity repos don't ship their .env.
+# Convention: ENTITY+ENTITY_DIR identity vars, git authorship, emit gate.
+# Domain comes from KOAD_IO_KINGDOM_DOMAIN (default: koad.io).
+if [ ! -f "$WORKING_DIRECTORY/.env" ]; then
+    # Derive entity name (same logic as below — uses arg or basename)
+    if [ -z "$1" ]; then
+        SCAFFOLD_ENTITY=$(basename "$WORKING_DIRECTORY")
+        SCAFFOLD_ENTITY=${SCAFFOLD_ENTITY#.}
+    else
+        SCAFFOLD_ENTITY="$1"
+    fi
+    SCAFFOLD_DOMAIN="${KOAD_IO_KINGDOM_DOMAIN:-koad.io}"
+    SCAFFOLD_DISPLAY="$(echo "${SCAFFOLD_ENTITY:0:1}" | tr '[:lower:]' '[:upper:]')${SCAFFOLD_ENTITY:1}"
+
+    echo ".env missing — scaffolding from kingdom defaults"
+    cat > "$WORKING_DIRECTORY/.env" << ENVEOF
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Entity .env — scaffolded by koad-io init from kingdom defaults.
+# Tune these for the specific entity; commit to entity repo if desired.
+
+ENTITY=$SCAFFOLD_ENTITY
+ENTITY_DIR=\$HOME/.$SCAFFOLD_ENTITY
+ENTITY_HOME=\$HOME/.$SCAFFOLD_ENTITY
+
+GIT_AUTHOR_NAME=$SCAFFOLD_DISPLAY
+GIT_AUTHOR_EMAIL=$SCAFFOLD_ENTITY@$SCAFFOLD_DOMAIN
+GIT_COMMITTER_NAME=$SCAFFOLD_DISPLAY
+GIT_COMMITTER_EMAIL=$SCAFFOLD_ENTITY@$SCAFFOLD_DOMAIN
+
+KOAD_IO_EMIT=1
+ENVEOF
+    echo "wrote: $WORKING_DIRECTORY/.env"
+fi
 
 # Call the function with the directory and any additional arguments
 check_entity_folders "$WORKING_DIRECTORY" "$@"
