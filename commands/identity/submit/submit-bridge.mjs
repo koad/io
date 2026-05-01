@@ -55,7 +55,7 @@ const { buildIdentityGenesis, buildLeafAuthorize, wrapEntry, signEntry, computeC
 const { createKoadIdentity } = identityMod;
 const { buildHeadSubmission } = submissionMod;
 const { writeIdentityRegistry } = writerMod;
-const { decryptLeafFromStorage } = ceremonyMod;
+const { decryptLeafFromStorage, mnemonicToSeedBip39 } = ceremonyMod;
 
 // ---------------------------------------------------------------------------
 // Read environment config
@@ -241,14 +241,19 @@ if (existingTip) {
         process.exit(1);
       }
 
-      // NOTE: ceremony.js mnemonicToSeed uses raw entropy path (not PBKDF2).
-      // The --bip39-passphrase flag is accepted for forward-compatibility but has
-      // no effect until ceremony.js implements the PBKDF2 path. Document this.
+      // Derive seed: PBKDF2 path when --bip39-passphrase provided, raw-entropy otherwise.
+      // These two paths produce different keys for the same mnemonic — by design.
+      // The identity.json masterFingerprint was written at genesis time and determines
+      // which path is expected here. If the fingerprint doesn't match, the wrong path
+      // or wrong passphrase was used. (Mirrors device-key-add-bridge.mjs §2 logic.)
+      let seed;
       if (bip39Passphrase) {
-        console.error('[identity-submit] NOTE: --bip39-passphrase accepted but not yet applied (ceremony.js uses raw-entropy path; PBKDF2 path is a future spec update)');
+        console.error('[identity-submit] Deriving seed via BIP39 PBKDF2 path (passphrase provided)...');
+        seed = mnemonicToSeedBip39(mnemonicEnv.trim(), bip39Passphrase);
+      } else {
+        // Raw-entropy path (backward-compat; used when no passphrase guard requested)
+        seed = mnemonicToSeed(mnemonicEnv.trim());
       }
-
-      const seed = mnemonicToSeed(mnemonicEnv.trim());
       const userid = `${entity} <${entity}@kingofalldata.com>`;
       masterKMForSigning = await buildMasterKeyManager(seed, userid);
       const { fingerprint: reconFP } = await extractKMInfo(masterKMForSigning);
