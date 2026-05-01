@@ -24,10 +24,16 @@
 #   koad-io identity submit --entity <name> --ipfs-api http://127.0.0.1:5001
 #   koad-io identity submit --entity <name> --anchor-chain cdn
 #   koad-io identity submit --entity <name> --verify-after
+#   koad-io identity submit --entity <name> --mnemonic=<24-words-or-path>
 #
 # Flags:
 #   --entity=<name>            Entity handle. Defaults to $ENTITY env or current dir name.
 #   --passphrase=<phrase>      Leaf decryption passphrase (Path A). Reads device.key by default.
+#   --mnemonic=<phrase|path>   BIP39 mnemonic for master-signed genesis (SPEC-149 §6 compliance).
+#                              Accepts the 24 words inline OR a file path containing them.
+#                              When provided: genesis + leaf-authorize are signed by master (spec-compliant).
+#                              When absent: leaf-signed with a warning (test/dev posture only).
+#   --bip39-passphrase=<p>     BIP39 passphrase for mnemonic derivation (optional; default: empty).
 #   --ipfs-api=<url>           IPFS HTTP API URL (default: http://127.0.0.1:5001).
 #   --anchor-chain=<ticker>    Anchor sigchain tip on-chain (cdn, btc, doge). Optional.
 #   --anchor-key=<path>        Path to chain wallet key file (required if --anchor-chain set).
@@ -47,6 +53,8 @@ BRIDGE_SCRIPT="$SUBMIT_DIR/submit-bridge.mjs"
 
 ENTITY_ARG=""
 PASSPHRASE_ARG=""
+MNEMONIC_ARG=""
+BIP39_PASSPHRASE_ARG=""
 IPFS_API_ARG="http://127.0.0.1:5001"
 ANCHOR_CHAIN_ARG=""
 ANCHOR_KEY_ARG=""
@@ -57,15 +65,17 @@ NO_VESTA_WRITE_FLAG="false"
 
 for arg in "$@"; do
   case "$arg" in
-    --entity=*)          ENTITY_ARG="${arg#--entity=}"          ;;
-    --passphrase=*)      PASSPHRASE_ARG="${arg#--passphrase=}"   ;;
-    --ipfs-api=*)        IPFS_API_ARG="${arg#--ipfs-api=}"       ;;
-    --anchor-chain=*)    ANCHOR_CHAIN_ARG="${arg#--anchor-chain=}" ;;
-    --anchor-key=*)      ANCHOR_KEY_ARG="${arg#--anchor-key=}"   ;;
-    --vesta-url=*)       VESTA_URL_ARG="${arg#--vesta-url=}"     ;;
-    --dry-run)           DRY_RUN_FLAG="true"                     ;;
-    --verify-after)      VERIFY_AFTER_FLAG="true"                ;;
-    --no-vesta-write)    NO_VESTA_WRITE_FLAG="true"              ;;
+    --entity=*)            ENTITY_ARG="${arg#--entity=}"              ;;
+    --passphrase=*)        PASSPHRASE_ARG="${arg#--passphrase=}"       ;;
+    --mnemonic=*)          MNEMONIC_ARG="${arg#--mnemonic=}"           ;;
+    --bip39-passphrase=*)  BIP39_PASSPHRASE_ARG="${arg#--bip39-passphrase=}" ;;
+    --ipfs-api=*)          IPFS_API_ARG="${arg#--ipfs-api=}"           ;;
+    --anchor-chain=*)      ANCHOR_CHAIN_ARG="${arg#--anchor-chain=}"   ;;
+    --anchor-key=*)        ANCHOR_KEY_ARG="${arg#--anchor-key=}"       ;;
+    --vesta-url=*)         VESTA_URL_ARG="${arg#--vesta-url=}"         ;;
+    --dry-run)             DRY_RUN_FLAG="true"                         ;;
+    --verify-after)        VERIFY_AFTER_FLAG="true"                    ;;
+    --no-vesta-write)      NO_VESTA_WRITE_FLAG="true"                  ;;
     --help|-h)
       grep '^#' "$0" | head -40 | sed 's/^# \{0,1\}//'
       exit 0
@@ -132,6 +142,21 @@ if [ "${NODE_MAJOR:-0}" -lt 18 ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Resolve mnemonic: inline phrase or path to file containing one
+# ---------------------------------------------------------------------------
+
+RESOLVED_MNEMONIC=""
+if [ -n "$MNEMONIC_ARG" ]; then
+  if [ -f "$MNEMONIC_ARG" ]; then
+    # Treat as file path
+    RESOLVED_MNEMONIC="$(cat "$MNEMONIC_ARG")"
+  else
+    # Treat as inline phrase
+    RESOLVED_MNEMONIC="$MNEMONIC_ARG"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Validate anchor-chain usage
 # ---------------------------------------------------------------------------
 
@@ -147,6 +172,8 @@ fi
 
 export KOAD_IO_SUBMIT_ENTITY="$RESOLVED_ENTITY"
 export KOAD_IO_SUBMIT_PASSPHRASE="$PASSPHRASE_ARG"
+export KOAD_IO_SUBMIT_MNEMONIC="$RESOLVED_MNEMONIC"
+export KOAD_IO_SUBMIT_BIP39_PASSPHRASE="$BIP39_PASSPHRASE_ARG"
 export KOAD_IO_SUBMIT_IPFS_API="$IPFS_API_ARG"
 export KOAD_IO_SUBMIT_ANCHOR_CHAIN="$ANCHOR_CHAIN_ARG"
 export KOAD_IO_SUBMIT_ANCHOR_KEY="$ANCHOR_KEY_ARG"
@@ -184,14 +211,17 @@ _KOAD_IO_COMMAND_HELP() {
   echo "identity submit — publish entity sigchain to IPFS (VESTA-SPEC-150)"
   echo ""
   echo "Flags:"
-  echo "  --entity=<name>         Entity handle (default: \$ENTITY or current dir name)"
-  echo "  --passphrase=<phrase>   Leaf key passphrase (Path A; default: reads device.key)"
-  echo "  --ipfs-api=<url>        IPFS HTTP API (default: http://127.0.0.1:5001)"
-  echo "  --anchor-chain=<ticker> Anchor on-chain: cdn, btc, doge (optional)"
-  echo "  --anchor-key=<path>     Chain wallet key path (required if --anchor-chain set)"
-  echo "  --vesta-url=<url>       Vesta HTTP endpoint to notify (optional)"
-  echo "  --dry-run               Build entries, do not pin or anchor"
-  echo "  --verify-after          Run identity verify after submission"
-  echo "  --no-vesta-write        Skip local ~/.vesta/ registry write"
+  echo "  --entity=<name>            Entity handle (default: \$ENTITY or current dir name)"
+  echo "  --passphrase=<phrase>      Leaf key passphrase (Path A; default: reads device.key)"
+  echo "  --mnemonic=<phrase|path>   BIP39 mnemonic for master-signed genesis (SPEC-149 §6)"
+  echo "                             Accepts inline phrase OR file path containing mnemonic."
+  echo "  --bip39-passphrase=<p>     BIP39 passphrase (optional; default: empty)"
+  echo "  --ipfs-api=<url>           IPFS HTTP API (default: http://127.0.0.1:5001)"
+  echo "  --anchor-chain=<ticker>    Anchor on-chain: cdn, btc, doge (optional)"
+  echo "  --anchor-key=<path>        Chain wallet key path (required if --anchor-chain set)"
+  echo "  --vesta-url=<url>          Vesta HTTP endpoint to notify (optional)"
+  echo "  --dry-run                  Build entries, do not pin or anchor"
+  echo "  --verify-after             Run identity verify after submission"
+  echo "  --no-vesta-write           Skip local ~/.vesta/ registry write"
 }
 source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint

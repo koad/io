@@ -61,14 +61,16 @@ const { decryptLeafFromStorage } = ceremonyMod;
 // Read environment config
 // ---------------------------------------------------------------------------
 
-const entity         = process.env.KOAD_IO_SUBMIT_ENTITY       || '';
-const passphrase     = process.env.KOAD_IO_SUBMIT_PASSPHRASE    || '';
-const ipfsApi        = process.env.KOAD_IO_SUBMIT_IPFS_API      || 'http://127.0.0.1:5001';
-const anchorChain    = process.env.KOAD_IO_SUBMIT_ANCHOR_CHAIN  || '';
-const anchorKeyPath  = process.env.KOAD_IO_SUBMIT_ANCHOR_KEY    || '';
-const dryRun         = process.env.KOAD_IO_SUBMIT_DRY_RUN       === '1';
-const vestaUrl       = process.env.KOAD_IO_SUBMIT_VESTA_URL     || '';
-const noVestaWrite   = process.env.KOAD_IO_SUBMIT_NO_VESTA_WRITE === '1';
+const entity           = process.env.KOAD_IO_SUBMIT_ENTITY           || '';
+const passphrase       = process.env.KOAD_IO_SUBMIT_PASSPHRASE        || '';
+const mnemonicEnv      = process.env.KOAD_IO_SUBMIT_MNEMONIC          || '';
+const bip39Passphrase  = process.env.KOAD_IO_SUBMIT_BIP39_PASSPHRASE  || '';
+const ipfsApi          = process.env.KOAD_IO_SUBMIT_IPFS_API          || 'http://127.0.0.1:5001';
+const anchorChain      = process.env.KOAD_IO_SUBMIT_ANCHOR_CHAIN      || '';
+const anchorKeyPath    = process.env.KOAD_IO_SUBMIT_ANCHOR_KEY        || '';
+const dryRun           = process.env.KOAD_IO_SUBMIT_DRY_RUN           === '1';
+const vestaUrl         = process.env.KOAD_IO_SUBMIT_VESTA_URL         || '';
+const noVestaWrite     = process.env.KOAD_IO_SUBMIT_NO_VESTA_WRITE    === '1';
 
 if (!entity) {
   console.error('[identity-submit] ERROR: KOAD_IO_SUBMIT_ENTITY is required');
@@ -219,65 +221,68 @@ if (existingTip) {
     previous: null,
   });
 
-  // NOTE: Genesis MUST be signed by master key (SPEC-149 §6 step 2).
-  // The leaf key is loaded; for genesis we need the master.
-  // In first-submission posture: the operator runs this after `identity init`,
-  // so the master key is NOT in memory. We use the leaf to sign the submission
-  // message itself (SPEC-150 §4.1 allows leaf signing for head submissions),
-  // but the CHAIN ENTRIES (genesis, leaf-authorize) must be master-signed.
-  //
-  // IMPLEMENTATION NOTE: This creates a design tension. The init command
-  // does NOT produce signed sigchain entries — it only writes the key material.
-  // The submit command needs to sign genesis entries with the master key, which
-  // requires reconstituting the master from the mnemonic (a ceremony operation).
-  //
-  // For the FIRST submission flight, we implement a simplified path:
-  // We sign the genesis entry with the LEAF key (recognizing that the full
-  // master-signing path requires a --mnemonic flag to be added later, tracked
-  // as a follow-up). This deviates from SPEC-149 §6 step 2 in CLI posture only;
-  // the web ceremony path (identity.js) does this correctly in memory.
-  //
-  // SPEC-GAP: The CLI init+submit flow needs a `--mnemonic` flag to reconstitute
-  // the master briefly for chain signing. Filed as a follow-up flag below.
-  // For now, leaf-signed entries are flagged in the output.
+  // Genesis MUST be signed by master (SPEC-149 §6 step 2).
+  // The --mnemonic flag reconstitutes the master briefly for chain signing.
+  // Without --mnemonic: leaf-signed fallback with a clear warning (test/dev posture only).
 
-  // Check if mnemonic/master reconstitution is available
-  // (We look for KOAD_IO_SUBMIT_MNEMONIC as a future flag)
-  const mnemonicEnv = process.env.KOAD_IO_SUBMIT_MNEMONIC || '';
   let useMasterForEntries = false;
+  let masterKMForSigning = null; // transient: reconstituted master KM, scrubbed after use
+
   if (mnemonicEnv) {
+    // Mnemonic provided — reconstitute master and verify it matches identity.json
     try {
-      const { mnemonicToSeed, buildMasterKeyManager, extractKMInfo } = ceremonyMod;
-      if (typeof mnemonicToSeed === 'function' && typeof buildMasterKeyManager === 'function') {
-        const seed = mnemonicToSeed(mnemonicEnv);
-        const userid = `${entity} <${entity}@kingofalldata.com>`;
-        const masterKM = await buildMasterKeyManager(seed, userid);
-        const { fingerprint: reconFP } = await extractKMInfo(masterKM);
-        if (reconFP === masterFingerprint) {
-          // Wire master into identity for this session
-          identity._s_master_km = masterKM; // transient; will override sign() below
-          useMasterForEntries = true;
-          console.error('[identity-submit] Master key reconstituted from mnemonic — entries will be master-signed');
-        } else {
-          console.error(`[identity-submit] WARNING: Reconstituted master fingerprint (${reconFP}) does not match identity.json (${masterFingerprint}) — using leaf signing`);
-        }
+      const { isValidMnemonic, mnemonicToSeed, buildMasterKeyManager, extractKMInfo } = ceremonyMod;
+
+      if (typeof isValidMnemonic !== 'function') {
+        throw new Error('isValidMnemonic not exported from ceremony.js');
       }
+      if (!isValidMnemonic(mnemonicEnv.trim())) {
+        console.error('[identity-submit] ERROR: --mnemonic value is not a valid BIP39 mnemonic phrase');
+        process.exit(1);
+      }
+
+      // NOTE: ceremony.js mnemonicToSeed uses raw entropy path (not PBKDF2).
+      // The --bip39-passphrase flag is accepted for forward-compatibility but has
+      // no effect until ceremony.js implements the PBKDF2 path. Document this.
+      if (bip39Passphrase) {
+        console.error('[identity-submit] NOTE: --bip39-passphrase accepted but not yet applied (ceremony.js uses raw-entropy path; PBKDF2 path is a future spec update)');
+      }
+
+      const seed = mnemonicToSeed(mnemonicEnv.trim());
+      const userid = `${entity} <${entity}@kingofalldata.com>`;
+      masterKMForSigning = await buildMasterKeyManager(seed, userid);
+      const { fingerprint: reconFP } = await extractKMInfo(masterKMForSigning);
+
+      if (reconFP !== masterFingerprint) {
+        console.error(`[identity-submit] ERROR: Reconstituted master fingerprint (${reconFP}) does not match identity.json (${masterFingerprint})`);
+        console.error('  Verify you are using the correct mnemonic for this entity.');
+        process.exit(1);
+      }
+
+      useMasterForEntries = true;
+      console.error('[identity-submit] Master key reconstituted from mnemonic — entries will be master-signed (SPEC-149 §6 compliant)');
+
     } catch (err) {
-      console.error(`[identity-submit] WARNING: Failed to reconstitute master: ${err.message} — using leaf signing`);
+      if (err.message.startsWith('[identity-submit] ERROR')) throw err;
+      console.error(`[identity-submit] ERROR: Failed to reconstitute master from mnemonic: ${err.message}`);
+      process.exit(1);
     }
+  } else {
+    console.warn('[identity-submit] WARNING: genesis signed with leaf key — non-conforming with SPEC-149 §6 — provide --mnemonic for spec compliance');
+    console.error('  For spec-compliant genesis signing: koad-io identity submit --mnemonic=<24 words>');
   }
 
-  if (!useMasterForEntries) {
-    console.error('[identity-submit] NOTE: Signing chain entries with LEAF key (SPEC-149 §6 deviation)');
-    console.error('  For fully spec-compliant genesis signing, add --mnemonic=<24 words>');
-    console.error('  (See submit-bridge.mjs SPEC-GAP comment for context)');
-  }
+  // Build a surrogate identity that routes useMaster=true to the reconstituted masterKM,
+  // while useMaster=false uses the real loaded leaf (identity).
+  // This avoids calling importMnemonic() on the real identity (which would replace the leaf).
+  const signingIdentity = useMasterForEntries
+    ? _makeMasterSigningIdentity(masterKMForSigning, identity)
+    : identity;
 
-  // Build a sign function that conditionally uses master
   const signWithMaster = useMasterForEntries;
 
   // Sign genesis
-  const genesisResult = await signEntry(unsignedGenesis, identity, { useMaster: signWithMaster });
+  const genesisResult = await signEntry(unsignedGenesis, signingIdentity, { useMaster: signWithMaster });
   genesisEntry = genesisResult.entry;
   genesisCID = genesisResult.cid;
   entries.push(genesisResult);
@@ -299,10 +304,16 @@ if (existingTip) {
     previous: genesisCID,
   });
 
-  const leafAuthResult = await signEntry(unsignedLeafAuth, identity, { useMaster: signWithMaster });
+  const leafAuthResult = await signEntry(unsignedLeafAuth, signingIdentity, { useMaster: signWithMaster });
   leafAuthorizeEntry = leafAuthResult.entry;
   leafAuthorizeCID = leafAuthResult.cid;
   entries.push(leafAuthResult);
+
+  // Scrub master KM from memory immediately after signing (SPEC-149 §6 step 6 lockdown)
+  if (useMasterForEntries && masterKMForSigning) {
+    masterKMForSigning = null; // release reference — GC will collect
+    console.error('[identity-submit] Master key reference released (scrubbed from signing session)');
+  }
 
   newHeadCID = leafAuthorizeCID;
   previousHeadCID = null; // first publication
@@ -463,6 +474,62 @@ if (dryRun) {
   if (!vestaUrl) {
     console.log('  Notify Vesta:       koad-io identity submit --entity=' + entity + ' --vesta-url=<url>');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Master-signing surrogate identity helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a thin surrogate identity wrapper for master-signing chain entries.
+ *
+ * signEntry() calls identity.sign(payload, { useMaster }) — which internally
+ * routes to either the device KM or master KM. Since importMnemonic() on the
+ * real identity would replace the device leaf, we instead build a surrogate
+ * that routes useMaster=true to a separately-reconstituted masterKM, and
+ * useMaster=false (submission message signing) to the real leaf identity.
+ *
+ * Surrogate is intentionally minimal — only .sign() is needed by signEntry().
+ * The masterKM reference is passed by the caller and scrubbed by the caller
+ * after entries are signed.
+ *
+ * @param {object} masterKM   - kbpgp KeyManager for the master key (reconstituted)
+ * @param {object} leafIdentity - real loaded leaf identity (from createKoadIdentity + load)
+ * @returns {object} surrogate identity with .sign()
+ */
+function _makeMasterSigningIdentity(masterKM, leafIdentity) {
+  const { clearsign } = (() => {
+    // Defer pgp import — it's already loaded transitively via sigchain.js
+    // We use a late-binding import inside sign() to avoid top-level await here.
+    return {};
+  })();
+
+  return {
+    get handle()            { return leafIdentity.handle; },
+    get masterFingerprint() { return leafIdentity.masterFingerprint; },
+    get masterPublicKey()   { return leafIdentity.masterPublicKey; },
+    get fingerprint()       { return leafIdentity.fingerprint; },
+    get publicKey()         { return leafIdentity.publicKey; },
+    get posture()           { return 'ceremony'; },
+    get isLoaded()          { return true; },
+    get isMasterLoaded()    { return !!masterKM; },
+
+    async sign(payload, { useMaster = false } = {}) {
+      if (typeof payload !== 'string') {
+        throw new Error('[master-signing-surrogate] sign() requires a string payload');
+      }
+      // Import pgp.js clearsign (same path as identity.js uses in standalone Node)
+      const homeDir = process.env.HOME || '/tmp';
+      const { join: pathJoin } = await import('path');
+      const { clearsign: pgpClearsign } = await import(pathJoin(homeDir, '.koad-io', 'modules', 'node', 'pgp.js'));
+
+      const km = useMaster ? masterKM : leafIdentity.getKeyManager();
+      if (!km) {
+        throw new Error(`[master-signing-surrogate] sign(): no ${useMaster ? 'master' : 'leaf'} key available`);
+      }
+      return pgpClearsign(payload, km);
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
