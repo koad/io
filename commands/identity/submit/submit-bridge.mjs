@@ -28,7 +28,7 @@
 //   KOAD_IO_SUBMIT_NO_VESTA_WRITE  — '1' = skip local Vesta registry write
 //   HOME                           — used to resolve ~/.<entity>/id/
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 // ---------------------------------------------------------------------------
@@ -340,7 +340,17 @@ if (dryRun) {
   console.log(`[DRY RUN] Would submit to Vesta (SPEC-150 §5.1)`);
   console.log(`[DRY RUN] No files written.`);
 } else {
-  // Pin entries to IPFS
+  // Ensure Vesta entry cache directory exists
+  const vestaEntriesDir = join(homeDir, '.vesta', 'entities', entity, 'sigchain', 'entries');
+  if (!noVestaWrite) {
+    try {
+      mkdirSync(vestaEntriesDir, { recursive: true });
+    } catch (err) {
+      console.error(`[identity-submit] WARNING: Could not create entry cache dir at ${vestaEntriesDir}: ${err.message}`);
+    }
+  }
+
+  // Pin entries to IPFS; write local cache after each entry (regardless of pin success)
   for (const { entry, cid } of entries) {
     console.error(`[identity-submit] Pinning entry ${cid} to IPFS...`);
     const pinResult = await pinToIpfs(entry, cid, ipfsApi);
@@ -352,6 +362,18 @@ if (dryRun) {
       console.error(`  Pinned: ${pinResult.cid}`);
     }
     pinnedCIDs[cid] = { ok: pinResult.ok, error: pinResult.error };
+
+    // Write entry cache — always, even if IPFS pin failed.
+    // verify reads from here first; this makes offline verification possible.
+    if (!noVestaWrite && existsSync(vestaEntriesDir)) {
+      const cacheFile = join(vestaEntriesDir, `${cid}.json`);
+      try {
+        writeFileSync(cacheFile, JSON.stringify(entry, null, 2) + '\n', { encoding: 'utf8', mode: 0o644 });
+        console.error(`  Entry cache written: ${cacheFile}`);
+      } catch (err) {
+        console.error(`[identity-submit] WARNING: Could not write entry cache for ${cid}: ${err.message}`);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------

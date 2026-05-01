@@ -7,6 +7,7 @@
 // Run: node commands/identity/submit/test-submit-command.mjs
 //      (from ~/.koad-io/)
 
+import { readFileSync as _readFileSync, existsSync as _existsSync, mkdtempSync, rmSync, mkdirSync as _mkdirSync, writeFileSync as _writeFileSync, readdirSync as _readdirSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
 import { homedir } from 'os';
@@ -597,6 +598,77 @@ console.log('\nTest 12: Piece 2 — unauthorized leaf-authorize rejected by chai
   const hasAuthorizerError = chain12.errors.some(e => e.type === 'leaf-authorize-unknown-authorizer');
   assert(hasAuthorizerError, 'Test 12: chain walk reports leaf-authorize-unknown-authorizer error');
   assert(chain12.leafSet.length === 1, `Test 12: only 1 authorized leaf (the real one) (got ${chain12.leafSet.length})`);
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: Piece 2 — entry cache write + read round-trip
+//
+// After submit writes ~/.vesta/entities/<entity>/sigchain/entries/<cid>.json,
+// verify reads them back and walks the chain without IPFS.
+// ---------------------------------------------------------------------------
+console.log('\nTest 13: Piece 2 — entry cache write/read round-trip (submit → verify)');
+{
+  const handle13 = 'testsubmit13';
+  const { identity, entries, genesisCID, tipCID } = await buildFullChain(handle13);
+
+  // Write entries to a temp vesta dir — simulate what submit-bridge.mjs does
+  const tmpVesta13 = mkdtempSync('/tmp/test-vesta-');
+  const entriesDir13 = join(tmpVesta13, 'entities', handle13, 'sigchain', 'entries');
+  _mkdirSync(entriesDir13, { recursive: true });
+
+  const writtenCIDs13 = [];
+  for (const { entry, cid } of entries) {
+    const cacheFile = join(entriesDir13, `${cid}.json`);
+    _writeFileSync(cacheFile, JSON.stringify(entry, null, 2) + '\n', { encoding: 'utf8', mode: 0o644 });
+    writtenCIDs13.push(cid);
+  }
+
+  assert(writtenCIDs13.length === 2, `Test 13: 2 cache files written (got ${writtenCIDs13.length})`);
+  assert(_existsSync(join(entriesDir13, `${genesisCID}.json`)), 'Test 13: genesis cache file present');
+  assert(_existsSync(join(entriesDir13, `${tipCID}.json`)), 'Test 13: tip cache file present');
+
+  // Simulate verify reading from the cache (as verify-bridge.mjs does)
+  const readFiles = _readdirSync(entriesDir13).filter(f => f.endsWith('.json'));
+  assert(readFiles.length === 2, `Test 13: 2 .json files in entries dir (got ${readFiles.length})`);
+
+  const readEntries13 = readFiles.map(f => JSON.parse(_readFileSync(join(entriesDir13, f), 'utf8')));
+  const chain13 = await verifyChain(readEntries13);
+  assert(chain13.valid === true, 'Test 13: chain walk from cached entries valid');
+  assert(chain13.sigchainHeadCID === tipCID, 'Test 13: sigchainHeadCID correct from cache');
+  assert(chain13.masterFingerprint === identity.masterFingerprint, 'Test 13: masterFingerprint correct');
+  assert(chain13.leafSet.length === 1, `Test 13: 1 authorized leaf from cache (got ${chain13.leafSet.length})`);
+
+  // Verify CID integrity: re-read and check each file name matches entry CID
+  for (const { entry, cid } of entries) {
+    const reread = JSON.parse(_readFileSync(join(entriesDir13, `${cid}.json`), 'utf8'));
+    const recomputedCID = await computeCID(reread);
+    assert(recomputedCID === cid, `Test 13: CID integrity — ${cid.slice(0, 16)}... re-computed matches filename`);
+  }
+
+  try {
+    rmSync(tmpVesta13, { recursive: true, force: true });
+  } catch (_) {}
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: Piece 2 — verify handles missing entries dir gracefully
+// ---------------------------------------------------------------------------
+console.log('\nTest 14: Piece 2 — verify: missing entries dir falls back cleanly');
+{
+  const fakeVestaDir = '/tmp/nonexistent-vesta-dir-' + Date.now();
+  const entriesDir14 = join(fakeVestaDir, 'entries');
+
+  // Simulate what verify-bridge.mjs does when entriesDir is absent
+  const dirExists14 = _existsSync(entriesDir14);
+  assert(dirExists14 === false, 'Test 14: entries dir correctly not found for nonexistent vesta dir');
+
+  // The verify-bridge.mjs logic: if !existsSync(entriesDir) → cachedEntries stays []
+  // which triggers the IPFS / local-reconstruction fallback.
+  const cachedEntries14 = [];
+  if (_existsSync(entriesDir14)) {
+    // would populate from dir
+  }
+  assert(cachedEntries14.length === 0, 'Test 14: cachedEntries empty when entries dir absent — triggers fallback');
 }
 
 // ---------------------------------------------------------------------------

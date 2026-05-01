@@ -905,23 +905,74 @@ else
   fi
 
   # Generate device key (SPEC-163 §4.4)
+  # Delegates to koad-io identity subsystem — no ssh-keygen stubs here.
+  # Branch A (new identity): full identity init (master+leaf+genesis sigchain entry).
+  # Branch B (RETURNING_IDENTITY): device-key add only (extends existing sigchain).
+  #
+  # After either branch the garden always gets the device leaf written to keys/.
   DEVICE_KEY_PATH="$GARDEN_PATH/keys/device.private.asc"
   if [ ! -f "$DEVICE_KEY_PATH" ]; then
-    _step "Generating device key..."
-    # Use ssh-keygen for ed25519 as a practical substitute for SPEC-149 derivation.
-    # Full SPEC-149 BIP39 master+leaf derivation requires the koad:io identity module.
-    # For now: generate an ed25519 key pair; the SPEC-149 ceremony can be run separately
-    # via 'koad-io identity init' to promote to full master+leaf.
-    TEMP_KEY=$(mktemp /tmp/koad-io-key-XXXXXX)
-    trap 'rm -f "$TAINT_RESULT_FILE" "$SIGCHAIN_TIP_FILE" "$KINGDOM_CONFIG_FILE" "$TEMP_KEY" "${TEMP_KEY}.pub"' EXIT
-    ssh-keygen -t ed25519 -f "$TEMP_KEY" \
-      -C "${ENTITY_HANDLE:-operator}@${CONFIG_HANDLE}" \
-      -N "" -q 2>/dev/null
-    cp "$TEMP_KEY" "$DEVICE_KEY_PATH"
-    cp "${TEMP_KEY}.pub" "$GARDEN_PATH/keys/device.pub"
-    chmod 600 "$DEVICE_KEY_PATH"
-    _ok "Device key generated: keys/device.private.asc"
-    _warn "Note: this is a raw Ed25519 key. For full SPEC-149 master+leaf, run: koad-io identity init"
+    if [ "$BOOTSTRAP_TRACK" = "RETURNING_IDENTITY" ] || [ "$EXISTING_IDENTITY" = "true" ]; then
+      # Branch B — existing identity on disk, derive a new device leaf only
+      _step "Existing identity found; deriving device key for this kingdom..."
+      IDENTITY_CMD="$HOME/.koad-io/commands/identity/device-key/add/command.sh"
+      if [ ! -x "$IDENTITY_CMD" ]; then
+        _err "koad-io identity device-key add not found at $IDENTITY_CMD"
+        echo "  Ensure the koad-io identity package is installed." >&2
+        exit 13
+      fi
+      DEVICE_KEY_ADD_ARGS=(
+        "--entity=${ENTITY_HANDLE:-operator}"
+        "--device-name=${CONFIG_HANDLE}"
+        "--no-confirm"
+      )
+      if bash "$IDENTITY_CMD" "${DEVICE_KEY_ADD_ARGS[@]}"; then
+        # Copy the generated leaf into the garden's keys/ directory
+        ENTITY_ID_DIR="$HOME/.${ENTITY_HANDLE:-operator}/id"
+        if [ -f "$ENTITY_ID_DIR/leaf.private.asc" ]; then
+          cp "$ENTITY_ID_DIR/leaf.private.asc" "$DEVICE_KEY_PATH"
+          [ -f "$ENTITY_ID_DIR/device.key" ] && cp "$ENTITY_ID_DIR/device.key" "$GARDEN_PATH/keys/device.key"
+          chmod 600 "$DEVICE_KEY_PATH"
+          _ok "Device leaf derived and written: keys/device.private.asc"
+          _ok "Next step: koad-io identity submit --entity=${ENTITY_HANDLE:-operator} to publish the new leaf"
+        else
+          _warn "device-key add succeeded but leaf.private.asc not found at $ENTITY_ID_DIR/ — check identity dir"
+        fi
+      else
+        _err "koad-io identity device-key add failed (exit $?)"
+        echo "  Try manually: koad-io identity device-key add --entity=${ENTITY_HANDLE:-operator} --device-name=${CONFIG_HANDLE} --mnemonic=<phrase>" >&2
+        exit 13
+      fi
+    else
+      # Branch A — no identity on disk, generate full SPEC-149 master+leaf
+      _step "Generating fresh SPEC-149 identity (master+leaf) for this operator..."
+      IDENTITY_CMD="$HOME/.koad-io/commands/identity/init/command.sh"
+      if [ ! -x "$IDENTITY_CMD" ]; then
+        _err "koad-io identity init not found at $IDENTITY_CMD"
+        echo "  Ensure the koad-io identity package is installed." >&2
+        exit 13
+      fi
+      IDENTITY_INIT_ARGS=(
+        "--entity=${ENTITY_HANDLE:-operator}"
+        "--no-confirm"
+      )
+      if bash "$IDENTITY_CMD" "${IDENTITY_INIT_ARGS[@]}"; then
+        ENTITY_ID_DIR="$HOME/.${ENTITY_HANDLE:-operator}/id"
+        if [ -f "$ENTITY_ID_DIR/leaf.private.asc" ]; then
+          cp "$ENTITY_ID_DIR/leaf.private.asc" "$DEVICE_KEY_PATH"
+          [ -f "$ENTITY_ID_DIR/device.key" ] && cp "$ENTITY_ID_DIR/device.key" "$GARDEN_PATH/keys/device.key"
+          chmod 600 "$DEVICE_KEY_PATH"
+          _ok "Identity generated and device leaf written: keys/device.private.asc"
+          _ok "Next step: koad-io identity submit --entity=${ENTITY_HANDLE:-operator} --mnemonic=<phrase>"
+        else
+          _warn "identity init succeeded but leaf.private.asc not found at $ENTITY_ID_DIR/ — check identity dir"
+        fi
+      else
+        _err "koad-io identity init failed (exit $?)"
+        echo "  Try manually: koad-io identity init --entity=${ENTITY_HANDLE:-operator}" >&2
+        exit 13
+      fi
+    fi
   else
     _ok "Existing device key found at keys/device.private.asc — preserved."
   fi

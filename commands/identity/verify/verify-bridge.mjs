@@ -18,7 +18,7 @@
 //   KOAD_IO_VERIFY_JSON       — '1' = JSON output
 //   HOME                      — used to resolve ~/.<entity>/id/
 
-import { readFileSync, existsSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
 
@@ -156,7 +156,92 @@ if (hasTip) {
   }
 
   // ---------------------------------------------------------------------------
-  // Fallback: reconstruct entries from identity files directly
+  // Fallback A: Fetch entries from IPFS when cache is empty
+  // ---------------------------------------------------------------------------
+
+  if (cachedEntries.length === 0 && hasTip) {
+    if (!jsonOutput) {
+      console.log('\n  No cached entries found. Attempting IPFS fetch for sigchain entries...');
+    }
+
+    const ipfsGateway = process.env.KOAD_IO_IPFS_GATEWAY || 'https://ipfs.io/ipfs';
+    const ipfsTimeout = parseInt(process.env.KOAD_IO_IPFS_TIMEOUT || '20', 10) * 1000;
+
+    /**
+     * Fetch a single CID from IPFS (ipfs CLI or gateway).
+     * Returns the parsed JSON object or null on failure.
+     */
+    async function fetchFromIpfs(cid) {
+      // Try ipfs CLI
+      try {
+        const { execSync } = await import('child_process');
+        const raw = execSync(`ipfs cat ${cid}`, { timeout: ipfsTimeout, stdio: ['ignore', 'pipe', 'ignore'] });
+        return JSON.parse(raw.toString('utf8'));
+      } catch (_) {}
+
+      // Fall back to HTTP gateway
+      if (typeof fetch !== 'undefined') {
+        try {
+          const resp = await Promise.race([
+            fetch(`${ipfsGateway}/${cid}`),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ipfsTimeout)),
+          ]);
+          if (resp && resp.ok) {
+            return await resp.json();
+          }
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    // Walk the chain from the tip, following 'previous' links until we reach genesis.
+    // Each fetched entry is written into the local cache so future verify calls are fast.
+    const fetchedEntries = [];
+    let walkCID = metadata.sigchain_tip_cid;
+    let walkDepth = 0;
+    const MAX_WALK = 256; // safety ceiling against infinite loops
+
+    while (walkCID && walkDepth < MAX_WALK) {
+      walkDepth++;
+      const entryObj = await fetchFromIpfs(walkCID);
+      if (!entryObj) {
+        check(`IPFS fetch for ${walkCID.slice(0, 16)}...`, false, 'not reachable via ipfs CLI or gateway');
+        break;
+      }
+      fetchedEntries.push(entryObj);
+
+      // Write to local cache for next time
+      if (existsSync(join(vestaDir, 'entries')) || (() => {
+        try { mkdirSync(join(vestaDir, 'entries'), { recursive: true }); return true; } catch (_) { return false; }
+      })()) {
+        const cacheFile = join(vestaDir, 'entries', `${walkCID}.json`);
+        try {
+          writeFileSync(cacheFile, JSON.stringify(entryObj, null, 2) + '\n', { encoding: 'utf8', mode: 0o644 });
+          if (verbose && !jsonOutput) {
+            console.log(`    Cached fetched entry: ${walkCID.slice(0, 16)}...`);
+          }
+        } catch (_) {}
+      }
+
+      // Follow previous link
+      const prev = entryObj.previous;
+      if (!prev || prev === null) break; // reached genesis
+      walkCID = prev;
+    }
+
+    if (fetchedEntries.length > 0) {
+      cachedEntries = fetchedEntries;
+      check(`IPFS chain walk fetched ${fetchedEntries.length} entr${fetchedEntries.length === 1 ? 'y' : 'ies'}`, true);
+    } else {
+      // IPFS unavailable — fall through to local key-file reconstruction
+      if (!jsonOutput) {
+        console.log('  IPFS unavailable. Falling back to local key file verification...');
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fallback B: reconstruct entries from identity files directly
   // ---------------------------------------------------------------------------
 
   if (cachedEntries.length === 0) {
