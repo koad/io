@@ -1,5 +1,6 @@
 koad:io-core
 koad:io-worker-processes
+koad:io-merkle-tree
 kingofalldata:brand-components
 templating
 check

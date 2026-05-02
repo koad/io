@@ -13,6 +13,8 @@
 <body>
 	{{#if isOverview}}
 		{{> brandKingdomOverview}}
+	{{else if isMerkle}}
+		{{> MerkleView}}
 	{{else}}
 		{{> WidgetQuickLaunch}}
 	{{/if}}

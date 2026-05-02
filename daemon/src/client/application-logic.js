@@ -1,12 +1,19 @@
 import { Meteor } from 'meteor/meteor';
 
 import { Template } from 'meteor/templating';
+import './merkle.js';
+
 Passengers = new Mongo.Collection('Passengers');
 Alerts = new Mongo.Collection('Alerts');
 
 // Global helper: route /overview to the KingdomOverview template
 Template.registerHelper('isOverview', function () {
   return window.location.pathname === '/overview';
+});
+
+// Global helper: route /merkle to the MerkleView template
+Template.registerHelper('isMerkle', function () {
+  return window.location.pathname === '/merkle';
 });
 Template.WidgetQuickLaunch.onCreated(function() {
   // Subscribe to the 'current' publication

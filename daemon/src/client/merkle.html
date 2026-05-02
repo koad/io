@@ -1,0 +1,88 @@
+<template name="MerkleView">
+  <div class="merkle-view">
+    <header class="merkle-header">
+      <h1>Kingdom Merkle Tree</h1>
+      <p class="merkle-spec-ref">{{specRef}}</p>
+    </header>
+
+    {{#if loading}}
+      <div class="merkle-loading">Building tree state...</div>
+    {{else}}
+      {{#if error}}
+        <div class="merkle-error">{{error}}</div>
+      {{else}}
+
+        <section class="merkle-root-section">
+          <h2>Signed Root</h2>
+          <table class="merkle-root-table">
+            <tbody>
+              <tr><th>Kingdom</th><td>{{kingdom}}</td></tr>
+              <tr><th>Status</th><td class="merkle-status-{{status}}">{{statusLabel}}</td></tr>
+              <tr><th>Root Hash</th><td class="merkle-hash">{{rootDisplay}}</td></tr>
+              <tr><th>Signature</th><td class="merkle-hash">{{signatureDisplay}}</td></tr>
+              <tr><th>Seqno</th><td>{{seqnoDisplay}}</td></tr>
+              <tr><th>Leaf Count</th><td>{{leaf_count}}</td></tr>
+              <tr><th>Timestamp</th><td>{{timestamp}}</td></tr>
+            </tbody>
+          </table>
+          {{#if message}}
+            <p class="merkle-note">{{message}}</p>
+          {{/if}}
+        </section>
+
+        <section class="merkle-leaves-section">
+          <h2>Leaves ({{totalEntityCount}} entities — {{leaf_count}} in tree, {{skippedCount}} pending)</h2>
+          {{#if hasEntities}}
+            <table class="merkle-leaves-table">
+              <thead>
+                <tr>
+                  <th>Handle</th>
+                  <th>Type</th>
+                  <th>Sigchain Tip</th>
+                  <th>Seq</th>
+                  <th>In Tree</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{#each allEntities}}
+                  <tr class="{{#if hasRealTip}}merkle-leaf-active{{else}}merkle-leaf-pending{{/if}}">
+                    <td>{{handle}}</td>
+                    <td>entity</td>
+                    <td class="merkle-tip">{{tip}}</td>
+                    <td>{{seqDisplay}}</td>
+                    <td class="merkle-intree">{{#if hasRealTip}}yes{{else}}—{{/if}}</td>
+                  </tr>
+                {{/each}}
+              </tbody>
+            </table>
+          {{else}}
+            <p class="merkle-empty">No entities indexed yet.</p>
+          {{/if}}
+        </section>
+
+        <section class="merkle-skip-section">
+          <h2>Skip Pointers</h2>
+          {{#if hasSkip}}
+            <table class="merkle-skip-table">
+              <thead>
+                <tr><th>k</th><th>Root at seqno (current - k)</th></tr>
+              </thead>
+              <tbody>
+                {{#each skipEntries}}
+                  <tr><td>{{k}}</td><td class="merkle-hash">{{rootHex}}</td></tr>
+                {{/each}}
+              </tbody>
+            </table>
+          {{else}}
+            <p class="merkle-empty">No skip pointers yet — available after seqno &gt; 1.</p>
+          {{/if}}
+        </section>
+
+      {{/if}}
+    {{/if}}
+
+    <div class="merkle-refresh">
+      <button class="merkle-refresh-btn">Refresh</button>
+    </div>
+  </div>
+</template>

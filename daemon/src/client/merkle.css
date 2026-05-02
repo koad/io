@@ -1,0 +1,174 @@
+/* Merkle view — /merkle route — VESTA-SPEC-169 dashboard */
+
+.merkle-view {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem;
+  color: var(--text-color, #cdd9e5);
+  font-family: monospace;
+}
+
+.merkle-header h1 {
+  font-size: 1.6rem;
+  margin-bottom: 0.25rem;
+  color: var(--text-color, #cdd9e5);
+}
+
+.merkle-spec-ref {
+  font-size: 0.75rem;
+  opacity: 0.5;
+  margin: 0 0 1.5rem 0;
+}
+
+.merkle-view h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 1.5rem 0 0.5rem 0;
+  opacity: 0.7;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding-bottom: 0.3rem;
+}
+
+/* Root table */
+.merkle-root-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.merkle-root-table th,
+.merkle-root-table td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.merkle-root-table th {
+  width: 140px;
+  opacity: 0.6;
+  font-weight: normal;
+}
+
+.merkle-hash {
+  font-family: monospace;
+  font-size: 0.78rem;
+  word-break: break-all;
+  opacity: 0.9;
+}
+
+/* Status labels */
+.merkle-status-built        { color: #57c985; }
+.merkle-status-no_published_tips { color: #e3b341; }
+.merkle-status-error        { color: #f47067; }
+
+/* Note / message */
+.merkle-note {
+  font-size: 0.8rem;
+  opacity: 0.65;
+  margin: 0.6rem 0 0 0;
+  font-style: italic;
+}
+
+/* Leaves table */
+.merkle-leaves-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.merkle-leaves-table th,
+.merkle-leaves-table td {
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.merkle-leaves-table th {
+  opacity: 0.55;
+  font-weight: normal;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+}
+
+.merkle-leaf-active {
+  opacity: 1;
+}
+
+.merkle-leaf-pending {
+  opacity: 0.45;
+}
+
+.merkle-tip {
+  font-family: monospace;
+  font-size: 0.75rem;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merkle-intree {
+  text-align: center;
+  color: #57c985;
+}
+
+/* Skip table */
+.merkle-skip-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.merkle-skip-table th,
+.merkle-skip-table td {
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.merkle-skip-table th {
+  opacity: 0.55;
+  font-weight: normal;
+  font-size: 0.7rem;
+}
+
+/* Empty state */
+.merkle-empty {
+  opacity: 0.45;
+  font-size: 0.82rem;
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+
+/* Loading / error */
+.merkle-loading,
+.merkle-error {
+  padding: 1rem;
+  font-size: 0.85rem;
+}
+
+.merkle-error {
+  color: #f47067;
+}
+
+/* Refresh button */
+.merkle-refresh {
+  margin-top: 2rem;
+}
+
+.merkle-refresh-btn {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-color, #cdd9e5);
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 0.4rem 1.2rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  font-family: monospace;
+  transition: background 0.15s;
+}
+
+.merkle-refresh-btn:hover {
+  background: rgba(255,255,255,0.15);
+}
