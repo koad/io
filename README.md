@@ -7,17 +7,20 @@
 # 🧠 koad:io
 
 <!-- for that whom may have an eye to see -->
-**tldr:** An organizational tool for your mind's eye.  
+**tldr:** A harness for the mind. Context mastery for the king of all data.
 
-**koad:io** is a sovereign, local-first command-and-control framework for automating your digital life. It encapsulates identity, environment, and intent — letting you structure your scripts, services, and thoughts as composable, auditable entities.
+**koad:io** is a sovereign, local-first substrate for synthetic intelligence — a CLI toolchain that lets you externalize cognition into auditable pieces you actually own. Identity, environment, intent, and the workflows that connect them, all as composable entities living as files and folders on hardware you control.
+
+The CLI is the synthetic logic. Every command saved is a remembered solution that no longer needs remembering. Over time, that distilled cognition compounds — the kingdom of your work accumulates as your own instruction set, in your own filesystem, on your own terms.
 
 At its core, `koad:io` is a modular CLI toolchain designed to manage:
-- ⚙️ Reusable commands and workflows
+- ⚙️ Reusable commands and workflows — your own distilled cognition
 - 🔐 Identity-backed assertions
 - 📂 Project- and context-scoped environments
 - 🗂️ Data and service organization across machines, devices, and personas
+- 🧠 Specialized entities (containers of context) the mind orchestrates without holding their detail
 
-Whether you're managing shell scripts, building full-stack apps, or signing cryptographic login requests — `koad:io` helps you keep the whole thing structured, shareable, and verifiable.
+Whether you're managing shell scripts, building full-stack apps, signing cryptographic login requests, or coordinating a team of synthetic intelligence harnesses — `koad:io` helps you keep the whole thing structured, shareable, and verifiable.
 
 > “Your systems need to be faster than you (can) think.”  
 > — adapted from [Getting Things Done](https://gettingthingsdone.com/)
@@ -150,10 +153,12 @@ echo "hello world" | alice sign
 
 ## 🌐 Philosophy
 
-* 🚫 No cloud, ever
-* 🔐 Identity-first
-* 🧱 Modular, file-based, reproducible
-* 🧠 Designed for thinkers, hackers, and sovereign operators
+* 🚫 **Anti-fragmentation, not anti-AI.** Cloud architectures fragment cognition by design — every operation a network call, every workflow rented, every lesson learned trapped in someone else's database. That's "a computer with no cache." We reject this at the foundation.
+* 🔐 **Identity-first.** Sovereignty over your own keys, your own data, your own substrate. Bonds are explicit and auditable.
+* 🧱 **Modular, file-based, reproducible.** Files and folders are the external mind. The filesystem is your cognitive prosthetic. Locality is what makes cognition at scale possible.
+* 🧠 **Designed for thinkers, hackers, and sovereign operators.** A $200 laptop, harnessed in correctly, is enough to throne up. Sovereignty isn't enterprise-priced — it's gated only by the discipline of externalizing cognition into auditable pieces.
+
+> **Synthetic intelligence connected via files and folders. On hardware you own.**
 
 ---
 

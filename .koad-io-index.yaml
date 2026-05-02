@@ -1,0 +1,16 @@
+# .koad-io-index.yaml — koad-io framework
+# Registers daemon-indexable data surfaces for the framework runtime.
+# VESTA-SPEC-141 v1.3
+#
+# questions-queue: append-only JSONL, current-per-key on _id so the daemon
+# holds the latest status record for each question.  Status transitions are
+# recorded by appending new lines with the same _id — the projector surfaces
+# only the latest record per SPEC-165 §2.4.
+
+indexers:
+  - name: questions-queue
+    source: daemon/runtime/questions/index.jsonl
+    collection: Questions
+    format: jsonl
+    mode: current-per-key
+    key: _id

@@ -70,6 +70,82 @@ Commands move. A command that lives in `~/.koad-io/commands/foo/` today may live
 
 This also applies to config paths, settings files, and `.env` references inside commands — cascade variables (`$ENTITY_DIR`, `$KOAD_IO_COMMANDS_DIRS`, `$COMMAND_LOCATION`) exist for good reason. Use them.
 
+## Available Tools — Quick Reference
+
+A scannable index of what's available across the kingdom's tool surface. **To learn more about any command, run it with no arguments** — every command emits a self-documenting footer (per `project_self_documenting_commands`) listing its subs, flags, and brief description. PRIMER.md files in command folders document deeper context.
+
+### Bin tools (`~/.koad-io/bin/`)
+
+| Tool | Purpose |
+|------|---------|
+| `koad-io` | Main dispatcher; every command flows through this |
+| `<entity>` (e.g. `juno`, `vesta`) | Per-entity launcher; sets `KOAD_IO_VIA_LAUNCHER=1` and runs cascade with entity context |
+| `entity` | Template launcher; per-entity copies generated at init time |
+| `search` | Kingdom search engine — `search <text>`, `--where key=value`, `--related <file>`, `--stale [N]`, `--atlas`, `--echo <topic>`, `--skip-complete`. See "Kingdom Search" section below. |
+| `tickle` | Express tickler dispatch from any directory |
+| `think` | Quick inference without full harness |
+
+### Framework commands (`~/.koad-io/commands/`)
+
+Kindergarten-minimum primitives — generic shapes any kingdom needs.
+
+| Command | Purpose |
+|---------|---------|
+| `assert/` | Assertion + datadir helpers; foundation other commands compose with |
+| `build/` | Build pipeline entrypoint |
+| `deploy/` | Deploy sub-commands: interface, service, site |
+| `emit/` | Emit to daemon nervous system (note, status, results) |
+| `entity/` | Entity memory commands: write, rotate, consolidate, verify |
+| `generate/` | CID generation |
+| `gestate/` | Entity gestation wizard |
+| `init/` | Fresh-machine kingdom initialization |
+| `install/` | Install dependencies (opencode, etc.) |
+| `restart/`, `start/`, `stop/`, `upstart/` | Service lifecycle (always restart through cascade per the Cascade discipline above) |
+| `test/`, `upload/` | Build pipeline support |
+
+### Forge / business commands (`~/.forge/commands/`)
+
+Kingdom-specific tooling. Lives in forge tier; some graduates to framework when generic.
+
+| Command | Purpose |
+|---------|---------|
+| `session/` | Session awareness suite — objective, land, intent-update, watch, inbox. See "Session Awareness" section below. |
+| `conversation/` | Long-lived topic folders — create, dispatch, list. Persists at `~/.conversations/YYYY/MM/<slug>/`. |
+| `channel/` | SPEC-154 channels — create, join, inject, cue_deliver, close. SSE-substrate (SPEC-156). |
+| `harness/` | Per-harness command suites (claude/, opencode/, etc.) — entry points the launchers exec |
+| `announce/`, `tickle/`, `pin/`, `message/`, `git/`, `console/` | Other kingdom utilities |
+
+### Helpers (`~/.koad-io/helpers/`)
+
+Sourced by other commands; not invoked directly.
+
+| Helper | Purpose |
+|--------|---------|
+| `emit.sh` + `emit.py` | Emission helpers; auto-injects `meta.session_id` from `HARNESS_SESSION_ID`. Call from any bash command. |
+| `discovery.sh` | Self-documenting command footer (sourced at end of `command.sh`) |
+
+### MCP tool surface (daemon + dance-hall)
+
+Native LLM function calling for harnessed entities. See "MCP Tool Surface" section below for the standard surface. Each entity's `~/.<entity>/tools/` adds entity-specific MCP tools per VESTA-SPEC-137.
+
+### Hooks (`~/.koad-io/hooks/`, `~/.forge/hooks/`, `~/.<entity>/hooks/`)
+
+Three-tier hook cascade — framework → forge (kingdom-wide) → entity (per-entity overrides). Wired via `~/.claude/settings.json` (global, roaming entities) or per-entity `settings.json` (rooted).
+
+| Tier | Examples |
+|------|----------|
+| Framework (`~/.koad-io/hooks/`) | `assemble-and-rewrite-dispatch.py`, `close-flight-on-agent-return.py`, `subagent-env-prefix.py`, `heartbeat.sh` |
+| Forge (`~/.forge/hooks/`) | `prompt-awareness.sh` (surfaces session inbox in every prompt), `standing-watchers.sh` (loads `~/.<entity>/watchers/*.yaml` at SessionStart) |
+| Entity (`~/.<entity>/hooks/`) | Entity-specific overrides; rare |
+
+### How to learn more
+
+- **Run any command with no args** → self-documenting footer prints subs + flags
+- **Read the command's `PRIMER.md`** if present (e.g. `~/.forge/commands/session/PRIMER.md`)
+- **Read a role's primer** at `~/.koad-io/harness/primers/<role>/PRIMER.md` for role-shaped tool guidance
+- **Search across the kingdom** — `search <topic>` finds memories, briefs, specs, READMEs touching that topic
+- **Check `~/.juno/projects/-home-koad--juno/memory/MEMORY.md`** — index of accumulated kingdom learnings; many entries point to specific tools
+
 ## Bash Is the Substrate
 
 Every harness — Claude Code, opencode, pi, the human at a terminal — transpires on bash. They are bash processes. The framework itself is bash scripts: `commands/`, `hooks/`, `helpers/`, the env cascade, the bin launchers. The dependency stack is bash, starship, and the filesystem. Nothing else is required.
@@ -92,7 +168,8 @@ Every entity directory follows this layout:
 ├── commands/         # Entity commands
 ├── memories/         # Long-term memory
 ├── skills/           # Capabilities (mirrors commands/)
-└── hooks/            # Lifecycle hooks (override framework defaults)
+├── hooks/            # Lifecycle hooks (override framework defaults)
+└── watchers/         # Standing watcher patterns (*.yaml, auto-loaded at SessionStart)
 ```
 
 Harness-specific files (`CLAUDE.md`, `OPENCODE.md`, etc.) are generated by the harness, not authored by the entity. They may appear in rooted entity dirs as artifacts of being harnessed — they are not part of the entity's identity. `ENTITY.md` is the identity file. It is harness-agnostic by design.
@@ -256,6 +333,16 @@ All kingdom env vars start with `KOAD_IO_` — self-documenting via `env | grep 
 
 Entity env vars start with `ENTITY_` — `ENTITY`, `ENTITY_DIR`, `ENTITY_HOME`, `ENTITY_HOST`, `ENTITY_KEYS`.
 
+Harness state vars use `HARNESS_` prefix — **not** `KOAD_IO_`, so they survive the launcher's pre-cascade sanitization wipe of all `KOAD_IO_*` vars:
+
+| Var | Value shape | Purpose |
+|-----|-------------|---------|
+| `HARNESS_PID` | numeric | unique-per-instance handle |
+| `HARNESS_SESSION_ID` | `<entity>-<pid>` (e.g. `juno-3304592`) | stable session id for harness lifetime |
+| `HARNESS_EMISSION_ID` | UUID-style | current parent flight emission id (for nesting) |
+
+Set by `~/.forge/commands/harness/claude/command.sh` at session start. All kingdom commands, hooks, and subagents inherit them via process tree. The emit helper auto-injects `HARNESS_SESSION_ID` as `meta.session_id` and nests child emissions under `HARNESS_EMISSION_ID`.
+
 ## Trust Model
 
 Authority flows through signed trust bonds:
@@ -361,11 +448,57 @@ This is how entities coordinate: Salus subscribes to `error` emissions and auto-
 
 ### Subagent dispatch
 
-When Juno (or any orchestrator) dispatches an Agent, hooks open a `flight` emission automatically. The subagent's `KOAD_IO_EMISSION_ID` is injected into every Bash call's env — meaning subagents can `source ~/.koad-io/helpers/emit.sh && koad_io_emit_update "halfway done"` and the orchestrator sees progress in real time. The flight closes with the agent's return summary.
+When Juno (or any orchestrator) dispatches an Agent, hooks open a `flight` emission automatically. The subagent's `HARNESS_EMISSION_ID` is injected into every Bash call's env — meaning subagents can `source ~/.koad-io/helpers/emit.sh && koad_io_emit_update "halfway done"` and the orchestrator sees progress in real time. The flight closes with the agent's return summary.
 
 ### Archive
 
 Closed emissions, landed flights, and ended sessions older than `KOAD_IO_ARCHIVE_DAYS` (default 7) sweep to `~/.koad-io/daemon/archive/<collection>/YYYY-MM-DD.jsonl`. Active records are never touched. Hourly automatic, manual via `POST /api/archive/sweep`.
+
+## Session Awareness
+
+The session-awareness substrate gives entities situational context at runtime — what they intend, what they've landed, what's happening in the kingdom that matters to them.
+
+### Session Commands
+
+Available at `~/.forge/commands/session/` (forge tier). Invoke via the entity launcher:
+
+| Command | Effect |
+|---------|--------|
+| `koad-io session objective <text>` | Declare session intent |
+| `koad-io session land <type> <ref> [<summary>]` | Atomic landing event (types: brief/spec/memory/tickle/commit/build/dispatch) |
+| `koad-io session intent-update <focus>` | Update current focus mid-session |
+| `koad-io session watch <pattern>` | Register a watcher for kingdom emissions this session |
+| `koad-io session inbox` | Read pending watcher-matched events |
+
+**Pattern vocabulary** (for `session watch` and standing watchers): `error`, `entity:<name>`, `topic:<slug>`, `type:<name>`, `flight-close-error`, or bare type name as fallback.
+
+### Inbox Auto-Surfacing
+
+The forge-tier `prompt-awareness.sh` hook (`~/.forge/hooks/`) reads new inbox entries on every `UserPromptSubmit` and renders them as system-reminder context. Cursor-tracked — each entry surfaces once, then never again unless re-fired. **You don't need to run `session inbox` manually; it's ambient.**
+
+### Per-Entity Standing Watchers
+
+Declare patterns the entity always cares about in `~/.<entity>/watchers/*.yaml`. Auto-loaded at SessionStart via `~/.forge/hooks/standing-watchers.sh`. Persists across sessions; use for always-relevant signals (session watch is for contextual, per-flight signals).
+
+```yaml
+- error
+- flight-close-error
+- entity:vesta
+```
+
+Standing watchers auto-register under the current `HARNESS_SESSION_ID` at session start. A new entity with no `watchers/` dir silently no-ops.
+
+### Hook Tiers
+
+Hooks apply at three tiers, searched in this order (first match wins for the same hook file name):
+
+| Tier | Path | Scope |
+|------|------|-------|
+| Entity | `~/.<entity>/hooks/` | Entity-specific overrides |
+| Forge | `~/.forge/hooks/` | Business-layer hooks (prompt-awareness, standing-watchers, upstart) |
+| Framework | `~/.koad-io/hooks/` | Generic framework defaults |
+
+The forge tier is the natural home for kingdom-wide operational hooks that aren't generic enough for the framework skeleton.
 
 ## MCP Tool Surface
 
@@ -413,6 +546,28 @@ Not every relationship is a bond. Three distinct relationship types shape an ent
 - **Bond holder** — who the entity reports to in the trust chain. Bonds are the formal authority layer (see Trust Model above).
 
 These are not interchangeable. An entity's creator, its custodian(s), and its bond holder may all be different parties. Conflating them erodes the trust model.
+
+## Shared Node Module — `@koad-io/node`
+
+`~/.koad-io/modules/node/` (`@koad-io/node`) is the shared Node.js identity and crypto module for the kingdom. The Meteor package `koad:io-core` imports from it; CLI tools, the daemon, and standalone services can too. It is the active implementation of SPEC-149 (identity stack) and SPEC-150 (identity submission).
+
+Exports: `index` (core koad object + deps), `identity`, `identity-resolver`, `identity-writer`, `identity-submission`, `ceremony`, `pgp`, `sigchain`, `deps` (dag-json, multiformats, noble/ed25519, bip39). Browser bundle (`browser/kbpgp.bundle.js`) built separately and served via storefront. CJS and ESM variants via dual exports.
+
+## Plugins
+
+`~/.koad-io/plugins/` holds framework-authored harness extensions that teach a specific harness to feel like it comes from the kingdom. Each plugin targets exactly one harness (opencode, Claude Code, pi, …) and lives under that harness's shelf (`plugins/<harness>/<plugin>/`).
+
+Plugins differ from commands and hooks: they run inside the harness's process as modules the harness loads, speaking the harness's extension API (TUI slots, statusline commands, sidebar blocks). Entities wire plugins from the framework path — they do not copy plugins into their own dirs. See `~/.koad-io/plugins/PRIMER.md` for the full wiring contract.
+
+## Training
+
+`~/.koad-io/training/` is the master training layer — a graduation target for lessons that start in individual package `training/` folders and prove broadly applicable. Three roles: entry orientation (how to find training across the kingdom), topical syllabi (mental models + lesson pointers per topic), and graduated canonical lessons.
+
+Training is progressive: write lessons local to the package first; graduate to `~/.koad-io/training/<topic>/` when the lesson matures or applies across packages. The inline `PRIMER:` comment convention lets code point to the nearest lesson at the teachable moment. See `~/.koad-io/training/PRIMER.md` for the full graduation ladder.
+
+## Harness Role Primers
+
+`~/.koad-io/harness/primers/` contains seven role-specific primer files: `auditor`, `communicator`, `curator`, `designer`, `engineer`, `healer`, `orchestrator`. These are loaded by harness dispatch to orient entities for a specific working role before a session begins — the harness section uses them to shape how a dispatched entity approaches its work. Each role primer is a markdown doc; the harness load order puts them after ENTITY.md and before PRIMER.md in context.
 
 ## Infrastructure
 

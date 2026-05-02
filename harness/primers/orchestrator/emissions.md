@@ -13,7 +13,7 @@ source ~/.koad-io/helpers/emit.sh
 koad_io_emit_open conversation "visionaries: storefront direction" \
   '{"participants":["iris","muse","faber"]}'
 
-CONV="$KOAD_IO_EMISSION_ID"
+CONV="$HARNESS_EMISSION_ID"
 
 # Each dispatch carries the parent — the daemon stamps rootId/depth/path automatically
 juno_dispatch iris "brand review" --meta "{\"parentId\":\"$CONV\"}"
@@ -27,7 +27,7 @@ curl -s http://10.10.10.10:28282/api/emissions/tree/$CONV | jq '.'
 koad_io_emit_close "round table converged on visual-first approach"
 ```
 
-The dispatch hooks already inject `KOAD_IO_EMISSION_ID` into each subagent's env, so subagents can `koad_io_emit_update "halfway"` from inside their work — you see progress in real time.
+The dispatch hooks already inject `HARNESS_EMISSION_ID` into each subagent's env, so subagents can `koad_io_emit_update "halfway"` from inside their work — you see progress in real time.
 
 ## You write triggers
 

@@ -17,7 +17,7 @@ koad = {
 	gateway: null,
 	session: null,
 	internals: 'unset',
-	identity: {},
+	identity: null,   // populated by both/identity-factory.js + server/identity.js or client/identity.js
 	storage: {},
 	library: {},
 	format: {

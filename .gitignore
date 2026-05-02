@@ -12,6 +12,7 @@ flight-plans/
 .claude.json
 .claude/
 mcp-needs-auth-cache.json
+archive/sessions/
 
 # Runtime state
 var/

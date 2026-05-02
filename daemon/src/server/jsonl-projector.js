@@ -10,10 +10,17 @@
 //   current-per-key — last entry per key is the canonical doc (e.g. announcement surface)
 //   append-only     — every entry is a doc; uses entry._id or generates one
 //
+// Glob sources (VESTA-SPEC-141 v1.2 §3.5):
+//   When config.sourceGlob is set, the projector watches a directory glob pattern.
+//   All matching files are projected into one collection.
+//   Mode must be append-only. slug_field is injected per record.
+//   Document _id = MD5(slug + ":" + line_offset) for stable identity.
+//   exclude_glob: files matching this pattern within the same dir are excluded.
+//
 // Publications: indexed.<collectionName> — public by default (anonymous forge visitors)
 
-const fs   = Npm.require('fs');
-const path = Npm.require('path');
+const fs     = Npm.require('fs');
+const path   = Npm.require('path');
 const crypto = Npm.require('crypto');
 
 // Track running projectors so reload can stop removed ones
@@ -38,6 +45,85 @@ function readJsonl(filePath) {
     console.warn(`[jsonl-projector] readJsonl error (${filePath}):`, err.message);
     return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Read JSONL entries with their 0-based line offsets.
+// Returns array of { entry, lineOffset } — lineOffset is stable identity base.
+// ---------------------------------------------------------------------------
+
+function readJsonlWithOffsets(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return [];
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const result = [];
+    let lineOffset = 0;
+    for (const line of raw.split('\n')) {
+      if (line.trim()) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry) result.push({ entry, lineOffset });
+        } catch (_) { /* skip unparseable lines */ }
+      }
+      lineOffset++;
+    }
+    return result;
+  } catch (err) {
+    console.warn(`[jsonl-projector] readJsonlWithOffsets error (${filePath}):`, err.message);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Minimal glob matcher for simple patterns used in .koad-io-index.yaml.
+// Supports: * (any chars except /), ? (single char), literal chars.
+// Sufficient for "*.jsonl", "index.jsonl" patterns per SPEC-141 §3.5.
+// Does NOT support ** or character classes.
+// ---------------------------------------------------------------------------
+
+function matchesGlob(filename, pattern) {
+  // Convert glob pattern to a regex
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex metacharacters
+    .replace(/\*/g, '[^/]*')               // * → any chars except /
+    .replace(/\?/g, '[^/]');              // ? → single char except /
+  return new RegExp(`^${escaped}$`).test(filename);
+}
+
+// ---------------------------------------------------------------------------
+// List files in baseDir matching sourcePattern but not excludePattern.
+// Returns array of absolute file paths.
+// ---------------------------------------------------------------------------
+
+function getGlobFiles(baseDir, sourcePattern, excludePattern) {
+  try {
+    if (!fs.existsSync(baseDir)) return [];
+    const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+    const results = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const name = entry.name;
+      if (!matchesGlob(name, sourcePattern)) continue;
+      if (excludePattern && matchesGlob(name, excludePattern)) continue;
+      results.push(path.join(baseDir, name));
+    }
+    return results;
+  } catch (err) {
+    console.warn(`[jsonl-projector] getGlobFiles error (${baseDir}):`, err.message);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Generate stable _id for a glob-sourced record.
+// Schema per SPEC-141 §3.5: MD5(slugValue + ":" + lineOffset)
+// ---------------------------------------------------------------------------
+
+function globRecordId(slugValue, lineOffset) {
+  return crypto
+    .createHash('md5')
+    .update(`${slugValue}:${lineOffset}`)
+    .digest('hex');
 }
 
 // ---------------------------------------------------------------------------
@@ -104,10 +190,163 @@ function project(collection, entries, config) {
 }
 
 // ---------------------------------------------------------------------------
+// Project a single glob-sourced file into the shared collection.
+// Uses stable MD5 _id = MD5(slug + ":" + lineOffset) per SPEC-141 §3.5.
+// Injects slug_field into each record if the record does not already carry it.
+// ---------------------------------------------------------------------------
+
+function projectGlobFile(collection, filePath, config) {
+  const slugValue = path.basename(filePath, '.jsonl');
+  const slugField = config.slug_field || 'slug';
+  const entries = readJsonlWithOffsets(filePath);
+
+  const existing = new Set(collection.find({}, { fields: { _id: 1 } }).fetch().map(d => d._id));
+
+  let inserted = 0;
+  let updated = 0;
+
+  for (const { entry, lineOffset } of entries) {
+    const docId = globRecordId(slugValue, lineOffset);
+    // Inject slug_field only if the record does not already carry it (record's own value wins)
+    const doc = Object.assign({ [slugField]: slugValue }, entry, { _id: docId });
+
+    if (existing.has(docId)) {
+      collection.update(docId, { $set: doc });
+      updated++;
+    } else {
+      collection.insert(doc);
+      inserted++;
+    }
+  }
+
+  if (inserted > 0 || updated > 0) {
+    console.log(`[jsonl-projector] glob file ${path.basename(filePath)}: +${inserted} inserted, ~${updated} updated (slug=${slugValue})`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Start a glob-sourced projector (VESTA-SPEC-141 v1.2 §3.5).
+// Watches the base directory for new/changed files matching the glob.
+// ---------------------------------------------------------------------------
+
+function startGlob(config) {
+  const { name, collection: collectionName, sourceGlob, excludeGlob, slug_field: slugField } = config;
+
+  if (!collectionName) {
+    console.warn(`[jsonl-projector] ${name}: no collection name — skipping`);
+    return;
+  }
+
+  if (!sourceGlob || !sourceGlob.baseDir || !sourceGlob.pattern) {
+    console.warn(`[jsonl-projector] ${name}: invalid sourceGlob config — skipping`);
+    return;
+  }
+
+  const baseDir       = sourceGlob.baseDir;
+  const sourcePattern = sourceGlob.pattern;
+  const excludePattern = excludeGlob ? excludeGlob.pattern : null;
+
+  // Create or reuse collection
+  let collection;
+  if (globalThis[collectionName] instanceof Mongo.Collection) {
+    collection = globalThis[collectionName];
+    console.log(`[jsonl-projector] ${name}: reusing existing collection ${collectionName}`);
+  } else {
+    collection = new Mongo.Collection(collectionName, { connection: null });
+    globalThis[collectionName] = collection;
+    console.log(`[jsonl-projector] ${name}: created collection ${collectionName}`);
+  }
+
+  // Register DDP publication (idempotent)
+  const pubName = `indexed.${collectionName}`;
+  try {
+    Meteor.publish(pubName, function () {
+      return collection.find();
+    });
+    console.log(`[jsonl-projector] ${name}: registered publication ${pubName}`);
+  } catch (err) {
+    if (!err.message || !err.message.includes('already registered')) {
+      console.warn(`[jsonl-projector] ${name}: publish registration note:`, err.message);
+    }
+  }
+
+  // Initial scan: project all matching files
+  function refreshAll(reason) {
+    const files = getGlobFiles(baseDir, sourcePattern, excludePattern);
+    console.log(`[jsonl-projector] ${name}: glob refresh (${reason}) — ${files.length} file(s) match`);
+    for (const f of files) {
+      projectGlobFile(collection, f, config);
+    }
+    console.log(`[jsonl-projector] ${name}: total ${collection.find().count()} docs in ${collectionName}`);
+  }
+
+  // Per-file refresh: re-project a single file when it changes (append)
+  function refreshFile(filePath, reason) {
+    if (!matchesGlob(path.basename(filePath), sourcePattern)) return;
+    if (excludePattern && matchesGlob(path.basename(filePath), excludePattern)) return;
+    console.log(`[jsonl-projector] ${name}: file event (${reason}) — ${path.basename(filePath)}`);
+    projectGlobFile(collection, filePath, config);
+    console.log(`[jsonl-projector] ${name}: total ${collection.find().count()} docs in ${collectionName}`);
+  }
+
+  // Ensure base dir exists
+  try {
+    if (!fs.existsSync(baseDir)) {
+      fs.mkdirSync(baseDir, { recursive: true });
+    }
+  } catch (err) {
+    console.warn(`[jsonl-projector] ${name}: baseDir setup error:`, err.message);
+  }
+
+  refreshAll('startup');
+
+  // Watch the base directory for file changes
+  // File deletion: per spec §3.5, records from deleted files are NOT removed
+  // (append-only semantics hold — once projected, records persist until daemon restart)
+  // Use per-file debounces so rapid concurrent events (new-file + index-write)
+  // don't coalesce and drop the new-file event.
+  const debounces = {}; // filename → timeout handle
+  let watcher = null;
+
+  try {
+    watcher = fs.watch(baseDir, { persistent: false }, (eventType, filename) => {
+      if (!filename) return;
+      const filePath = path.join(baseDir, filename);
+
+      if (debounces[filename]) clearTimeout(debounces[filename]);
+      debounces[filename] = Meteor.setTimeout(() => {
+        delete debounces[filename];
+        if (fs.existsSync(filePath)) {
+          refreshFile(filePath, `fs.watch ${eventType}`);
+        } else {
+          // File deleted — per SPEC-141 §3.5, records persist (no removal)
+          console.log(`[jsonl-projector] ${name}: file deleted ${filename} — records persist per append-only contract`);
+        }
+      }, 200);
+    });
+
+    watcher.on('error', err => {
+      console.warn(`[jsonl-projector] ${name}: watcher error:`, err.message);
+    });
+
+    console.log(`[jsonl-projector] ${name}: watching ${baseDir} for glob pattern ${sourcePattern}`);
+  } catch (err) {
+    console.warn(`[jsonl-projector] ${name}: could not watch ${baseDir}:`, err.message);
+  }
+
+  _running[name] = { config, watcher, collection };
+}
+
+// ---------------------------------------------------------------------------
 // Start a single projector.
 // ---------------------------------------------------------------------------
 
 function start(config) {
+  // Dispatch to glob projector if source_glob is declared
+  if (config.sourceGlob) {
+    return startGlob(config);
+  }
+
   const { name, collection: collectionName, sourcePath, mode } = config;
 
   if (!collectionName) {

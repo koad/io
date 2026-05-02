@@ -26,6 +26,8 @@ Env:
     KOAD_IO_DAEMON_URL  default http://10.10.10.10:28282
     ENTITY              entity handle (derived from ENTITY_DIR if unset)
     ENTITY_DIR          fallback for entity derivation
+    HARNESS_SESSION_ID  when set, auto-injected as meta.session_id on every emission
+                        so session-watcher self-suppression works correctly
 
 Type is an open-vocabulary string (max 100 chars, alphanumeric + . : - _).
 Convention: noun.verb for event types (e.g. commit.signed, bond.witnessed, brief.dispatched).
@@ -59,6 +61,24 @@ HEALTH_TIMEOUT = 1
 _health_cache = None
 
 
+def _inject_session_id(meta):
+    """Merge HARNESS_SESSION_ID into meta.session_id if not already set by caller.
+
+    Rules:
+    - Only injects when HARNESS_SESSION_ID is set in env (non-harness contexts are unaffected)
+    - Caller intent wins: existing meta.session_id is never overwritten
+    - Returns a new dict; never mutates the caller's meta object
+    """
+    session_id = os.environ.get('HARNESS_SESSION_ID', '')
+    if not session_id:
+        return meta
+    if meta and meta.get('session_id'):
+        return meta
+    merged = dict(meta) if meta else {}
+    merged['session_id'] = session_id
+    return merged
+
+
 def _enabled():
     return os.environ.get('KOAD_IO_EMIT', '0') == '1'
 
@@ -76,13 +96,18 @@ def _entity():
 
 
 def _check_health():
-    """Cache health for the life of this process — one check per invocation."""
+    """Cache health for the life of this process — one check per invocation.
+
+    Validates that the response is JSON with status='ok', not just an HTTP 200.
+    A Meteor compile-error page returns 200 with HTML — that must count as down.
+    """
     global _health_cache
     if _health_cache is not None:
         return _health_cache
     try:
-        urllib.request.urlopen(DAEMON_URL + '/api/health', timeout=HEALTH_TIMEOUT)
-        _health_cache = True
+        resp = urllib.request.urlopen(DAEMON_URL + '/api/health', timeout=HEALTH_TIMEOUT)
+        data = json.loads(resp.read())
+        _health_cache = data.get('status') == 'ok'
     except Exception:
         _health_cache = False
     return _health_cache
@@ -112,6 +137,7 @@ def emit(entity=None, type='notice', body='', meta=None):
     """Fire-and-forget emission. Returns _id or None."""
     if not body:
         return None
+    meta = _inject_session_id(meta)
     payload = {'entity': entity or _entity(), 'type': type, 'body': body[:500]}
     if meta:
         payload['meta'] = meta
@@ -123,6 +149,7 @@ def emit_open(entity=None, type='session', body='', meta=None, id_file=None):
     """Open a lifecycle emission. Returns _id. Persists to id_file if provided."""
     if not body:
         return None
+    meta = _inject_session_id(meta)
     payload = {
         'entity': entity or _entity(),
         'type': type,

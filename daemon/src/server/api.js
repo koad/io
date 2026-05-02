@@ -1011,6 +1011,163 @@ app.use('/api/messages/counts', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// Question queue REST endpoints (VESTA-SPEC-165)
+// JSONL file: ~/.koad-io/daemon/runtime/questions/index.jsonl
+// Collection: Questions (via pluggable indexer, current-per-key on _id)
+//
+// GET  /api/questions?to=<entity>&status=open    list questions
+// GET  /api/questions/<id>                       single question
+// POST /api/questions/<id>/answer                submit answer
+// POST /api/questions/<id>/cancel                cancel question
+// ---------------------------------------------------------------------------
+
+const QUESTIONS_QUEUE_FILE = path.join(
+  os.homedir(), '.koad-io', 'daemon', 'runtime', 'questions', 'index.jsonl'
+);
+
+function questionsQueueAppend(record) {
+  const dir = path.dirname(QUESTIONS_QUEUE_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.appendFileSync(QUESTIONS_QUEUE_FILE, JSON.stringify(record) + '\n', 'utf8');
+}
+
+// Read current-per-key records from the collection (daemon projection).
+// Falls back to reading JSONL directly if the collection isn't ready yet.
+async function questionsReadById(id) {
+  try {
+    const QRef = new Mongo.Collection('Questions', { connection: null });
+    return await QRef.findOneAsync({ _id: id });
+  } catch (_) {
+    return null;
+  }
+}
+
+// GET /api/questions/<id> — must be registered before /api/questions list
+app.use('/api/questions', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  const url = req.originalUrl || req.url || '';
+  // Match /api/questions/<id> but not /api/questions (list) or /api/questions/<id>/answer|cancel
+  const m = url.match(/^\/api\/questions\/([^/?]+)(?:\?.*)?$/);
+  if (!m) return next();
+  const id = decodeURIComponent(m[1]);
+  // Don't capture sub-action paths — those are POST, already guarded by method above
+  try {
+    const QRef = new Mongo.Collection('Questions', { connection: null });
+    const question = await QRef.findOneAsync({ _id: id });
+    if (!question) return jsonErr(res, 404, 'not found');
+    jsonOk(res, { question });
+  } catch (err) {
+    console.error('[API/questions/:id] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// GET /api/questions — list questions with optional filters
+app.use('/api/questions', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/questions')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const QRef = new Mongo.Collection('Questions', { connection: null });
+
+    const selector = {};
+    if (q.to) selector.to = q.to;
+    if (q.from) selector.from = q.from;
+    if (q.status) selector.status = q.status;
+
+    const limit = Math.min(parseInt(q.limit || '50', 10) || 50, 500);
+    const questions = await QRef.find(selector, {
+      sort: { filed: -1 },
+      limit,
+    }).fetchAsync();
+
+    jsonOk(res, { questions });
+  } catch (err) {
+    console.error('[API/questions] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// POST /api/questions/<id>/answer
+app.use('/api/questions', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  const url = req.originalUrl || req.url || '';
+  const mAnswer = url.match(/^\/api\/questions\/([^/?]+)\/answer(?:\?.*)?$/);
+  const mCancel = url.match(/^\/api\/questions\/([^/?]+)\/cancel(?:\?.*)?$/);
+  if (!mAnswer && !mCancel) return next();
+
+  const id = decodeURIComponent((mAnswer || mCancel)[1]);
+  const isCancel = !!mCancel;
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+
+  try {
+    const QRef = new Mongo.Collection('Questions', { connection: null });
+    const question = await QRef.findOneAsync({ _id: id });
+
+    if (!question) return jsonErr(res, 404, 'question not found');
+    if (question.status !== 'open') {
+      return jsonErr(res, 409, `question is not open (status: ${question.status})`);
+    }
+
+    const body = req.body || {};
+
+    if (isCancel) {
+      const updated = Object.assign({}, question, {
+        status: 'cancelled',
+        cancelled_by: body.cancelled_by || 'unknown',
+        cancelled_at: new Date().toISOString(),
+      });
+      if (body.reason) updated.reason = body.reason;
+      questionsQueueAppend(updated);
+      res.writeHead(200);
+      return res.end(JSON.stringify({ ok: true, status: 'cancelled' }));
+    }
+
+    // Answer
+    const { answer, answered_by } = body;
+    if (!answer || typeof answer !== 'string') {
+      return jsonErr(res, 400, 'answer field required');
+    }
+
+    // Validate against options if present
+    if (question.options && question.options.length) {
+      const match = question.options.find(
+        o => o.toLowerCase() === answer.toLowerCase()
+      );
+      if (!match) {
+        return jsonErr(res, 400, `answer must be one of: ${question.options.join(', ')}`);
+      }
+    }
+
+    const updated = Object.assign({}, question, {
+      status: 'answered',
+      answer,
+      answered_by: answered_by || 'unknown',
+      answered_at: new Date().toISOString(),
+    });
+    questionsQueueAppend(updated);
+
+    res.writeHead(200);
+    return res.end(JSON.stringify({ ok: true, status: 'answered' }));
+  } catch (err) {
+    console.error('[API/questions/action] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
+// OPTIONS preflight for /api/questions
+app.use('/api/questions', (req, res, next) => {
+  if (req.method !== 'OPTIONS') return next();
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.writeHead(204);
+  res.end();
+});
+
+// ---------------------------------------------------------------------------
 // GET /overview — public-safe kingdom snapshot (VESTA-SPEC-135)
 // 60s TTL cache; CORS open; no auth required.
 // Field projections follow §5 of the spec — dollar values and ops-language excluded.

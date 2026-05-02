@@ -3,7 +3,7 @@
 #
 # emit — structured narration for open lifecycle emissions
 #
-# Every entity has an active emission ID in $KOAD_IO_EMISSION_ID (set by the
+# Every entity has an active emission ID in $HARNESS_EMISSION_ID (set by the
 # harness/dispatch hook). These subcommands PATCH that emission with structured
 # fields so work becomes visible live on the storefront active-flights pane.
 #
@@ -23,7 +23,7 @@
 #
 # Gate:
 #   KOAD_IO_EMIT=1 must be set (same gate as all emission helpers)
-#   KOAD_IO_EMISSION_ID must be set to an open emission's _id
+#   HARNESS_EMISSION_ID must be set to an open emission's _id
 #
 # This top-level file fires when no subcommand sub-dir matches.
 # The dispatcher descends into emit/<sub>/command.sh automatically.
@@ -47,11 +47,11 @@ echo "  note    \"...\"         Append a timeline note (push-only)"
 echo "  results \"...\" | @path Set results payload (markdown, replaces)"
 echo
 echo "Environment:"
-echo "  KOAD_IO_EMISSION_ID   Active emission _id (required)"
+echo "  HARNESS_EMISSION_ID   Active emission _id (required)"
 echo "  KOAD_IO_EMIT=1        Opt-in gate (required)"
 echo
-if [ -z "${KOAD_IO_EMISSION_ID:-}" ]; then
-  echo "  (KOAD_IO_EMISSION_ID is not set — set it before calling subcommands)"
+if [ -z "${HARNESS_EMISSION_ID:-}" ]; then
+  echo "  (HARNESS_EMISSION_ID is not set — set it before calling subcommands)"
 fi
 if [ "${KOAD_IO_EMIT:-0}" != "1" ]; then
   echo "  (KOAD_IO_EMIT is not 1 — emissions are gated off)"

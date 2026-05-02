@@ -1,30 +1,26 @@
-// deps.js — Shared crypto/IPFS dependency hub for koad:io-core (client)
+// deps.js — koad:io-core client dependency hub
 //
-// Centralizes ESM-only npm deps. Requires patch-npm-exports.js to have run
-// so each package has a `main` field Meteor's CJS resolver can follow.
+// Browser-side koad.deps.* surface. Only deps actually consumed by client
+// code are imported here. IPLD content-addressing primitives
+// (@ipld/dag-json, multiformats CID/sha256/base64) are server-side only —
+// they're never invoked from browser code today, and their exports-field-only
+// ESM shape was failing Meteor's client resolver. Server still has them via
+// ~/.koad-io/modules/node/deps.js. If browser-side IPFS pinning or
+// sigchain-render-via-CID is ever needed, they come back here with proper
+// resolver setup at that point.
 //
-// The canonical non-Meteor version of these deps lives in
-// ~/.koad-io/modules/node/deps.js for CLI tools and other runtimes.
-//
-// koad.deps.pgp is wired by client/pgp.js (lazy-loads kbpgp browser bundle on first call).
+// koad.deps.pgp is wired by client/pgp.js (lazy-loads kbpgp browser bundle).
 
-import { encode as dagJsonEncode, decode as dagJsonDecode } from '@ipld/dag-json';
-import { CID } from 'multiformats/cid';
-import { sha256 } from 'multiformats/hashes/sha2';
-import { base64 } from 'multiformats/bases/base64';
 import * as ed from '@noble/ed25519';
 import { clearsign, verify } from './pgp.js';
+import * as ceremony from './ceremony-browser.js';
 
 globalThis.koad = globalThis.koad || {};
 koad.deps = koad.deps || {};
 Object.assign(koad.deps, {
-  dagJsonEncode,
-  dagJsonDecode,
-  CID,
-  sha256,
-  base64,
   ed,
   pgp: { clearsign, verify },
+  ceremony,
 });
 
-export { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed };
+export { ed };
