@@ -6,12 +6,17 @@
 # Usage: source "$HOME/.koad-io/helpers/ask.sh"
 #
 # Provides:
-#   ask "prompt text" "ENV_VALUE_IF_SET" "default_if_empty" [--write /path/.env VAR_NAME]
+#   ask "prompt text" "ENV_VALUE_IF_SET" "default_if_empty" [--required] [--write /path/.env VAR_NAME]
 #   ask_yn "prompt text" "ENV_VALUE_IF_SET" [--write /path/.env VAR_NAME]
 #
 # ENV-first: if the env value arg is non-empty, skip the prompt and return it.
 # Interactive: if stdin is a terminal, prompt the user.
 # Non-interactive: if not a terminal and no env value, exit 1 with a clear message.
+#
+# --required
+#   When present and no default is provided, re-prompts until the user enters
+#   a non-empty answer. If a default is provided, empty input accepts the default
+#   (same as without --required).
 #
 # --write /path/to/.env VAR_NAME
 #   When present and the answer came from the user (not from a pre-set ENV value),
@@ -46,28 +51,34 @@ HEADER
     fi
 }
 
-# ask PROMPT ENV_VALUE [DEFAULT] [--write /path/.env VAR_NAME]
+# ask PROMPT ENV_VALUE [DEFAULT] [--required] [--write /path/.env VAR_NAME]
 #
 # Prints prompt to stderr (so it doesn't pollute command substitution output).
 # Reads answer from stdin.
 # If ENV_VALUE is set (non-empty), echoes it and returns without prompting.
 # If user presses Enter with no input and DEFAULT is set, uses DEFAULT.
+# If --required and no DEFAULT, re-prompts until a non-empty answer is given.
 # Output: echoes the answer to stdout.
 #
 # Example:
-#   HANDLE=$(ask "Your handle" "$KOAD_IO_HANDLE" "$(whoami)")
-#   HANDLE=$(ask "Your handle" "${KOAD_IO_HANDLE:-}" "" --write ~/.koad-io/me/.env KOAD_IO_HANDLE)
+#   HANDLE=$(ask "Your handle" "$KOAD_IO_HANDLE" "" --required --write ~/.koad-io/me/.env KOAD_IO_HANDLE)
+#   HANDLE=$(ask "Your handle" "${KOAD_IO_HANDLE:-}" "$(whoami)" --write ~/.koad-io/me/.env KOAD_IO_HANDLE)
 ask() {
     local prompt="$1"
     local env_val="${2:-}"
     local default="${3:-}"
     local write_file=""
     local write_var=""
+    local required=0
 
-    # Parse optional --write flag from remaining args
+    # Parse optional flags from remaining args
     shift 3 2>/dev/null || shift $# 2>/dev/null || true
     while [ $# -gt 0 ]; do
         case "$1" in
+            --required)
+                required=1
+                shift
+                ;;
             --write)
                 write_file="${2:-}"
                 write_var="${3:-}"
@@ -90,17 +101,25 @@ ask() {
         local _dim='\033[2m'
         local _reset='\033[0m'
         local _bold='\033[1m'
-        local display_prompt
-        if [ -n "$default" ]; then
-            printf "\n  ${_cyan}▸${_reset} %s ${_dim}[%s]${_reset}\n    ${_bold}›${_reset} " "$prompt" "$default" >&2
-            display_prompt=""
-        else
-            printf "\n  ${_cyan}▸${_reset} %s\n    ${_bold}›${_reset} " "$prompt" >&2
-            display_prompt=""
-        fi
-        local answer
-        read -r -p "$display_prompt" answer </dev/tty
-        local result="${answer:-$default}"
+        local result=""
+
+        while true; do
+            if [ -n "$default" ]; then
+                printf "\n  ${_cyan}▸${_reset} %s ${_dim}[%s]${_reset}\n    ${_bold}›${_reset} " "$prompt" "$default" >&2
+            else
+                printf "\n  ${_cyan}▸${_reset} %s\n    ${_bold}›${_reset} " "$prompt" >&2
+            fi
+            local answer
+            read -r -p "" answer </dev/tty
+            result="${answer:-$default}"
+
+            # If required and result is still empty, re-prompt
+            if [ "$required" -eq 1 ] && [ -z "$result" ]; then
+                printf "  ${_dim}(required — please enter a value)${_reset}\n" >&2
+                continue
+            fi
+            break
+        done
 
         # Persist if --write was specified and we have both file and var name
         if [ -n "$write_file" ] && [ -n "$write_var" ]; then

@@ -228,12 +228,7 @@ fi
 
 # 1. Handle
 say "What handle would you like to use? This is your identity in the kingdom."
-RAW_HANDLE=$(ask "Your handle (e.g. koad)" "${KOAD_IO_HANDLE:-}" "" --write "$SOVEREIGN_DIR/.env" SOVEREIGN_HANDLE)
-if [ -z "$RAW_HANDLE" ]; then
-    RAW_HANDLE=$(whoami)
-    say "No handle entered — using system user: $RAW_HANDLE"
-fi
-SOVEREIGN_HANDLE="$RAW_HANDLE"
+SOVEREIGN_HANDLE=$(ask "Your handle (e.g. koad)" "${KOAD_IO_HANDLE:-}" "" --required --write "$SOVEREIGN_DIR/.env" SOVEREIGN_HANDLE)
 say "Handle: $SOVEREIGN_HANDLE"
 say ""
 
@@ -274,11 +269,7 @@ say ""
 
 # 3. Domain
 say "What domain will anchor your kingdom? Used for email addresses and GPG key."
-SOVEREIGN_DOMAIN=$(ask "Kingdom domain (e.g. kingofalldata.com)" "${KOAD_IO_KINGDOM_DOMAIN:-}" "" --write "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN)
-if [ -z "$SOVEREIGN_DOMAIN" ]; then
-    say "No domain entered — you can update this later in ~/.koad-io/me/.env"
-    SOVEREIGN_DOMAIN="example.com"
-fi
+SOVEREIGN_DOMAIN=$(ask "Kingdom domain (e.g. kingofalldata.com)" "${KOAD_IO_KINGDOM_DOMAIN:-}" "" --required --write "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN)
 say "Domain: $SOVEREIGN_DOMAIN"
 say ""
 
@@ -323,7 +314,7 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     # ---------------------------------------------------------------------------
 
     HAVE_EXISTING_MNEMONIC=0
-    if ask_yn "  ◆ Do you have an existing recovery phrase?" "${KOAD_IO_HAVE_EXISTING_MNEMONIC:-}"; then
+    if ask_yn "Do you have an existing recovery phrase?" "${KOAD_IO_HAVE_EXISTING_MNEMONIC:-}"; then
         HAVE_EXISTING_MNEMONIC=1
     fi
 
@@ -332,16 +323,19 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
         # Existing mnemonic path — recover
         say ""
         say "  Enter your 24 recovery words, space-separated, on one line."
-        say "  Input is hidden — it will not appear on screen."
         say ""
         MNEMONIC_INPUT=""
+        _cyan='\033[0;36m'
+        _dim='\033[2m'
+        _reset='\033[0m'
+        _bold='\033[1m'
         while [ -z "$MNEMONIC_INPUT" ]; do
-            echo -n "    Recovery phrase: "
-            read -rs MNEMONIC_INPUT
-            echo ""  # newline after hidden input
+            printf "\n  ${_cyan}▸${_reset} Recovery phrase ${_dim}(input hidden)${_reset}\n    ${_bold}›${_reset} " >&2
+            read -rs MNEMONIC_INPUT </dev/tty
+            echo "" >&2  # newline after hidden input
             MNEMONIC_INPUT="$(echo "$MNEMONIC_INPUT" | tr -s ' ' | sed 's/^ //;s/ $//')"
             if [ -z "$MNEMONIC_INPUT" ]; then
-                say "  No input received. Try again."
+                printf "  ${_dim}(required — please enter your recovery phrase)${_reset}\n" >&2
             fi
         done
 
@@ -621,16 +615,42 @@ if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
         skip "Keybase remote (origin already configured)"
     else
         did "Keybase remote" "adding origin → $KB_REMOTE"
-        git -C "$SOVEREIGN_DIR" remote add origin "$KB_REMOTE" 2>/dev/null
-        say "Remote: origin → $KB_REMOTE"
-        say ""
-        say "Pushing to Keybase..."
-        say "(Make sure Keybase is running and you're logged in as your handle: $KB_USERNAME)"
-        if git -C "$SOVEREIGN_DIR" push -u origin main 2>/dev/null; then
-            say "Pushed to Keybase. Your sovereign identity is backed up."
-        else
-            say "Push failed — run manually once Keybase is running:"
-            say "  git -C ~/.koad-io/me push -u origin main"
+
+        # Check if the 'me' repo exists in Keybase; create it if not
+        say "Checking Keybase for repo 'me'..."
+        KB_REPO_EXISTS=0
+        if keybase git list 2>/dev/null | grep -q "^  me "; then
+            KB_REPO_EXISTS=1
+        fi
+
+        if [ "$KB_REPO_EXISTS" -eq 0 ]; then
+            say "Repo doesn't exist — creating: keybase git create me"
+            if keybase git create me 2>/dev/null; then
+                say "Repo created."
+            else
+                say "Could not create Keybase repo (is Keybase running and logged in as $KB_USERNAME?)."
+                say "Push manually once Keybase is running:"
+                say "  keybase git create me"
+                say "  git -C ~/.koad-io/me remote add origin $KB_REMOTE"
+                say "  git -C ~/.koad-io/me push -u origin main"
+                say ""
+                # Skip the push attempt below — remote not ready
+                KB_USERNAME=""
+            fi
+        fi
+
+        if [ -n "$KB_USERNAME" ]; then
+            git -C "$SOVEREIGN_DIR" remote add origin "$KB_REMOTE" 2>/dev/null
+            say "Remote: origin → $KB_REMOTE"
+            say ""
+            say "Pushing to Keybase..."
+            say "(Make sure Keybase is running and you're logged in as your handle: $KB_USERNAME)"
+            if git -C "$SOVEREIGN_DIR" push -u origin main 2>/dev/null; then
+                say "Pushed to Keybase. Your sovereign identity is backed up."
+            else
+                say "Push failed — run manually once Keybase is running:"
+                say "  git -C ~/.koad-io/me push -u origin main"
+            fi
         fi
     fi
     say ""
