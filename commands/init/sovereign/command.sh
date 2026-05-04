@@ -74,13 +74,9 @@ if [ -n "$REPO_URL" ] && [[ "$REPO_URL" != --* ]]; then
     fi
 
     # Verify it looks like a sovereign identity repo
-    if [ ! -f "$SOVEREIGN_DIR/passenger.json" ]; then
-        die "Cloned repo does not contain passenger.json — is this a sovereign identity repo?"
-    fi
-
-    SOVEREIGN_TYPE=$(grep -o '"type"[[:space:]]*:[[:space:]]*"[^"]*"' "$SOVEREIGN_DIR/passenger.json" 2>/dev/null | grep -o '"[^"]*"$' | tr -d '"' || echo "")
-    if [ "$SOVEREIGN_TYPE" != "sovereign" ]; then
-        say "WARNING: passenger.json type is '$SOVEREIGN_TYPE', expected 'sovereign'. Proceeding anyway."
+    if [ ! -f "$SOVEREIGN_DIR/IDENTITY.md" ] && [ ! -f "$SOVEREIGN_DIR/id/master.fingerprint" ]; then
+        say "WARNING: Cloned repo doesn't appear to contain sovereign identity material."
+        say "Expected at least IDENTITY.md or id/master.fingerprint. Continuing anyway."
     fi
 
     # Generate fresh device key for this machine
@@ -144,7 +140,7 @@ cat > "$SOVEREIGN_DIR/.gitignore" << 'GITIGNORE'
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # ~/.koad-io/me/.gitignore
 # Controls which files in the sovereign identity repo are tracked vs local-only.
-# Tracked: IDENTITY.md, public keys, passenger.json, proofs, declarations.
+# Tracked: IDENTITY.md, public keys, proofs, declarations.
 # Local-only: private keys, device artifacts, .env.
 
 # Private keys — never commit
@@ -588,29 +584,9 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
 else
     skip "id/gpg.public.asc (sovereign keypair)"
     skip "id/device.key"
-    # Load label from disk for use in passenger.json (idempotent path)
+    # Load label from disk (idempotent path)
     SOVEREIGN_LABEL="${SOVEREIGN_LABEL:-}"
     [ -z "$SOVEREIGN_LABEL" ] && [ -f "$ID_DIR/label" ] && SOVEREIGN_LABEL=$(cat "$ID_DIR/label")
-fi
-
-# ---------------------------------------------------------------------------
-# passenger.json — write if missing; skip if present (SPEC-174 §2.3)
-# ---------------------------------------------------------------------------
-
-if [ ! -f "$SOVEREIGN_DIR/passenger.json" ]; then
-    did "passenger.json" "creating"
-    cat > "$SOVEREIGN_DIR/passenger.json" << PASSEOF
-{
-  "entity": "me",
-  "handle": "$SOVEREIGN_HANDLE",
-  "type": "sovereign",
-  "home": "~/.koad-io/me",
-  "label": "$SOVEREIGN_LABEL"
-}
-PASSEOF
-    say "wrote: $SOVEREIGN_DIR/passenger.json"
-else
-    skip "passenger.json"
 fi
 
 # ---------------------------------------------------------------------------
@@ -653,7 +629,6 @@ git -C "$SOVEREIGN_DIR" add \
     id/.gitignore \
     2>/dev/null || true
 
-[ -f "$SOVEREIGN_DIR/passenger.json" ]   && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_DIR/passenger.json" 2>/dev/null || true
 [ -f "$SOVEREIGN_DIR/IDENTITY.md" ]     && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_DIR/IDENTITY.md" 2>/dev/null || true
 [ -f "$ID_DIR/gpg.public.asc" ]         && git -C "$SOVEREIGN_DIR" add "$ID_DIR/gpg.public.asc" 2>/dev/null || true
 [ -f "$ID_DIR/leaf.public.asc" ]        && git -C "$SOVEREIGN_DIR" add "$ID_DIR/leaf.public.asc" 2>/dev/null || true
