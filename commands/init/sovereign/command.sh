@@ -65,6 +65,14 @@ if [ -n "$REPO_URL" ] && [[ "$REPO_URL" != --* ]]; then
 
     git clone "$REPO_URL" "$SOVEREIGN_DIR" || die "Clone failed: $REPO_URL"
 
+    # Convert HTTPS origin to SSH for ongoing push/pull (workstation git pattern)
+    if [[ "$REPO_URL" == https://* ]]; then
+        # Parse: https://HOST/PATH → git@HOST:PATH
+        SSH_URL=$(echo "$REPO_URL" | sed -E 's|^https://([^/]+)/(.+)$|git@\1:\2|')
+        git -C "$SOVEREIGN_DIR" remote set-url origin "$SSH_URL"
+        say "Origin remote: $REPO_URL → $SSH_URL (SSH form for ongoing operations)"
+    fi
+
     # Verify it looks like a sovereign identity repo
     if [ ! -f "$SOVEREIGN_DIR/passenger.json" ]; then
         die "Cloned repo does not contain passenger.json — is this a sovereign identity repo?"
