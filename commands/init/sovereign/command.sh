@@ -81,7 +81,9 @@ say ""
 # Directory structure — mkdir -p is already idempotent
 # ---------------------------------------------------------------------------
 
-mkdir -p "$SOVEREIGN_DIR/id/ssl"
+DEVICE_DIR="$SOVEREIGN_DIR/id/devices/$HOSTNAME"
+
+mkdir -p "$DEVICE_DIR"
 mkdir -p "$SOVEREIGN_DIR/trust/bonds"
 say "directory structure — present"
 
@@ -104,24 +106,21 @@ id/dsa
 
 # Private GPG key
 id/gpg.private.asc
-id/leaf.private.asc
-
-# GPG revocation certificate — store offline, never commit
 id/gpg-revocation.asc
+
+# Per-device private material — never commit
+id/devices/*/leaf.private.asc
+id/devices/*/device.key
+id/devices/*/ed25519
+
+# Old layout artifacts — defensive guards so test files don't leak
+id/leaf.private.asc
+id/leaf.public.asc
+id/device.key
+id/device.key.pub
 
 # GPG keyring
 keyring/
-
-# SSL private material
-id/ssl/master-curve.pem
-id/ssl/device-curve.pem
-id/ssl/relay-curve.pem
-id/ssl/session.pem
-
-# Device key — machine-local artifact, never commit
-id/device.key
-id/device.key.pub
-device.key
 
 # Local config — machine-specific, never commit
 .env
@@ -146,25 +145,28 @@ GITIGNORE
 # ---------------------------------------------------------------------------
 
 cat > "$SOVEREIGN_DIR/id/.gitignore" << 'GITIGNORE'
-# Private keys — never commit
+# Private keys — never commit (old layout defensive guards)
 ed25519
 ecdsa
 rsa
 dsa
 gpg.private.asc
-leaf.private.asc
 gpg-revocation.asc
+leaf.private.asc
+leaf.public.asc
 device.key
 device.key.pub
-# SSL private material
-ssl/master-curve.pem
-ssl/device-curve.pem
-ssl/relay-curve.pem
-ssl/session.pem
-# Keep public keys
-!*.pub
+# SSL legacy artifacts
+ssl/
+# Per-device private material (covered by parent .gitignore too)
+devices/*/leaf.private.asc
+devices/*/device.key
+devices/*/ed25519
+# Keep per-device public sides and kingdom-level public keys
+!devices/*/leaf.public.asc
 !gpg.public.asc
-!leaf.public.asc
+!master.fingerprint
+!label
 # Keep this file
 !.gitignore
 GITIGNORE
@@ -329,7 +331,7 @@ command -v node >/dev/null 2>&1 || die "node is required but not found — insta
 USERID="${SOVEREIGN_HANDLE} @ ${SOVEREIGN_DOMAIN}"
 
 # Run ceremony if any key artifact is missing (or --forceful)
-if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FORCEFUL" -eq 1 ]; then
+if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$DEVICE_DIR/leaf.private.asc" ] || [ "$FORCEFUL" -eq 1 ]; then
 
     did "sovereign keypair" "running ceremony via @koad-io/node..."
     say ""
@@ -405,8 +407,7 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     LEAF_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPublicArmor')
     LEAF_PRIVATE_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPrivateArmor')
     LEAF_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.leafFingerprint')
-    DEVICE_KEY=$(echo "$CEREMONY_JSON" | jq -r '.devicePrivateKey')
-    DEVICE_KEY_PUB=$(echo "$CEREMONY_JSON" | jq -r '.devicePublicKey')
+    DEVICE_KEY=$(echo "$CEREMONY_JSON" | jq -r '.deviceKey')
 
     say "Key label: $SOVEREIGN_LABEL"
 
@@ -518,36 +519,39 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     # Master key never touches disk — only public armor + leaf (encrypted) + device key
     # ---------------------------------------------------------------------------
 
-    printf '%s' "$MASTER_PUBLIC_ARMOR"  > "$ID_DIR/gpg.public.asc"
-    printf '%s' "$LEAF_PUBLIC_ARMOR"    > "$ID_DIR/leaf.public.asc"
-    printf '%s' "$LEAF_PRIVATE_ARMOR"   > "$ID_DIR/leaf.private.asc"
-    printf '%s' "$DEVICE_KEY"           > "$ID_DIR/device.key"
-    printf '%s' "$DEVICE_KEY_PUB"       > "$ID_DIR/device.key.pub"
-    printf '%s' "$MASTER_FINGERPRINT"   > "$ID_DIR/master.fingerprint"
-    printf '%s' "$SOVEREIGN_LABEL"      > "$ID_DIR/label"
-    chmod 600 "$ID_DIR/device.key" "$ID_DIR/leaf.private.asc"
+    # Per-kingdom files (skip if already committed — deterministic from mnemonic)
+    [ ! -f "$ID_DIR/gpg.public.asc" ]        && printf '%s' "$MASTER_PUBLIC_ARMOR"  > "$ID_DIR/gpg.public.asc"
+    [ ! -f "$ID_DIR/master.fingerprint" ]    && printf '%s' "$MASTER_FINGERPRINT"   > "$ID_DIR/master.fingerprint"
+    [ ! -f "$ID_DIR/label" ]                 && printf '%s' "$SOVEREIGN_LABEL"      > "$ID_DIR/label"
+
+    # Per-device files (always fresh for this device)
+    printf '%s' "$LEAF_PUBLIC_ARMOR"    > "$DEVICE_DIR/leaf.public.asc"
+    printf '%s' "$LEAF_PRIVATE_ARMOR"   > "$DEVICE_DIR/leaf.private.asc"
+    printf '%s' "$DEVICE_KEY"           > "$DEVICE_DIR/device.key"
+    chmod 600 "$DEVICE_DIR/device.key" "$DEVICE_DIR/leaf.private.asc"
 
     ensure_env_line "$SOVEREIGN_DIR/.env" "SOVEREIGN_LABEL" "$SOVEREIGN_LABEL"
 
     say ""
     say "generated: $ID_DIR/gpg.public.asc (master fingerprint: ${MASTER_FINGERPRINT:(-16)})"
-    say "generated: $ID_DIR/leaf.public.asc (leaf fingerprint: ${LEAF_FINGERPRINT:(-16)})"
-    say "generated: $ID_DIR/leaf.private.asc (encrypted — passphrase is device.key)"
-    say "generated: $ID_DIR/device.key (gitignored — machine-local, never commit)"
+    say "generated: $DEVICE_DIR/leaf.public.asc (leaf fingerprint: ${LEAF_FINGERPRINT:(-16)})"
+    say "generated: $DEVICE_DIR/leaf.private.asc (encrypted — passphrase is device.key)"
+    say "generated: $DEVICE_DIR/device.key (gitignored — machine-local, never commit)"
     say "generated: $ID_DIR/master.fingerprint"
     say "generated: $ID_DIR/label ($SOVEREIGN_LABEL)"
+    say "device: $HOSTNAME"
 
     # ---------------------------------------------------------------------------
     # Step 5 — Zero sensitive vars from shell memory
     # SOVEREIGN_LABEL is NOT unset — it's a non-sensitive reference, needed below
     # ---------------------------------------------------------------------------
-    unset MNEMONIC CEREMONY_JSON DEVICE_KEY DEVICE_KEY_PUB MASTER_PUBLIC_ARMOR
+    unset MNEMONIC CEREMONY_JSON DEVICE_KEY MASTER_PUBLIC_ARMOR
     unset LEAF_PUBLIC_ARMOR LEAF_PRIVATE_ARMOR MASTER_FINGERPRINT LEAF_FINGERPRINT
     unset MNEMONIC_WORDS
 
 else
     skip "id/gpg.public.asc (sovereign keypair)"
-    skip "id/device.key"
+    skip "id/devices/$HOSTNAME/leaf.private.asc"
     # Load label from disk (idempotent path)
     SOVEREIGN_LABEL="${SOVEREIGN_LABEL:-}"
     [ -z "$SOVEREIGN_LABEL" ] && [ -f "$ID_DIR/label" ] && SOVEREIGN_LABEL=$(cat "$ID_DIR/label")
@@ -593,14 +597,14 @@ git -C "$SOVEREIGN_DIR" add \
     id/.gitignore \
     2>/dev/null || true
 
-[ -f "$SOVEREIGN_DIR/IDENTITY.md" ]     && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_DIR/IDENTITY.md" 2>/dev/null || true
-[ -f "$ID_DIR/gpg.public.asc" ]         && git -C "$SOVEREIGN_DIR" add "$ID_DIR/gpg.public.asc" 2>/dev/null || true
-[ -f "$ID_DIR/leaf.public.asc" ]        && git -C "$SOVEREIGN_DIR" add "$ID_DIR/leaf.public.asc" 2>/dev/null || true
-[ -f "$ID_DIR/master.fingerprint" ]     && git -C "$SOVEREIGN_DIR" add "$ID_DIR/master.fingerprint" 2>/dev/null || true
-[ -f "$ID_DIR/label" ]                  && git -C "$SOVEREIGN_DIR" add "$ID_DIR/label" 2>/dev/null || true
+[ -f "$SOVEREIGN_DIR/IDENTITY.md" ]         && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_DIR/IDENTITY.md" 2>/dev/null || true
+[ -f "$ID_DIR/gpg.public.asc" ]             && git -C "$SOVEREIGN_DIR" add "$ID_DIR/gpg.public.asc" 2>/dev/null || true
+[ -f "$ID_DIR/master.fingerprint" ]         && git -C "$SOVEREIGN_DIR" add "$ID_DIR/master.fingerprint" 2>/dev/null || true
+[ -f "$ID_DIR/label" ]                      && git -C "$SOVEREIGN_DIR" add "$ID_DIR/label" 2>/dev/null || true
+[ -f "$DEVICE_DIR/leaf.public.asc" ]        && git -C "$SOVEREIGN_DIR" add "$DEVICE_DIR/leaf.public.asc" 2>/dev/null || true
 
 if ! git -C "$SOVEREIGN_DIR" diff --cached --quiet 2>/dev/null; then
-    git -C "$SOVEREIGN_DIR" commit -m "kingdom genesis — sovereign identity initialized on $HOSTNAME" 2>/dev/null
+    git -C "$SOVEREIGN_DIR" commit -m "kingdom genesis — $HOSTNAME device leaf registered" 2>/dev/null
     say "committed staged files"
 else
     skip "git commit (nothing new to stage)"
@@ -786,6 +790,7 @@ say "===========================================================================
 say ""
 say " The root of trust exists."
 say " Key label: ${SOVEREIGN_LABEL:-(unknown — run again to generate)}"
+say " Device:    $HOSTNAME"
 say " Source:    $SOURCE_LABEL"
 say ""
 say " Recovery phrase: WRITE IT DOWN. Every word. In order. On paper."

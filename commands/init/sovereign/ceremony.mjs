@@ -111,8 +111,7 @@ async function cmdGenerate(args) {
     leafFingerprint,
     leafPublicArmor,
     leafPrivateArmor,
-    devicePublicKey: deviceKey,   // stored as device.key.pub (the "public" half for this ceremony)
-    devicePrivateKey: deviceKey,  // stored as device.key (the at-rest passphrase)
+    deviceKey,  // at-rest passphrase for encrypting this device's leaf; not a keypair
   });
 }
 
@@ -201,8 +200,7 @@ async function cmdRecover(args) {
     leafFingerprint,
     leafPublicArmor,
     leafPrivateArmor,
-    devicePublicKey: deviceKey,
-    devicePrivateKey: deviceKey,
+    deviceKey,  // at-rest passphrase for encrypting this device's leaf; not a keypair
   });
 }
 
