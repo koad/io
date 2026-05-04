@@ -318,11 +318,55 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     say ""
 
     # ---------------------------------------------------------------------------
-    # Step 1 — Generate all key material in one ceremony invocation
+    # Step 1 — Entropy source: existing mnemonic or generate fresh
     # The mnemonic (24 words) is the master secret. It never touches disk.
     # ---------------------------------------------------------------------------
-    CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" generate --userid "$USERID") || die "Ceremony script failed"
 
+    HAVE_EXISTING_MNEMONIC=0
+    if ask_yn "  ◆ Do you have an existing recovery phrase?" "${KOAD_IO_HAVE_EXISTING_MNEMONIC:-}"; then
+        HAVE_EXISTING_MNEMONIC=1
+    fi
+
+    if [ "$HAVE_EXISTING_MNEMONIC" -eq 1 ]; then
+
+        # Existing mnemonic path — recover
+        say ""
+        say "  Enter your 24 recovery words, space-separated, on one line."
+        say "  Input is hidden — it will not appear on screen."
+        say ""
+        MNEMONIC_INPUT=""
+        while [ -z "$MNEMONIC_INPUT" ]; do
+            echo -n "    Recovery phrase: "
+            read -rs MNEMONIC_INPUT
+            echo ""  # newline after hidden input
+            MNEMONIC_INPUT="$(echo "$MNEMONIC_INPUT" | tr -s ' ' | sed 's/^ //;s/ $//')"
+            if [ -z "$MNEMONIC_INPUT" ]; then
+                say "  No input received. Try again."
+            fi
+        done
+
+        # Recover — ceremony.mjs validates BIP39 internally and dies on failure
+        say ""
+        say "  Validating recovery phrase and deriving master key..."
+        CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" recover \
+            --mnemonic "$MNEMONIC_INPUT" \
+            --userid "$USERID") || die "Recovery failed — mnemonic may be invalid or ceremony script errored"
+
+        # Clear raw input — ceremony has it now; we'll pull from JSON
+        MNEMONIC_INPUT=""
+        unset MNEMONIC_INPUT
+
+        say "  Recovery phrase accepted."
+        say ""
+
+    else
+
+        # Fresh generate path
+        CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" generate --userid "$USERID") || die "Ceremony script failed"
+
+    fi
+
+    # Both paths include .mnemonic in JSON; extract once here
     MNEMONIC=$(echo "$CEREMONY_JSON" | jq -r '.mnemonic')
     MASTER_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.masterFingerprint')
     MASTER_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.masterPublicArmor')
@@ -333,8 +377,12 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     DEVICE_KEY_PUB=$(echo "$CEREMONY_JSON" | jq -r '.devicePublicKey')
 
     # ---------------------------------------------------------------------------
-    # Step 2 — Display mnemonic — WRITE THESE DOWN
+    # Steps 2 & 3 — Display mnemonic + quiz (fresh generate only)
+    # Recover path: user already has their words written down — skip display and quiz.
     # ---------------------------------------------------------------------------
+
+    if [ "$HAVE_EXISTING_MNEMONIC" -eq 0 ]; then
+
     say "  ╔══════════════════════════════════════════════════════════════╗"
     say "  ║  WRITE THESE WORDS DOWN. Every word. In order. On paper.    ║"
     say "  ║  Do not screenshot. Do not paste. Do not type elsewhere.    ║"
@@ -365,9 +413,7 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     echo -n "[sovereign] Press Enter when you've written all 24 words down..."
     read -r _
 
-    # ---------------------------------------------------------------------------
     # Step 3 — Quiz — 3 random positions
-    # ---------------------------------------------------------------------------
     say ""
     say "  ◆ Confirm your backup"
     say ""
@@ -430,6 +476,8 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
             say ""
         fi
     done
+
+    fi  # end fresh generate display+quiz block
 
     # ---------------------------------------------------------------------------
     # Step 4 — Write artifacts to id/

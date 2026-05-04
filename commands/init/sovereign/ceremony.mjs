@@ -166,11 +166,32 @@ async function cmdRecover(args) {
     die('provided mnemonic is not a valid BIP39 mnemonic');
   }
 
+  // 1. Derive master key from provided mnemonic (deterministic)
   const seed = mnemonicToSeed(mnemonic);
   const masterKM = await buildMasterKeyManager(seed, userid);
   const { fingerprint: masterFingerprint, publicKey: masterPublicArmor } = await extractKMInfo(masterKM);
 
-  out({ masterFingerprint, masterPublicArmor });
+  // 2. Generate fresh leaf key — NOT derived from mnemonic, per spec
+  //    Leaf keys are per-install artifacts; the master is the root of trust.
+  const leafKM = await buildLeafKeyManager(userid);
+  const { fingerprint: leafFingerprint, publicKey: leafPublicArmor } = await extractKMInfo(leafKM);
+
+  // 3. Generate fresh device key (hex-encoded 32 bytes of entropy)
+  const deviceKey = generateDeviceKey();
+
+  // 4. Encrypt leaf private key using device key as passphrase
+  const leafPrivateArmor = await encryptLeafForStorage(leafKM, deviceKey);
+
+  out({
+    mnemonic,
+    masterFingerprint,
+    masterPublicArmor,
+    leafFingerprint,
+    leafPublicArmor,
+    leafPrivateArmor,
+    devicePublicKey: deviceKey,
+    devicePrivateKey: deviceKey,
+  });
 }
 
 // ---------------------------------------------------------------------------
