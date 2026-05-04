@@ -371,13 +371,6 @@ command -v node >/dev/null 2>&1 || die "node is required but not found — insta
 
 USERID="${SOVEREIGN_HANDLE} @ ${SOVEREIGN_DOMAIN}"
 
-# Keybase import status — initialized here so they're safe to reference at
-# the genesis confirmation regardless of which code path ran.
-KB_IMPORT_MASTER=0
-KB_IMPORT_LEAF=0
-KB_IMPORT_MASTER_FINGERPRINT=""
-KB_IMPORT_LEAF_FINGERPRINT=""
-
 # Run ceremony if any key artifact is missing (or --forceful)
 if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FORCEFUL" -eq 1 ]; then
 
@@ -577,112 +570,7 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     say "generated: $ID_DIR/label ($SOVEREIGN_LABEL)"
 
     # ---------------------------------------------------------------------------
-    # Step 5 — Keybase PGP import (defense in depth — optional, recommended)
-    # Mnemonic is still live here; artifacts are on disk. Scrub after imports.
-    # ---------------------------------------------------------------------------
-
-    if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
-
-        # Check that keybase service is reachable before offering
-        if ! keybase status >/dev/null 2>&1; then
-            say ""
-            say "Keybase service is not reachable — skipping PGP import."
-            say "You can import manually later:"
-            say "  node $CEREMONY_SCRIPT export-master-armored --mnemonic '<24 words>' --userid '$USERID' | keybase pgp import"
-            say "  node $CEREMONY_SCRIPT export-leaf-armored --leaf-encrypted-path '$ID_DIR/leaf.private.asc' --device-key-path '$ID_DIR/device.key' | keybase pgp import"
-        else
-
-            say ""
-            say "  Keybase PGP import — adds a secondary recovery path via your Keybase account."
-            say "  Your written-down recovery phrase remains the canonical, sovereign backup."
-            say "  Keybase becomes a convenience, not a replacement."
-            say ""
-
-            # Ask for a Keybase key passphrase once — used for both imports.
-            # Keybase encrypts private keys in its local keystore; this passphrase
-            # protects the key block in transit and triggers Keybase's decryption prompt
-            # (Keybase then re-encrypts with its own keystore passphrase).
-            # Passed via env (KOAD_IO_KB_PASSPHRASE) — never on the command line.
-            KB_PASSPHRASE=""
-            if [ -z "${KOAD_IO_KB_PASSPHRASE:-}" ]; then
-                _cyan='\033[0;36m'
-                _dim='\033[2m'
-                _reset='\033[0m'
-                _bold='\033[1m'
-                say "  ◆ Set a passphrase to protect your imported keys in Keybase"
-                say "    (Keybase encrypts your private keys at rest — this passphrase"
-                say "     is used to protect the key block during import. Keybase will"
-                say "     prompt you to enter it when importing each key.)"
-                say "    Leave blank to skip both imports."
-                say ""
-                printf "    ${_cyan}▸${_reset} Keybase key passphrase ${_dim}(input hidden)${_reset}\n    ${_bold}›${_reset} " >&2
-                read -rs KB_PASSPHRASE </dev/tty
-                echo "" >&2
-            else
-                KB_PASSPHRASE="${KOAD_IO_KB_PASSPHRASE}"
-            fi
-
-            if [ -z "$KB_PASSPHRASE" ]; then
-                say ""
-                say "  No passphrase entered — skipping Keybase key imports."
-                say "  Import manually later (you will be prompted for a passphrase):"
-                say "    node $CEREMONY_SCRIPT export-master-armored --mnemonic '<24 words>' --userid '$USERID' | keybase pgp import"
-                say "    node $CEREMONY_SCRIPT export-leaf-armored --leaf-encrypted-path '$ID_DIR/leaf.private.asc' --device-key-path '$ID_DIR/device.key' | keybase pgp import"
-            else
-
-            if ask_yn "Import master key to Keybase as backup? (recommended: yes)" "${KOAD_IO_KB_IMPORT_MASTER:-}"; then
-                say ""
-                say "  Importing master key to Keybase..."
-                say "  (Keybase will prompt for the passphrase you just set.)"
-                # Capture ceremony stderr (fingerprint log) without touching disk with key material.
-                # The armored private key travels only through the pipe to keybase pgp import.
-                # Passphrase passed via env — never on command line (avoids process listing exposure).
-                _KB_MASTER_STDERR=$(mktemp)
-                if KOAD_IO_KB_PASSPHRASE="$KB_PASSPHRASE" \
-                    node "$CEREMONY_SCRIPT" export-master-armored \
-                    --mnemonic "$MNEMONIC" \
-                    --userid "$USERID" \
-                    2>"$_KB_MASTER_STDERR" | keybase pgp import; then
-                    KB_IMPORT_MASTER=1
-                    KB_IMPORT_MASTER_FINGERPRINT=$(grep 'master fingerprint' "$_KB_MASTER_STDERR" | sed 's/.*master fingerprint: //')
-                    say "  Master key imported to Keybase."
-                else
-                    say "  WARNING: master key import to Keybase failed (Keybase may be locked or offline)."
-                    say "  Import manually: node $CEREMONY_SCRIPT export-master-armored --mnemonic '<24 words>' --userid '$USERID' | keybase pgp import"
-                fi
-                rm -f "$_KB_MASTER_STDERR"
-                unset _KB_MASTER_STDERR
-            fi
-
-            say ""
-
-            if ask_yn "Import leaf key to Keybase? (recommended: yes — makes you discoverable)" "${KOAD_IO_KB_IMPORT_LEAF:-}"; then
-                say ""
-                say "  Importing leaf key to Keybase..."
-                say "  (Keybase will prompt for the passphrase you just set.)"
-                KOAD_IO_KB_PASSPHRASE="$KB_PASSPHRASE" \
-                    node "$CEREMONY_SCRIPT" export-leaf-armored \
-                    --leaf-encrypted-path "$ID_DIR/leaf.private.asc" \
-                    --device-key-path "$ID_DIR/device.key" \
-                    2>/dev/null | keybase pgp import && {
-                    KB_IMPORT_LEAF=1
-                    KB_IMPORT_LEAF_FINGERPRINT="$LEAF_FINGERPRINT"
-                    say "  Leaf key imported to Keybase."
-                } || {
-                    say "  WARNING: leaf key import to Keybase failed."
-                    say "  Import manually: node $CEREMONY_SCRIPT export-leaf-armored --leaf-encrypted-path '$ID_DIR/leaf.private.asc' --device-key-path '$ID_DIR/device.key' | keybase pgp import"
-                }
-            fi
-
-            fi  # end passphrase-present block
-            unset KB_PASSPHRASE
-
-        fi
-
-    fi
-
-    # ---------------------------------------------------------------------------
-    # Step 6 — Zero sensitive vars from shell memory
+    # Step 5 — Zero sensitive vars from shell memory
     # SOVEREIGN_LABEL is NOT unset — it's a non-sensitive reference, needed below
     # ---------------------------------------------------------------------------
     unset MNEMONIC CEREMONY_JSON DEVICE_KEY DEVICE_KEY_PUB MASTER_PUBLIC_ARMOR
@@ -782,22 +670,16 @@ say "===========================================================================
 say ""
 say " The root of trust exists."
 say " Key label: ${SOVEREIGN_LABEL:-(unknown — run again to generate)}"
-say " Public keys are at ~/.koad-io/me/id/"
-say " Edit ~/.koad-io/me/IDENTITY.md — write who you are in your own words."
 say ""
-if [ "$KB_IMPORT_MASTER" -eq 1 ] || [ "$KB_IMPORT_LEAF" -eq 1 ]; then
-    say " Keybase:"
-    if [ "$KB_IMPORT_MASTER" -eq 1 ]; then
-        say "   Master key in Keybase: yes${KB_IMPORT_MASTER_FINGERPRINT:+ (fingerprint: $KB_IMPORT_MASTER_FINGERPRINT)}"
-    else
-        say "   Master key in Keybase: no"
-    fi
-    if [ "$KB_IMPORT_LEAF" -eq 1 ]; then
-        say "   Leaf key in Keybase:   yes (publicly discoverable)"
-    else
-        say "   Leaf key in Keybase:   no"
-    fi
-    say "   Recovery phrase: WRITE IT DOWN (Keybase is backup, paper is canonical)"
+say " Recovery phrase: WRITE IT DOWN. Every word. In order. On paper."
+say "   The 24 words are the only way to recover your master key."
+say ""
+if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
+    KB_REMOTE_DISPLAY="keybase://private/$KB_USERNAME/me"
+    say " Keybase backup: $KB_REMOTE_DISPLAY"
+    say "   Your sovereign repo is pushed here. To recover on a new machine:"
+    say "     koad-io init sovereign $KB_REMOTE_DISPLAY"
+    say "   Then enter your 24 words to re-derive the master."
     say ""
 fi
 
