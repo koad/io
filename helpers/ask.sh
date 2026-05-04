@@ -85,11 +85,18 @@ ask() {
 
     if [ -t 0 ]; then
         # Interactive: show prompt with optional default hint
+        # ANSI colors — cyan label, dim default, bold prompt char
+        local _cyan='\033[0;36m'
+        local _dim='\033[2m'
+        local _reset='\033[0m'
+        local _bold='\033[1m'
         local display_prompt
         if [ -n "$default" ]; then
-            display_prompt="$prompt [$default]: "
+            printf "\n  ${_cyan}▸${_reset} %s ${_dim}[%s]${_reset}\n    ${_bold}›${_reset} " "$prompt" "$default" >&2
+            display_prompt=""
         else
-            display_prompt="$prompt: "
+            printf "\n  ${_cyan}▸${_reset} %s\n    ${_bold}›${_reset} " "$prompt" >&2
+            display_prompt=""
         fi
         local answer
         read -r -p "$display_prompt" answer </dev/tty
@@ -150,8 +157,13 @@ ask_yn() {
     fi
 
     if [ -t 0 ]; then
+        local _cyan='\033[0;36m'
+        local _dim='\033[2m'
+        local _reset='\033[0m'
+        local _bold='\033[1m'
+        printf "\n  ${_cyan}◆${_reset} %s ${_dim}(y/n)${_reset}\n    ${_bold}›${_reset} " "$prompt" >&2
         local answer
-        read -r -p "$prompt (y/n): " answer </dev/tty
+        read -r -p "" answer </dev/tty
         local yn_result
         case "${answer,,}" in
             y|yes) yn_result="yes" ;;
