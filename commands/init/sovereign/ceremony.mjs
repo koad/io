@@ -96,7 +96,11 @@ async function cmdGenerate(args) {
   // 5. Encrypt leaf private key using device key as passphrase
   const leafPrivateArmor = await encryptLeafForStorage(leafKM, deviceKey);
 
+  const words = mnemonic.split(' ');
+  const label = words[0] + ' ' + words[1];
+
   out({
+    label,
     mnemonic,
     masterFingerprint,
     masterPublicArmor,
@@ -182,7 +186,11 @@ async function cmdRecover(args) {
   // 4. Encrypt leaf private key using device key as passphrase
   const leafPrivateArmor = await encryptLeafForStorage(leafKM, deviceKey);
 
+  const words = mnemonic.split(' ');
+  const label = words[0] + ' ' + words[1];
+
   out({
+    label,
     mnemonic,
     masterFingerprint,
     masterPublicArmor,

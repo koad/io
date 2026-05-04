@@ -368,6 +368,7 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
 
     # Both paths include .mnemonic in JSON; extract once here
     MNEMONIC=$(echo "$CEREMONY_JSON" | jq -r '.mnemonic')
+    SOVEREIGN_LABEL=$(echo "$CEREMONY_JSON" | jq -r '.label')
     MASTER_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.masterFingerprint')
     MASTER_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.masterPublicArmor')
     LEAF_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPublicArmor')
@@ -375,6 +376,8 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     LEAF_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.leafFingerprint')
     DEVICE_KEY=$(echo "$CEREMONY_JSON" | jq -r '.devicePrivateKey')
     DEVICE_KEY_PUB=$(echo "$CEREMONY_JSON" | jq -r '.devicePublicKey')
+
+    say "Key label: $SOVEREIGN_LABEL"
 
     # ---------------------------------------------------------------------------
     # Steps 2 & 3 — Display mnemonic + quiz (fresh generate only)
@@ -490,7 +493,10 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     printf '%s' "$DEVICE_KEY"           > "$ID_DIR/device.key"
     printf '%s' "$DEVICE_KEY_PUB"       > "$ID_DIR/device.key.pub"
     printf '%s' "$MASTER_FINGERPRINT"   > "$ID_DIR/master.fingerprint"
+    printf '%s' "$SOVEREIGN_LABEL"      > "$ID_DIR/label"
     chmod 600 "$ID_DIR/device.key" "$ID_DIR/leaf.private.asc"
+
+    ensure_env_line "$SOVEREIGN_DIR/.env" "SOVEREIGN_LABEL" "$SOVEREIGN_LABEL"
 
     say ""
     say "generated: $ID_DIR/gpg.public.asc (master fingerprint: ${MASTER_FINGERPRINT:(-16)})"
@@ -498,9 +504,11 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
     say "generated: $ID_DIR/leaf.private.asc (encrypted — passphrase is device.key)"
     say "generated: $ID_DIR/device.key (gitignored — machine-local, never commit)"
     say "generated: $ID_DIR/master.fingerprint"
+    say "generated: $ID_DIR/label ($SOVEREIGN_LABEL)"
 
     # ---------------------------------------------------------------------------
     # Step 5 — Zero sensitive vars from shell memory
+    # SOVEREIGN_LABEL is NOT unset — it's a non-sensitive reference, needed below
     # ---------------------------------------------------------------------------
     unset MNEMONIC CEREMONY_JSON DEVICE_KEY DEVICE_KEY_PUB MASTER_PUBLIC_ARMOR
     unset LEAF_PUBLIC_ARMOR LEAF_PRIVATE_ARMOR MASTER_FINGERPRINT LEAF_FINGERPRINT
@@ -509,6 +517,9 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
 else
     skip "id/gpg.public.asc (sovereign keypair)"
     skip "id/device.key"
+    # Load label from disk for use in passenger.json (idempotent path)
+    SOVEREIGN_LABEL="${SOVEREIGN_LABEL:-}"
+    [ -z "$SOVEREIGN_LABEL" ] && [ -f "$ID_DIR/label" ] && SOVEREIGN_LABEL=$(cat "$ID_DIR/label")
 fi
 
 # ---------------------------------------------------------------------------
@@ -522,7 +533,8 @@ if [ ! -f "$SOVEREIGN_DIR/passenger.json" ]; then
   "entity": "me",
   "handle": "$SOVEREIGN_HANDLE",
   "type": "sovereign",
-  "home": "~/.koad-io/me"
+  "home": "~/.koad-io/me",
+  "label": "$SOVEREIGN_LABEL"
 }
 PASSEOF
     say "wrote: $SOVEREIGN_DIR/passenger.json"
@@ -575,6 +587,7 @@ git -C "$SOVEREIGN_DIR" add \
 [ -f "$ID_DIR/gpg.public.asc" ]         && git -C "$SOVEREIGN_DIR" add "$ID_DIR/gpg.public.asc" 2>/dev/null || true
 [ -f "$ID_DIR/leaf.public.asc" ]        && git -C "$SOVEREIGN_DIR" add "$ID_DIR/leaf.public.asc" 2>/dev/null || true
 [ -f "$ID_DIR/master.fingerprint" ]     && git -C "$SOVEREIGN_DIR" add "$ID_DIR/master.fingerprint" 2>/dev/null || true
+[ -f "$ID_DIR/label" ]                  && git -C "$SOVEREIGN_DIR" add "$ID_DIR/label" 2>/dev/null || true
 
 if ! git -C "$SOVEREIGN_DIR" diff --cached --quiet 2>/dev/null; then
     git -C "$SOVEREIGN_DIR" commit -m "kingdom genesis — sovereign identity initialized on $HOSTNAME" 2>/dev/null
@@ -593,6 +606,7 @@ say " Kingdom genesis complete."
 say "================================================================================"
 say ""
 say " The root of trust exists."
+say " Key label: ${SOVEREIGN_LABEL:-(unknown — run again to generate)}"
 say " Public keys are at ~/.koad-io/me/id/"
 say " Edit ~/.koad-io/me/IDENTITY.md — write who you are in your own words."
 say ""
