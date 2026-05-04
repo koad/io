@@ -33,6 +33,7 @@ const {
   buildMasterKeyManager,
   buildLeafKeyManager,
   encryptLeafForStorage,
+  decryptLeafFromStorage,
   extractKMInfo,
   generateDeviceKey,
   isValidMnemonic,
@@ -203,6 +204,123 @@ async function cmdRecover(args) {
 }
 
 // ---------------------------------------------------------------------------
+// Command: export-master-armored
+// ---------------------------------------------------------------------------
+//
+// Re-derives the master key from the mnemonic and exports an unencrypted
+// armored PGP private key block to stdout — for piping into `keybase pgp import`.
+// The master never touches disk; it lives only in memory for this call's duration.
+//
+// Usage:
+//   node ceremony.mjs export-master-armored --mnemonic "<24 words>" --userid "<userid>"
+//
+// Note on kbpgp KM statefulness: export_pgp_private({passphrase}) mutates the KM
+// in-place. For an unencrypted export we pass no passphrase — so this is safe,
+// but we still use a freshly-derived KM (not a reused one) to be explicit.
+
+async function cmdExportMasterArmored(args) {
+  const mnemonic = args.mnemonic;
+  const userid = args.userid;
+
+  if (!mnemonic) die('--mnemonic is required for export-master-armored');
+  if (!userid) die('--userid is required for export-master-armored');
+
+  if (!isValidMnemonic(mnemonic)) {
+    die('provided mnemonic is not a valid BIP39 mnemonic');
+  }
+
+  // Re-derive master key from mnemonic — same deterministic path as generate/recover
+  const seed = mnemonicToSeed(mnemonic);
+  const masterKM = await buildMasterKeyManager(seed, userid);
+  const { fingerprint } = await extractKMInfo(masterKM);
+
+  // Export unencrypted armored private key — Keybase will handle re-encryption
+  // with its own passphrase during `keybase pgp import`
+  const armored = await new Promise((resolve, reject) => {
+    masterKM.export_pgp_private({}, (err, armor) => {
+      if (err) return reject(err);
+      resolve(armor);
+    });
+  });
+
+  if (!armored || !armored.includes('BEGIN PGP PRIVATE KEY BLOCK')) {
+    die('export_pgp_private returned unexpected output — expected PGP PRIVATE KEY BLOCK');
+  }
+
+  // Write fingerprint as a comment to stderr so it's visible without polluting the pipe
+  process.stderr.write('[ceremony] master fingerprint: ' + fingerprint + '\n');
+
+  // Write armored private key to stdout — caller pipes to `keybase pgp import`
+  process.stdout.write(armored);
+  if (!armored.endsWith('\n')) process.stdout.write('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Command: export-leaf-armored
+// ---------------------------------------------------------------------------
+//
+// Reads an encrypted leaf private key from disk (leaf.private.asc), decrypts
+// it using the device key as passphrase, then exports an unencrypted armored
+// PGP private key block to stdout — for piping into `keybase pgp import`.
+//
+// Usage:
+//   node ceremony.mjs export-leaf-armored \
+//     --leaf-encrypted-path "/path/to/leaf.private.asc" \
+//     --device-key-path "/path/to/device.key"
+
+async function cmdExportLeafArmored(args) {
+  const leafEncryptedPath = args['leaf-encrypted-path'];
+  const deviceKeyPath = args['device-key-path'];
+
+  if (!leafEncryptedPath) die('--leaf-encrypted-path is required for export-leaf-armored');
+  if (!deviceKeyPath) die('--device-key-path is required for export-leaf-armored');
+
+  const fs = await import('fs');
+
+  // Read encrypted leaf armor and device key passphrase from disk
+  let armoredEncrypted;
+  let passphrase;
+  try {
+    armoredEncrypted = fs.readFileSync(leafEncryptedPath, 'utf8').trim();
+  } catch (e) {
+    die('could not read leaf encrypted file: ' + e.message);
+  }
+  try {
+    passphrase = fs.readFileSync(deviceKeyPath, 'utf8').trim();
+  } catch (e) {
+    die('could not read device key file: ' + e.message);
+  }
+
+  if (!armoredEncrypted.includes('BEGIN PGP PRIVATE KEY BLOCK')) {
+    die('leaf file does not appear to contain a PGP PRIVATE KEY BLOCK');
+  }
+  if (!passphrase) {
+    die('device key file is empty');
+  }
+
+  // Decrypt the leaf key using the device key as passphrase
+  const leafKM = await decryptLeafFromStorage(armoredEncrypted, passphrase);
+  const { fingerprint } = await extractKMInfo(leafKM);
+
+  // Export unencrypted armored private key — Keybase handles re-encryption
+  const armored = await new Promise((resolve, reject) => {
+    leafKM.export_pgp_private({}, (err, armor) => {
+      if (err) return reject(err);
+      resolve(armor);
+    });
+  });
+
+  if (!armored || !armored.includes('BEGIN PGP PRIVATE KEY BLOCK')) {
+    die('export_pgp_private returned unexpected output — expected PGP PRIVATE KEY BLOCK');
+  }
+
+  process.stderr.write('[ceremony] leaf fingerprint: ' + fingerprint + '\n');
+
+  process.stdout.write(armored);
+  if (!armored.endsWith('\n')) process.stdout.write('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
@@ -219,6 +337,12 @@ switch (command) {
   case 'recover':
     await cmdRecover(args);
     break;
+  case 'export-master-armored':
+    await cmdExportMasterArmored(args);
+    break;
+  case 'export-leaf-armored':
+    await cmdExportLeafArmored(args);
+    break;
   default:
-    die(`unknown command: ${command || '(none)'}. Valid commands: generate, validate, recover`);
+    die(`unknown command: ${command || '(none)'}. Valid commands: generate, validate, recover, export-master-armored, export-leaf-armored`);
 }
