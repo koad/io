@@ -20,6 +20,7 @@ SOVEREIGN_DIR="$HOME/.koad-io/me"
 REPO_URL="${1:-}"
 FORCEFUL=0
 [[ "${*}" == *"--forceful"* ]] && FORCEFUL=1
+SOURCE_LABEL="fresh genesis"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -47,77 +48,30 @@ ensure_env_line() {
 }
 
 # ---------------------------------------------------------------------------
-# PATH 2 — Existing sovereign (repo-url provided)
+# Pre-seed: clone sovereign directory if repo-url given
 # ---------------------------------------------------------------------------
 
 if [ -n "$REPO_URL" ] && [[ "$REPO_URL" != --* ]]; then
+    if [ ! -d "$SOVEREIGN_DIR" ]; then
+        say "Cloning sovereign identity from $REPO_URL"
+        git clone "$REPO_URL" "$SOVEREIGN_DIR" || die "Clone failed: $REPO_URL"
 
-    say "Existing sovereign path — cloning identity from $REPO_URL"
-
-    if [ -d "$SOVEREIGN_DIR" ]; then
-        if [ "$FORCEFUL" -eq 1 ]; then
-            say "--forceful: removing existing $SOVEREIGN_DIR"
-            rm -rf "$SOVEREIGN_DIR"
-        else
-            die "$SOVEREIGN_DIR exists — cannot clone into it without --forceful"
+        # Convert HTTPS origin to SSH for ongoing operations
+        if [[ "$REPO_URL" == https://* ]]; then
+            SSH_URL=$(echo "$REPO_URL" | sed -E 's|^https://([^/]+)/(.+)$|git@\1:\2|')
+            git -C "$SOVEREIGN_DIR" remote set-url origin "$SSH_URL"
+            say "Origin remote: $REPO_URL → $SSH_URL (SSH form)"
         fi
+
+        SOURCE_LABEL="cloned from $REPO_URL"
+    else
+        say "$SOVEREIGN_DIR already exists — skipping clone, continuing with existing dir"
+        SOURCE_LABEL="existing dir (skipped clone of $REPO_URL)"
     fi
-
-    git clone "$REPO_URL" "$SOVEREIGN_DIR" || die "Clone failed: $REPO_URL"
-
-    # Convert HTTPS origin to SSH for ongoing push/pull (workstation git pattern)
-    if [[ "$REPO_URL" == https://* ]]; then
-        # Parse: https://HOST/PATH → git@HOST:PATH
-        SSH_URL=$(echo "$REPO_URL" | sed -E 's|^https://([^/]+)/(.+)$|git@\1:\2|')
-        git -C "$SOVEREIGN_DIR" remote set-url origin "$SSH_URL"
-        say "Origin remote: $REPO_URL → $SSH_URL (SSH form for ongoing operations)"
-    fi
-
-    # Verify it looks like a sovereign identity repo
-    if [ ! -f "$SOVEREIGN_DIR/IDENTITY.md" ] && [ ! -f "$SOVEREIGN_DIR/id/master.fingerprint" ]; then
-        say "WARNING: Cloned repo doesn't appear to contain sovereign identity material."
-        say "Expected at least IDENTITY.md or id/master.fingerprint. Continuing anyway."
-    fi
-
-    # Generate fresh device key for this machine
-    DEVICE_KEY_DIR="$SOVEREIGN_DIR/id"
-    mkdir -p "$DEVICE_KEY_DIR"
-    DEVICE_KEY_PATH="$DEVICE_KEY_DIR/device.key"
-
-    say "Generating fresh device key for $HOSTNAME"
-    ssh-keygen -t ed25519 -f "$DEVICE_KEY_PATH" -C "sovereign@$HOSTNAME" -N "" 2>/dev/null
-    DEVICE_PUBKEY=$(cat "${DEVICE_KEY_PATH}.pub")
-
-    # Ensure device.key is gitignored within me/
-    INNER_GITIGNORE="$SOVEREIGN_DIR/.gitignore"
-    if [ ! -f "$INNER_GITIGNORE" ] || ! grep -q "device.key" "$INNER_GITIGNORE" 2>/dev/null; then
-        echo "device.key" >> "$INNER_GITIGNORE"
-        echo "${DEVICE_KEY_PATH##*/}.pub" >> "$INNER_GITIGNORE" 2>/dev/null || true
-    fi
-
-    say ""
-    say "Device key generated for sovereign@$HOSTNAME"
-    say ""
-    say "Public key fingerprint:"
-    say "  $DEVICE_PUBKEY"
-    say ""
-    say "To authorize this device, run on an already-authorized device:"
-    say ""
-    say "    koad profile device-key add \\"
-    say "        --device-id $HOSTNAME \\"
-    say "        --device-pubkey \"$DEVICE_PUBKEY\" \\"
-    say "        --description \"Fresh install on $HOSTNAME\""
-    say ""
-    say "Until this device is authorized, it can read but not sign on behalf of the sovereign."
-    say ""
-    say "Identity cloned. Your kingdom is available on this machine."
-
-    source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint
-    exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# PATH 1 — New sovereign (no repo-url) — kingdom genesis (idempotent)
+# Unified ceremony — idempotent, handles cloned + fresh + re-run cases
 # ---------------------------------------------------------------------------
 
 say "Sovereign genesis — check-then-build each component"
@@ -422,6 +376,17 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
         MNEMONIC_INPUT=""
         unset MNEMONIC_INPUT
 
+        # If the cloned repo carries a known master.fingerprint, verify the
+        # mnemonic derives to the same master — wrong mnemonic = hard stop.
+        if [ -f "$SOVEREIGN_DIR/id/master.fingerprint" ]; then
+            EXPECTED_FPR=$(cat "$SOVEREIGN_DIR/id/master.fingerprint")
+            DERIVED_FPR=$(echo "$CEREMONY_JSON" | jq -r '.masterFingerprint')
+            if [ "$EXPECTED_FPR" != "$DERIVED_FPR" ]; then
+                die "Mnemonic mismatch — derived master fingerprint ($DERIVED_FPR) does not match repo's id/master.fingerprint ($EXPECTED_FPR)"
+            fi
+            say "  Mnemonic verified — master fingerprint matches repo"
+        fi
+
         say "  Recovery phrase accepted."
         say ""
 
@@ -651,7 +616,8 @@ say " Kingdom genesis complete."
 say "================================================================================"
 say ""
 say " The root of trust exists."
-say " Key label: ${SOVEREIGN_LABEL:-(unknown — run again to generate)}"
+say " Key label:  ${SOVEREIGN_LABEL:-(unknown — run again to generate)}"
+say " Source:     $SOURCE_LABEL"
 say ""
 say " Recovery phrase: WRITE IT DOWN. Every word. In order. On paper."
 say "   The 24 words are the only way to recover your master key."
