@@ -296,123 +296,172 @@ ensure_env_line "$SOVEREIGN_DIR/.env" "GIT_COMMITTER_NAME" "$SOVEREIGN_HANDLE"
 ensure_env_line "$SOVEREIGN_DIR/.env" "GIT_COMMITTER_EMAIL" "${SOVEREIGN_HANDLE}@${SOVEREIGN_DOMAIN}"
 
 # ---------------------------------------------------------------------------
-# Generate crypto suite — per VESTA-SPEC-174 §4.2
-# Each key is checked before generation; --forceful overrides
+# Generate crypto suite — VESTA-SPEC-174 §4.2 + VESTA-SPEC-149 §8.1
+# Uses @koad-io/node ceremony.mjs — same key lineage as storefront + daemon.
+# Replaces bare ssh-keygen/gpg/openssl path (removed — different key lineage).
+# Each artifact is checked before generation; --forceful overrides.
 # ---------------------------------------------------------------------------
 
 ID_DIR="$SOVEREIGN_DIR/id"
-GNUPGHOME_SAVE="${GNUPGHOME:-}"
-GNUPGHOME="$SOVEREIGN_DIR/keyring"
-export GNUPGHOME
-mkdir -p "$SOVEREIGN_DIR/keyring" && chmod 700 "$SOVEREIGN_DIR/keyring"
+CEREMONY_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/ceremony.mjs"
 
-# Ed25519 device key
-if [ ! -f "$ID_DIR/ed25519" ] || [ "$FORCEFUL" -eq 1 ]; then
-    did "id/ed25519" "generating..."
-    ssh-keygen -t ed25519 -f "$ID_DIR/ed25519" -C "sovereign@$HOSTNAME" -N "" 2>/dev/null
-    say "generated: $ID_DIR/ed25519"
-    say "generated: $ID_DIR/ed25519.pub"
-else
-    skip "id/ed25519"
-fi
+# Verify jq is present — required for parsing ceremony JSON
+command -v jq >/dev/null 2>&1 || die "jq is required but not found — install it and retry"
+command -v node >/dev/null 2>&1 || die "node is required but not found — install Node.js >= 18 and retry"
 
-# GPG identity key
-GPG_EMAIL="${SOVEREIGN_HANDLE}@${SOVEREIGN_DOMAIN}"
-if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ "$FORCEFUL" -eq 1 ]; then
-    did "id/gpg.public.asc" "generating GPG key for $GPG_EMAIL..."
-    gpg --batch --gen-key 2>/dev/null <<GPGEOF
-%no-protection
-Key-Type: RSA
-Key-Length: 4096
-Subkey-Type: RSA
-Subkey-Length: 4096
-Name-Real: $SOVEREIGN_HANDLE
-Name-Email: $GPG_EMAIL
-Expire-Date: 0
-%commit
-GPGEOF
-    say "generated: GPG key for $GPG_EMAIL"
+USERID="${SOVEREIGN_HANDLE} @ ${SOVEREIGN_DOMAIN}"
 
-    # Export GPG public key
-    GPG_FPR=$(gpg --list-keys --with-colons "$GPG_EMAIL" 2>/dev/null | grep '^fpr' | head -1 | cut -d: -f10)
-    if [ -n "$GPG_FPR" ]; then
-        gpg --export --armor "$GPG_FPR" > "$ID_DIR/gpg.public.asc" 2>/dev/null
-        say "generated: $ID_DIR/gpg.public.asc (fingerprint: ${GPG_FPR:(-16)})"
+# Run ceremony if any key artifact is missing (or --forceful)
+if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FORCEFUL" -eq 1 ]; then
 
-        # Revocation cert — gitignored, stored offline
-        gpg --batch --yes --output "$ID_DIR/gpg-revocation.asc" \
-            --command-fd 0 --gen-revoke "$GPG_FPR" <<REVEOF 2>/dev/null
-y
-0
+    did "sovereign keypair" "running ceremony via @koad-io/node..."
+    say ""
 
-y
-REVEOF
-        if [ -f "$ID_DIR/gpg-revocation.asc" ]; then
-            say "generated: $ID_DIR/gpg-revocation.asc (gitignored — store offline separately)"
-        else
-            say "WARNING: GPG revocation cert generation failed. Generate manually:"
-            say "  gpg --gen-revoke $GPG_FPR > $ID_DIR/gpg-revocation.asc"
+    # ---------------------------------------------------------------------------
+    # Step 1 — Generate all key material in one ceremony invocation
+    # The mnemonic (24 words) is the master secret. It never touches disk.
+    # ---------------------------------------------------------------------------
+    CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" generate --userid "$USERID") || die "Ceremony script failed"
+
+    MNEMONIC=$(echo "$CEREMONY_JSON" | jq -r '.mnemonic')
+    MASTER_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.masterFingerprint')
+    MASTER_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.masterPublicArmor')
+    LEAF_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPublicArmor')
+    LEAF_PRIVATE_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPrivateArmor')
+    LEAF_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.leafFingerprint')
+    DEVICE_KEY=$(echo "$CEREMONY_JSON" | jq -r '.devicePrivateKey')
+    DEVICE_KEY_PUB=$(echo "$CEREMONY_JSON" | jq -r '.devicePublicKey')
+
+    # ---------------------------------------------------------------------------
+    # Step 2 — Display mnemonic — WRITE THESE DOWN
+    # ---------------------------------------------------------------------------
+    say "  ╔══════════════════════════════════════════════════════════════╗"
+    say "  ║  WRITE THESE WORDS DOWN. Every word. In order. On paper.    ║"
+    say "  ║  Do not screenshot. Do not paste. Do not type elsewhere.    ║"
+    say "  ║  These words ARE your identity. Lose them, lose everything. ║"
+    say "  ╚══════════════════════════════════════════════════════════════╝"
+    say ""
+
+    # Print mnemonic in a numbered 4-column grid
+    WORD_IDX=0
+    MNEMONIC_WORDS=($MNEMONIC)
+    LINE=""
+    for i in "${!MNEMONIC_WORDS[@]}"; do
+        NUM=$((i + 1))
+        WORD="${MNEMONIC_WORDS[$i]}"
+        # Pad number and word for alignment
+        ENTRY=$(printf "%3d. %-12s" "$NUM" "$WORD")
+        LINE="$LINE  $ENTRY"
+        # 4 columns per row
+        if [ $(( (i + 1) % 4 )) -eq 0 ]; then
+            say "$LINE"
+            LINE=""
         fi
-    else
-        say "WARNING: Could not find GPG key fingerprint — skipping public key export and revocation cert"
-    fi
+    done
+    # Print any remaining words (if not divisible by 4)
+    [ -n "$LINE" ] && say "$LINE"
+
+    say ""
+    echo -n "[sovereign] Press Enter when you've written all 24 words down..."
+    read -r _
+
+    # ---------------------------------------------------------------------------
+    # Step 3 — Quiz — 3 random positions
+    # ---------------------------------------------------------------------------
+    say ""
+    say "  ◆ Confirm your backup"
+    say ""
+
+    # Pick 3 random positions (1-indexed, no repeats)
+    POSITIONS=()
+    while [ ${#POSITIONS[@]} -lt 3 ]; do
+        P=$(( (RANDOM % 24) + 1 ))
+        # Check not already chosen
+        ALREADY=0
+        for Q in "${POSITIONS[@]}"; do [ "$Q" -eq "$P" ] && ALREADY=1 && break; done
+        [ "$ALREADY" -eq 0 ] && POSITIONS+=("$P")
+    done
+    # Sort ascending
+    IFS=$'\n' POSITIONS=($(sort -n <<<"${POSITIONS[*]}")); unset IFS
+
+    QUIZ_PASSED=0
+    while [ "$QUIZ_PASSED" -eq 0 ]; do
+        ANSWERS=""
+        for POS in "${POSITIONS[@]}"; do
+            echo -n "    Word ${POS}: "
+            read -r ANS
+            ANSWERS="${ANSWERS}${ANS}
+"
+        done
+
+        POSITIONS_CSV=$(IFS=,; echo "${POSITIONS[*]}")
+        VALIDATE_RESULT=$(echo "$ANSWERS" | node "$CEREMONY_SCRIPT" validate \
+            --positions "$POSITIONS_CSV" \
+            --mnemonic "$MNEMONIC")
+
+        VALID=$(echo "$VALIDATE_RESULT" | jq -r '.valid')
+        if [ "$VALID" = "true" ]; then
+            QUIZ_PASSED=1
+            say ""
+            say "  Backup confirmed."
+        else
+            ERR=$(echo "$VALIDATE_RESULT" | jq -r '.error // "unknown error"')
+            say ""
+            say "  Incorrect: $ERR"
+            say "  Here are your words again:"
+            say ""
+            LINE=""
+            for i in "${!MNEMONIC_WORDS[@]}"; do
+                NUM=$((i + 1))
+                WORD="${MNEMONIC_WORDS[$i]}"
+                ENTRY=$(printf "%3d. %-12s" "$NUM" "$WORD")
+                LINE="$LINE  $ENTRY"
+                if [ $(( (i + 1) % 4 )) -eq 0 ]; then
+                    say "$LINE"
+                    LINE=""
+                fi
+            done
+            [ -n "$LINE" ] && say "$LINE"
+            say ""
+            echo -n "[sovereign] Press Enter when ready to try again..."
+            read -r _
+            say ""
+            say "  ◆ Confirm your backup (retry)"
+            say ""
+        fi
+    done
+
+    # ---------------------------------------------------------------------------
+    # Step 4 — Write artifacts to id/
+    # Master key never touches disk — only public armor + leaf (encrypted) + device key
+    # ---------------------------------------------------------------------------
+
+    printf '%s' "$MASTER_PUBLIC_ARMOR"  > "$ID_DIR/gpg.public.asc"
+    printf '%s' "$LEAF_PUBLIC_ARMOR"    > "$ID_DIR/leaf.public.asc"
+    printf '%s' "$LEAF_PRIVATE_ARMOR"   > "$ID_DIR/leaf.private.asc"
+    printf '%s' "$DEVICE_KEY"           > "$ID_DIR/device.key"
+    printf '%s' "$DEVICE_KEY_PUB"       > "$ID_DIR/device.key.pub"
+    printf '%s' "$MASTER_FINGERPRINT"   > "$ID_DIR/master.fingerprint"
+    chmod 600 "$ID_DIR/device.key" "$ID_DIR/leaf.private.asc"
+
+    say ""
+    say "generated: $ID_DIR/gpg.public.asc (master fingerprint: ${MASTER_FINGERPRINT:(-16)})"
+    say "generated: $ID_DIR/leaf.public.asc (leaf fingerprint: ${LEAF_FINGERPRINT:(-16)})"
+    say "generated: $ID_DIR/leaf.private.asc (encrypted — passphrase is device.key)"
+    say "generated: $ID_DIR/device.key (gitignored — machine-local, never commit)"
+    say "generated: $ID_DIR/master.fingerprint"
+
+    # ---------------------------------------------------------------------------
+    # Step 5 — Zero sensitive vars from shell memory
+    # ---------------------------------------------------------------------------
+    unset MNEMONIC CEREMONY_JSON DEVICE_KEY DEVICE_KEY_PUB MASTER_PUBLIC_ARMOR
+    unset LEAF_PUBLIC_ARMOR LEAF_PRIVATE_ARMOR MASTER_FINGERPRINT LEAF_FINGERPRINT
+    unset MNEMONIC_WORDS
+
 else
-    skip "id/gpg.public.asc"
+    skip "id/gpg.public.asc (sovereign keypair)"
+    skip "id/device.key"
 fi
-
-# SSL curves — same pattern as gestate
-SSL_DIR="$ID_DIR/ssl"
-
-if [ ! -f "$SSL_DIR/master-curve-parameters.pem" ] || [ "$FORCEFUL" -eq 1 ]; then
-    did "id/ssl/master-curve-parameters.pem" "generating..."
-    openssl ecparam -name prime256v1 -out "$SSL_DIR/master-curve-parameters.pem" 2>/dev/null
-    say "generated: $SSL_DIR/master-curve-parameters.pem"
-else
-    skip "id/ssl/master-curve-parameters.pem"
-fi
-
-if [ ! -f "$SSL_DIR/master-curve.pem" ] || [ "$FORCEFUL" -eq 1 ]; then
-    did "id/ssl/master-curve.pem" "generating..."
-    openssl genpkey -aes256 -pass "pass:$SOVEREIGN_HANDLE" \
-        -paramfile "$SSL_DIR/master-curve-parameters.pem" \
-        -out "$SSL_DIR/master-curve.pem" 2>/dev/null
-    say "generated: $SSL_DIR/master-curve.pem"
-else
-    skip "id/ssl/master-curve.pem"
-fi
-
-if [ ! -f "$SSL_DIR/device-curve.pem" ] || [ "$FORCEFUL" -eq 1 ]; then
-    did "id/ssl/device-curve.pem" "generating..."
-    openssl genpkey -aes256 -pass "pass:$SOVEREIGN_HANDLE" \
-        -paramfile "$SSL_DIR/master-curve-parameters.pem" \
-        -out "$SSL_DIR/device-curve.pem" 2>/dev/null
-    say "generated: $SSL_DIR/device-curve.pem"
-else
-    skip "id/ssl/device-curve.pem"
-fi
-
-if [ ! -f "$SSL_DIR/relay-curve.pem" ] || [ "$FORCEFUL" -eq 1 ]; then
-    did "id/ssl/relay-curve.pem" "generating..."
-    openssl genpkey -aes256 -pass "pass:$SOVEREIGN_HANDLE" \
-        -paramfile "$SSL_DIR/master-curve-parameters.pem" \
-        -out "$SSL_DIR/relay-curve.pem" 2>/dev/null
-    say "generated: $SSL_DIR/relay-curve.pem"
-else
-    skip "id/ssl/relay-curve.pem"
-fi
-
-if [ ! -f "$SSL_DIR/session.pem" ] || [ "$FORCEFUL" -eq 1 ]; then
-    did "id/ssl/session.pem" "generating..."
-    openssl genpkey -algorithm EC -pass "pass:$SOVEREIGN_HANDLE" \
-        -pkeyopt ec_paramgen_curve:P-256 \
-        -out "$SSL_DIR/session.pem" 2>/dev/null
-    say "generated: $SSL_DIR/session.pem"
-else
-    skip "id/ssl/session.pem"
-fi
-
-# Restore GNUPGHOME
-[ -n "$GNUPGHOME_SAVE" ] && export GNUPGHOME="$GNUPGHOME_SAVE" || unset GNUPGHOME
 
 # ---------------------------------------------------------------------------
 # passenger.json — write if missing; skip if present (SPEC-174 §2.3)
@@ -473,10 +522,11 @@ git -C "$SOVEREIGN_DIR" add \
     id/.gitignore \
     2>/dev/null || true
 
-[ -f "$SOVEREIGN_DIR/passenger.json" ] && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_DIR/passenger.json" 2>/dev/null || true
-[ -f "$SOVEREIGN_DIR/IDENTITY.md" ]    && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_DIR/IDENTITY.md" 2>/dev/null || true
-[ -f "$ID_DIR/ed25519.pub" ]           && git -C "$SOVEREIGN_DIR" add "$ID_DIR/ed25519.pub" 2>/dev/null || true
-[ -f "$ID_DIR/gpg.public.asc" ]        && git -C "$SOVEREIGN_DIR" add "$ID_DIR/gpg.public.asc" 2>/dev/null || true
+[ -f "$SOVEREIGN_DIR/passenger.json" ]   && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_DIR/passenger.json" 2>/dev/null || true
+[ -f "$SOVEREIGN_DIR/IDENTITY.md" ]     && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_DIR/IDENTITY.md" 2>/dev/null || true
+[ -f "$ID_DIR/gpg.public.asc" ]         && git -C "$SOVEREIGN_DIR" add "$ID_DIR/gpg.public.asc" 2>/dev/null || true
+[ -f "$ID_DIR/leaf.public.asc" ]        && git -C "$SOVEREIGN_DIR" add "$ID_DIR/leaf.public.asc" 2>/dev/null || true
+[ -f "$ID_DIR/master.fingerprint" ]     && git -C "$SOVEREIGN_DIR" add "$ID_DIR/master.fingerprint" 2>/dev/null || true
 
 if ! git -C "$SOVEREIGN_DIR" diff --cached --quiet 2>/dev/null; then
     git -C "$SOVEREIGN_DIR" commit -m "kingdom genesis — sovereign identity initialized on $HOSTNAME" 2>/dev/null
