@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+# Route subcommands to their own command.sh — sovereign gets kingdom genesis
+_INIT_CMD_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+if [ "${1:-}" = "sovereign" ]; then
+    shift
+    exec "$_INIT_CMD_DIR/sovereign/command.sh" "$@"
+fi
+
 check_entity_folders() {
     local WORKING_DIRECTORY=$1
     local -a KNOWN_DIRS=(".local" "commands" "skeletons" "desktop" "extension" "daemon")
