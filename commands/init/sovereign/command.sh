@@ -237,30 +237,37 @@ SOVEREIGN_HANDLE="$RAW_HANDLE"
 say "Handle: $SOVEREIGN_HANDLE"
 say ""
 
-# 2. Keybase
+# 2. Keybase — detect first, ask only if not logged in
 KB_USERNAME=""
 SKIP_KEYBASE=0
-if ask_yn "Do you have a Keybase account?" "${KOAD_IO_HAS_KEYBASE:-}"; then
-    KB_DEFAULT="$SOVEREIGN_HANDLE"
-    KB_USERNAME=$(ask "Your Keybase username" "${KOAD_IO_KEYBASE_USERNAME:-}" "$KB_DEFAULT" --write "$SOVEREIGN_DIR/.env" KEYBASE_USERNAME)
-    say "Keybase username: $KB_USERNAME"
+KB_DETECTED=$(keybase whoami 2>/dev/null || true)
+if [ -n "$KB_DETECTED" ]; then
+    say "Keybase: detected as $KB_DETECTED"
+    KB_USERNAME=$(ask "Your Keybase handle" "${KOAD_IO_KEYBASE_USERNAME:-}" "$KB_DETECTED" --write "$SOVEREIGN_DIR/.env" KEYBASE_USERNAME)
+    say "Keybase handle: $KB_USERNAME"
 else
-    say ""
-    say "Keybase provides sovereign, encrypted git repos and team management."
-    say "Your sovereign identity repo will be much more secure on Keybase than"
-    say "anywhere else — it's the house, not the window."
-    say ""
-    say "Sign up at: https://keybase.io"
-    say ""
-    say "You can run 'koad-io init sovereign' again after signing up."
-    say "Or continue without Keybase — you can add it later."
-    say ""
-    if ask_yn "Continue without Keybase?" "${KOAD_IO_CONTINUE_WITHOUT_KEYBASE:-}"; then
-        SKIP_KEYBASE=1
-        say "Continuing without Keybase."
+    if ask_yn "Do you have a Keybase account?" "${KOAD_IO_HAS_KEYBASE:-}"; then
+        KB_DEFAULT="$SOVEREIGN_HANDLE"
+        KB_USERNAME=$(ask "Your Keybase handle" "${KOAD_IO_KEYBASE_USERNAME:-}" "$KB_DEFAULT" --write "$SOVEREIGN_DIR/.env" KEYBASE_USERNAME)
+        say "Keybase handle: $KB_USERNAME"
     else
-        say "Exiting. Sign up at https://keybase.io and run 'koad-io init sovereign' again."
-        exit 0
+        say ""
+        say "Keybase provides sovereign, encrypted git repos and team management."
+        say "Your sovereign identity repo will be much more secure on Keybase than"
+        say "anywhere else — it's the house, not the window."
+        say ""
+        say "Sign up at: https://keybase.io"
+        say ""
+        say "You can run 'koad-io init sovereign' again after signing up."
+        say "Or continue without Keybase — you can add it later."
+        say ""
+        if ask_yn "Continue without Keybase?" "${KOAD_IO_CONTINUE_WITHOUT_KEYBASE:-}"; then
+            SKIP_KEYBASE=1
+            say "Continuing without Keybase."
+        else
+            say "Exiting. Sign up at https://keybase.io and run 'koad-io init sovereign' again."
+            exit 0
+        fi
     fi
 fi
 say ""
@@ -506,7 +513,7 @@ if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
         say "Remote: origin → $KB_REMOTE"
         say ""
         say "Pushing to Keybase..."
-        say "(Make sure Keybase is running and you're logged in as $KB_USERNAME)"
+        say "(Make sure Keybase is running and you're logged in as your handle: $KB_USERNAME)"
         if git -C "$SOVEREIGN_DIR" push -u origin main 2>/dev/null; then
             say "Pushed to Keybase. Your sovereign identity is backed up."
         else
@@ -524,7 +531,7 @@ fi
 say ""
 if ask_yn "Would you like to also set up a public GitHub mirror?" "${KOAD_IO_SETUP_GITHUB:-}"; then
     GH_DEFAULT="$SOVEREIGN_HANDLE"
-    GH_USERNAME=$(ask "Your GitHub username" "${KOAD_IO_GITHUB_USERNAME:-}" "$GH_DEFAULT")
+    GH_USERNAME=$(ask "Your GitHub handle" "${KOAD_IO_GITHUB_USERNAME:-}" "$GH_DEFAULT")
     GH_REPO="$GH_USERNAME/me"
     GH_REMOTE="https://github.com/$GH_REPO.git"
 
@@ -544,7 +551,7 @@ if ask_yn "Would you like to also set up a public GitHub mirror?" "${KOAD_IO_SET
     fi
 else
     say "Skipping GitHub mirror. Add it later with:"
-    say "  git -C ~/.koad-io/me remote add github https://github.com/<username>/me.git"
+    say "  git -C ~/.koad-io/me remote add github https://github.com/<handle>/me.git"
 fi
 say ""
 
