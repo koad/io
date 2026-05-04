@@ -607,8 +607,177 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Genesis confirmation
+# Detect what origin actually points to (symmetric remote handling)
+# Must run after the initial clone/init so origin reflects the real URL.
+# Cases: none (fresh genesis), keybase, github, gitlab, other
 # ---------------------------------------------------------------------------
+
+ORIGIN_URL=$(git -C "$SOVEREIGN_DIR" remote get-url origin 2>/dev/null || echo "")
+
+ORIGIN_TYPE="none"
+if [[ "$ORIGIN_URL" == keybase://* ]]; then
+    ORIGIN_TYPE="keybase"
+elif [[ "$ORIGIN_URL" == *github.com* ]]; then
+    ORIGIN_TYPE="github"
+elif [[ "$ORIGIN_URL" == *gitlab.com* ]]; then
+    ORIGIN_TYPE="gitlab"
+elif [ -n "$ORIGIN_URL" ]; then
+    ORIGIN_TYPE="other"
+fi
+
+# ---------------------------------------------------------------------------
+# Post-genesis: remote setup — symmetric based on what origin actually is
+#
+# Case A (none):   fresh genesis — offer Keybase as origin, then GitHub mirror
+# Case B (keybase): origin IS Keybase — offer GitHub as secondary mirror
+# Case C (github):  origin IS GitHub — offer Keybase as secondary mirror
+# Case D (gitlab/other): offer both Keybase and GitHub as secondary mirrors
+# ---------------------------------------------------------------------------
+
+# Case A / Case D (Keybase): set up or offer Keybase
+if [ "$ORIGIN_TYPE" = "none" ] || [ "$ORIGIN_TYPE" = "gitlab" ] || [ "$ORIGIN_TYPE" = "other" ]; then
+    if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
+        KB_REMOTE="keybase://private/$KB_USERNAME/me"
+        REMOTE_NAME_KB="origin"
+        [ "$ORIGIN_TYPE" != "none" ] && REMOTE_NAME_KB="keybase"
+
+        if git -C "$SOVEREIGN_DIR" remote get-url "$REMOTE_NAME_KB" >/dev/null 2>&1; then
+            skip "Keybase remote ($REMOTE_NAME_KB already configured)"
+        else
+            did "Keybase remote" "adding $REMOTE_NAME_KB → $KB_REMOTE"
+
+            # Check if the 'me' repo exists in Keybase; create it if not
+            say "Checking Keybase for repo 'me'..."
+            KB_REPO_EXISTS=0
+            if keybase git list 2>/dev/null | grep -q "^  me "; then
+                KB_REPO_EXISTS=1
+            fi
+
+            if [ "$KB_REPO_EXISTS" -eq 0 ]; then
+                say "Repo doesn't exist — creating: keybase git create me"
+                if keybase git create me 2>/dev/null; then
+                    say "Repo created."
+                else
+                    say "Could not create Keybase repo (is Keybase running and logged in as $KB_USERNAME?)."
+                    say "Push manually once Keybase is running:"
+                    say "  keybase git create me"
+                    say "  git -C ~/.koad-io/me remote add $REMOTE_NAME_KB $KB_REMOTE"
+                    say "  git -C ~/.koad-io/me push -u $REMOTE_NAME_KB main"
+                    say ""
+                    KB_USERNAME=""
+                fi
+            fi
+
+            if [ -n "$KB_USERNAME" ]; then
+                git -C "$SOVEREIGN_DIR" remote add "$REMOTE_NAME_KB" "$KB_REMOTE" 2>/dev/null
+                say "Remote: $REMOTE_NAME_KB → $KB_REMOTE"
+                say ""
+                say "Pushing to Keybase..."
+                say "(Make sure Keybase is running and you're logged in as your handle: $KB_USERNAME)"
+                if git -C "$SOVEREIGN_DIR" push -u "$REMOTE_NAME_KB" main 2>/dev/null; then
+                    say "Pushed to Keybase. Your sovereign identity is backed up."
+                else
+                    say "Push failed — run manually once Keybase is running:"
+                    say "  git -C ~/.koad-io/me push -u $REMOTE_NAME_KB main"
+                fi
+            fi
+        fi
+        say ""
+    fi
+fi
+
+# Case C (github origin): offer Keybase as secondary mirror
+if [ "$ORIGIN_TYPE" = "github" ]; then
+    if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
+        KB_REMOTE="keybase://private/$KB_USERNAME/me"
+        say ""
+        if ask_yn "Would you like to also back up to Keybase?" "${KOAD_IO_SETUP_KEYBASE_MIRROR:-}"; then
+            if git -C "$SOVEREIGN_DIR" remote get-url keybase >/dev/null 2>&1; then
+                skip "Keybase remote (keybase already configured)"
+            else
+                did "Keybase remote" "adding keybase → $KB_REMOTE"
+
+                say "Checking Keybase for repo 'me'..."
+                KB_REPO_EXISTS=0
+                if keybase git list 2>/dev/null | grep -q "^  me "; then
+                    KB_REPO_EXISTS=1
+                fi
+
+                if [ "$KB_REPO_EXISTS" -eq 0 ]; then
+                    say "Repo doesn't exist — creating: keybase git create me"
+                    if keybase git create me 2>/dev/null; then
+                        say "Repo created."
+                    else
+                        say "Could not create Keybase repo (is Keybase running and logged in as $KB_USERNAME?)."
+                        say "Push manually once Keybase is running:"
+                        say "  keybase git create me"
+                        say "  git -C ~/.koad-io/me remote add keybase $KB_REMOTE"
+                        say "  git -C ~/.koad-io/me push -u keybase main"
+                        say ""
+                        KB_USERNAME=""
+                    fi
+                fi
+
+                if [ -n "$KB_USERNAME" ]; then
+                    git -C "$SOVEREIGN_DIR" remote add keybase "$KB_REMOTE" 2>/dev/null
+                    say "Remote: keybase → $KB_REMOTE"
+                    say ""
+                    say "Pushing to Keybase..."
+                    say "(Make sure Keybase is running and you're logged in as your handle: $KB_USERNAME)"
+                    if git -C "$SOVEREIGN_DIR" push -u keybase main 2>/dev/null; then
+                        say "Pushed to Keybase. Your sovereign identity is backed up."
+                    else
+                        say "Push failed — run manually once Keybase is running:"
+                        say "  git -C ~/.koad-io/me push -u keybase main"
+                    fi
+                fi
+            fi
+        else
+            say "Skipping Keybase mirror. Add it later with:"
+            say "  git -C ~/.koad-io/me remote add keybase keybase://private/$KB_USERNAME/me"
+        fi
+        say ""
+    fi
+fi
+
+# Case A / Case B / Case D (GitHub): offer GitHub as secondary mirror (not when origin IS github)
+if [ "$ORIGIN_TYPE" != "github" ]; then
+    say ""
+    if ask_yn "Would you like to also set up a public GitHub mirror?" "${KOAD_IO_SETUP_GITHUB:-}"; then
+        GH_DEFAULT="$SOVEREIGN_HANDLE"
+        GH_USERNAME=$(ask "Your GitHub handle" "${KOAD_IO_GITHUB_USERNAME:-}" "$GH_DEFAULT")
+        GH_REPO="$GH_USERNAME/me"
+        GH_REMOTE="https://github.com/$GH_REPO.git"
+
+        if git -C "$SOVEREIGN_DIR" remote get-url github >/dev/null 2>&1; then
+            skip "GitHub remote (github already configured)"
+        else
+            did "GitHub remote" "adding github → $GH_REMOTE"
+            git -C "$SOVEREIGN_DIR" remote add github "$GH_REMOTE" 2>/dev/null
+            say ""
+            say "Create the repo first at: https://github.com/new"
+            say "Suggested repo name: me"
+            say "Suggested visibility: public (this repo carries only your public identity)"
+            say ""
+            say "Remote added: github → $GH_REMOTE"
+            say "Push manually after creating the repo:"
+            say "  git -C ~/.koad-io/me push -u github main"
+        fi
+    else
+        say "Skipping GitHub mirror. Add it later with:"
+        say "  git -C ~/.koad-io/me remote add github https://github.com/<handle>/me.git"
+    fi
+    say ""
+fi
+
+# ---------------------------------------------------------------------------
+# Genesis confirmation — reflect actual remote state
+# ---------------------------------------------------------------------------
+
+# Re-read origin after remote setup (may have just been added)
+ORIGIN_URL_FINAL=$(git -C "$SOVEREIGN_DIR" remote get-url origin 2>/dev/null || echo "none")
+KB_REMOTE_FINAL=$(git -C "$SOVEREIGN_DIR" remote get-url keybase 2>/dev/null || echo "")
+GH_REMOTE_FINAL=$(git -C "$SOVEREIGN_DIR" remote get-url github 2>/dev/null || echo "")
 
 say ""
 say "================================================================================"
@@ -616,101 +785,23 @@ say " Kingdom genesis complete."
 say "================================================================================"
 say ""
 say " The root of trust exists."
-say " Key label:  ${SOVEREIGN_LABEL:-(unknown — run again to generate)}"
-say " Source:     $SOURCE_LABEL"
+say " Key label: ${SOVEREIGN_LABEL:-(unknown — run again to generate)}"
+say " Source:    $SOURCE_LABEL"
 say ""
 say " Recovery phrase: WRITE IT DOWN. Every word. In order. On paper."
 say "   The 24 words are the only way to recover your master key."
 say ""
-if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
-    KB_REMOTE_DISPLAY="keybase://private/$KB_USERNAME/me"
-    say " Keybase backup: $KB_REMOTE_DISPLAY"
-    say "   Your sovereign repo is pushed here. To recover on a new machine:"
-    say "     koad-io init sovereign $KB_REMOTE_DISPLAY"
-    say "   Then enter your 24 words to re-derive the master."
-    say ""
+say " Origin:    $ORIGIN_URL_FINAL"
+if [ -n "$KB_REMOTE_FINAL" ]; then
+    say " Mirror:    $KB_REMOTE_FINAL"
 fi
-
-# ---------------------------------------------------------------------------
-# Post-genesis: Keybase remote setup — add if not present, skip if configured
-# ---------------------------------------------------------------------------
-
-if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
-    KB_REMOTE="keybase://private/$KB_USERNAME/me"
-    if git -C "$SOVEREIGN_DIR" remote get-url origin >/dev/null 2>&1; then
-        skip "Keybase remote (origin already configured)"
-    else
-        did "Keybase remote" "adding origin → $KB_REMOTE"
-
-        # Check if the 'me' repo exists in Keybase; create it if not
-        say "Checking Keybase for repo 'me'..."
-        KB_REPO_EXISTS=0
-        if keybase git list 2>/dev/null | grep -q "^  me "; then
-            KB_REPO_EXISTS=1
-        fi
-
-        if [ "$KB_REPO_EXISTS" -eq 0 ]; then
-            say "Repo doesn't exist — creating: keybase git create me"
-            if keybase git create me 2>/dev/null; then
-                say "Repo created."
-            else
-                say "Could not create Keybase repo (is Keybase running and logged in as $KB_USERNAME?)."
-                say "Push manually once Keybase is running:"
-                say "  keybase git create me"
-                say "  git -C ~/.koad-io/me remote add origin $KB_REMOTE"
-                say "  git -C ~/.koad-io/me push -u origin main"
-                say ""
-                # Skip the push attempt below — remote not ready
-                KB_USERNAME=""
-            fi
-        fi
-
-        if [ -n "$KB_USERNAME" ]; then
-            git -C "$SOVEREIGN_DIR" remote add origin "$KB_REMOTE" 2>/dev/null
-            say "Remote: origin → $KB_REMOTE"
-            say ""
-            say "Pushing to Keybase..."
-            say "(Make sure Keybase is running and you're logged in as your handle: $KB_USERNAME)"
-            if git -C "$SOVEREIGN_DIR" push -u origin main 2>/dev/null; then
-                say "Pushed to Keybase. Your sovereign identity is backed up."
-            else
-                say "Push failed — run manually once Keybase is running:"
-                say "  git -C ~/.koad-io/me push -u origin main"
-            fi
-        fi
-    fi
-    say ""
+if [ -n "$GH_REMOTE_FINAL" ]; then
+    say " Mirror:    $GH_REMOTE_FINAL"
 fi
-
-# ---------------------------------------------------------------------------
-# Post-genesis: Optional GitHub mirror — add if not present, skip if configured
-# ---------------------------------------------------------------------------
-
 say ""
-if ask_yn "Would you like to also set up a public GitHub mirror?" "${KOAD_IO_SETUP_GITHUB:-}"; then
-    GH_DEFAULT="$SOVEREIGN_HANDLE"
-    GH_USERNAME=$(ask "Your GitHub handle" "${KOAD_IO_GITHUB_USERNAME:-}" "$GH_DEFAULT")
-    GH_REPO="$GH_USERNAME/me"
-    GH_REMOTE="https://github.com/$GH_REPO.git"
-
-    if git -C "$SOVEREIGN_DIR" remote get-url github >/dev/null 2>&1; then
-        skip "GitHub remote (github already configured)"
-    else
-        did "GitHub remote" "adding github → $GH_REMOTE"
-        git -C "$SOVEREIGN_DIR" remote add github "$GH_REMOTE" 2>/dev/null
-        say ""
-        say "Create the repo first at: https://github.com/new"
-        say "Suggested repo name: me"
-        say "Suggested visibility: public (this repo carries only your public identity)"
-        say ""
-        say "Remote added: github → $GH_REMOTE"
-        say "Push manually after creating the repo:"
-        say "  git -C ~/.koad-io/me push -u github main"
-    fi
-else
-    say "Skipping GitHub mirror. Add it later with:"
-    say "  git -C ~/.koad-io/me remote add github https://github.com/<handle>/me.git"
-fi
+say "   To recover on a new machine:"
+say "     koad-io init sovereign $ORIGIN_URL_FINAL"
+say "   Then enter your 24 words to re-derive the master."
 say ""
 
 say "IMPORTANT: ~/.koad-io/me/ is its own git repo, not part of the koad-io"
