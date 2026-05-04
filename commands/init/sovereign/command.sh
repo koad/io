@@ -210,7 +210,7 @@ say "wrote: $SOVEREIGN_DIR/id/.gitignore"
 
 # 1. Handle
 say "What handle would you like to use? This is your identity in the kingdom."
-RAW_HANDLE=$(ask "Your handle (e.g. koad)" "${KOAD_IO_HANDLE:-}" "")
+RAW_HANDLE=$(ask "Your handle (e.g. koad)" "${KOAD_IO_HANDLE:-}" "" --write "$SOVEREIGN_DIR/.env" SOVEREIGN_HANDLE)
 if [ -z "$RAW_HANDLE" ]; then
     RAW_HANDLE=$(whoami)
     say "No handle entered — using system user: $RAW_HANDLE"
@@ -224,7 +224,7 @@ KB_USERNAME=""
 SKIP_KEYBASE=0
 if ask_yn "Do you have a Keybase account?" "${KOAD_IO_HAS_KEYBASE:-}"; then
     KB_DEFAULT="$SOVEREIGN_HANDLE"
-    KB_USERNAME=$(ask "Your Keybase username" "${KOAD_IO_KEYBASE_USERNAME:-}" "$KB_DEFAULT")
+    KB_USERNAME=$(ask "Your Keybase username" "${KOAD_IO_KEYBASE_USERNAME:-}" "$KB_DEFAULT" --write "$SOVEREIGN_DIR/.env" KEYBASE_USERNAME)
     say "Keybase username: $KB_USERNAME"
 else
     say ""
@@ -249,7 +249,7 @@ say ""
 
 # 3. Domain
 say "What domain will anchor your kingdom? Used for email addresses and GPG key."
-SOVEREIGN_DOMAIN=$(ask "Kingdom domain (e.g. kingofalldata.com)" "${KOAD_IO_KINGDOM_DOMAIN:-}" "")
+SOVEREIGN_DOMAIN=$(ask "Kingdom domain (e.g. kingofalldata.com)" "${KOAD_IO_KINGDOM_DOMAIN:-}" "" --write "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN)
 if [ -z "$SOVEREIGN_DOMAIN" ]; then
     say "No domain entered — you can update this later in ~/.koad-io/me/.env"
     SOVEREIGN_DOMAIN="example.com"
