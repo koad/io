@@ -207,20 +207,30 @@ async function cmdRecover(args) {
 // Command: export-master-armored
 // ---------------------------------------------------------------------------
 //
-// Re-derives the master key from the mnemonic and exports an unencrypted
-// armored PGP private key block to stdout — for piping into `keybase pgp import`.
+// Re-derives the master key from the mnemonic and exports an armored PGP
+// private key block to stdout — for piping into `keybase pgp import`.
 // The master never touches disk; it lives only in memory for this call's duration.
 //
 // Usage:
-//   node ceremony.mjs export-master-armored --mnemonic "<24 words>" --userid "<userid>"
+//   node ceremony.mjs export-master-armored --mnemonic "<24 words>" --userid "<userid>" [--passphrase "<passphrase>"]
+//
+// If --passphrase is provided, the exported block is encrypted with S2K so that
+// `keybase pgp import` receives an already-encrypted block (Keybase prompts for the
+// passphrase to unwrap it, then re-encrypts with its own keystore passphrase).
+// If --passphrase is omitted, Keybase still prompts interactively — so always pass it.
+//
+// Passphrase via env: read from KOAD_IO_KB_PASSPHRASE if --passphrase not given.
+// Never pass the passphrase as a command-line arg from shell — use env instead
+// (command-line args appear in process listings).
 //
 // Note on kbpgp KM statefulness: export_pgp_private({passphrase}) mutates the KM
-// in-place. For an unencrypted export we pass no passphrase — so this is safe,
-// but we still use a freshly-derived KM (not a reused one) to be explicit.
+// in-place. We use a freshly-derived KM per call so mutation is not a problem.
 
 async function cmdExportMasterArmored(args) {
   const mnemonic = args.mnemonic;
   const userid = args.userid;
+  // Passphrase: --passphrase flag takes priority; fall back to env
+  const passphrase = args.passphrase || process.env.KOAD_IO_KB_PASSPHRASE || '';
 
   if (!mnemonic) die('--mnemonic is required for export-master-armored');
   if (!userid) die('--userid is required for export-master-armored');
@@ -234,10 +244,12 @@ async function cmdExportMasterArmored(args) {
   const masterKM = await buildMasterKeyManager(seed, userid);
   const { fingerprint } = await extractKMInfo(masterKM);
 
-  // Export unencrypted armored private key — Keybase will handle re-encryption
-  // with its own passphrase during `keybase pgp import`
+  // Export armored private key — encrypted if passphrase provided, unencrypted if not.
+  // Passing a passphrase produces an S2K-encrypted PGP PRIVATE KEY BLOCK; Keybase
+  // detects this, asks for the passphrase to unwrap, then re-encrypts with its own keystore.
+  const exportOpts = passphrase ? { passphrase } : {};
   const armored = await new Promise((resolve, reject) => {
-    masterKM.export_pgp_private({}, (err, armor) => {
+    masterKM.export_pgp_private(exportOpts, (err, armor) => {
       if (err) return reject(err);
       resolve(armor);
     });
@@ -260,17 +272,28 @@ async function cmdExportMasterArmored(args) {
 // ---------------------------------------------------------------------------
 //
 // Reads an encrypted leaf private key from disk (leaf.private.asc), decrypts
-// it using the device key as passphrase, then exports an unencrypted armored
-// PGP private key block to stdout — for piping into `keybase pgp import`.
+// it using the device key as passphrase, then exports an armored PGP private
+// key block to stdout — for piping into `keybase pgp import`.
 //
 // Usage:
 //   node ceremony.mjs export-leaf-armored \
 //     --leaf-encrypted-path "/path/to/leaf.private.asc" \
 //     --device-key-path "/path/to/device.key"
+//
+// If --passphrase is provided (or KOAD_IO_KB_PASSPHRASE env is set), the output
+// is re-encrypted with that passphrase before piping. This allows `keybase pgp import`
+// to receive an already-encrypted block — Keybase prompts for the passphrase to
+// unwrap it, then re-encrypts with its own keystore passphrase.
+//
+// The device key (args['device-key-path']) is the at-rest encryption passphrase for
+// the leaf; --passphrase / KOAD_IO_KB_PASSPHRASE is the Keybase import passphrase.
+// These are two distinct passphrases used at two different stages.
 
 async function cmdExportLeafArmored(args) {
   const leafEncryptedPath = args['leaf-encrypted-path'];
   const deviceKeyPath = args['device-key-path'];
+  // Keybase import passphrase — distinct from the device key used for at-rest decryption
+  const kbPassphrase = args.passphrase || process.env.KOAD_IO_KB_PASSPHRASE || '';
 
   if (!leafEncryptedPath) die('--leaf-encrypted-path is required for export-leaf-armored');
   if (!deviceKeyPath) die('--device-key-path is required for export-leaf-armored');
@@ -279,14 +302,14 @@ async function cmdExportLeafArmored(args) {
 
   // Read encrypted leaf armor and device key passphrase from disk
   let armoredEncrypted;
-  let passphrase;
+  let deviceKey;
   try {
     armoredEncrypted = fs.readFileSync(leafEncryptedPath, 'utf8').trim();
   } catch (e) {
     die('could not read leaf encrypted file: ' + e.message);
   }
   try {
-    passphrase = fs.readFileSync(deviceKeyPath, 'utf8').trim();
+    deviceKey = fs.readFileSync(deviceKeyPath, 'utf8').trim();
   } catch (e) {
     die('could not read device key file: ' + e.message);
   }
@@ -294,17 +317,20 @@ async function cmdExportLeafArmored(args) {
   if (!armoredEncrypted.includes('BEGIN PGP PRIVATE KEY BLOCK')) {
     die('leaf file does not appear to contain a PGP PRIVATE KEY BLOCK');
   }
-  if (!passphrase) {
+  if (!deviceKey) {
     die('device key file is empty');
   }
 
-  // Decrypt the leaf key using the device key as passphrase
-  const leafKM = await decryptLeafFromStorage(armoredEncrypted, passphrase);
+  // Decrypt the leaf key using the device key as at-rest passphrase
+  const leafKM = await decryptLeafFromStorage(armoredEncrypted, deviceKey);
   const { fingerprint } = await extractKMInfo(leafKM);
 
-  // Export unencrypted armored private key — Keybase handles re-encryption
+  // Export armored private key — re-encrypted with kbPassphrase if provided.
+  // kbpgp KM statefulness: export_pgp_private({passphrase}) mutates the KM.
+  // Since leafKM was freshly decrypted above, this is a single-use KM — safe.
+  const exportOpts = kbPassphrase ? { passphrase: kbPassphrase } : {};
   const armored = await new Promise((resolve, reject) => {
-    leafKM.export_pgp_private({}, (err, armor) => {
+    leafKM.export_pgp_private(exportOpts, (err, armor) => {
       if (err) return reject(err);
       resolve(armor);
     });

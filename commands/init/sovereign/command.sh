@@ -598,16 +598,51 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
             say "  Keybase becomes a convenience, not a replacement."
             say ""
 
+            # Ask for a Keybase key passphrase once — used for both imports.
+            # Keybase encrypts private keys in its local keystore; this passphrase
+            # protects the key block in transit and triggers Keybase's decryption prompt
+            # (Keybase then re-encrypts with its own keystore passphrase).
+            # Passed via env (KOAD_IO_KB_PASSPHRASE) — never on the command line.
+            KB_PASSPHRASE=""
+            if [ -z "${KOAD_IO_KB_PASSPHRASE:-}" ]; then
+                _cyan='\033[0;36m'
+                _dim='\033[2m'
+                _reset='\033[0m'
+                _bold='\033[1m'
+                say "  ◆ Set a passphrase to protect your imported keys in Keybase"
+                say "    (Keybase encrypts your private keys at rest — this passphrase"
+                say "     is used to protect the key block during import. Keybase will"
+                say "     prompt you to enter it when importing each key.)"
+                say "    Leave blank to skip both imports."
+                say ""
+                printf "    ${_cyan}▸${_reset} Keybase key passphrase ${_dim}(input hidden)${_reset}\n    ${_bold}›${_reset} " >&2
+                read -rs KB_PASSPHRASE </dev/tty
+                echo "" >&2
+            else
+                KB_PASSPHRASE="${KOAD_IO_KB_PASSPHRASE}"
+            fi
+
+            if [ -z "$KB_PASSPHRASE" ]; then
+                say ""
+                say "  No passphrase entered — skipping Keybase key imports."
+                say "  Import manually later (you will be prompted for a passphrase):"
+                say "    node $CEREMONY_SCRIPT export-master-armored --mnemonic '<24 words>' --userid '$USERID' | keybase pgp import"
+                say "    node $CEREMONY_SCRIPT export-leaf-armored --leaf-encrypted-path '$ID_DIR/leaf.private.asc' --device-key-path '$ID_DIR/device.key' | keybase pgp import"
+            else
+
             if ask_yn "Import master key to Keybase as backup? (recommended: yes)" "${KOAD_IO_KB_IMPORT_MASTER:-}"; then
                 say ""
                 say "  Importing master key to Keybase..."
+                say "  (Keybase will prompt for the passphrase you just set.)"
                 # Capture ceremony stderr (fingerprint log) without touching disk with key material.
                 # The armored private key travels only through the pipe to keybase pgp import.
+                # Passphrase passed via env — never on command line (avoids process listing exposure).
                 _KB_MASTER_STDERR=$(mktemp)
-                if node "$CEREMONY_SCRIPT" export-master-armored \
+                if KOAD_IO_KB_PASSPHRASE="$KB_PASSPHRASE" \
+                    node "$CEREMONY_SCRIPT" export-master-armored \
                     --mnemonic "$MNEMONIC" \
                     --userid "$USERID" \
-                    2>"$_KB_MASTER_STDERR" | keybase pgp import >/dev/null 2>&1; then
+                    2>"$_KB_MASTER_STDERR" | keybase pgp import; then
                     KB_IMPORT_MASTER=1
                     KB_IMPORT_MASTER_FINGERPRINT=$(grep 'master fingerprint' "$_KB_MASTER_STDERR" | sed 's/.*master fingerprint: //')
                     say "  Master key imported to Keybase."
@@ -624,10 +659,12 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
             if ask_yn "Import leaf key to Keybase? (recommended: yes — makes you discoverable)" "${KOAD_IO_KB_IMPORT_LEAF:-}"; then
                 say ""
                 say "  Importing leaf key to Keybase..."
-                node "$CEREMONY_SCRIPT" export-leaf-armored \
+                say "  (Keybase will prompt for the passphrase you just set.)"
+                KOAD_IO_KB_PASSPHRASE="$KB_PASSPHRASE" \
+                    node "$CEREMONY_SCRIPT" export-leaf-armored \
                     --leaf-encrypted-path "$ID_DIR/leaf.private.asc" \
                     --device-key-path "$ID_DIR/device.key" \
-                    2>/dev/null | keybase pgp import >/dev/null 2>&1 && {
+                    2>/dev/null | keybase pgp import && {
                     KB_IMPORT_LEAF=1
                     KB_IMPORT_LEAF_FINGERPRINT="$LEAF_FINGERPRINT"
                     say "  Leaf key imported to Keybase."
@@ -636,6 +673,9 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$ID_DIR/device.key" ] || [ "$FOR
                     say "  Import manually: node $CEREMONY_SCRIPT export-leaf-armored --leaf-encrypted-path '$ID_DIR/leaf.private.asc' --device-key-path '$ID_DIR/device.key' | keybase pgp import"
                 }
             fi
+
+            fi  # end passphrase-present block
+            unset KB_PASSPHRASE
 
         fi
 
