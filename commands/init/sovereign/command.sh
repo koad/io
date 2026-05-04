@@ -269,9 +269,78 @@ say ""
 
 # 3. Domain
 say "What domain will anchor your kingdom? Used for email addresses and GPG key."
+say "(TLD form: 'kingofalldata.com' requires DNS TXT proof later. Label form: 'kingofalldata' becomes a Keybase team.)"
 SOVEREIGN_DOMAIN=$(ask "Kingdom domain (e.g. kingofalldata.com)" "${KOAD_IO_KINGDOM_DOMAIN:-}" "" --required --write "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN)
 say "Domain: $SOVEREIGN_DOMAIN"
 say ""
+
+# ---------------------------------------------------------------------------
+# Domain form detection — VESTA-SPEC-152 §2.1
+# TLD form (contains dot): real DNS domain, requires DNS TXT proof for namespace claim.
+# Label form (no dot): free-form identifier; becomes a Keybase team name if Keybase is active.
+# ---------------------------------------------------------------------------
+
+if [[ "$SOVEREIGN_DOMAIN" == *.* ]]; then
+    KINGDOM_FORM="tld"
+    ensure_env_line "$SOVEREIGN_DIR/.env" "KINGDOM_FORM" "tld"
+    say "Kingdom form: TLD ($SOVEREIGN_DOMAIN)"
+    say "You'll need to add a DNS TXT record to verify ownership when you"
+    say "go through the namespace claim ceremony. For now, your sovereign"
+    say "keypair will be labeled \"$SOVEREIGN_HANDLE @ $SOVEREIGN_DOMAIN\"."
+    say ""
+else
+    KINGDOM_FORM="label"
+    ensure_env_line "$SOVEREIGN_DIR/.env" "KINGDOM_FORM" "label"
+    say "Kingdom form: label ($SOVEREIGN_DOMAIN)"
+
+    if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
+        # Keybase is present — check team membership
+        say "Checking Keybase team '$SOVEREIGN_DOMAIN'..."
+
+        # First: check if the current user is already in this team
+        KB_TEAM_JSON=$(keybase team list-memberships --json 2>/dev/null || echo '{"teams":[]}')
+        # fq_name for a top-level team is exactly the team name (no dots = top-level)
+        if echo "$KB_TEAM_JSON" | grep -q "\"fq_name\":\"${SOVEREIGN_DOMAIN}\""; then
+            say "You're already a member of Keybase team '$SOVEREIGN_DOMAIN' — using it as your kingdom container."
+        else
+            # Not in the team — probe whether the team exists at all
+            TEAM_PROBE=$(keybase team api -m "{\"method\": \"list-team-memberships\", \"params\": {\"options\": {\"team\": \"$SOVEREIGN_DOMAIN\"}}}" 2>&1 || true)
+
+            if echo "$TEAM_PROBE" | grep -qi "does not exist"; then
+                # Team is available — offer to create it
+                say "Team '$SOVEREIGN_DOMAIN' does not exist on Keybase."
+                if ask_yn "Create Keybase team '$SOVEREIGN_DOMAIN' now?" "${KOAD_IO_CREATE_KEYBASE_TEAM:-}"; then
+                    if keybase team create "$SOVEREIGN_DOMAIN" 2>/dev/null; then
+                        say "Created Keybase team: $SOVEREIGN_DOMAIN"
+                        say "You are now the owner of keybase://team/$SOVEREIGN_DOMAIN"
+                    else
+                        say "WARNING: Could not create Keybase team '$SOVEREIGN_DOMAIN'."
+                        say "Create manually: keybase team create $SOVEREIGN_DOMAIN"
+                    fi
+                else
+                    say "Skipping team creation. Create later: keybase team create $SOVEREIGN_DOMAIN"
+                fi
+            elif echo "$TEAM_PROBE" | grep -q '"name"'; then
+                # Team exists but user is not a member
+                say "WARNING: Team '$SOVEREIGN_DOMAIN' exists on Keybase but you are not a member."
+                say "The label '$SOVEREIGN_DOMAIN' is taken on Keybase."
+                say "Options:"
+                say "  1. Get added to the existing team by its owner."
+                say "  2. Choose a different label by re-running: koad-io init sovereign"
+                say "Continuing with '$SOVEREIGN_DOMAIN' as your kingdom label — no Keybase team linked."
+            else
+                # Unexpected response — surface and continue
+                say "Could not determine Keybase team status for '$SOVEREIGN_DOMAIN'."
+                say "Create manually if desired: keybase team create $SOVEREIGN_DOMAIN"
+            fi
+        fi
+    else
+        # No Keybase — just a free-form label
+        say "No Keybase detected. '$SOVEREIGN_DOMAIN' is your kingdom label (no team container)."
+        say "Add Keybase later and run: keybase team create $SOVEREIGN_DOMAIN"
+    fi
+    say ""
+fi
 
 # ---------------------------------------------------------------------------
 # Ensure structural .env lines are present (idempotent — append if missing)
