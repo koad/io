@@ -129,7 +129,6 @@ say ""
 
 mkdir -p "$SOVEREIGN_DIR/id/ssl"
 mkdir -p "$SOVEREIGN_DIR/trust/bonds"
-mkdir -p "$SOVEREIGN_DIR/memories"
 say "directory structure — present"
 
 # ---------------------------------------------------------------------------
