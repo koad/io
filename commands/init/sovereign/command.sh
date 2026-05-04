@@ -11,6 +11,8 @@
 
 set -euo pipefail
 
+source "$HOME/.koad-io/helpers/ask.sh"
+
 SOVEREIGN_DIR="$HOME/.koad-io/me"
 REPO_URL="${1:-}"
 FORCEFUL=0
@@ -203,18 +205,61 @@ GITIGNORE
 say "wrote: $SOVEREIGN_DIR/id/.gitignore"
 
 # ---------------------------------------------------------------------------
-# Prompt for handle — needed for passenger.json and .env
+# Interactive questions — handle, Keybase, domain, GitHub
 # ---------------------------------------------------------------------------
 
-if [ -t 0 ]; then
-    read -p "[sovereign] Your handle (e.g. koad): " SOVEREIGN_HANDLE
-    SOVEREIGN_HANDLE="${SOVEREIGN_HANDLE:-$(whoami)}"
-else
-    SOVEREIGN_HANDLE="${KOAD_IO_HANDLE:-$(whoami)}"
-    say "Non-interactive mode — using handle: $SOVEREIGN_HANDLE"
+# 1. Handle
+say "What handle would you like to use? This is your identity in the kingdom."
+RAW_HANDLE=$(ask "Your handle (e.g. koad)" "${KOAD_IO_HANDLE:-}" "")
+if [ -z "$RAW_HANDLE" ]; then
+    RAW_HANDLE=$(whoami)
+    say "No handle entered — using system user: $RAW_HANDLE"
 fi
+SOVEREIGN_HANDLE="$RAW_HANDLE"
+say "Handle: $SOVEREIGN_HANDLE"
+say ""
 
-SOVEREIGN_DOMAIN="${KOAD_IO_KINGDOM_DOMAIN:-koad.io}"
+# 2. Keybase
+KB_USERNAME=""
+SKIP_KEYBASE=0
+if ask_yn "Do you have a Keybase account?" "${KOAD_IO_HAS_KEYBASE:-}"; then
+    KB_DEFAULT="$SOVEREIGN_HANDLE"
+    KB_USERNAME=$(ask "Your Keybase username" "${KOAD_IO_KEYBASE_USERNAME:-}" "$KB_DEFAULT")
+    say "Keybase username: $KB_USERNAME"
+else
+    say ""
+    say "Keybase provides sovereign, encrypted git repos and team management."
+    say "Your sovereign identity repo will be much more secure on Keybase than"
+    say "anywhere else — it's the house, not the window."
+    say ""
+    say "Sign up at: https://keybase.io"
+    say ""
+    say "You can run 'koad-io init sovereign' again after signing up."
+    say "Or continue without Keybase — you can add it later."
+    say ""
+    if ask_yn "Continue without Keybase?" "${KOAD_IO_CONTINUE_WITHOUT_KEYBASE:-}"; then
+        SKIP_KEYBASE=1
+        say "Continuing without Keybase."
+    else
+        say "Exiting. Sign up at https://keybase.io and run 'koad-io init sovereign' again."
+        exit 0
+    fi
+fi
+say ""
+
+# 3. Domain
+say "What domain will anchor your kingdom? Used for email addresses and GPG key."
+SOVEREIGN_DOMAIN=$(ask "Kingdom domain (e.g. kingofalldata.com)" "${KOAD_IO_KINGDOM_DOMAIN:-}" "")
+if [ -z "$SOVEREIGN_DOMAIN" ]; then
+    say "No domain entered — you can update this later in ~/.koad-io/me/.env"
+    SOVEREIGN_DOMAIN="example.com"
+fi
+say "Domain: $SOVEREIGN_DOMAIN"
+say ""
+
+# 4. GitHub (asked after genesis — stored for post-genesis setup)
+GH_USERNAME=""
+SETUP_GITHUB=0
 
 # ---------------------------------------------------------------------------
 # Generate crypto suite — per VESTA-SPEC-174 §4.2 and gestate pattern
@@ -401,17 +446,61 @@ say "===========================================================================
 say ""
 say " The root of trust exists."
 say " Public keys are at ~/.koad-io/me/id/"
+say " Edit ~/.koad-io/me/IDENTITY.md — write who you are in your own words."
 say ""
-say " Next steps:"
-say "   1. Edit ~/.koad-io/me/IDENTITY.md — write who you are in your own words"
-say "   2. Create a remote repo (Keybase recommended, GitHub for public identity):"
-say "      git -C ~/.koad-io/me remote add origin <repo-url>"
-say "      git -C ~/.koad-io/me push -u origin main"
-say "   3. Back up ~/.koad-io/me/ — it contains your kingdom's root of trust"
-say "      (private keys are local-only; the public repo carries only public material)"
+
+# ---------------------------------------------------------------------------
+# Post-genesis: Keybase remote setup
+# ---------------------------------------------------------------------------
+
+if [ -n "$KB_USERNAME" ] && [ "$SKIP_KEYBASE" -eq 0 ]; then
+    say "Setting up Keybase remote..."
+    KB_REMOTE="keybase://private/$KB_USERNAME/me"
+    git -C "$SOVEREIGN_DIR" remote add origin "$KB_REMOTE" 2>/dev/null || {
+        say "Remote 'origin' already exists — skipping add."
+    }
+    say "Remote: origin → $KB_REMOTE"
+    say ""
+    say "Pushing to Keybase..."
+    say "(Make sure Keybase is running and you're logged in as $KB_USERNAME)"
+    if git -C "$SOVEREIGN_DIR" push -u origin main 2>/dev/null; then
+        say "Pushed to Keybase. Your sovereign identity is backed up."
+    else
+        say "Push failed — run manually once Keybase is running:"
+        say "  git -C ~/.koad-io/me push -u origin main"
+    fi
+    say ""
+fi
+
+# ---------------------------------------------------------------------------
+# Post-genesis: Optional GitHub mirror
+# ---------------------------------------------------------------------------
+
 say ""
-say " IMPORTANT: ~/.koad-io/me/ is its own git repo, not part of the koad-io"
-say " framework repo. Your keys and IDENTITY.md are yours, not ours."
+if ask_yn "Would you like to also set up a public GitHub mirror?" "${KOAD_IO_SETUP_GITHUB:-}"; then
+    GH_DEFAULT="$SOVEREIGN_HANDLE"
+    GH_USERNAME=$(ask "Your GitHub username" "${KOAD_IO_GITHUB_USERNAME:-}" "$GH_DEFAULT")
+    GH_REPO="$GH_USERNAME/me"
+    GH_REMOTE="https://github.com/$GH_REPO.git"
+    say ""
+    say "Create the repo first at: https://github.com/new"
+    say "Suggested repo name: me"
+    say "Suggested visibility: public (this repo carries only your public identity)"
+    say ""
+    git -C "$SOVEREIGN_DIR" remote add github "$GH_REMOTE" 2>/dev/null || {
+        say "Remote 'github' already exists — skipping add."
+    }
+    say "Remote added: github → $GH_REMOTE"
+    say "Push manually after creating the repo:"
+    say "  git -C ~/.koad-io/me push -u github main"
+else
+    say "Skipping GitHub mirror. Add it later with:"
+    say "  git -C ~/.koad-io/me remote add github https://github.com/<username>/me.git"
+fi
+say ""
+
+say "IMPORTANT: ~/.koad-io/me/ is its own git repo, not part of the koad-io"
+say "framework repo. Your keys and IDENTITY.md are yours, not ours."
 say ""
 
 source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint
