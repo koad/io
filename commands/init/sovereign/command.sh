@@ -242,9 +242,9 @@ KB_USERNAME=""
 SKIP_KEYBASE=0
 KB_DETECTED=$(keybase whoami 2>/dev/null || true)
 if [ -n "$KB_DETECTED" ]; then
-    say "Keybase: detected as $KB_DETECTED"
-    KB_USERNAME=$(ask "Your Keybase handle" "${KOAD_IO_KEYBASE_USERNAME:-}" "$KB_DETECTED" --write "$SOVEREIGN_DIR/.env" KEYBASE_USERNAME)
-    say "Keybase handle: $KB_USERNAME"
+    KB_USERNAME="${KOAD_IO_KEYBASE_USERNAME:-$KB_DETECTED}"
+    say "Keybase detected — handle: $KB_USERNAME"
+    ensure_env_line "$SOVEREIGN_DIR/.env" "KEYBASE_USERNAME" "$KB_USERNAME"
 else
     if ask_yn "Do you have a Keybase account?" "${KOAD_IO_HAS_KEYBASE:-}"; then
         KB_DEFAULT="$SOVEREIGN_HANDLE"
