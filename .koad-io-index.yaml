@@ -14,3 +14,12 @@ indexers:
     format: jsonl
     mode: current-per-key
     key: _id
+
+  - name: koad-posts
+    entity: koad
+    source: me/posts/
+    collection: Posts
+    format: post-folder
+    mode: current-per-key
+    key: slug
+    main_file: post.md
