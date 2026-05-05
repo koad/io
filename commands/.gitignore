@@ -70,3 +70,5 @@
 !kingdom/**
 !identity
 !identity/**
+!migrate-entity
+!migrate-entity/**
