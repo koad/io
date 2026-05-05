@@ -35,6 +35,10 @@
     "./identity-submission": {
       "import": "./identity-submission.js",
       "require": "./identity-submission.cjs"
+    },
+    "./identity-writer": {
+      "import": "./identity-writer.js",
+      "require": "./identity-writer.cjs"
     }
   },
   "main": "./index.cjs",

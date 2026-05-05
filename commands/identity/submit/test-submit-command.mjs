@@ -631,7 +631,15 @@ console.log('\nTest 13: Piece 2 — entry cache write/read round-trip (submit �
   const readFiles = _readdirSync(entriesDir13).filter(f => f.endsWith('.json'));
   assert(readFiles.length === 2, `Test 13: 2 .json files in entries dir (got ${readFiles.length})`);
 
-  const readEntries13 = readFiles.map(f => JSON.parse(_readFileSync(join(entriesDir13, f), 'utf8')));
+  const readEntries13 = readFiles
+    .map(f => JSON.parse(_readFileSync(join(entriesDir13, f), 'utf8')))
+    // Sort: genesis first, then leaf-authorize entries in chain order
+    // readdirSync does not guarantee order — mirror sortChainEntries() in verify-bridge.mjs
+    .sort((a, b) => {
+      if (a.type === 'koad.identity.genesis') return -1;
+      if (b.type === 'koad.identity.genesis') return 1;
+      return 0;
+    });
   const chain13 = await verifyChain(readEntries13);
   assert(chain13.valid === true, 'Test 13: chain walk from cached entries valid');
   assert(chain13.sigchainHeadCID === tipCID, 'Test 13: sigchainHeadCID correct from cache');
