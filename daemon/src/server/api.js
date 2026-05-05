@@ -3,6 +3,7 @@
 
 import { WebApp } from 'meteor/webapp';
 import bodyParser from 'body-parser';
+import { receiveHeadSubmission, queryIdentityHeads } from '@koad-io/node/identity-receiver';
 
 const os = Npm.require('os');
 const fs = Npm.require('fs');
@@ -1964,5 +1965,97 @@ app.use('/api/storefront', async (req, res, next) => {
     console.error('[API/storefront/raw] error:', err.message);
     res.writeHead(500);
     res.end(err.message);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SPEC-150 — Sigchain Head Submission Protocol
+// ---------------------------------------------------------------------------
+//
+// POST /api/identity/head/submit
+//   Accepts a signed sigchain head submission per SPEC-150 §5.1.
+//   Verifies, stores, and returns success or error per §10.
+//   No HTTP auth required — security is the embedded PGP signature.
+//
+// GET /api/identity/heads?since=<ISO>&limit=<n>&after=<cursor>
+//   Bulk-fetch all known sigchain head pointers per SPEC-150 §5.3.
+//   Used by lighthouse sync. Read-only, fully public.
+
+// OPTIONS preflight for /api/identity/head/submit
+app.use('/api/identity/head/submit', (req, res, next) => {
+  if (req.method !== 'OPTIONS') return next();
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.writeHead(204);
+  return res.end();
+});
+
+// POST /api/identity/head/submit
+app.use('/api/identity/head/submit', async (req, res, next) => {
+  if (req.method !== 'POST' || !pathIs(req, '/api/identity/head/submit')) return next();
+
+  try {
+    const submission = req.body;
+    const vestaEntitiesDir = path.join(os.homedir(), '.vesta', 'entities');
+
+    // Build an ipfsFetch function using the daemon's IPFS gateway if configured.
+    // Falls back to local cache only if KOAD_IO_IPFS_GATEWAY_URL is not set.
+    const gatewayUrl = process.env.KOAD_IO_IPFS_GATEWAY_URL || null;
+    let ipfsFetch = null;
+    if (gatewayUrl) {
+      ipfsFetch = async (cid) => {
+        try {
+          const url = `${gatewayUrl}/ipfs/${cid}`;
+          const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+          if (!response.ok) return null;
+          return await response.json();
+        } catch {
+          return null;
+        }
+      };
+    }
+
+    const result = await receiveHeadSubmission(submission, {
+      vestaEntitiesDir,
+      ipfsFetch,
+    });
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.writeHead(result.httpStatus);
+    res.end(JSON.stringify(result.body));
+  } catch (err) {
+    console.error('[API/identity/head/submit] unexpected error:', err.message);
+    res.setHeader('Content-Type', 'application/json');
+    res.writeHead(500);
+    res.end(JSON.stringify({ ok: false, error: 'ERR_INTERNAL', message: err.message }));
+  }
+});
+
+// GET /api/identity/heads — bulk-fetch per SPEC-150 §5.3
+app.use('/api/identity/heads', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/identity/heads')) return next();
+
+  try {
+    const params = parseQuery(req.originalUrl || req.url || '');
+    const vestaEntitiesDir = path.join(os.homedir(), '.vesta', 'entities');
+
+    const result = await queryIdentityHeads(params, { vestaEntitiesDir });
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    // Rate-limit hint: callers should not poll faster than every 60 seconds.
+    // We don't enforce it here but surface the header per §5.3.
+    res.setHeader('Cache-Control', 'public, max-age=60');
+
+    res.writeHead(result.httpStatus);
+    res.end(JSON.stringify(result.body));
+  } catch (err) {
+    console.error('[API/identity/heads] unexpected error:', err.message);
+    res.setHeader('Content-Type', 'application/json');
+    res.writeHead(500);
+    res.end(JSON.stringify({ ok: false, error: 'ERR_INTERNAL', message: err.message }));
   }
 });
