@@ -96,7 +96,6 @@ say ""
 DEVICE_DIR="$SOVEREIGN_DIR/id/devices/$HOSTNAME"
 
 mkdir -p "$DEVICE_DIR"
-mkdir -p "$SOVEREIGN_DIR/trust/bonds"
 say "directory structure — present"
 
 # ---------------------------------------------------------------------------
@@ -812,28 +811,6 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# IDENTITY.md — write stub if missing; NEVER overwrite (user may have filled it in)
-# ---------------------------------------------------------------------------
-
-if [ ! -f "$SOVEREIGN_DIR/IDENTITY.md" ]; then
-    did "IDENTITY.md" "creating stub"
-    cat > "$SOVEREIGN_DIR/IDENTITY.md" << 'IDENTEOF'
-# [Your Name]
-
-> [Your tagline — one sentence about who you are]
-
-[Your ideals, in your own words. This file is yours. It travels with you across kingdoms.]
-
----
-
-<!-- Optionally: proofs, links, Keybase declarations, chain references -->
-IDENTEOF
-    say "wrote: $SOVEREIGN_DIR/IDENTITY.md"
-else
-    skip "IDENTITY.md (yours to edit)"
-fi
-
-# ---------------------------------------------------------------------------
 # Init git repo in me/ — skip if .git already present
 # ---------------------------------------------------------------------------
 
@@ -851,7 +828,6 @@ git -C "$SOVEREIGN_DIR" add \
     id/.gitignore \
     2>/dev/null || true
 
-[ -f "$SOVEREIGN_DIR/IDENTITY.md" ]         && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_DIR/IDENTITY.md" 2>/dev/null || true
 [ -f "$ID_DIR/gpg.public.asc" ]             && git -C "$SOVEREIGN_DIR" add "$ID_DIR/gpg.public.asc" 2>/dev/null || true
 [ -f "$ID_DIR/master.fingerprint" ]         && git -C "$SOVEREIGN_DIR" add "$ID_DIR/master.fingerprint" 2>/dev/null || true
 [ -f "$ID_DIR/label" ]                      && git -C "$SOVEREIGN_DIR" add "$ID_DIR/label" 2>/dev/null || true
