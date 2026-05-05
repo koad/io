@@ -16,6 +16,15 @@ set -euo pipefail
 
 source "$HOME/.koad-io/helpers/ask.sh"
 
+# Source the sovereign's local .env if it exists — preserves answers from prior runs
+SOVEREIGN_ENV_FILE="$HOME/.koad-io/me/.env"
+if [ -f "$SOVEREIGN_ENV_FILE" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$SOVEREIGN_ENV_FILE"
+    set +a
+fi
+
 SOVEREIGN_DIR="$HOME/.koad-io/me"
 REPO_URL="${1:-}"
 FORCEFUL=0
@@ -187,7 +196,7 @@ fi
 
 # 1. Handle
 say "What handle would you like to use? This is your identity in the kingdom."
-SOVEREIGN_HANDLE=$(ask "Your handle (e.g. koad)" "${KOAD_IO_HANDLE:-}" "" --required --write "$SOVEREIGN_DIR/.env" SOVEREIGN_HANDLE)
+SOVEREIGN_HANDLE=$(ask "Your handle (e.g. koad)" "${SOVEREIGN_HANDLE:-${KOAD_IO_HANDLE:-}}" "" --required --write "$SOVEREIGN_DIR/.env" SOVEREIGN_HANDLE)
 say "Handle: $SOVEREIGN_HANDLE"
 say ""
 
@@ -202,7 +211,7 @@ if [ -n "$KB_DETECTED" ]; then
 else
     if ask_yn "Do you have a Keybase account?" "${KOAD_IO_HAS_KEYBASE:-}"; then
         KB_DEFAULT="$SOVEREIGN_HANDLE"
-        KB_USERNAME=$(ask "Your Keybase handle" "${KOAD_IO_KEYBASE_USERNAME:-}" "$KB_DEFAULT" --write "$SOVEREIGN_DIR/.env" KEYBASE_USERNAME)
+        KB_USERNAME=$(ask "Your Keybase handle" "${KEYBASE_USERNAME:-${KOAD_IO_KEYBASE_USERNAME:-}}" "$KB_DEFAULT" --write "$SOVEREIGN_DIR/.env" KEYBASE_USERNAME)
         say "Keybase handle: $KB_USERNAME"
     else
         say ""
@@ -229,7 +238,7 @@ say ""
 # 3. Domain
 say "What domain will anchor your kingdom? Used for email addresses and GPG key."
 say "(TLD form: 'kingofalldata.com' requires DNS TXT proof later. Label form: 'kingofalldata' becomes a Keybase team.)"
-SOVEREIGN_DOMAIN=$(ask "Kingdom domain (e.g. kingofalldata.com)" "${KOAD_IO_KINGDOM_DOMAIN:-}" "" --required --write "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN)
+SOVEREIGN_DOMAIN=$(ask "Kingdom domain (e.g. kingofalldata.com)" "${SOVEREIGN_DOMAIN:-${KOAD_IO_KINGDOM_DOMAIN:-}}" "" --required --write "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN)
 say "Domain: $SOVEREIGN_DOMAIN"
 say ""
 
