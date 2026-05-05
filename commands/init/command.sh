@@ -357,6 +357,62 @@ GITIGNORE
 }
 
 # ---------------------------------------------------------------------------
+# Helper: commit + push sovereign sigchain after entries are filed
+# ---------------------------------------------------------------------------
+
+commit_push_sovereign_sigchain() {
+    local entity_label="$1"   # display label for messages (e.g. the entity name)
+
+    [ ! -d "$SOVEREIGN_DIR/.git" ] && {
+        warn "Sovereign dir $SOVEREIGN_DIR is not a git repo — cannot commit sigchain."
+        return 0
+    }
+
+    # Use the sovereign operator's own git identity (global config), not the entity's.
+    # Unset any entity-scoped author vars so git falls back to its global config.
+    (
+        unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+
+        if ! git -C "$SOVEREIGN_DIR" diff --quiet -- sigchain/ 2>/dev/null || \
+           ! git -C "$SOVEREIGN_DIR" diff --cached --quiet -- sigchain/ 2>/dev/null; then
+            git -C "$SOVEREIGN_DIR" add sigchain/
+            git -C "$SOVEREIGN_DIR" commit -m "$entity_label keyed into sigchain"
+            say "  sovereign — sigchain committed"
+
+            if git -C "$SOVEREIGN_DIR" remote get-url origin >/dev/null 2>&1; then
+                if git -C "$SOVEREIGN_DIR" push 2>&1; then
+                    say "  sovereign — sigchain pushed"
+                else
+                    warn "sovereign — push failed (continue manually: git -C $SOVEREIGN_DIR push)"
+                fi
+            else
+                say "  sovereign — no origin remote configured, skipping push"
+            fi
+        else
+            say "  sovereign — sigchain: nothing new to commit"
+        fi
+    )
+}
+
+# ---------------------------------------------------------------------------
+# Helper: push entity repo (best-effort, clear error on failure)
+# ---------------------------------------------------------------------------
+
+push_entity_repo() {
+    [ ! -d "$ENTITY_DIR/.git" ] && return 0
+
+    if git -C "$ENTITY_DIR" remote get-url origin >/dev/null 2>&1; then
+        if git -C "$ENTITY_DIR" push 2>&1; then
+            say "  entity — repo pushed"
+        else
+            warn "entity — push failed (continue manually: git -C $ENTITY_DIR push)"
+        fi
+    else
+        say "  entity — no origin remote configured, skipping push"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Helper: commit entity migration artifacts
 # ---------------------------------------------------------------------------
 
@@ -502,6 +558,11 @@ elif [ "$ACTION" = "migrate" ]; then
     say "Signing sigchain entries..."
     sign_entity_sigchain_entries 0
 
+    # Step 3c: Commit + push sovereign sigchain (before entity commit — surface errors early)
+    say ""
+    say "Committing sovereign sigchain..."
+    commit_push_sovereign_sigchain "$ENTITY_NAME"
+
     # Step 4: Write migration record
     [ ! -f "$ENTITY_ID_DIR/migrated-at" ] || [ "$FORCEFUL" -eq 1 ] && \
         printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ENTITY_ID_DIR/migrated-at"
@@ -521,10 +582,11 @@ elif [ "$ACTION" = "migrate" ]; then
     ensure_spec175_gitignore "$ENTITY_DIR/.gitignore"
     ensure_spec175_id_gitignore "$ENTITY_ID_DIR/.gitignore"
 
-    # Step 7: Commit
+    # Step 7: Commit + push entity repo
     COMMIT_MSG="id: migrate to SPEC-175 multi-device shape"
     [ "$FORCEFUL" -eq 1 ] && COMMIT_MSG="id: rotate keys per SPEC-175 (--forceful, $HOST)"
     commit_entity_migration "$COMMIT_MSG"
+    push_entity_repo
 
 elif [ "$ACTION" = "secondary-device" ]; then
     # -----------------------------------------------------------------------
@@ -570,9 +632,14 @@ elif [ "$ACTION" = "secondary-device" ]; then
     say "Signing koad.entity.leaf-authorize for $HOST..."
     sign_entity_sigchain_entries 1
 
+    say ""
+    say "Committing sovereign sigchain..."
+    commit_push_sovereign_sigchain "$ENTITY_NAME"
+
     ensure_spec175_gitignore "$ENTITY_DIR/.gitignore"
     ensure_spec175_id_gitignore "$ENTITY_ID_DIR/.gitignore"
     commit_entity_migration "id: add device leaf for $HOST (SPEC-175 secondary device)"
+    push_entity_repo
 
 elif [ "$ACTION" = "re-seed" ]; then
     # -----------------------------------------------------------------------
@@ -620,11 +687,16 @@ elif [ "$ACTION" = "re-seed" ]; then
     say "Signing sigchain entries..."
     sign_entity_sigchain_entries 0
 
+    say ""
+    say "Committing sovereign sigchain..."
+    commit_push_sovereign_sigchain "$ENTITY_NAME"
+
     printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ENTITY_ID_DIR/migrated-at"
 
     ensure_spec175_gitignore "$ENTITY_DIR/.gitignore"
     ensure_spec175_id_gitignore "$ENTITY_ID_DIR/.gitignore"
     commit_entity_migration "id: seed SPEC-175 entity keys for $ENTITY_NAME"
+    push_entity_repo
 
 fi
 
@@ -718,11 +790,5 @@ say " Entity dir: $ENTITY_DIR"
 say " Launcher:   $LAUNCHER"
 say " Device:     $HOST"
 say ""
-
-if [ "$ACTION" = "migrate" ] || [ "$ACTION" = "re-seed" ] || [ "$ACTION" = "secondary-device" ]; then
-    say " Next steps:"
-    say "   git -C $ENTITY_DIR push"
-    say ""
-fi
 
 source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint
