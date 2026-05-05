@@ -1,18 +1,21 @@
 // sigchain.js — Sigchain entry layer (ESM)
 //
-// Implements VESTA-SPEC-111 v1.11 §3–5.8.
+// Implements VESTA-SPEC-111 v1.18 §3–5.10.
 //
 // Pure-functional library for constructing, serializing, CID-computing,
 // signing, and verifying SPEC-111 sigchain entries.
 //
-// Five identity entry types (SPEC-111 §5.8):
+// Identity entry types (SPEC-111 §5.8, koad.identity.* family):
 //   koad.identity.genesis, koad.identity.leaf-authorize, koad.identity.leaf-revoke,
 //   koad.identity.prune-all, koad.identity.key-succession
 //
-// Canonical serialization: dag-json (IPLD codec 0x0129), keys sorted
-// lexicographically. CID: CIDv1, sha2-256, base32upper → "bagu" prefix.
+// Entity entry types (SPEC-111 §5.10 / VESTA-SPEC-175 §4, koad.entity.* family):
+//   koad.entity.genesis, koad.entity.leaf-authorize, koad.entity.leaf-revoke
 //
-// Signature model: Option B (PGP detached/clearsign) per flight plan §open-question.
+// Canonical serialization: dag-json (IPLD codec 0x0129), keys sorted
+// lexicographically. CID: CIDv1, sha2-256, base32 → "bagu" prefix.
+//
+// Signature model: both families use §3.2b (PGP via kbpgp, RFC 4880 armored clearsign).
 // Signing uses koad.identity.sign() → produces RFC 4880 clearsign armored string.
 // The `signature` field carries the full armored PGP signature block.
 //
@@ -28,6 +31,10 @@
 //     buildLeafRevoke({ leaf_fingerprint, revoked_at, reason })
 //     buildPruneAll({ pruned_at, reason })
 //     buildKeySuccession({ old_master_fingerprint, new_master_fingerprint, new_master_pubkey_armored, succeeded_at, reason })
+//
+//     buildEntityGenesis({ entity_handle, entity_key_fingerprint, sovereign_key_fingerprint, gestated_at, gestation_host, notes })
+//     buildEntityLeafAuthorize({ entity_handle, leaf_fingerprint, host, authorized_at, authorized_by })
+//     buildEntityLeafRevoke({ entity_handle, leaf_fingerprint, host, revoked_at, revoked_by, reason })
 //
 //   Envelope:
 //     wrapEntry({ entity, timestamp, type, payload, previous })  → unsigned entry object
@@ -759,6 +766,134 @@ export async function verifyChain(entries) {
     leafSet,
     errors,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Entity entry constructors (koad.entity.* family)
+// VESTA-SPEC-175 §4 / SPEC-111 §5.10
+// Signed by sovereign master or sovereign device leaf (§3.2b PGP via kbpgp).
+// ---------------------------------------------------------------------------
+
+/**
+ * Build payload for koad.entity.genesis entry.
+ * VESTA-SPEC-175 §4.1 — sovereign authorizes a new entity into existence.
+ * Filed in the sovereign's sigchain.
+ *
+ * @param {object} opts
+ * @param {string} opts.entity_handle             REQUIRED
+ * @param {string} opts.entity_key_fingerprint    REQUIRED (40-hex PGP fingerprint of entity.public.asc)
+ * @param {string} opts.sovereign_key_fingerprint REQUIRED (40-hex PGP fingerprint of sovereign master)
+ * @param {string} opts.gestated_at               REQUIRED (ISO 8601 timestamp)
+ * @param {string} opts.gestation_host            REQUIRED (hostname where gestate was run)
+ * @param {string} [opts.notes]                   OPTIONAL
+ * @returns {{ type: string, payload: object }}
+ */
+export function buildEntityGenesis({
+  entity_handle,
+  entity_key_fingerprint,
+  sovereign_key_fingerprint,
+  gestated_at,
+  gestation_host,
+  notes,
+} = {}) {
+  if (!entity_handle) throw new Error('[sigchain] buildEntityGenesis: entity_handle is required');
+  if (!entity_key_fingerprint) throw new Error('[sigchain] buildEntityGenesis: entity_key_fingerprint is required');
+  if (!sovereign_key_fingerprint) throw new Error('[sigchain] buildEntityGenesis: sovereign_key_fingerprint is required');
+  if (!gestated_at) throw new Error('[sigchain] buildEntityGenesis: gestated_at is required');
+  if (!gestation_host) throw new Error('[sigchain] buildEntityGenesis: gestation_host is required');
+
+  const payload = {
+    entity_handle,
+    entity_key_fingerprint,
+    gestation_host,
+    gestated_at,
+    sovereign_key_fingerprint,
+  };
+  if (notes !== undefined && notes !== null) {
+    payload.notes = notes;
+  }
+
+  return { type: 'koad.entity.genesis', payload };
+}
+
+/**
+ * Build payload for koad.entity.leaf-authorize entry.
+ * VESTA-SPEC-175 §4.2 — sovereign authorizes a device leaf for an entity.
+ * Filed in the sovereign's sigchain when a new device comes online for an entity.
+ *
+ * @param {object} opts
+ * @param {string} opts.entity_handle    REQUIRED
+ * @param {string} opts.leaf_fingerprint REQUIRED (40-hex PGP fingerprint of devices/<host>/leaf.public.asc)
+ * @param {string} opts.host             REQUIRED (machine hostname)
+ * @param {string} opts.authorized_at    REQUIRED (ISO 8601 timestamp)
+ * @param {string} opts.authorized_by    REQUIRED (sovereign key fingerprint — master or authorized device leaf)
+ * @returns {{ type: string, payload: object }}
+ */
+export function buildEntityLeafAuthorize({
+  entity_handle,
+  leaf_fingerprint,
+  host,
+  authorized_at,
+  authorized_by,
+} = {}) {
+  if (!entity_handle) throw new Error('[sigchain] buildEntityLeafAuthorize: entity_handle is required');
+  if (!leaf_fingerprint) throw new Error('[sigchain] buildEntityLeafAuthorize: leaf_fingerprint is required');
+  if (!host) throw new Error('[sigchain] buildEntityLeafAuthorize: host is required');
+  if (!authorized_at) throw new Error('[sigchain] buildEntityLeafAuthorize: authorized_at is required');
+  if (!authorized_by) throw new Error('[sigchain] buildEntityLeafAuthorize: authorized_by is required');
+
+  return {
+    type: 'koad.entity.leaf-authorize',
+    payload: {
+      authorized_at,
+      authorized_by,
+      entity_handle,
+      host,
+      leaf_fingerprint,
+    },
+  };
+}
+
+/**
+ * Build payload for koad.entity.leaf-revoke entry.
+ * VESTA-SPEC-175 §4.3 — sovereign revokes a device leaf for an entity.
+ * Filed in the sovereign's sigchain when a device is lost, retired, or rotated.
+ *
+ * @param {object} opts
+ * @param {string} opts.entity_handle    REQUIRED
+ * @param {string} opts.leaf_fingerprint REQUIRED (40-hex PGP fingerprint of revoked leaf)
+ * @param {string} opts.host             REQUIRED (machine hostname)
+ * @param {string} opts.revoked_at       REQUIRED (ISO 8601 timestamp)
+ * @param {string} opts.revoked_by       REQUIRED (sovereign key fingerprint)
+ * @param {string} [opts.reason]         OPTIONAL ('lost-device' | 'rotation' | 'compromise' | 'other')
+ * @returns {{ type: string, payload: object }}
+ */
+export function buildEntityLeafRevoke({
+  entity_handle,
+  leaf_fingerprint,
+  host,
+  revoked_at,
+  revoked_by,
+  reason,
+} = {}) {
+  if (!entity_handle) throw new Error('[sigchain] buildEntityLeafRevoke: entity_handle is required');
+  if (!leaf_fingerprint) throw new Error('[sigchain] buildEntityLeafRevoke: leaf_fingerprint is required');
+  if (!host) throw new Error('[sigchain] buildEntityLeafRevoke: host is required');
+  if (!revoked_at) throw new Error('[sigchain] buildEntityLeafRevoke: revoked_at is required');
+  if (!revoked_by) throw new Error('[sigchain] buildEntityLeafRevoke: revoked_by is required');
+
+  const payload = {
+    entity_handle,
+    host,
+    leaf_fingerprint,
+    revoked_at,
+    revoked_by,
+  };
+  if (reason !== undefined && reason !== null) {
+    payload.reason = reason;
+  }
+
+  return { type: 'koad.entity.leaf-revoke', payload };
 }
 
 // ---------------------------------------------------------------------------

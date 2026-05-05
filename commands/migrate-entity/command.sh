@@ -211,11 +211,14 @@ VERIFY_JSON=$(node "$CEREMONY_SCRIPT" verify-mnemonic \
     --userid "$SOVEREIGN_USERID" \
     --expected-fingerprint "$EXPECTED_MASTER_FPR") || die "Mnemonic verification ceremony failed"
 
-MNEMONIC_INPUT=""
-unset MNEMONIC_INPUT
+# NOTE: MNEMONIC_INPUT is retained here — needed for sign-entity-entries below.
+# It is zeroed immediately after the sigchain signing step.
 
 VERIFY_VALID=$(echo "$VERIFY_JSON" | jq -r '.valid')
 if [ "$VERIFY_VALID" != "true" ]; then
+    # Scrub mnemonic before exit on failure
+    MNEMONIC_INPUT=""
+    unset MNEMONIC_INPUT
     VERIFY_ERR=$(echo "$VERIFY_JSON" | jq -r '.error // "unknown error"')
     die "Mnemonic verification failed: $VERIFY_ERR"
 fi
@@ -295,8 +298,148 @@ say "  generated: id/devices/$HOST/leaf.public.asc (fingerprint: ${LEAF_FINGERPR
 say "  generated: id/devices/$HOST/leaf.private.asc (encrypted — passphrase is device.key)"
 say "  generated: id/devices/$HOST/device.key (gitignored — machine-local, never commit)"
 
-# Zero sensitive vars
+# Zero sensitive vars (keep MNEMONIC_INPUT — needed for sigchain signing below)
 unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR
+
+say ""
+
+# ---------------------------------------------------------------------------
+# Step 3b: Sign and record sigchain entries in sovereign's chain
+# ---------------------------------------------------------------------------
+# Per VESTA-SPEC-175 §4 + SPEC-111 §3.2b:
+#   - koad.entity.genesis: sovereign authorizes entity into existence
+#   - koad.entity.leaf-authorize: sovereign authorizes this device's entity leaf
+# Both entries are signed by sovereign master and recorded in the sovereign's sigchain.
+
+SOVEREIGN_SIGCHAIN_DIR="$SOVEREIGN_DIR/sigchain"
+SOVEREIGN_SIGCHAIN_ENTRIES_DIR="$SOVEREIGN_SIGCHAIN_DIR/entries"
+SOVEREIGN_SIGCHAIN_HEAD_FILE="$SOVEREIGN_SIGCHAIN_DIR/head.cid"
+SOVEREIGN_SIGCHAIN_META_FILE="$SOVEREIGN_SIGCHAIN_DIR/metadata.json"
+
+# Read current head CID (empty if sovereign has no sigchain yet)
+CURRENT_HEAD=""
+if [ -f "$SOVEREIGN_SIGCHAIN_HEAD_FILE" ]; then
+    CURRENT_HEAD=$(cat "$SOVEREIGN_SIGCHAIN_HEAD_FILE" | tr -d '[:space:]')
+fi
+
+say "Signing sigchain entries in sovereign's chain..."
+say "  Current sovereign chain head: ${CURRENT_HEAD:-'(none — first entity entry)'}"
+
+# Read entity public armor from the file we just wrote
+ENTITY_PUBLIC_ARMOR_FILE="$ENTITY_ID_DIR/entity.public.asc"
+ENTITY_FINGERPRINT_FILE="$ENTITY_ID_DIR/entity.fingerprint"
+
+# Determine entity fingerprint
+if [ -f "$ENTITY_FINGERPRINT_FILE" ]; then
+    ENTITY_FINGERPRINT=$(cat "$ENTITY_FINGERPRINT_FILE")
+elif [ -n "${ENTITY_FINGERPRINT:-}" ]; then
+    : # Already set from generate-entity step
+else
+    die "Cannot determine entity fingerprint — id/entity.fingerprint missing"
+fi
+
+# Read entity public armor from disk (avoids passing multi-line armor through argv)
+if [ ! -f "$ENTITY_PUBLIC_ARMOR_FILE" ]; then
+    die "entity.public.asc not found at $ENTITY_PUBLIC_ARMOR_FILE"
+fi
+
+# Pass entity public armor via a temp file path (not argv, to avoid quoting issues)
+ENTITY_ARMOR_TMPFILE=$(mktemp /tmp/koad-entity-armor.XXXXXX)
+cp "$ENTITY_PUBLIC_ARMOR_FILE" "$ENTITY_ARMOR_TMPFILE"
+
+# Build sign-entity-entries args.
+# --skip-genesis is passed when only adding a new device leaf (entity key already committed)
+SIGN_ENTITY_EXTRA_ARGS=()
+if [ "$GENERATE_ENTITY_KEY" -eq 0 ]; then
+    SIGN_ENTITY_EXTRA_ARGS+=("--skip-genesis")
+fi
+
+ENTITY_SIGNING_JSON=$(node "$CEREMONY_SCRIPT" sign-entity-entries \
+    --mnemonic "$MNEMONIC_INPUT" \
+    --userid "$SOVEREIGN_USERID" \
+    --master-fingerprint "$EXPECTED_MASTER_FPR" \
+    --entity-handle "$ENTITY_NAME" \
+    --entity-fingerprint "$ENTITY_FINGERPRINT" \
+    --entity-public-armor "$(cat "$ENTITY_ARMOR_TMPFILE")" \
+    --leaf-fingerprint "$LEAF_FINGERPRINT" \
+    --host "$HOST" \
+    --sigchain-head "$CURRENT_HEAD" \
+    "${SIGN_ENTITY_EXTRA_ARGS[@]}") \
+    || { rm -f "$ENTITY_ARMOR_TMPFILE"; MNEMONIC_INPUT=""; unset MNEMONIC_INPUT; die "Sigchain signing ceremony failed"; }
+
+rm -f "$ENTITY_ARMOR_TMPFILE"
+
+# Now scrub mnemonic — no longer needed
+MNEMONIC_INPUT=""
+unset MNEMONIC_INPUT
+
+# Extract results
+GENESIS_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.genesisCid')
+LEAF_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.leafCid')
+NEW_HEAD_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.newHeadCid')
+
+if [ -z "$LEAF_CID" ] || [ "$LEAF_CID" = "null" ]; then
+    die "Sigchain signing returned no leafCid — check ceremony output"
+fi
+
+SKIP_GENESIS=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.skipGenesis // false')
+
+if [ "$SKIP_GENESIS" = "false" ]; then
+    if [ -z "$GENESIS_CID" ] || [ "$GENESIS_CID" = "null" ]; then
+        die "Sigchain signing returned no genesisCid — check ceremony output"
+    fi
+    say "  signed: koad.entity.genesis (CID: ${GENESIS_CID:0:20}...)"
+fi
+say "  signed: koad.entity.leaf-authorize (CID: ${LEAF_CID:0:20}...)"
+
+# Write entries to sovereign's sigchain store (append-only)
+mkdir -p "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR"
+
+# Write individual entry files (keyed by CID)
+if [ "$SKIP_GENESIS" = "false" ] && [ -n "$GENESIS_CID" ] && [ "$GENESIS_CID" != "null" ]; then
+    echo "$ENTITY_SIGNING_JSON" | jq '.genesisEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$GENESIS_CID.json"
+fi
+echo "$ENTITY_SIGNING_JSON" | jq '.leafEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$LEAF_CID.json"
+
+# Update head pointer
+printf '%s' "$NEW_HEAD_CID" > "$SOVEREIGN_SIGCHAIN_HEAD_FILE"
+
+# Update metadata.json
+NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+if [ -f "$SOVEREIGN_SIGCHAIN_META_FILE" ]; then
+    # Update existing metadata — update head CID and timestamp
+    EXISTING_META=$(cat "$SOVEREIGN_SIGCHAIN_META_FILE")
+    echo "$EXISTING_META" | jq \
+        --arg cid "$NEW_HEAD_CID" \
+        --arg updated "$NOW_ISO" \
+        '.sigchainHeadCID = $cid | .sigchainHeadUpdated = $updated' \
+        > "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" && mv "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" "$SOVEREIGN_SIGCHAIN_META_FILE"
+else
+    # Create fresh metadata file
+    jq -n \
+        --arg handle "koad" \
+        --arg fpr "$EXPECTED_MASTER_FPR" \
+        --arg cid "$NEW_HEAD_CID" \
+        --arg created "$NOW_ISO" \
+        --arg updated "$NOW_ISO" \
+        '{
+            handle: $handle,
+            masterFingerprint: $fpr,
+            sigchainHeadCID: $cid,
+            status: "active",
+            created: $created,
+            sigchainHeadUpdated: $updated
+        }' > "$SOVEREIGN_SIGCHAIN_META_FILE"
+fi
+
+if [ "$SKIP_GENESIS" = "false" ] && [ -n "$GENESIS_CID" ] && [ "$GENESIS_CID" != "null" ]; then
+    say "  recorded: me/sigchain/entries/$GENESIS_CID.json"
+fi
+say "  recorded: me/sigchain/entries/$LEAF_CID.json"
+say "  updated:  me/sigchain/head.cid → ${NEW_HEAD_CID:0:20}..."
+
+# Unset sensitive JSON
+unset ENTITY_SIGNING_JSON
 unset ENTITY_PUBLIC_ARMOR LEAF_PUBLIC_ARMOR
 
 say ""
