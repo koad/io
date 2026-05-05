@@ -38,6 +38,7 @@ const HOME = os.homedir();
 // ---------------------------------------------------------------------------
 // Minimal YAML parser — handles the simple .koad-io-index.yaml format only.
 // Not a general YAML parser. Handles:
+//   - top-level "entity:" field (injected into each indexer as entity)
 //   - top-level "indexers:" list
 //   - list items starting with "  - name:"
 //   - string values (quoted or unquoted)
@@ -48,6 +49,7 @@ function parseIndexYaml(text, filePath) {
   const indexers = [];
   let current = null;
   let inIndexers = false;
+  let topLevelEntity = null;
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
@@ -55,6 +57,12 @@ function parseIndexYaml(text, filePath) {
 
     // Skip blank lines and comments
     if (!line.trim() || line.trim().startsWith('#')) continue;
+
+    // Top-level "entity:" key (before indexers: block)
+    if (!inIndexers && /^entity\s*:/.test(line)) {
+      topLevelEntity = line.replace(/^entity\s*:\s*/, '').replace(/['"]/g, '').trim();
+      continue;
+    }
 
     // Top-level "indexers:" key
     if (/^indexers\s*:/.test(line)) {
@@ -85,6 +93,14 @@ function parseIndexYaml(text, filePath) {
   }
 
   if (current) indexers.push(current);
+
+  // Inject top-level entity into each indexer (indexer-level entity overrides if present)
+  if (topLevelEntity) {
+    for (const cfg of indexers) {
+      if (!cfg.entity) cfg.entity = topLevelEntity;
+    }
+  }
+
   return indexers;
 }
 

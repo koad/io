@@ -2,7 +2,11 @@
 //
 // Runs after Meteor startup. Calls IndexerRegistry.load() (discovers all
 // .koad-io-index.yaml files + Meteor.settings.indexers) then starts a
-// JsonlProjector for each declared indexer.
+// projector for each declared indexer.
+//
+// Format routing:
+//   format: jsonl (default)       → JsonlProjector
+//   format: post-folder           → PostFolderProjector
 //
 // Hot reload endpoint: POST /api/indexers/reload
 // Re-scans configs, stops removed indexers, starts new ones, leaves running unchanged.
@@ -25,7 +29,12 @@ Meteor.startup(() => {
 
     for (const cfg of configs) {
       try {
-        globalThis.JsonlProjector.start(cfg);
+        if (cfg.format === 'post-folder') {
+          globalThis.PostFolderProjector.start(cfg);
+        } else {
+          // Default: jsonl format (source or source_glob)
+          globalThis.JsonlProjector.start(cfg);
+        }
       } catch (err) {
         console.error(`[pluggable-indexers] failed to start indexer ${cfg.name}:`, err.message);
       }
@@ -46,7 +55,13 @@ app.use('/api/indexers/reload', (req, res, next) => {
 
   try {
     const newConfigs = globalThis.IndexerRegistry.load();
-    globalThis.JsonlProjector.reload(newConfigs);
+
+    // Route reload by format
+    const jsonlConfigs = newConfigs.filter(c => c.format !== 'post-folder');
+    const postFolderConfigs = newConfigs.filter(c => c.format === 'post-folder');
+
+    globalThis.JsonlProjector.reload(jsonlConfigs);
+    globalThis.PostFolderProjector.reload(postFolderConfigs);
 
     res.writeHead(200);
     res.end(JSON.stringify({
