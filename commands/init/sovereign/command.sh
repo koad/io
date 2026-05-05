@@ -340,8 +340,146 @@ if [ -f "$SOVEREIGN_SIGCHAIN_HEAD_FILE" ]; then
     CURRENT_SIGCHAIN_HEAD=$(cat "$SOVEREIGN_SIGCHAIN_HEAD_FILE" | tr -d '[:space:]')
 fi
 
+# ---------------------------------------------------------------------------
+# Backfill detection — VESTA-SPEC-174 §4 UX gap fix
+#
+# If this device's leaf already exists on disk but has NO corresponding
+# koad.identity.leaf-authorize entry in the sigchain, file the entry
+# without re-running the full ceremony.
+#
+# Scenarios handled:
+#   A. Leaf exists + entry present  → skip ceremony entirely ("all set")
+#   B. Leaf exists + entry missing  → backfill: ask mnemonic, sign entry, file it
+#   C. Leaf missing                 → normal ceremony (fall through to block below)
+# ---------------------------------------------------------------------------
+
+BACKFILL_DONE=0  # set to 1 if backfill ran; skips the main ceremony block below
+
+if [ -f "$DEVICE_DIR/leaf.private.asc" ] && [ -f "$DEVICE_DIR/leaf.public.asc" ] && [ "$FORCEFUL" -eq 0 ]; then
+
+    # Extract the fingerprint of the existing leaf public key via ceremony.mjs
+    EXISTING_LEAF_FPR=$(node "$CEREMONY_SCRIPT" get-leaf-fingerprint \
+        --leaf-public-armor-file "$DEVICE_DIR/leaf.public.asc" 2>/dev/null | \
+        jq -r '.fingerprint // empty' 2>/dev/null || true)
+
+    if [ -z "$EXISTING_LEAF_FPR" ]; then
+        say "WARNING: could not extract fingerprint from $DEVICE_DIR/leaf.public.asc — continuing with full ceremony"
+    else
+        # Check if any sigchain entry references this leaf fingerprint
+        SIGCHAIN_HAS_LEAF=""
+        if [ -d "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" ]; then
+            SIGCHAIN_HAS_LEAF=$(grep -rl "$EXISTING_LEAF_FPR" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1)
+        fi
+
+        if [ -n "$SIGCHAIN_HAS_LEAF" ]; then
+            # Case A: leaf exists AND entry present — nothing to do
+            skip "id/devices/$HOSTNAME/leaf.private.asc"
+            skip "sigchain entry for $HOSTNAME leaf (already authorized)"
+            BACKFILL_DONE=1
+        else
+            # Case B: leaf exists but no sigchain entry — backfill
+            say ""
+            say "Your device leaf exists but isn't recorded in the sovereign sigchain."
+            say "This happens when init sovereign was run before sigchain support was added."
+            say "Need your recovery phrase to sign a koad.identity.leaf-authorize entry"
+            say "for the existing leaf — no new keys will be generated."
+            say ""
+
+            BACKFILL_MNEMONIC_INPUT=""
+            _cyan='\033[0;36m'
+            _dim='\033[2m'
+            _reset='\033[0m'
+            _bold='\033[1m'
+            while [ -z "$BACKFILL_MNEMONIC_INPUT" ]; do
+                printf "\n  ${_cyan}▸${_reset} Recovery phrase ${_dim}(input hidden)${_reset}\n    ${_bold}›${_reset} " >&2
+                read -rs BACKFILL_MNEMONIC_INPUT </dev/tty
+                echo "" >&2
+                BACKFILL_MNEMONIC_INPUT="$(echo "$BACKFILL_MNEMONIC_INPUT" | tr -s ' ' | sed 's/^ //;s/ $//')"
+                if [ -z "$BACKFILL_MNEMONIC_INPUT" ]; then
+                    printf "  ${_dim}(required — please enter your recovery phrase)${_reset}\n" >&2
+                fi
+            done
+
+            say "  Validating recovery phrase and signing backfill entry..."
+
+            BACKFILL_JSON=$(node "$CEREMONY_SCRIPT" backfill-leaf-authorize \
+                --mnemonic "$BACKFILL_MNEMONIC_INPUT" \
+                --userid "$USERID" \
+                --entity-handle "$SOVEREIGN_HANDLE" \
+                --leaf-public-armor-file "$DEVICE_DIR/leaf.public.asc" \
+                --sigchain-head "$CURRENT_SIGCHAIN_HEAD") || die "Backfill ceremony failed — mnemonic may be invalid or leaf key corrupt"
+
+            # Clear raw mnemonic from shell memory
+            BACKFILL_MNEMONIC_INPUT=""
+            unset BACKFILL_MNEMONIC_INPUT
+
+            # Verify mnemonic derived the correct master
+            if [ -f "$SOVEREIGN_DIR/id/master.fingerprint" ]; then
+                EXPECTED_FPR=$(cat "$SOVEREIGN_DIR/id/master.fingerprint")
+                DERIVED_FPR=$(echo "$BACKFILL_JSON" | jq -r '.masterFingerprint')
+                if [ "$EXPECTED_FPR" != "$DERIVED_FPR" ]; then
+                    unset BACKFILL_JSON
+                    die "Mnemonic mismatch — derived master fingerprint ($DERIVED_FPR) does not match repo's id/master.fingerprint ($EXPECTED_FPR)"
+                fi
+                say "  Mnemonic verified — master fingerprint matches repo"
+            fi
+
+            # Extract backfill entry fields
+            BACKFILL_LEAF_AUTHORIZE_CID=$(echo "$BACKFILL_JSON" | jq -r '.leafAuthorizeCid // empty')
+            BACKFILL_NEW_HEAD_CID=$(echo "$BACKFILL_JSON" | jq -r '.newHeadCid // empty')
+
+            if [ -z "$BACKFILL_LEAF_AUTHORIZE_CID" ] || [ "$BACKFILL_LEAF_AUTHORIZE_CID" = "null" ]; then
+                unset BACKFILL_JSON
+                die "Backfill ceremony returned no leafAuthorizeCid — aborting"
+            fi
+
+            # Idempotency guard: check again (race condition / partial crash recovery)
+            STILL_MISSING=$(grep -rl "$EXISTING_LEAF_FPR" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1)
+            if [ -n "$STILL_MISSING" ]; then
+                say "sigchain — koad.identity.leaf-authorize already present (race/retry), skipping write"
+            else
+                mkdir -p "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR"
+                echo "$BACKFILL_JSON" | jq '.leafAuthorizeEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$BACKFILL_LEAF_AUTHORIZE_CID.json"
+                say "sigchain — koad.identity.leaf-authorize filed for $HOSTNAME (backfill, CID: ${BACKFILL_LEAF_AUTHORIZE_CID:0:20}...)"
+
+                # Update head pointer
+                printf '%s' "$BACKFILL_NEW_HEAD_CID" > "$SOVEREIGN_SIGCHAIN_HEAD_FILE"
+                say "sigchain — head.cid updated to ${BACKFILL_NEW_HEAD_CID:0:20}..."
+
+                # Update metadata.json
+                NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                if [ -f "$SOVEREIGN_SIGCHAIN_META_FILE" ]; then
+                    EXISTING_META=$(cat "$SOVEREIGN_SIGCHAIN_META_FILE")
+                    echo "$EXISTING_META" | jq \
+                        --arg cid "$BACKFILL_NEW_HEAD_CID" \
+                        --arg updated "$NOW_ISO" \
+                        '.sigchainHeadCID = $cid | .sigchainHeadUpdated = $updated' \
+                        > "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" \
+                        && mv "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" "$SOVEREIGN_SIGCHAIN_META_FILE"
+                    say "sigchain — metadata.json updated"
+                fi
+
+                # Stage and commit the new entry
+                git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null || true
+                git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_SIGCHAIN_HEAD_FILE" 2>/dev/null || true
+                git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_SIGCHAIN_META_FILE" 2>/dev/null || true
+                if ! git -C "$SOVEREIGN_DIR" diff --cached --quiet 2>/dev/null; then
+                    git -C "$SOVEREIGN_DIR" commit -m "sigchain: backfill koad.identity.leaf-authorize for $HOSTNAME" 2>/dev/null
+                    say "committed backfill entry"
+                fi
+            fi
+
+            unset BACKFILL_JSON
+            BACKFILL_DONE=1
+            say ""
+            say "Backfill complete — $HOSTNAME leaf is now authorized in the sigchain."
+            say ""
+        fi
+    fi
+fi
+
 # Run ceremony if any key artifact is missing (or --forceful)
-if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$DEVICE_DIR/leaf.private.asc" ] || [ "$FORCEFUL" -eq 1 ]; then
+if [ "$BACKFILL_DONE" -eq 0 ] && { [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$DEVICE_DIR/leaf.private.asc" ] || [ "$FORCEFUL" -eq 1 ]; }; then
 
     did "sovereign keypair" "running ceremony via @koad-io/node..."
     say ""
@@ -652,9 +790,11 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$DEVICE_DIR/leaf.private.asc" ] 
     unset MNEMONIC_WORDS
 
 else
-    skip "id/gpg.public.asc (sovereign keypair)"
-    skip "id/devices/$HOSTNAME/leaf.private.asc"
-    # Load label from disk (idempotent path)
+    # Keys already present (or backfill ran above) — load label from disk
+    if [ "$BACKFILL_DONE" -eq 0 ]; then
+        skip "id/gpg.public.asc (sovereign keypair)"
+        skip "id/devices/$HOSTNAME/leaf.private.asc"
+    fi
     SOVEREIGN_LABEL="${SOVEREIGN_LABEL:-}"
     [ -z "$SOVEREIGN_LABEL" ] && [ -f "$ID_DIR/label" ] && SOVEREIGN_LABEL=$(cat "$ID_DIR/label")
 fi

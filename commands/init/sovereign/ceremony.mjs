@@ -21,6 +21,16 @@
 //     Outputs include: leafAuthorizeEntry, leafAuthorizeCid, newHeadCid.
 //     Caller must pass --sigchain-head <cid> if an existing chain is present.
 //
+//   backfill-leaf-authorize --mnemonic "word1 ... word24" --userid "handle @ domain"
+//                           --leaf-public-armor-file <path>
+//                           [--sigchain-head <cid>]
+//     Backfill path: leaf exists on disk but has no sigchain entry.
+//     Reads the existing leaf public key from file, derives master from mnemonic,
+//     and signs a koad.identity.leaf-authorize entry for the existing leaf.
+//     Does NOT generate a new leaf or device key.
+//     Outputs include: leafAuthorizeEntry, leafAuthorizeCid, newHeadCid,
+//                      masterFingerprint, leafFingerprint.
+//
 // The Keybase backup is the git repo at keybase://private/<handle>/me — not the
 // Keybase PGP keystore. export-master-armored and export-leaf-armored were removed;
 // the mnemonic on paper + the Keybase repo are the two canonical recovery paths.
@@ -30,6 +40,7 @@
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
 
 // Resolve @koad-io/node from the modules/node directory (two levels up from here:
 //   commands/init/sovereign/ → commands/init/ → commands/ → .koad-io/
@@ -61,6 +72,11 @@ const {
 } = await import(SIGCHAIN_PATH);
 
 const { clearsign } = await import(path.join(KOAD_IO_ROOT, 'modules', 'node', 'pgp.js'));
+
+// kbpgp — needed for importing existing public key armor (backfill + fingerprint commands).
+// Resolved relative to modules/node so Node walks the correct node_modules tree.
+const _require = createRequire(path.join(KOAD_IO_ROOT, 'modules', 'node', 'package.json'));
+const kbpgp = _require('kbpgp');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -320,6 +336,137 @@ async function cmdRecover(args) {
 }
 
 // ---------------------------------------------------------------------------
+// Command: get-leaf-fingerprint
+// ---------------------------------------------------------------------------
+//
+// Utility: import a PGP public key from an armor file and output its fingerprint.
+// Used by command.sh to extract the fingerprint of an existing leaf without
+// running a full ceremony.
+//
+// Required args:
+//   --leaf-public-armor-file  /absolute/path/to/leaf.public.asc
+
+async function cmdGetLeafFingerprint(args) {
+  const leafPublicArmorFile = args['leaf-public-armor-file'];
+  if (!leafPublicArmorFile) die('--leaf-public-armor-file is required for get-leaf-fingerprint');
+
+  let leafPublicArmor;
+  try {
+    leafPublicArmor = fs.readFileSync(leafPublicArmorFile, 'utf8');
+  } catch (err) {
+    die(`could not read leaf public armor from ${leafPublicArmorFile}: ${err.message}`);
+  }
+  if (!leafPublicArmor || !leafPublicArmor.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
+    die(`file ${leafPublicArmorFile} does not appear to be a PGP public key block`);
+  }
+
+  const km = await new Promise((resolve, reject) => {
+    kbpgp.KeyManager.import_from_armored_pgp({ armored: leafPublicArmor }, (err, loaded) => {
+      if (err) return reject(new Error(`[ceremony] import_from_armored_pgp failed: ${err.message}`));
+      resolve(loaded);
+    });
+  });
+
+  const fingerprint = (km.get_pgp_fingerprint_str() || '').toUpperCase();
+  out({ fingerprint });
+}
+
+// ---------------------------------------------------------------------------
+// Command: backfill-leaf-authorize
+// ---------------------------------------------------------------------------
+//
+// Backfill path: device leaf exists on disk but has no koad.identity.leaf-authorize
+// entry in the sigchain. Derives master from mnemonic, reads the existing leaf public
+// key from disk, and signs a leaf-authorize entry for it.
+//
+// Does NOT generate a new leaf or device key — reuses whatever is on disk.
+//
+// Required args:
+//   --mnemonic          "word1 word2 ... word24"
+//   --userid            "handle @ domain"
+//   --leaf-public-armor-file  /absolute/path/to/leaf.public.asc
+// Optional:
+//   --sigchain-head     existing chain tip CID (chains the new entry from here)
+//   --entity-handle     entity handle (default: first word of userid)
+
+async function cmdBackfillLeafAuthorize(args) {
+  const mnemonic = args.mnemonic;
+  const userid = args.userid;
+  const entityHandle = args['entity-handle'] || (userid ? userid.split(' ')[0] : null);
+  const sigchainHead = args['sigchain-head'] || null;
+  const leafPublicArmorFile = args['leaf-public-armor-file'];
+
+  if (!mnemonic) die('--mnemonic is required for backfill-leaf-authorize');
+  if (!userid) die('--userid is required for backfill-leaf-authorize');
+  if (!leafPublicArmorFile) die('--leaf-public-armor-file is required for backfill-leaf-authorize');
+
+  if (!isValidMnemonic(mnemonic)) {
+    die('provided mnemonic is not a valid BIP39 mnemonic');
+  }
+
+  // 1. Read the existing leaf public armor from disk
+  let leafPublicArmor;
+  try {
+    leafPublicArmor = fs.readFileSync(leafPublicArmorFile, 'utf8');
+  } catch (err) {
+    die(`could not read leaf public armor from ${leafPublicArmorFile}: ${err.message}`);
+  }
+  if (!leafPublicArmor || !leafPublicArmor.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
+    die(`file ${leafPublicArmorFile} does not appear to be a PGP public key block`);
+  }
+
+  // 2. Import the leaf public key and extract its fingerprint
+  const leafKM = await new Promise((resolve, reject) => {
+    kbpgp.KeyManager.import_from_armored_pgp({ armored: leafPublicArmor }, (err, km) => {
+      if (err) return reject(new Error(`[ceremony] import_from_armored_pgp failed: ${err.message}`));
+      resolve(km);
+    });
+  });
+
+  const leafFingerprint = (leafKM.get_pgp_fingerprint_str() || '').toUpperCase();
+  if (!leafFingerprint) die('could not extract fingerprint from leaf public key');
+
+  // 3. Derive master key from mnemonic (deterministic)
+  const seed = mnemonicToSeed(mnemonic);
+  const masterKM = await buildMasterKeyManager(seed, userid);
+  const { fingerprint: masterFingerprint, publicKey: masterPublicArmor } = await extractKMInfo(masterKM);
+
+  // 4. Sign koad.identity.leaf-authorize while master is in memory
+  const masterIdentity = {
+    sign: async (payload, _opts = {}) => clearsign(payload, masterKM),
+  };
+
+  const now = new Date().toISOString();
+
+  const leafAuthPayload = buildLeafAuthorize({
+    leaf_fingerprint: leafFingerprint,
+    leaf_pubkey_armored: leafPublicArmor,
+    authorized_by_fingerprint: masterFingerprint,
+    authorized_at: now,
+  });
+  const leafAuthUnsigned = wrapEntry({
+    entity: entityHandle,
+    timestamp: now,
+    type: leafAuthPayload.type,
+    payload: leafAuthPayload.payload,
+    previous: sigchainHead || null,
+  });
+  const { entry: leafAuthorizeEntry, cid: leafAuthorizeCid } = await signEntry(leafAuthUnsigned, masterIdentity, { useMaster: true });
+
+  out({
+    masterFingerprint,
+    masterPublicArmor,
+    leafFingerprint,
+    leafPublicArmor,
+    // Signed identity sigchain entry for the existing leaf (no new leaf generated)
+    leafAuthorizeEntry,
+    leafAuthorizeCid,
+    newHeadCid: leafAuthorizeCid,
+    sigchainHead,  // echo back for bash-side chain-linkage verification
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
@@ -336,6 +483,12 @@ switch (command) {
   case 'recover':
     await cmdRecover(args);
     break;
+  case 'get-leaf-fingerprint':
+    await cmdGetLeafFingerprint(args);
+    break;
+  case 'backfill-leaf-authorize':
+    await cmdBackfillLeafAuthorize(args);
+    break;
   default:
-    die(`unknown command: ${command || '(none)'}. Valid commands: generate, validate, recover`);
+    die(`unknown command: ${command || '(none)'}. Valid commands: generate, validate, recover, get-leaf-fingerprint, backfill-leaf-authorize`);
 }
