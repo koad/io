@@ -39,6 +39,10 @@
     "./identity-writer": {
       "import": "./identity-writer.js",
       "require": "./identity-writer.cjs"
+    },
+    "./identity-receiver": {
+      "import": "./identity-receiver.js",
+      "require": "./identity-receiver.cjs"
     }
   },
   "main": "./index.cjs",
