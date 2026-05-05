@@ -84,6 +84,7 @@ if [ ! -f "$MASTER_FINGERPRINT_FILE" ]; then
 fi
 
 EXPECTED_MASTER_FPR=$(cat "$MASTER_FINGERPRINT_FILE")
+HOST=$(hostname -s)
 SOVEREIGN_LEAF_DIR="$SOVEREIGN_ID_DIR/devices/$HOST"
 SOVEREIGN_LEAF_PRIVATE="$SOVEREIGN_LEAF_DIR/leaf.private.asc"
 SOVEREIGN_DEVICE_KEY="$SOVEREIGN_LEAF_DIR/device.key"
@@ -103,7 +104,6 @@ fi
 # ---------------------------------------------------------------------------
 
 ENTITY_ID_DIR="$ENTITY_DIR/id"
-HOST=$(hostname -s)
 DEVICE_DIR="$ENTITY_ID_DIR/devices/$HOST"
 
 ENTITY_KEY_PRESENT=0
