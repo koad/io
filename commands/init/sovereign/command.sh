@@ -330,6 +330,16 @@ command -v node >/dev/null 2>&1 || die "node is required but not found — insta
 
 USERID="${SOVEREIGN_HANDLE} @ ${SOVEREIGN_DOMAIN}"
 
+# Pre-read sovereign sigchain head — ceremony needs it to chain new entries
+SOVEREIGN_SIGCHAIN_DIR="$SOVEREIGN_DIR/sigchain"
+SOVEREIGN_SIGCHAIN_HEAD_FILE="$SOVEREIGN_SIGCHAIN_DIR/head.cid"
+SOVEREIGN_SIGCHAIN_META_FILE="$SOVEREIGN_SIGCHAIN_DIR/metadata.json"
+SOVEREIGN_SIGCHAIN_ENTRIES_DIR="$SOVEREIGN_SIGCHAIN_DIR/entries"
+CURRENT_SIGCHAIN_HEAD=""
+if [ -f "$SOVEREIGN_SIGCHAIN_HEAD_FILE" ]; then
+    CURRENT_SIGCHAIN_HEAD=$(cat "$SOVEREIGN_SIGCHAIN_HEAD_FILE" | tr -d '[:space:]')
+fi
+
 # Run ceremony if any key artifact is missing (or --forceful)
 if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$DEVICE_DIR/leaf.private.asc" ] || [ "$FORCEFUL" -eq 1 ]; then
 
@@ -372,7 +382,9 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$DEVICE_DIR/leaf.private.asc" ] 
         say "  Validating recovery phrase and deriving master key..."
         CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" recover \
             --mnemonic "$MNEMONIC_INPUT" \
-            --userid "$USERID") || die "Recovery failed — mnemonic may be invalid or ceremony script errored"
+            --userid "$USERID" \
+            --entity-handle "$SOVEREIGN_HANDLE" \
+            --sigchain-head "$CURRENT_SIGCHAIN_HEAD") || die "Recovery failed — mnemonic may be invalid or ceremony script errored"
 
         # Clear raw input — ceremony has it now; we'll pull from JSON
         MNEMONIC_INPUT=""
@@ -395,7 +407,9 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$DEVICE_DIR/leaf.private.asc" ] 
     else
 
         # Fresh generate path
-        CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" generate --userid "$USERID") || die "Ceremony script failed"
+        CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" generate \
+            --userid "$USERID" \
+            --entity-handle "$SOVEREIGN_HANDLE") || die "Ceremony script failed"
 
     fi
 
@@ -542,6 +556,94 @@ if [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "$DEVICE_DIR/leaf.private.asc" ] 
     say "device: $HOSTNAME"
 
     # ---------------------------------------------------------------------------
+    # Step 4b — File identity sigchain entries (VESTA-SPEC-111 §5.8 / SPEC-149 §6 step 2)
+    # The ceremony signed these entries while the master was in memory.
+    # Write them now — before the unset block destroys CEREMONY_JSON.
+    #
+    # generate path: genesisEntry + leafAuthorizeEntry (two new entries)
+    # recover path:  leafAuthorizeEntry only (genesis already exists in chain)
+    #
+    # Idempotent: skip if an entry with this leaf fingerprint already exists for
+    # the current device. CID-keyed files prevent duplicates by content.
+    # ---------------------------------------------------------------------------
+
+    LEAF_AUTHORIZE_CID=$(echo "$CEREMONY_JSON" | jq -r '.leafAuthorizeCid // empty')
+    NEW_HEAD_CID=$(echo "$CEREMONY_JSON" | jq -r '.newHeadCid // empty')
+
+    if [ -n "$LEAF_AUTHORIZE_CID" ] && [ "$LEAF_AUTHORIZE_CID" != "null" ]; then
+        mkdir -p "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR"
+
+        # Idempotent check — skip if leaf-authorize entry for this device already present
+        # (checks for leaf fingerprint in any existing entry file)
+        LEAF_FPR_NOW=$(echo "$CEREMONY_JSON" | jq -r '.leafFingerprint // empty')
+        ALREADY_FILED=""
+        if [ -n "$LEAF_FPR_NOW" ] && [ -d "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" ]; then
+            ALREADY_FILED=$(grep -rl "$LEAF_FPR_NOW" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1)
+        fi
+
+        if [ -n "$ALREADY_FILED" ]; then
+            say "sigchain — koad.identity.leaf-authorize already present for this device leaf, skipping"
+        else
+            say ""
+            say "sigchain — filing identity entries..."
+
+            # Write genesis entry (generate path only)
+            GENESIS_CID=$(echo "$CEREMONY_JSON" | jq -r '.genesisCid // empty')
+            if [ -n "$GENESIS_CID" ] && [ "$GENESIS_CID" != "null" ]; then
+                # Idempotent check — only one genesis ever per kingdom
+                GENESIS_ALREADY=$(find "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" -name "*.json" -exec \
+                    grep -l '"koad.identity.genesis"' {} \; 2>/dev/null | head -1)
+                if [ -n "$GENESIS_ALREADY" ]; then
+                    say "sigchain — koad.identity.genesis already present, skipping"
+                else
+                    echo "$CEREMONY_JSON" | jq '.genesisEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$GENESIS_CID.json"
+                    say "sigchain — koad.identity.genesis filed (CID: ${GENESIS_CID:0:20}...)"
+                fi
+            fi
+
+            # Write leaf-authorize entry
+            echo "$CEREMONY_JSON" | jq '.leafAuthorizeEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$LEAF_AUTHORIZE_CID.json"
+            say "sigchain — koad.identity.leaf-authorize filed for $HOSTNAME (CID: ${LEAF_AUTHORIZE_CID:0:20}...)"
+
+            # Update head pointer
+            printf '%s' "$NEW_HEAD_CID" > "$SOVEREIGN_SIGCHAIN_HEAD_FILE"
+            say "sigchain — head.cid updated to ${NEW_HEAD_CID:0:20}..."
+
+            # Update or create metadata.json
+            NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            if [ -f "$SOVEREIGN_SIGCHAIN_META_FILE" ]; then
+                EXISTING_META=$(cat "$SOVEREIGN_SIGCHAIN_META_FILE")
+                echo "$EXISTING_META" | jq \
+                    --arg cid "$NEW_HEAD_CID" \
+                    --arg updated "$NOW_ISO" \
+                    '.sigchainHeadCID = $cid | .sigchainHeadUpdated = $updated' \
+                    > "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" \
+                    && mv "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" "$SOVEREIGN_SIGCHAIN_META_FILE"
+            else
+                MASTER_FPR_FOR_META=$(echo "$CEREMONY_JSON" | jq -r '.masterFingerprint // empty')
+                jq -n \
+                    --arg handle "$SOVEREIGN_HANDLE" \
+                    --arg fpr "$MASTER_FPR_FOR_META" \
+                    --arg cid "$NEW_HEAD_CID" \
+                    --arg created "$NOW_ISO" \
+                    --arg updated "$NOW_ISO" \
+                    '{
+                        handle: $handle,
+                        masterFingerprint: $fpr,
+                        sigchainHeadCID: $cid,
+                        status: "active",
+                        created: $created,
+                        sigchainHeadUpdated: $updated
+                    }' > "$SOVEREIGN_SIGCHAIN_META_FILE"
+            fi
+            say "sigchain — metadata.json updated"
+        fi
+    else
+        say "sigchain — WARNING: ceremony returned no leafAuthorizeCid — entries not filed"
+        say "         Re-run 'koad-io init sovereign' or check ceremony output"
+    fi
+
+    # ---------------------------------------------------------------------------
     # Step 5 — Zero sensitive vars from shell memory
     # SOVEREIGN_LABEL is NOT unset — it's a non-sensitive reference, needed below
     # ---------------------------------------------------------------------------
@@ -602,6 +704,9 @@ git -C "$SOVEREIGN_DIR" add \
 [ -f "$ID_DIR/master.fingerprint" ]         && git -C "$SOVEREIGN_DIR" add "$ID_DIR/master.fingerprint" 2>/dev/null || true
 [ -f "$ID_DIR/label" ]                      && git -C "$SOVEREIGN_DIR" add "$ID_DIR/label" 2>/dev/null || true
 [ -f "$DEVICE_DIR/leaf.public.asc" ]        && git -C "$SOVEREIGN_DIR" add "$DEVICE_DIR/leaf.public.asc" 2>/dev/null || true
+[ -d "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" ]    && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null || true
+[ -f "$SOVEREIGN_SIGCHAIN_HEAD_FILE" ]      && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_SIGCHAIN_HEAD_FILE" 2>/dev/null || true
+[ -f "$SOVEREIGN_SIGCHAIN_META_FILE" ]      && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_SIGCHAIN_META_FILE" 2>/dev/null || true
 
 if ! git -C "$SOVEREIGN_DIR" diff --cached --quiet 2>/dev/null; then
     git -C "$SOVEREIGN_DIR" commit -m "kingdom genesis — $HOSTNAME device leaf registered" 2>/dev/null
