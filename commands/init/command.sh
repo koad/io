@@ -433,7 +433,7 @@ if [ "$ACTION" = "all-set" ]; then
             jq -r '.fingerprint // empty' 2>/dev/null || true)
 
         if [ -n "$EXISTING_LEAF_FPR" ]; then
-            LEAF_AUTHORIZED=$(grep -rl "$EXISTING_LEAF_FPR" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1)
+            LEAF_AUTHORIZED=$(grep -rl "$EXISTING_LEAF_FPR" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1 || true)
             if [ -z "$LEAF_AUTHORIZED" ]; then
                 warn "No koad.entity.leaf-authorize entry for this device's entity leaf in sovereign sigchain."
                 warn "Run with --forceful to re-sign, or file this gap with Vesta."

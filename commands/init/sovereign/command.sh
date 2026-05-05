@@ -379,7 +379,7 @@ if [ -f "$DEVICE_DIR/leaf.private.asc" ] && [ -f "$DEVICE_DIR/leaf.public.asc" ]
         # Check if any sigchain entry references this leaf fingerprint
         SIGCHAIN_HAS_LEAF=""
         if [ -d "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" ]; then
-            SIGCHAIN_HAS_LEAF=$(grep -rl "$EXISTING_LEAF_FPR" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1)
+            SIGCHAIN_HAS_LEAF=$(grep -rl "$EXISTING_LEAF_FPR" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1 || true)
         fi
 
         if [ -n "$SIGCHAIN_HAS_LEAF" ]; then
@@ -445,7 +445,7 @@ if [ -f "$DEVICE_DIR/leaf.private.asc" ] && [ -f "$DEVICE_DIR/leaf.public.asc" ]
             fi
 
             # Idempotency guard: check again (race condition / partial crash recovery)
-            STILL_MISSING=$(grep -rl "$EXISTING_LEAF_FPR" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1)
+            STILL_MISSING=$(grep -rl "$EXISTING_LEAF_FPR" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1 || true)
             if [ -n "$STILL_MISSING" ]; then
                 say "sigchain — koad.identity.leaf-authorize already present (race/retry), skipping write"
             else
@@ -727,7 +727,7 @@ if [ "$BACKFILL_DONE" -eq 0 ] && { [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "
         LEAF_FPR_NOW=$(echo "$CEREMONY_JSON" | jq -r '.leafFingerprint // empty')
         ALREADY_FILED=""
         if [ -n "$LEAF_FPR_NOW" ] && [ -d "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" ]; then
-            ALREADY_FILED=$(grep -rl "$LEAF_FPR_NOW" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1)
+            ALREADY_FILED=$(grep -rl "$LEAF_FPR_NOW" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1 || true)
         fi
 
         if [ -n "$ALREADY_FILED" ]; then
@@ -741,7 +741,7 @@ if [ "$BACKFILL_DONE" -eq 0 ] && { [ ! -f "$ID_DIR/gpg.public.asc" ] || [ ! -f "
             if [ -n "$GENESIS_CID" ] && [ "$GENESIS_CID" != "null" ]; then
                 # Idempotent check — only one genesis ever per kingdom
                 GENESIS_ALREADY=$(find "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" -name "*.json" -exec \
-                    grep -l '"koad.identity.genesis"' {} \; 2>/dev/null | head -1)
+                    grep -l '"koad.identity.genesis"' {} \; 2>/dev/null | head -1 || true)
                 if [ -n "$GENESIS_ALREADY" ]; then
                     say "sigchain — koad.identity.genesis already present, skipping"
                 else
