@@ -44,8 +44,9 @@ die() { echo "[sovereign] ERROR: $*" >&2; exit 1; }
 skip() { say "$1 — already present, skipping"; }
 did()  { say "$1 — missing, $2"; }
 
-# Ensure a line of the form KEY=VALUE exists in an .env file.
+# Ensure a line of the form KEY="VALUE" exists in an .env file.
 # Appends if missing; does NOT overwrite existing values (user may have edited them).
+# Values are always double-quoted; embedded backslashes and double quotes are escaped.
 ensure_env_line() {
     local envfile="$1"
     local key="$2"
@@ -53,7 +54,9 @@ ensure_env_line() {
     if grep -q "^${key}=" "$envfile" 2>/dev/null; then
         return 0  # already present
     fi
-    echo "${key}=${value}" >> "$envfile"
+    local escaped
+    escaped=$(printf '%s' "$value" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+    echo "${key}=\"${escaped}\"" >> "$envfile"
 }
 
 # ---------------------------------------------------------------------------

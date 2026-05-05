@@ -42,12 +42,16 @@ _ask_write_env() {
 HEADER
     fi
 
+    # Escape embedded backslashes and double quotes, then wrap in double quotes
+    local escaped
+    escaped=$(printf '%s' "$value" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+
     if grep -q "^${varname}=" "$envfile" 2>/dev/null; then
         # Update in place — portable sed (works on GNU + BSD)
-        sed -i.bak "s|^${varname}=.*|${varname}=${value}|" "$envfile"
+        sed -i.bak "s|^${varname}=.*|${varname}=\"${escaped}\"|" "$envfile"
         rm -f "${envfile}.bak"
     else
-        echo "${varname}=${value}" >> "$envfile"
+        echo "${varname}=\"${escaped}\"" >> "$envfile"
     fi
 }
 
