@@ -15,11 +15,14 @@
 //   validate --positions "3,11,8" --mnemonic "word1 word2 ... word24"
 //
 //   recover  --mnemonic "word1 word2 ... word24" --userid "handle @ domain"
-//     Secondary-device adoption: derives master + fresh leaf + device key from mnemonic.
-//     Skips koad.identity.genesis (already filed at genesis).
-//     Signs a new koad.identity.leaf-authorize entry for this device's leaf.
-//     Outputs include: leafAuthorizeEntry, leafAuthorizeCid, newHeadCid.
-//     Caller must pass --sigchain-head <cid> if an existing chain is present.
+//     Recovery path — handles two scenarios:
+//     A. Secondary-device adoption (--sigchain-head non-empty): derives master +
+//        fresh leaf + device key. Signs leaf-authorize only (genesis already filed).
+//        Outputs include: leafAuthorizeEntry, leafAuthorizeCid, newHeadCid.
+//     B. Wipe-and-restore (--sigchain-head empty/absent): same as A, but also
+//        re-signs koad.identity.genesis (deterministic from master key) and chains
+//        leaf-authorize from it. Outputs also include: genesisEntry, genesisCid.
+//     Caller should pass --sigchain-head <cid> if an existing chain tip is known.
 //
 //   backfill-leaf-authorize --mnemonic "word1 ... word24" --userid "handle @ domain"
 //                           --leaf-public-armor-file <path>
@@ -288,18 +291,52 @@ async function cmdRecover(args) {
   const words = mnemonic.split(' ');
   const label = words[0] + ' ' + words[1];
 
-  // 5. Sign koad.identity.leaf-authorize while master is in memory (SPEC-149 §6 step 2).
-  //    On recovery / secondary-device adoption:
-  //    - koad.identity.genesis is already filed (skip it)
-  //    - sign ONLY koad.identity.leaf-authorize for this new device's leaf
-  //    - chain from sigchain-head if provided (existing tip), otherwise chain from null
-  //      (which is only valid if this device is being adopted before any chain exists,
-  //       but that case should normally go through generate, not recover)
+  // 5. Sign sigchain entries while master is in memory (SPEC-149 §6 step 2).
+  //
+  //    Two recovery scenarios:
+  //
+  //    A. Secondary-device adoption (sigchainHead is non-null):
+  //       Genesis is already filed in the chain. Sign ONLY leaf-authorize,
+  //       chaining from the existing tip.
+  //
+  //    B. Wipe-and-restore (sigchainHead is null — empty local sigchain):
+  //       Genesis was wiped along with id/. Re-file genesis (deterministic from
+  //       master key — same master → same canonical payload → same CID), then
+  //       chain leaf-authorize from it. Bash side detects genesisEntry in output
+  //       and files it with the same idempotency guard as the generate path.
   const masterIdentity = {
     sign: async (payload, _opts = {}) => clearsign(payload, masterKM),
   };
 
   const now = new Date().toISOString();
+
+  // Determine the previous pointer for leaf-authorize.
+  // If no existing chain tip, we must first sign genesis and chain from it.
+  let genesisEntry = undefined;
+  let genesisCid = undefined;
+  let leafAuthPrevious = sigchainHead || null;
+
+  if (!sigchainHead) {
+    // Scenario B: empty sigchain — re-file genesis before leaf-authorize
+    const genesisPayload = buildIdentityGenesis({
+      entity_handle: entityHandle,
+      master_fingerprint: masterFingerprint,
+      master_pubkey_armored: masterPublicArmor,
+      created: now,
+      description: `${entityHandle} sovereign identity`,
+    });
+    const genesisUnsigned = wrapEntry({
+      entity: entityHandle,
+      timestamp: now,
+      type: genesisPayload.type,
+      payload: genesisPayload.payload,
+      previous: null,  // genesis MUST have previous=null (SPEC-111 §5.8)
+    });
+    const signed = await signEntry(genesisUnsigned, masterIdentity, { useMaster: true });
+    genesisEntry = signed.entry;
+    genesisCid = signed.cid;
+    leafAuthPrevious = genesisCid;  // chain leaf-authorize from genesis
+  }
 
   const leafAuthPayload = buildLeafAuthorize({
     leaf_fingerprint: leafFingerprint,
@@ -313,7 +350,7 @@ async function cmdRecover(args) {
     timestamp: now,
     type: leafAuthPayload.type,
     payload: leafAuthPayload.payload,
-    previous: sigchainHead || null,  // chain from existing tip; null if no chain yet
+    previous: leafAuthPrevious,
   });
   const { entry: leafAuthorizeEntry, cid: leafAuthorizeCid } = await signEntry(leafAuthUnsigned, masterIdentity, { useMaster: true });
 
@@ -326,8 +363,9 @@ async function cmdRecover(args) {
     leafPublicArmor,
     leafPrivateArmor,
     deviceKey,          // at-rest passphrase for encrypting this device's leaf; not a keypair
-    // Signed identity sigchain entry for this device (SPEC-111 §5.8)
-    // Note: no genesisEntry/genesisCid on recover — genesis already exists in the chain
+    // Signed identity sigchain entries (SPEC-111 §5.8)
+    // genesisEntry/genesisCid present only on wipe-and-restore (sigchainHead was null)
+    ...(genesisCid ? { genesisEntry, genesisCid } : {}),
     leafAuthorizeEntry,
     leafAuthorizeCid,
     newHeadCid: leafAuthorizeCid,
