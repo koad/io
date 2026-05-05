@@ -10,16 +10,17 @@
 # Pre-conditions:
 #   - ~/.koad-io/me/ must exist (run 'koad-io init sovereign' first)
 #   - ~/.<name>/ must exist
-#   - Sovereign mnemonic required (for fingerprint verification)
+#   - Sovereign device leaf must exist at ~/.koad-io/me/id/devices/$HOSTNAME/
 #
 # What this does:
 #   1. Verifies sovereign and entity preconditions
-#   2. Asks for sovereign mnemonic; verifies against id/master.fingerprint
+#   2. Verifies sovereign device leaf is present and decryptable (no mnemonic needed)
 #   3. Generates fresh entity public keypair (entity.public.asc)
 #   4. Generates device leaf for this machine (devices/<host>/)
-#   5. Archives legacy key files to id/archive/pre-175-migration/
-#   6. Updates .gitignore with SPEC-175 rules
-#   7. Commits the migration in the entity's repo
+#   5. Signs sigchain entries using the sovereign's device leaf (not master)
+#   6. Archives legacy key files to id/archive/pre-175-migration/
+#   7. Updates .gitignore with SPEC-175 rules
+#   8. Commits the migration in the entity's repo
 #
 # Idempotent paths:
 #   - Already migrated (has entity.public.asc + leaf for this host): report + exit
@@ -27,6 +28,7 @@
 #   - --forceful: re-run even if already migrated (key rotation)
 #
 # Ref: VESTA-SPEC-175 §6.2 — migration steps; §6.3 — this command
+# Ref: VESTA-SPEC-149 — master/leaf split; master is paper-only after genesis
 
 set -euo pipefail
 
@@ -82,6 +84,9 @@ if [ ! -f "$MASTER_FINGERPRINT_FILE" ]; then
 fi
 
 EXPECTED_MASTER_FPR=$(cat "$MASTER_FINGERPRINT_FILE")
+SOVEREIGN_LEAF_DIR="$SOVEREIGN_ID_DIR/devices/$HOST"
+SOVEREIGN_LEAF_PRIVATE="$SOVEREIGN_LEAF_DIR/leaf.private.asc"
+SOVEREIGN_DEVICE_KEY="$SOVEREIGN_LEAF_DIR/device.key"
 
 # ---------------------------------------------------------------------------
 # Pre-flight check 2: entity dir must exist
@@ -176,9 +181,7 @@ fi
 
 say "  Sovereign: $SOVEREIGN_USERID"
 say "  Master fingerprint: $(cat "$MASTER_FINGERPRINT_FILE")"
-say ""
-say "The sovereign mnemonic is needed to verify you have authority to generate"
-say "new entity keys signed by this sovereign."
+say "  Device: $HOST"
 say ""
 
 # Check for tooling requirements
@@ -187,43 +190,59 @@ command -v node >/dev/null 2>&1 || die "node is required but not found — insta
 
 CEREMONY_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/ceremony.mjs"
 
-_cyan='\033[0;36m'
-_dim='\033[2m'
-_reset='\033[0m'
-_bold='\033[1m'
+# ---------------------------------------------------------------------------
+# Pre-flight check 5: sovereign device leaf must exist and be decryptable
+# ---------------------------------------------------------------------------
+# Per SPEC-149: master is paper-only after genesis. Entity gestation/migration
+# is a routine sovereign act signed by the sovereign's active device leaf.
 
-MNEMONIC_INPUT=""
-while [ -z "$MNEMONIC_INPUT" ]; do
-    printf "\n  ${_cyan}▸${_reset} Sovereign recovery phrase ${_dim}(input hidden)${_reset}\n    ${_bold}›${_reset} " >&2
-    read -rs MNEMONIC_INPUT </dev/tty
-    echo "" >&2
-    MNEMONIC_INPUT="$(echo "$MNEMONIC_INPUT" | tr -s ' ' | sed 's/^ //;s/ $//')"
-    if [ -z "$MNEMONIC_INPUT" ]; then
-        printf "  ${_dim}(required — please enter your recovery phrase)${_reset}\n" >&2
-    fi
-done
-
-say ""
-say "  Verifying mnemonic against master.fingerprint..."
-
-VERIFY_JSON=$(node "$CEREMONY_SCRIPT" verify-mnemonic \
-    --mnemonic "$MNEMONIC_INPUT" \
-    --userid "$SOVEREIGN_USERID" \
-    --expected-fingerprint "$EXPECTED_MASTER_FPR") || die "Mnemonic verification ceremony failed"
-
-# NOTE: MNEMONIC_INPUT is retained here — needed for sign-entity-entries below.
-# It is zeroed immediately after the sigchain signing step.
-
-VERIFY_VALID=$(echo "$VERIFY_JSON" | jq -r '.valid')
-if [ "$VERIFY_VALID" != "true" ]; then
-    # Scrub mnemonic before exit on failure
-    MNEMONIC_INPUT=""
-    unset MNEMONIC_INPUT
-    VERIFY_ERR=$(echo "$VERIFY_JSON" | jq -r '.error // "unknown error"')
-    die "Mnemonic verification failed: $VERIFY_ERR"
+if [ ! -f "$SOVEREIGN_LEAF_PRIVATE" ]; then
+    die "Sovereign device leaf not found at $SOVEREIGN_LEAF_PRIVATE. Run 'koad-io init sovereign' on this device first."
 fi
 
-say "  Mnemonic verified — sovereign authority confirmed."
+if [ ! -f "$SOVEREIGN_DEVICE_KEY" ]; then
+    die "Sovereign device key not found at $SOVEREIGN_DEVICE_KEY. This file must exist on the signing device."
+fi
+
+say "  Verifying sovereign device leaf..."
+
+LEAF_VERIFY_JSON=$(node "$CEREMONY_SCRIPT" verify-leaf \
+    --sovereign-leaf-encrypted-path "$SOVEREIGN_LEAF_PRIVATE" \
+    --sovereign-device-key-path "$SOVEREIGN_DEVICE_KEY") || die "Sovereign leaf verification failed"
+
+LEAF_VERIFY_VALID=$(echo "$LEAF_VERIFY_JSON" | jq -r '.valid')
+if [ "$LEAF_VERIFY_VALID" != "true" ]; then
+    LEAF_VERIFY_ERR=$(echo "$LEAF_VERIFY_JSON" | jq -r '.error // "unknown error"')
+    die "Sovereign device leaf could not be decrypted: $LEAF_VERIFY_ERR"
+fi
+
+SOVEREIGN_LEAF_FINGERPRINT=$(echo "$LEAF_VERIFY_JSON" | jq -r '.leafFingerprint')
+say "  Leaf verified — fingerprint: ${SOVEREIGN_LEAF_FINGERPRINT: -16}"
+
+# ---------------------------------------------------------------------------
+# Pre-flight check 6: verify sovereign leaf is authorized in sovereign sigchain
+# ---------------------------------------------------------------------------
+# If no sigchain exists yet, warn but allow — sovereign sigchain may not have been
+# initialized yet (that's a separate gap to file).
+
+SOVEREIGN_SIGCHAIN_ENTRIES_DIR="$SOVEREIGN_DIR/sigchain/entries"
+
+if [ ! -d "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" ]; then
+    warn "Sovereign sigchain has no entries yet. The device leaf authority cannot be verified via chain."
+    warn "This is acceptable for the first migration if the sovereign sigchain is not yet initialized."
+    warn "File a gap: 'koad-io init sovereign' should record a koad.identity.leaf-authorize entry for this leaf."
+else
+    # Check for a leaf-authorize entry referencing this leaf fingerprint
+    LEAF_AUTHORIZED=$(grep -rl "$SOVEREIGN_LEAF_FINGERPRINT" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1)
+    if [ -z "$LEAF_AUTHORIZED" ]; then
+        warn "No koad.identity.leaf-authorize entry found for this device leaf in the sovereign sigchain."
+        warn "Leaf fingerprint: $SOVEREIGN_LEAF_FINGERPRINT"
+        warn "Authority assumed for this migration. File a gap: sovereign init should record leaf-authorize entries."
+    else
+        say "  Leaf found in sovereign sigchain: authorized."
+    fi
+fi
+
 say ""
 
 # ---------------------------------------------------------------------------
@@ -298,7 +317,7 @@ say "  generated: id/devices/$HOST/leaf.public.asc (fingerprint: ${LEAF_FINGERPR
 say "  generated: id/devices/$HOST/leaf.private.asc (encrypted — passphrase is device.key)"
 say "  generated: id/devices/$HOST/device.key (gitignored — machine-local, never commit)"
 
-# Zero sensitive vars (keep MNEMONIC_INPUT — needed for sigchain signing below)
+# Zero sensitive vars
 unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR
 
 say ""
@@ -309,12 +328,13 @@ say ""
 # Per VESTA-SPEC-175 §4 + SPEC-111 §3.2b:
 #   - koad.entity.genesis: sovereign authorizes entity into existence
 #   - koad.entity.leaf-authorize: sovereign authorizes this device's entity leaf
-# Both entries are signed by sovereign master and recorded in the sovereign's sigchain.
+# Both entries are signed by the sovereign's active device leaf (SPEC-149: master is
+# paper-only after genesis; routine sovereign acts use the device leaf).
 
 SOVEREIGN_SIGCHAIN_DIR="$SOVEREIGN_DIR/sigchain"
-SOVEREIGN_SIGCHAIN_ENTRIES_DIR="$SOVEREIGN_SIGCHAIN_DIR/entries"
 SOVEREIGN_SIGCHAIN_HEAD_FILE="$SOVEREIGN_SIGCHAIN_DIR/head.cid"
 SOVEREIGN_SIGCHAIN_META_FILE="$SOVEREIGN_SIGCHAIN_DIR/metadata.json"
+# Note: SOVEREIGN_SIGCHAIN_ENTRIES_DIR is already set in pre-flight check 6
 
 # Read current head CID (empty if sovereign has no sigchain yet)
 CURRENT_HEAD=""
@@ -322,8 +342,9 @@ if [ -f "$SOVEREIGN_SIGCHAIN_HEAD_FILE" ]; then
     CURRENT_HEAD=$(cat "$SOVEREIGN_SIGCHAIN_HEAD_FILE" | tr -d '[:space:]')
 fi
 
-say "Signing sigchain entries in sovereign's chain..."
+say "Signing sigchain entries in sovereign's chain (using device leaf)..."
 say "  Current sovereign chain head: ${CURRENT_HEAD:-'(none — first entity entry)'}"
+say "  Signing leaf: ${SOVEREIGN_LEAF_FINGERPRINT: -16}"
 
 # Read entity public armor from the file we just wrote
 ENTITY_PUBLIC_ARMOR_FILE="$ENTITY_ID_DIR/entity.public.asc"
@@ -355,9 +376,9 @@ if [ "$GENERATE_ENTITY_KEY" -eq 0 ]; then
 fi
 
 ENTITY_SIGNING_JSON=$(node "$CEREMONY_SCRIPT" sign-entity-entries \
-    --mnemonic "$MNEMONIC_INPUT" \
-    --userid "$SOVEREIGN_USERID" \
-    --master-fingerprint "$EXPECTED_MASTER_FPR" \
+    --sovereign-leaf-encrypted-path "$SOVEREIGN_LEAF_PRIVATE" \
+    --sovereign-device-key-path "$SOVEREIGN_DEVICE_KEY" \
+    --sovereign-leaf-fingerprint "$SOVEREIGN_LEAF_FINGERPRINT" \
     --entity-handle "$ENTITY_NAME" \
     --entity-fingerprint "$ENTITY_FINGERPRINT" \
     --entity-public-armor "$(cat "$ENTITY_ARMOR_TMPFILE")" \
@@ -365,13 +386,9 @@ ENTITY_SIGNING_JSON=$(node "$CEREMONY_SCRIPT" sign-entity-entries \
     --host "$HOST" \
     --sigchain-head "$CURRENT_HEAD" \
     "${SIGN_ENTITY_EXTRA_ARGS[@]}") \
-    || { rm -f "$ENTITY_ARMOR_TMPFILE"; MNEMONIC_INPUT=""; unset MNEMONIC_INPUT; die "Sigchain signing ceremony failed"; }
+    || { rm -f "$ENTITY_ARMOR_TMPFILE"; die "Sigchain signing ceremony failed"; }
 
 rm -f "$ENTITY_ARMOR_TMPFILE"
-
-# Now scrub mnemonic — no longer needed
-MNEMONIC_INPUT=""
-unset MNEMONIC_INPUT
 
 # Extract results
 GENESIS_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.genesisCid')
@@ -440,7 +457,6 @@ say "  updated:  me/sigchain/head.cid → ${NEW_HEAD_CID:0:20}..."
 
 # Unset sensitive JSON
 unset ENTITY_SIGNING_JSON
-unset ENTITY_PUBLIC_ARMOR LEAF_PUBLIC_ARMOR
 
 say ""
 

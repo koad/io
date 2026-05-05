@@ -12,33 +12,35 @@
 //     Outputs: entityPublicArmor, entityFingerprint, leafPublicArmor, leafPrivateArmor,
 //              leafFingerprint, deviceKey
 //
-//   verify-mnemonic --mnemonic "word1 ... word24" --userid "handle @ domain" --expected-fingerprint "<fpr>"
-//     Recovers master from mnemonic, verifies fingerprint matches.
-//     Outputs: { valid: true, masterFingerprint } or { valid: false, error: "..." }
+//   verify-leaf --sovereign-leaf-encrypted-path <path> --sovereign-device-key-path <path>
+//     Decrypts the sovereign's device leaf and verifies it is readable.
+//     Outputs: { valid: true, leafFingerprint } or { valid: false, error: "..." }
 //
 //   sign-entity-entries
 //     Signs koad.entity.genesis + koad.entity.leaf-authorize entries per SPEC-175 §4.
-//     Uses sovereign master (from mnemonic) to sign both entries.
-//     Reads existing sovereign sigchain head from disk to chain entries correctly.
+//     Uses sovereign's active device leaf (SPEC-149: master is paper-only after genesis).
 //     Outputs: { genesisEntry, genesisCid, leafEntry, leafCid, newHeadCid }
 //     Required args:
-//       --mnemonic "<24 words>"           sovereign recovery phrase
-//       --userid "<handle> @ <domain>"    sovereign userid (for master reconstruction)
-//       --master-fingerprint "<40hex>"    sovereign master fingerprint (for verification)
-//       --entity-handle "<name>"          entity being migrated
-//       --entity-fingerprint "<40hex>"    fingerprint of entity.public.asc
-//       --entity-public-armor "<armor>"   armored entity public key
-//       --leaf-fingerprint "<40hex>"      fingerprint of devices/<host>/leaf.public.asc
-//       --host "<hostname>"               machine hostname
-//       --sigchain-head "<cid>"|""        current sovereign sigchain head CID (empty if none)
+//       --sovereign-leaf-encrypted-path <path>   path to leaf.private.asc
+//       --sovereign-device-key-path <path>       path to device.key (passphrase file)
+//       --sovereign-leaf-fingerprint "<40hex>"   sovereign device leaf fingerprint
+//       --entity-handle "<name>"                 entity being migrated
+//       --entity-fingerprint "<40hex>"           fingerprint of entity.public.asc
+//       --entity-public-armor "<armor>"          armored entity public key
+//       --leaf-fingerprint "<40hex>"             fingerprint of devices/<host>/leaf.public.asc
+//       --host "<hostname>"                      machine hostname
+//       --sigchain-head "<cid>"|""               current sovereign sigchain head CID (empty if none)
+//       --skip-genesis                           secondary device adoption (only sign leaf-authorize)
 //
 // Ref: VESTA-SPEC-175 §6.2 — entity migration steps 2–4
 // Ref: VESTA-SPEC-175 §4 — sigchain entry types koad.entity.genesis + koad.entity.leaf-authorize
+// Ref: VESTA-SPEC-149 — master/leaf split; sovereign device leaf signs routine acts
 // Ref: VESTA-SPEC-111 §3.2b — PGP via kbpgp signing envelope
 
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,11 +52,9 @@ const SIGCHAIN_PATH = path.join(KOAD_IO_ROOT, 'modules', 'node', 'sigchain.js');
 const {
   buildLeafKeyManager,
   encryptLeafForStorage,
+  decryptLeafFromStorage,
   extractKMInfo,
   generateDeviceKey,
-  mnemonicToSeed,
-  buildMasterKeyManager,
-  isValidMnemonic,
 } = await import(CEREMONY_PATH);
 
 const {
@@ -136,39 +136,40 @@ async function cmdGenerateEntity(args) {
 }
 
 // ---------------------------------------------------------------------------
-// Command: verify-mnemonic
+// Command: verify-leaf
 // ---------------------------------------------------------------------------
-// Recovers sovereign master from mnemonic, verifies against expected fingerprint.
-// Used by command.sh to confirm the operator entered the correct mnemonic
-// before proceeding with the migration.
+// Decrypts the sovereign's device leaf and verifies it is readable.
+// Used by command.sh to confirm the device leaf is present and accessible
+// before proceeding with the migration. No mnemonic required.
 
-async function cmdVerifyMnemonic(args) {
-  const mnemonic = args.mnemonic;
-  const userid = args.userid;
-  const expectedFingerprint = args['expected-fingerprint'];
+async function cmdVerifyLeaf(args) {
+  const leafPath = args['sovereign-leaf-encrypted-path'];
+  const deviceKeyPath = args['sovereign-device-key-path'];
 
-  if (!mnemonic) die('--mnemonic is required for verify-mnemonic');
-  if (!userid) die('--userid is required for verify-mnemonic');
-  if (!expectedFingerprint) die('--expected-fingerprint is required for verify-mnemonic');
+  if (!leafPath) die('--sovereign-leaf-encrypted-path is required for verify-leaf');
+  if (!deviceKeyPath) die('--sovereign-device-key-path is required for verify-leaf');
 
-  if (!isValidMnemonic(mnemonic)) {
-    out({ valid: false, error: 'not a valid BIP39 mnemonic' });
+  let armoredEncrypted, passphrase;
+  try {
+    armoredEncrypted = readFileSync(leafPath, 'utf8');
+  } catch (err) {
+    out({ valid: false, error: `cannot read leaf file: ${err.message}` });
     return;
   }
 
-  const seed = mnemonicToSeed(mnemonic);
-  const masterKM = await buildMasterKeyManager(seed, userid);
-  const { fingerprint: masterFingerprint } = await extractKMInfo(masterKM);
+  try {
+    passphrase = readFileSync(deviceKeyPath, 'utf8').trim();
+  } catch (err) {
+    out({ valid: false, error: `cannot read device key file: ${err.message}` });
+    return;
+  }
 
-  if (masterFingerprint === expectedFingerprint) {
-    out({ valid: true, masterFingerprint });
-  } else {
-    out({
-      valid: false,
-      error: `fingerprint mismatch — derived ${masterFingerprint}, expected ${expectedFingerprint}`,
-      derivedFingerprint: masterFingerprint,
-      expectedFingerprint,
-    });
+  try {
+    const km = await decryptLeafFromStorage(armoredEncrypted, passphrase);
+    const { fingerprint: leafFingerprint } = await extractKMInfo(km);
+    out({ valid: true, leafFingerprint });
+  } catch (err) {
+    out({ valid: false, error: err.message });
   }
 }
 
@@ -176,23 +177,23 @@ async function cmdVerifyMnemonic(args) {
 // Command: sign-entity-entries
 // ---------------------------------------------------------------------------
 // Builds and signs koad.entity.genesis + koad.entity.leaf-authorize sigchain entries
-// per VESTA-SPEC-175 §4. Signed by sovereign master (from mnemonic).
+// per VESTA-SPEC-175 §4. Signed by the sovereign's active device leaf.
+//
+// Per SPEC-149: the master key is paper-only after genesis. Entity gestation and
+// migration are routine sovereign acts, signed by the sovereign's device leaf.
+// The authorized_by field in each entry records the sovereign's leaf fingerprint
+// so verifiers can trace authority through the leaf-authorize entry that established it.
 //
 // The sovereign's sigchain entries are chained — previous CID links each entry
-// to its predecessor. If the sovereign has no existing sigchain (fresh init), the
-// genesis entry links to the provided --sigchain-head (which may be empty for
-// a fresh sovereign with no prior entries in its own identity chain).
+// to its predecessor.
 //
 // Entity entries are added to the SOVEREIGN's sigchain (not the entity's own chain).
 // Per SPEC-175 §4: "Sigchain location: The sovereign's sigchain."
-//
-// Signing: sovereign master key (§4.1 — genesis) and then sovereign device leaf
-// OR master (§4.2 — leaf-authorize). We use master for both since master is available.
 
 async function cmdSignEntityEntries(args) {
-  const mnemonic = args.mnemonic;
-  const userid = args.userid;
-  const masterFingerprint = args['master-fingerprint'];
+  const leafPath = args['sovereign-leaf-encrypted-path'];
+  const deviceKeyPath = args['sovereign-device-key-path'];
+  const sovereignLeafFingerprint = args['sovereign-leaf-fingerprint'];
   const entityHandle = args['entity-handle'];
   const entityFingerprint = args['entity-fingerprint'];
   // entity-public-armor comes through as multi-line; allow reading from env if too long for argv
@@ -203,38 +204,39 @@ async function cmdSignEntityEntries(args) {
   // --skip-genesis: secondary device adoption — entity already exists, only sign leaf-authorize
   const skipGenesis = args['skip-genesis'] === true || args['skip-genesis'] === 'true';
 
-  if (!mnemonic) die('--mnemonic is required for sign-entity-entries');
-  if (!userid) die('--userid is required for sign-entity-entries');
-  if (!masterFingerprint) die('--master-fingerprint is required for sign-entity-entries');
+  if (!leafPath) die('--sovereign-leaf-encrypted-path is required for sign-entity-entries');
+  if (!deviceKeyPath) die('--sovereign-device-key-path is required for sign-entity-entries');
+  if (!sovereignLeafFingerprint) die('--sovereign-leaf-fingerprint is required for sign-entity-entries');
   if (!entityHandle) die('--entity-handle is required for sign-entity-entries');
   if (!skipGenesis && !entityFingerprint) die('--entity-fingerprint is required for sign-entity-entries (use --skip-genesis for secondary device)');
   if (!leafFingerprint) die('--leaf-fingerprint is required for sign-entity-entries');
   if (!host) die('--host is required for sign-entity-entries');
 
-  if (!isValidMnemonic(mnemonic)) {
-    die('Mnemonic is not a valid BIP39 mnemonic');
+  // 1. Read and decrypt the sovereign's device leaf from disk
+  let armoredEncrypted, passphrase;
+  try {
+    armoredEncrypted = readFileSync(leafPath, 'utf8');
+  } catch (err) {
+    die(`Cannot read sovereign leaf file at ${leafPath}: ${err.message}`);
+  }
+  try {
+    passphrase = readFileSync(deviceKeyPath, 'utf8').trim();
+  } catch (err) {
+    die(`Cannot read device key file at ${deviceKeyPath}: ${err.message}`);
   }
 
-  // 1. Reconstruct sovereign master from mnemonic
-  const seed = mnemonicToSeed(mnemonic);
-  const masterKM = await buildMasterKeyManager(seed, userid);
-  const { fingerprint: derivedMasterFpr } = await extractKMInfo(masterKM);
-
-  if (derivedMasterFpr !== masterFingerprint) {
-    die(`Master fingerprint mismatch — derived ${derivedMasterFpr}, expected ${masterFingerprint}`);
-  }
+  const sovereignLeafKM = await decryptLeafFromStorage(armoredEncrypted, passphrase);
 
   // 2. Build a minimal identity-like object that signEntry() can call .sign() on.
-  //    signEntry() calls identity.sign(preImageStr, { useMaster }) which we must implement.
-  //    Since we have the master KM directly, we wire it here.
+  //    Uses the sovereign's device leaf KM for all signing (SPEC-149: leaf signs routine acts).
   const { clearsign } = await import(path.join(KOAD_IO_ROOT, 'modules', 'node', 'pgp.js'));
 
   const sovereignIdentity = {
-    sign: async (payload, { useMaster = false } = {}) => {
-      // For entity entries, signing with master is authoritative (SPEC-175 §4.1/§4.2)
-      // We use master for both genesis and leaf-authorize entries since master is
-      // loaded during migration (the operator just entered the mnemonic).
-      return clearsign(payload, masterKM);
+    sign: async (payload, _opts = {}) => {
+      // Per SPEC-149: sovereign device leaf signs routine sovereign acts.
+      // The authorized_by field in each entry records sovereignLeafFingerprint
+      // so verifiers can trace authority through the sigchain.
+      return clearsign(payload, sovereignLeafKM);
     },
   };
 
@@ -246,11 +248,12 @@ async function cmdSignEntityEntries(args) {
 
   if (!skipGenesis) {
     // 3a. Build koad.entity.genesis entry
+    //     sovereign_key_fingerprint = sovereign leaf fingerprint (the actual signer)
     //     previous = sigchainHead (current sovereign chain tip, or null if sovereign has no chain)
     const genesisPayload = buildEntityGenesis({
       entity_handle: entityHandle,
       entity_key_fingerprint: entityFingerprint,
-      sovereign_key_fingerprint: masterFingerprint,
+      sovereign_key_fingerprint: sovereignLeafFingerprint,
       gestated_at: now,
       gestation_host: host,
     });
@@ -263,20 +266,21 @@ async function cmdSignEntityEntries(args) {
       previous: sigchainHead || null,
     });
 
-    const signed = await signEntry(genesisUnsigned, sovereignIdentity, { useMaster: true });
+    const signed = await signEntry(genesisUnsigned, sovereignIdentity);
     genesisEntry = signed.entry;
     genesisCid = signed.cid;
     previousForLeaf = genesisCid;
   }
 
   // 3b. Build koad.entity.leaf-authorize entry
+  //     authorized_by = sovereign leaf fingerprint (the actual signer)
   //     previous = genesisCid (if genesis was signed) or sigchainHead (secondary device)
   const leafPayload = buildEntityLeafAuthorize({
     entity_handle: entityHandle,
     leaf_fingerprint: leafFingerprint,
     host,
     authorized_at: now,
-    authorized_by: masterFingerprint,
+    authorized_by: sovereignLeafFingerprint,
   });
 
   const leafUnsigned = wrapEntry({
@@ -287,7 +291,7 @@ async function cmdSignEntityEntries(args) {
     previous: previousForLeaf,
   });
 
-  const { entry: leafEntry, cid: leafCid } = await signEntry(leafUnsigned, sovereignIdentity, { useMaster: true });
+  const { entry: leafEntry, cid: leafCid } = await signEntry(leafUnsigned, sovereignIdentity);
 
   // 4. Output signed entries as JSON for command.sh to write to disk
   out({
@@ -312,12 +316,12 @@ switch (command) {
   case 'generate-entity':
     await cmdGenerateEntity(args);
     break;
-  case 'verify-mnemonic':
-    await cmdVerifyMnemonic(args);
+  case 'verify-leaf':
+    await cmdVerifyLeaf(args);
     break;
   case 'sign-entity-entries':
     await cmdSignEntityEntries(args);
     break;
   default:
-    die(`unknown command: ${command || '(none)'}. Valid commands: generate-entity, verify-mnemonic, sign-entity-entries`);
+    die(`unknown command: ${command || '(none)'}. Valid commands: generate-entity, verify-leaf, sign-entity-entries`);
 }
