@@ -36,7 +36,8 @@ function buildLeafSet() {
   let skippedCount = 0;
 
   for (const entity of entities) {
-    const tip = entity.sigchainTip || entity.chainTip || entity.tip_cid || null;
+    // Prefer per-entity genesis CID (unique leaf); fall back to shared chain head
+    const tip = entity.genesisCid || entity.sigchainTip || entity.chainTip || entity.tip_cid || null;
     const seq = entity.sigchainSeq || entity.chainSeq || 0;
     const hasRealTip = !!(tip && tip.startsWith('bagu'));
     allEntities.push({ handle: entity.handle, tip: tip || 'pending', seq, hasRealTip });

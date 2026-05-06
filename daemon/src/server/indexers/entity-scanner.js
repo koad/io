@@ -90,6 +90,71 @@ function extractIdentitySections(content) {
   return out.join('\n').trim();
 }
 
+// Read entity fingerprint from id/entity.fingerprint (40-hex, one line)
+function readEntityFingerprint(entityPath) {
+  try {
+    const fp = fs.readFileSync(path.join(entityPath, 'id', 'entity.fingerprint'), 'utf8').trim();
+    if (/^[0-9A-Fa-f]{40}$/.test(fp)) return fp.toUpperCase();
+  } catch (e) {}
+  return null;
+}
+
+// Check if entity has a PGP public key (id/entity.public.asc)
+function hasPublicKey(entityPath) {
+  try {
+    return fs.statSync(path.join(entityPath, 'id', 'entity.public.asc')).isFile();
+  } catch (e) {
+    return false;
+  }
+}
+
+// Read operator sigchain index — builds handle → { genesisCid, leafCid, fingerprint } map.
+// Cached; rebuilt when metadata.json mtime changes.
+let _sigchainIndex = null;
+let _sigchainMtime = 0;
+
+function readOperatorSigchain() {
+  const sigchainDir = path.join(homePath, '.koad-io', 'me', 'sigchain');
+  const metaPath = path.join(sigchainDir, 'metadata.json');
+
+  let mtime = 0;
+  try { mtime = fs.statSync(metaPath).mtimeMs; } catch (e) { return _sigchainIndex || {}; }
+  if (_sigchainIndex && mtime === _sigchainMtime) return _sigchainIndex;
+
+  const index = {};
+  const entriesDir = path.join(sigchainDir, 'entries');
+  try {
+    const files = fs.readdirSync(entriesDir).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      try {
+        const entry = JSON.parse(fs.readFileSync(path.join(entriesDir, file), 'utf8'));
+        const handle = entry.payload && entry.payload.entity_handle;
+        if (!handle) continue;
+        const cid = file.replace('.json', '');
+        if (entry.type === 'koad.entity.genesis') {
+          if (!index[handle]) index[handle] = {};
+          index[handle].genesisCid = cid;
+          index[handle].fingerprint = entry.payload.entity_key_fingerprint || null;
+        } else if (entry.type === 'koad.entity.leaf-authorize') {
+          if (!index[handle]) index[handle] = {};
+          index[handle].leafCid = cid;
+          index[handle].leafFingerprint = entry.payload.leaf_fingerprint || null;
+        }
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  // Read the chain head CID from metadata
+  try {
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    index._chainHead = meta.sigchainHeadCID || null;
+  } catch (e) {}
+
+  _sigchainIndex = index;
+  _sigchainMtime = mtime;
+  return index;
+}
+
 // Read ENTITY.md — returns { entityMd (identity-only), tagline } or nulls
 function readEntityMd(entityPath) {
   const mdPath = path.join(entityPath, 'ENTITY.md');
@@ -128,6 +193,7 @@ function syncEntities() {
   const folders = scanEntities();
   const knownHandles = new Set(Entities.find().fetch().map(e => e.handle));
   const foundHandles = new Set();
+  const sigchainIndex = readOperatorSigchain();
 
   for (const folder of folders) {
     const handle = handleFromFolder(folder);
@@ -153,6 +219,11 @@ function syncEntities() {
     // Read ENTITY.md
     const { entityMd, tagline } = readEntityMd(entityPath);
 
+    // Read identity — fingerprint from disk, sigchain from operator chain
+    const fingerprint = readEntityFingerprint(entityPath);
+    const hasKey = hasPublicKey(entityPath);
+    const sigchainData = sigchainIndex[handle] || {};
+
     // Baseline lastActivity = max(last git commit, ENTITY.md mtime, .env mtime).
     // Flights and emissions push it forward to their own timestamps if newer.
     // Without this baseline, dormant entities (no flights, no emissions) show
@@ -174,6 +245,11 @@ function syncEntities() {
         harness,
         tagline,
         entityMd,
+        fingerprint,
+        hasPublicKey: hasKey,
+        genesisCid: sigchainData.genesisCid || null,
+        leafCid: sigchainData.leafCid || null,
+        sigchainTip: sigchainIndex._chainHead || null,
         lastActivity: baseline,
         detectedAt: new Date(),
       });
@@ -182,7 +258,14 @@ function syncEntities() {
       const existing = Entities.findOne({ handle });
       const existingActivity = existing && existing.lastActivity ? new Date(existing.lastActivity) : null;
       // Only update lastActivity if the baseline is newer (don't regress a live stamp)
-      const set = { role, homeMachine, harness, tagline, entityMd };
+      const set = {
+        role, homeMachine, harness, tagline, entityMd,
+        fingerprint,
+        hasPublicKey: hasKey,
+        genesisCid: sigchainData.genesisCid || null,
+        leafCid: sigchainData.leafCid || null,
+        sigchainTip: sigchainIndex._chainHead || null,
+      };
       if (baseline && (!existingActivity || baseline > existingActivity)) {
         set.lastActivity = baseline;
       }

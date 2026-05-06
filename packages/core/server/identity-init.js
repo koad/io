@@ -1,14 +1,18 @@
 /**
  * Server-Side Identity Initialization
- * 
- * Handles automatic kbpgp key generation and loading on server startup.
- * 
- * Workflow:
- * 1. Check if ~/.$ENTITY/id/kbpgp_key exists
- * 2. If not, generate a new kbpgp key pair
- * 3. Save the keys to ~/.$ENTITY/id/kbpgp_key and ~/.$ENTITY/id/kbpgp_key.pub
- * 4. Load the key into koad.identity
- * 5. Set koad.entity to the entity handle string (SPEC-149 §3)
+ *
+ * Post-rekey (2026-05-06) workflow:
+ * 1. Check if ~/.$ENTITY/id/entity.public.asc exists (new key layout)
+ *    → If yes: load the public KeyManager (verify-only), set koad.identity,
+ *      set koad.entity. Private key material stays off-disk (Keybase holds it).
+ * 2. Else, fall back to legacy ~/.$ENTITY/id/kbpgp_key (private armored).
+ *    → Load and set koad.identity (signing-capable).
+ * 3. If neither exists: log a warning and skip. Key generation has been
+ *    RETIRED from this script — use the gestation flow + Vesta rekey ceremony
+ *    instead. Generating fresh keys here would silently fork an entity's
+ *    identity from its sigchain entries.
+ *
+ * SPEC-149 §3: koad.entity is the entity handle string, not the fingerprint.
  */
 
 const fs = require('fs');
@@ -146,9 +150,31 @@ function loadKbpgpKey(keyDir, callback) {
 }
 
 /**
- * Initialize koad.identity on server startup
- * 
- * This runs automatically when the server starts.
+ * Load a kbpgp KeyManager from a PGP public key (new layout, verify-only).
+ *
+ * @param {String} pubKeyPath — path to entity.public.asc
+ * @param {Function} callback — Callback(err, keyManager)
+ */
+function loadKbpgpPublicKey(pubKeyPath, callback) {
+	const armoredKey = fs.readFileSync(pubKeyPath, 'utf8');
+	kbpgp.KeyManager.import_from_armored_pgp({
+		armored: armoredKey
+	}, function(err, keyManager) {
+		if (err) {
+			log.error('[identity] Error importing public key:', err);
+			return callback(err);
+		}
+		callback(null, keyManager);
+	});
+}
+
+/**
+ * Initialize koad.identity on server startup.
+ *
+ * Resolution order (post-rekey):
+ *   1. ~/.$ENTITY/id/entity.public.asc   — new layout, verify-only
+ *   2. ~/.$ENTITY/id/kbpgp_key           — legacy, signing-capable
+ *   3. neither                           — log warning, skip (do NOT generate)
  */
 Meteor.startup(function() {
 	const entityName = process.env.ENTITY;
@@ -159,66 +185,55 @@ Meteor.startup(function() {
 	}
 
 	const keyDir = path.join(process.env.HOME, `.${entityName}`, 'id');
-	const privateKeyPath = path.join(keyDir, 'kbpgp_key');
+	const newPubKeyPath = path.join(keyDir, 'entity.public.asc');
+	const legacyPrivateKeyPath = path.join(keyDir, 'kbpgp_key');
 
 	log.info('[identity] Initializing kbpgp identity for entity:', entityName);
 
-	// Check if key exists
-	if (fs.existsSync(privateKeyPath)) {
-		// Load existing key
-		log.info('[identity] Found existing key, loading...');
-		
-		loadKbpgpKey(keyDir, function(err, keyManager) {
+	if (fs.existsSync(newPubKeyPath)) {
+		// New layout — public-only, verify-capable, signing requires Keybase
+		log.info('[identity] Found entity.public.asc (new layout), loading public key...');
+		loadKbpgpPublicKey(newPubKeyPath, function(err, keyManager) {
 			if (err) {
-				log.error('[identity] Failed to load key:', err.message);
+				log.error('[identity] Failed to load public key:', err.message);
 				return;
 			}
-
-			// Set identity
 			koad.identity.setFromKeyManager(keyManager, function(err, success) {
 				if (err) {
 					log.error('[identity] Failed to set identity:', err.message);
 					return;
 				}
-
-				// Set koad.entity to the entity handle (SPEC-149 §3 — not the fingerprint)
 				koad.entity = entityName;
-				log.success('[identity] Entity handle:', koad.entity);
+				log.success('[identity] Entity handle (verify-only):', koad.entity);
 			});
 		});
-	} else {
-		// Generate new key
-		log.warning('[identity] No existing key found, generating new key...');
-		
-		const userid = `${entityName} <${entityName}@koad.io>`;
-		
-		generateKbpgpKey(userid, function(err, keyManager) {
+		return;
+	}
+
+	if (fs.existsSync(legacyPrivateKeyPath)) {
+		// Legacy layout — private armored on disk, signing-capable
+		log.warning('[identity] Falling back to legacy kbpgp_key. Run rekey ceremony to migrate to entity.public.asc.');
+		loadKbpgpKey(keyDir, function(err, keyManager) {
 			if (err) {
-				log.error('[identity] Failed to generate key:', err.message);
+				log.error('[identity] Failed to load legacy key:', err.message);
 				return;
 			}
-
-			// Save the key
-			saveKbpgpKey(keyManager, keyDir, function(err) {
+			koad.identity.setFromKeyManager(keyManager, function(err, success) {
 				if (err) {
-					log.error('[identity] Failed to save key:', err.message);
+					log.error('[identity] Failed to set identity:', err.message);
 					return;
 				}
-
-				// Set identity
-				koad.identity.setFromKeyManager(keyManager, function(err, success) {
-					if (err) {
-						log.error('[identity] Failed to set identity:', err.message);
-						return;
-					}
-
-					// Set koad.entity to the entity handle (SPEC-149 §3 — not the fingerprint)
-					koad.entity = entityName;
-					log.success('[identity] New entity created, handle:', koad.entity);
-				});
+				koad.entity = entityName;
+				log.success('[identity] Entity handle (legacy):', koad.entity);
 			});
 		});
+		return;
 	}
+
+	// No key material — DO NOT generate. That would fork the entity's identity
+	// from its sigchain entries. Direct the operator to gestation/rekey.
+	log.warning('[identity] No key found at either ' + newPubKeyPath + ' or ' + legacyPrivateKeyPath + '.');
+	log.warning('[identity] Key generation is disabled here — use the gestation flow or Vesta rekey ceremony.');
 });
 
 log.success('loaded koad-io-core/identity-init');
