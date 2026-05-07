@@ -109,6 +109,7 @@ function watchEntityChanges() {
 
 // Startup — always on
 Meteor.startup(() => {
+  koad.ready.register('alerts');
   // Small delay to ensure EntityScanner has completed its initial scan
   Meteor.setTimeout(() => {
     scanAll();
@@ -117,16 +118,19 @@ Meteor.startup(() => {
     console.log(`[ALERTS] Initial scan complete: ${count} active alert/notification sources`);
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.alerts = new Date().toISOString();
+    koad.ready.signal('alerts');
   }, 1000);
 });
 
 // Publications
-Meteor.publish('alerts', function () {
+Meteor.publish('alerts', async function () {
+  await koad.ready.await('alerts');
   return Alerts.find();
 });
 
-Meteor.publish('alerts.entity', function (handle) {
+Meteor.publish('alerts.entity', async function (handle) {
   check(handle, String);
+  await koad.ready.await('alerts');
   return Alerts.find({ entity: handle });
 });
 

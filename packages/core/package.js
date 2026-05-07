@@ -80,6 +80,7 @@ Package.onUse(function(api) {
 	// loads onto the initialized the koad object.
 	api.addFiles("server/logger.js", "server");
 	api.addFiles("server/upstart.js", "server");
+	api.addFiles("server/ready.js", "server");  // koad.ready() — indexer readiness gate; must load before any indexer
 	api.addFiles("client/upstart.js", "client");
 	api.addFiles("client/search.js", "client");
 
@@ -96,6 +97,7 @@ Package.onUse(function(api) {
 		"server/discovery.js",
 		"server/identity.js",
 		"server/identity-init.js",
+		"server/system-health.js",
 		"server/sysinfo.js",
 		"server/counters.js",
 		"server/search.js",

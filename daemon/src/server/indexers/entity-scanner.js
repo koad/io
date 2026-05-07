@@ -313,21 +313,25 @@ function watchHome() {
 
 // Startup
 Meteor.startup(() => {
+  koad.ready.register('entities');
   syncEntities();
   watchHome();
   const count = Entities.find().count();
   console.log(`[ENTITIES] Initial scan complete: ${count} entities`);
   if (!globalThis.indexerReady) globalThis.indexerReady = {};
   globalThis.indexerReady.entities = new Date().toISOString();
+  koad.ready.signal('entities');
 });
 
 // Publications
-Meteor.publish('entities', function () {
+Meteor.publish('entities', async function () {
+  await koad.ready.await('entities');
   return Entities.find();
 });
 
-Meteor.publish('entities.byRole', function (role) {
+Meteor.publish('entities.byRole', async function (role) {
   check(role, String);
+  await koad.ready.await('entities');
   return Entities.find({ role });
 });
 

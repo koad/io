@@ -238,8 +238,12 @@ function scanAll() {
 
 // Startup (gated on KOAD_IO_INDEX_BONDS)
 Meteor.startup(async () => {
+  koad.ready.register('bonds');
   const mode = process.env.KOAD_IO_INDEX_BONDS;
-  if (!mode) return;
+  if (!mode) {
+    koad.ready.signal('bonds');
+    return;
+  }
 
   if (mode === 'true') {
     if (typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
@@ -253,6 +257,7 @@ Meteor.startup(async () => {
           console.log(`[BONDS] Scan complete: ${BondsIndex.find().count()} entities with bonds, ${CrossKingdomBonds.find().count()} cross-kingdom`);
           if (!globalThis.indexerReady) globalThis.indexerReady = {};
           if (!globalThis.indexerReady.bonds) globalThis.indexerReady.bonds = new Date().toISOString();
+          koad.ready.signal('bonds'); // idempotent; no-op after first scan
         }
       });
     } else {
@@ -261,6 +266,7 @@ Meteor.startup(async () => {
       console.log(`[BONDS] Initial scan complete: ${BondsIndex.find().count()} entities with bonds, ${CrossKingdomBonds.find().count()} cross-kingdom`);
       if (!globalThis.indexerReady) globalThis.indexerReady = {};
       globalThis.indexerReady.bonds = new Date().toISOString();
+      koad.ready.signal('bonds');
     }
   } else {
     // One-shot scan only
@@ -268,24 +274,29 @@ Meteor.startup(async () => {
     console.log(`[BONDS] Initial scan complete: ${BondsIndex.find().count()} entities with bonds, ${CrossKingdomBonds.find().count()} cross-kingdom`);
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.bonds = new Date().toISOString();
+    koad.ready.signal('bonds');
   }
 });
 
 // Publications
-Meteor.publish('bonds', function () {
+Meteor.publish('bonds', async function () {
+  await koad.ready.await('bonds');
   return BondsIndex.find();
 });
 
-Meteor.publish('bonds.entity', function (handle) {
+Meteor.publish('bonds.entity', async function (handle) {
   check(handle, String);
+  await koad.ready.await('bonds');
   return BondsIndex.find({ handle });
 });
 
-Meteor.publish('crossKingdomBonds', function () {
+Meteor.publish('crossKingdomBonds', async function () {
+  await koad.ready.await('bonds');
   return CrossKingdomBonds.find();
 });
 
-Meteor.publish('crossKingdomBonds.involving', function (handle) {
+Meteor.publish('crossKingdomBonds.involving', async function (handle) {
   check(handle, String);
+  await koad.ready.await('bonds');
   return CrossKingdomBonds.find({ $or: [{ fromEntity: handle }, { toEntity: handle }] });
 });

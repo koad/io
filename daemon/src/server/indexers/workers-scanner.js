@@ -262,6 +262,7 @@ globalThis.listEntityWorkers = function () {
 // ---------------------------------------------------------------------------
 
 Meteor.startup(() => {
+  koad.ready.register('entityWorkers');
   // Wait for EntityScanner and koad.workers to be ready
   Meteor.setTimeout(async () => {
     const entities = EntityScanner.Entities.find().fetch();
@@ -277,6 +278,7 @@ Meteor.startup(() => {
 
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.entityWorkers = new Date().toISOString();
+    koad.ready.signal('entityWorkers');
 
     // Pick up new entities as they're discovered
     EntityScanner.Entities.find().observeChanges({

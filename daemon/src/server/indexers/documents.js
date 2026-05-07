@@ -390,6 +390,7 @@ function fullScan() {
   console.log(`[DOCUMENTS] Scan complete: ${docCount} docs, ${DocumentRefs.find().count()} refs (${refCount} resolved) in ${elapsed}s`);
 
   globalThis.indexerReady.documents = new Date().toISOString();
+  koad.ready.signal('documents');
 }
 
 // ---------------------------------------------------------------------------
@@ -473,8 +474,12 @@ function watchEntityDir(entity) {
 // Startup
 // ---------------------------------------------------------------------------
 Meteor.startup(() => {
+  koad.ready.register('documents');
   const mode = process.env.KOAD_IO_INDEX_DOCUMENTS;
-  if (!mode) return;
+  if (!mode) {
+    koad.ready.signal('documents');
+    return;
+  }
 
   // Run scan after 2s to let EntityScanner populate
   Meteor.setTimeout(() => {
@@ -499,10 +504,12 @@ Meteor.startup(() => {
 // ---------------------------------------------------------------------------
 // DDP publications
 // ---------------------------------------------------------------------------
-Meteor.publish('documents.atlas', function () {
+Meteor.publish('documents.atlas', async function () {
+  await koad.ready.await('documents');
   return Documents.find();
 });
 
-Meteor.publish('documents.refs', function () {
+Meteor.publish('documents.refs', async function () {
+  await koad.ready.await('documents');
   return DocumentRefs.find();
 });

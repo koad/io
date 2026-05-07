@@ -403,6 +403,7 @@ async function provisionOnce() {
 // ---------------------------------------------------------------------------
 
 Meteor.startup(async () => {
+  koad.ready.register('provisioner');
   // Delay until EntityScanner is ready (it runs first alphabetically,
   // but give it a tick to complete the initial scan)
   Meteor.setTimeout(async () => {
@@ -421,6 +422,7 @@ Meteor.startup(async () => {
 
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.provisioner = new Date().toISOString();
+    koad.ready.signal('provisioner');
   }, 5000);
 });
 

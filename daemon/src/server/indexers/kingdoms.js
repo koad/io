@@ -189,8 +189,12 @@ function watchConfig() {
 
 // Startup (gated on KOAD_IO_INDEX_KINGDOMS)
 Meteor.startup(async () => {
+  koad.ready.register('kingdoms');
   const mode = process.env.KOAD_IO_INDEX_KINGDOMS;
-  if (!mode) return;
+  if (!mode) {
+    koad.ready.signal('kingdoms');
+    return;
+  }
 
   if (mode === 'true') {
     if (typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
@@ -203,6 +207,7 @@ Meteor.startup(async () => {
           scanAll();
           if (!globalThis.indexerReady) globalThis.indexerReady = {};
           if (!globalThis.indexerReady.kingdoms) globalThis.indexerReady.kingdoms = new Date().toISOString();
+          koad.ready.signal('kingdoms'); // idempotent; no-op after first scan
         }
       });
     } else {
@@ -210,12 +215,14 @@ Meteor.startup(async () => {
       scanAll();
       if (!globalThis.indexerReady) globalThis.indexerReady = {};
       globalThis.indexerReady.kingdoms = new Date().toISOString();
+      koad.ready.signal('kingdoms');
     }
   } else {
     // One-shot scan only (mode is a non-'true' truthy value)
     scanAll();
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.kingdoms = new Date().toISOString();
+    koad.ready.signal('kingdoms');
   }
 
   // Always watch for hot-reload when mode is active
@@ -223,18 +230,21 @@ Meteor.startup(async () => {
 });
 
 // Publications
-Meteor.publish('kingdoms.all', function () {
+Meteor.publish('kingdoms.all', async function () {
+  await koad.ready.await('kingdoms');
   return Kingdoms.find();
 });
 
-Meteor.publish('kingdoms.byId', function (id) {
+Meteor.publish('kingdoms.byId', async function (id) {
   check(id, String);
+  await koad.ready.await('kingdoms');
   return Kingdoms.find({ _id: id });
 });
 
 // Entities scoped to a specific kingdom
-Meteor.publish('kingdoms.entities', function (kingdomId) {
+Meteor.publish('kingdoms.entities', async function (kingdomId) {
   check(kingdomId, String);
+  await koad.ready.await('kingdoms');
   return EntityScanner.Entities.find({ kingdomId });
 });
 

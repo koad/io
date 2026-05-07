@@ -97,12 +97,17 @@ function scanAll() {
   console.log(`[PASSENGERS] Indexed. Total: ${Passengers.find().count()}`);
   if (!globalThis.indexerReady) globalThis.indexerReady = {};
   globalThis.indexerReady.passengers = new Date().toISOString();
+  koad.ready.signal('passengers');
 }
 
 // Startup (gated on KOAD_IO_INDEX_PASSENGERS)
 Meteor.startup(() => {
+  koad.ready.register('passengers');
   const mode = process.env.KOAD_IO_INDEX_PASSENGERS;
-  if (!mode) return;
+  if (!mode) {
+    koad.ready.signal('passengers');
+    return;
+  }
 
   Meteor.setTimeout(() => {
     scanAll();
@@ -179,15 +184,18 @@ Meteor.methods({
 });
 
 // Publications
-Meteor.publish('passengers', function () {
+Meteor.publish('passengers', async function () {
+  await koad.ready.await('passengers');
   return Passengers.find();
 });
 
-Meteor.publish('current', function () {
+Meteor.publish('current', async function () {
+  await koad.ready.await('passengers');
   return Passengers.find({ selected: { $exists: 1 } }, { sort: { selected: 1 } });
 });
 
 // Keep legacy 'all' publication for backward compat
-Meteor.publish('all', function () {
+Meteor.publish('all', async function () {
+  await koad.ready.await('passengers');
   return Passengers.find();
 });

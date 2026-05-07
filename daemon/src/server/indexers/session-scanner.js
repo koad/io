@@ -452,6 +452,45 @@ function scanAll() {
 }
 
 // ---------------------------------------------------------------------------
+// Reconcile orphaned pre-registered sessions
+// ---------------------------------------------------------------------------
+// Pre-registered records (UUID _id, source: 'pre-registered') are created by
+// the harness launcher via POST /api/session/register before Claude Code starts.
+// Once the pid-scanner or json-scanner creates the canonical entity:host:pid
+// record for the same session, the pre-registered ghost should be removed.
+function reconcileOrphanedPreRegistered() {
+  const Sessions = globalThis.SessionsCollection;
+  if (!Sessions) return;
+
+  const canonicalSessions = Sessions.find({
+    status: 'active',
+  }).fetch().filter(s => typeof s._id === 'string' && s._id.match(/^[^:]+:[^:]+:\d+$/));
+
+  const preRegs = Sessions.find({
+    source: 'pre-registered',
+    status: 'active',
+  }).fetch();
+
+  let removed = 0;
+  for (const pre of preRegs) {
+    const match = canonicalSessions.find(c =>
+      c.entity === pre.entity &&
+      c.host === pre.host &&
+      (c.pid === pre.pid || (c.cwd && c.cwd === pre.cwd))
+    );
+    if (match) {
+      Sessions.remove(pre._id);
+      removed++;
+      console.log(`[SESSION-SCANNER] reconcile: removed pre-registered ${pre._id.slice(0, 12)} (matched canonical ${match._id})`);
+    }
+  }
+
+  if (removed > 0) {
+    console.log(`[SESSION-SCANNER] reconcile: removed ${removed} orphaned pre-registered session(s)`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // SPEC-142 §7: Migration sweep — run once after scanAll()
 // ---------------------------------------------------------------------------
 //
@@ -477,6 +516,7 @@ function runMigration() {
   console.log(`[SESSION-MIGRATION] Found ${legacyRecords.length} legacy UUID-keyed records to reconcile.`);
 
   for (const legacy of legacyRecords) {
+    if (legacy.source === 'pre-registered') continue;
     const entity = legacy.entity;
     if (!entity) {
       Sessions.update(legacy._id, { $set: { status: 'ended', endedAt: new Date(), migratedTo: null } });
@@ -578,6 +618,9 @@ function periodicStaleCheck() {
   const now = Date.now();
   const staleCutoff = new Date(now - STALE_MS);
 
+  // Clean up pre-registered ghost records shadowed by canonical sessions
+  reconcileOrphanedPreRegistered();
+
   // First: refresh/create pid-scanner records for all known entities.
   // This is what makes post-boot TUIs show up — the periodic worker runs every
   // minute and will upsert a canonical record for any entity whose harness started
@@ -657,9 +700,11 @@ function periodicStaleCheck() {
 }
 
 Meteor.startup(async () => {
+  koad.ready.register('harness-sessions');
   Meteor.setTimeout(async () => {
     scanAll();
     runMigration();
+    reconcileOrphanedPreRegistered();
     periodicStaleCheck();
 
     // SPEC-143: rebuild all conversation threads from current sessions
@@ -680,6 +725,7 @@ Meteor.startup(async () => {
 
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.sessions = new Date().toISOString();
+    koad.ready.signal('harness-sessions');
 
     // Periodic stale/killed check — move to koad.workers (1-minute interval, ~30s effective
     // since workers enforce a 1-minute minimum; previously ran every 30s via setInterval).

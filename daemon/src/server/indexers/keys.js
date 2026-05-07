@@ -42,8 +42,12 @@ function scanAll() {
 
 // Startup (gated on KOAD_IO_INDEX_KEYS)
 Meteor.startup(async () => {
+  koad.ready.register('keys');
   const mode = process.env.KOAD_IO_INDEX_KEYS;
-  if (!mode) return;
+  if (!mode) {
+    koad.ready.signal('keys');
+    return;
+  }
 
   if (mode === 'true') {
     if (typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
@@ -57,6 +61,7 @@ Meteor.startup(async () => {
           console.log(`[KEYS] Scan complete: ${KeysIndex.find().count()} entities with keys`);
           if (!globalThis.indexerReady) globalThis.indexerReady = {};
           if (!globalThis.indexerReady.keys) globalThis.indexerReady.keys = new Date().toISOString();
+          koad.ready.signal('keys'); // idempotent; no-op after first scan
         }
       });
     } else {
@@ -65,6 +70,7 @@ Meteor.startup(async () => {
       console.log(`[KEYS] Initial scan complete: ${KeysIndex.find().count()} entities with keys`);
       if (!globalThis.indexerReady) globalThis.indexerReady = {};
       globalThis.indexerReady.keys = new Date().toISOString();
+      koad.ready.signal('keys');
     }
   } else {
     // One-shot scan only
@@ -72,15 +78,18 @@ Meteor.startup(async () => {
     console.log(`[KEYS] Initial scan complete: ${KeysIndex.find().count()} entities with keys`);
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.keys = new Date().toISOString();
+    koad.ready.signal('keys');
   }
 });
 
 // Publications
-Meteor.publish('keys', function () {
+Meteor.publish('keys', async function () {
+  await koad.ready.await('keys');
   return KeysIndex.find();
 });
 
-Meteor.publish('keys.entity', function (handle) {
+Meteor.publish('keys.entity', async function (handle) {
   check(handle, String);
+  await koad.ready.await('keys');
   return KeysIndex.find({ handle });
 });

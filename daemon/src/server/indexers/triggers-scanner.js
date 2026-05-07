@@ -217,6 +217,7 @@ globalThis.listEmissionTriggers = function () {
 };
 
 Meteor.startup(() => {
+  koad.ready.register('triggers');
   // Wait for EntityScanner to populate
   Meteor.setTimeout(() => {
     const entities = EntityScanner.Entities.find().fetch();
@@ -237,5 +238,6 @@ Meteor.startup(() => {
 
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.triggers = new Date().toISOString();
+    koad.ready.signal('triggers');
   }, 3000);
 });

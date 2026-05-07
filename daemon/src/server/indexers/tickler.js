@@ -57,8 +57,12 @@ function scanAll() {
 
 // Startup (gated on KOAD_IO_INDEX_TICKLER)
 Meteor.startup(async () => {
+  koad.ready.register('tickler');
   const mode = process.env.KOAD_IO_INDEX_TICKLER;
-  if (!mode) return;
+  if (!mode) {
+    koad.ready.signal('tickler');
+    return;
+  }
 
   if (mode === 'true') {
     if (typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
@@ -72,6 +76,7 @@ Meteor.startup(async () => {
           console.log(`[TICKLER] Scan complete: ${TicklerIndex.find().count()} entities with tickles`);
           if (!globalThis.indexerReady) globalThis.indexerReady = {};
           if (!globalThis.indexerReady.tickler) globalThis.indexerReady.tickler = new Date().toISOString();
+          koad.ready.signal('tickler'); // idempotent; no-op after first scan
         }
       });
     } else {
@@ -80,6 +85,7 @@ Meteor.startup(async () => {
       console.log(`[TICKLER] Initial scan complete: ${TicklerIndex.find().count()} entities with tickles`);
       if (!globalThis.indexerReady) globalThis.indexerReady = {};
       globalThis.indexerReady.tickler = new Date().toISOString();
+      koad.ready.signal('tickler');
     }
   } else {
     // One-shot scan only
@@ -87,15 +93,18 @@ Meteor.startup(async () => {
     console.log(`[TICKLER] Initial scan complete: ${TicklerIndex.find().count()} entities with tickles`);
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.tickler = new Date().toISOString();
+    koad.ready.signal('tickler');
   }
 });
 
 // Publications
-Meteor.publish('tickler', function () {
+Meteor.publish('tickler', async function () {
+  await koad.ready.await('tickler');
   return TicklerIndex.find();
 });
 
-Meteor.publish('tickler.entity', function (handle) {
+Meteor.publish('tickler.entity', async function (handle) {
   check(handle, String);
+  await koad.ready.await('tickler');
   return TicklerIndex.find({ handle });
 });

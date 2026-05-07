@@ -86,14 +86,19 @@ function scanAll() {
 
 // Startup (gated on KOAD_IO_INDEX_ENV)
 Meteor.startup(() => {
+  koad.ready.register('env');
   const mode = process.env.KOAD_IO_INDEX_ENV;
-  if (!mode) return;
+  if (!mode) {
+    koad.ready.signal('env');
+    return;
+  }
 
   // Wait briefly for entity scanner to finish
   Meteor.setTimeout(() => {
     scanAll();
     if (!globalThis.indexerReady) globalThis.indexerReady = {};
     globalThis.indexerReady.env = new Date().toISOString();
+    koad.ready.signal('env');
 
     if (mode === 'true') {
       // Re-scan when entities change
@@ -148,11 +153,13 @@ function publishEnvRedacted(sub, cursor) {
 }
 
 // Publications
-Meteor.publish('env', function () {
+Meteor.publish('env', async function () {
+  await koad.ready.await('env');
   publishEnvRedacted(this, EnvIndex.find());
 });
 
-Meteor.publish('env.entity', function (handle) {
+Meteor.publish('env.entity', async function (handle) {
   check(handle, String);
+  await koad.ready.await('env');
   publishEnvRedacted(this, EnvIndex.find({ handle }));
 });
