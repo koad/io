@@ -21,11 +21,252 @@ const fs = Npm.require('fs');
 const path = Npm.require('path');
 const os = Npm.require('os');
 const http = Npm.require('http');
+const { execFileSync } = Npm.require('child_process');
 
 const STALE_MS = 2 * 3600 * 1000; // 2h — sessions older than this are inactive
 const PID_GRACE_MS = 60 * 1000; // 1m — don't trust pid-dead until session is this old
 
 const watchers = new Map();
+
+// ---------------------------------------------------------------------------
+// wmctrl window cache — refreshed once per sweep cycle, not per-session.
+// Shape: [{ windowId, desktop, pid, hostname, title }]
+// ---------------------------------------------------------------------------
+let _wmctrlCache = null;
+let _wmctrlCacheAt = 0;
+const WMCTRL_CACHE_TTL = 10000; // 10s — matches periodic sweep cadence
+
+function getWmctrlWindows() {
+  const now = Date.now();
+  if (_wmctrlCache !== null && now - _wmctrlCacheAt < WMCTRL_CACHE_TTL) return _wmctrlCache;
+  try {
+    // wmctrl -l -p: <win_id> <desktop> <pid> <hostname> <title...>
+    const out = execFileSync('wmctrl', ['-l', '-p'], { encoding: 'utf8', timeout: 2000 });
+    _wmctrlCache = out.trim().split('\n').map(line => {
+      const parts = line.split(/\s+/);
+      if (parts.length < 5) return null;
+      return {
+        windowId: parts[0],
+        desktop: parseInt(parts[1], 10),
+        pid: parseInt(parts[2], 10),
+        hostname: parts[3],
+        title: parts.slice(4).join(' '),
+      };
+    }).filter(Boolean);
+  } catch (e) {
+    _wmctrlCache = [];
+  }
+  _wmctrlCacheAt = now;
+  return _wmctrlCache;
+}
+
+// Invalidate wmctrl cache at the start of each sweep so each sweep gets a
+// fresh snapshot even if individual calls reuse it within the sweep.
+function invalidateWmctrlCache() {
+  _wmctrlCache = null;
+}
+
+// ---------------------------------------------------------------------------
+// enrichEnvironment(pid) — detect origin, sourceHost, desktop, windowTitle,
+// ttyPath, screenSession for a given PID.
+// Returns an object with those six fields; missing/undetectable → null.
+// ---------------------------------------------------------------------------
+function readProcEnviron(pid) {
+  try {
+    const raw = fs.readFileSync(`/proc/${pid}/environ`, 'utf8');
+    const pairs = {};
+    for (const entry of raw.split('\0')) {
+      const eq = entry.indexOf('=');
+      if (eq > 0) pairs[entry.slice(0, eq)] = entry.slice(eq + 1);
+    }
+    return pairs;
+  } catch (e) {
+    return {};
+  }
+}
+
+function readProcCmdline(pid) {
+  try {
+    return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function readProcStat(pid) {
+  try {
+    return fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+  } catch (e) {
+    return null;
+  }
+}
+
+function getSessionLeaderPid(tty) {
+  // tty is e.g. "pts/48" — find session leader via /proc
+  // The session leader is the process whose sid == its own pid on that tty.
+  try {
+    // Enumerate /proc/<pid>/stat for all processes, look for ones on this tty
+    // and where sid == pid (session leader). This is safe and avoids shelling out.
+    const entries = fs.readdirSync('/proc').filter(e => /^\d+$/.test(e));
+    for (const pidStr of entries) {
+      const stat = readProcStat(parseInt(pidStr, 10));
+      if (!stat) continue;
+      const commEnd = stat.lastIndexOf(')');
+      if (commEnd === -1) continue;
+      const fields = stat.slice(commEnd + 2).split(' ');
+      // fields[0]=state, fields[3]=ppid, fields[4]=pgrp, fields[5]=session(sid), fields[6]=tty_nr
+      const sid = parseInt(fields[5], 10);
+      const ppid = parseInt(fields[3], 10);
+      // pid of this entry
+      const thisPid = parseInt(pidStr, 10);
+      if (sid === thisPid) {
+        // This is a session leader — check if it has this tty
+        const ttyNr = parseInt(fields[6], 10);
+        if (!ttyNr) continue;
+        // Decode tty_nr: major = (ttyNr >> 8) & 0xff, minor = ttyNr & 0xff
+        // pts devices have major 136 (0x88) + minor = pts number
+        const major = (ttyNr >> 8) & 0xff;
+        const minor = ttyNr & 0xff;
+        if (major === 136) {
+          const expectedTty = `pts/${minor}`;
+          if (expectedTty === tty) return thisPid;
+        }
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
+
+function getPpid(pid) {
+  const stat = readProcStat(pid);
+  if (!stat) return null;
+  const commEnd = stat.lastIndexOf(')');
+  if (commEnd === -1) return null;
+  const fields = stat.slice(commEnd + 2).split(' ');
+  const ppid = parseInt(fields[3], 10);
+  return isNaN(ppid) ? null : ppid;
+}
+
+function resolveHostname(ip) {
+  // Try /etc/hosts first for LAN-friendly resolution
+  try {
+    const hosts = fs.readFileSync('/etc/hosts', 'utf8');
+    for (const line of hosts.split('\n')) {
+      const stripped = line.replace(/#.*/, '').trim();
+      if (!stripped) continue;
+      const parts = stripped.split(/\s+/);
+      if (parts[0] === ip && parts[1]) return parts[1];
+    }
+  } catch (e) {
+    // ignore
+  }
+  return ip; // fall back to raw IP
+}
+
+function enrichEnvironment(pid) {
+  const result = {
+    origin: null,
+    sourceHost: null,
+    desktop: null,
+    windowTitle: null,
+    ttyPath: null,
+    screenSession: null,
+  };
+
+  if (!pid) return result;
+
+  // --- ttyPath ---
+  let tty = null;
+  try {
+    const ttyRaw = execFileSync('ps', ['-o', 'tty=', '-p', String(pid)], {
+      encoding: 'utf8', timeout: 2000,
+    }).trim();
+    if (ttyRaw && ttyRaw !== '?' && ttyRaw !== '') {
+      result.ttyPath = ttyRaw;
+      tty = ttyRaw;
+    }
+  } catch (e) {
+    // no tty available
+  }
+
+  // --- origin, sourceHost, screenSession ---
+  // Trace the session leader to find what spawned this PTY
+  let leaderPid = null;
+  if (tty && tty.startsWith('pts/')) {
+    leaderPid = getSessionLeaderPid(tty);
+  }
+
+  if (leaderPid) {
+    const parentPid = getPpid(leaderPid);
+    if (parentPid) {
+      const parentCmd = readProcCmdline(parentPid);
+
+      if (/sshd/i.test(parentCmd)) {
+        result.origin = 'ssh';
+        // Get source IP from SSH_CLIENT in the leader's environ
+        const environ = readProcEnviron(leaderPid);
+        const sshClient = environ.SSH_CLIENT || '';
+        const ip = sshClient.split(' ')[0];
+        if (ip) result.sourceHost = resolveHostname(ip);
+      } else if (/\bSCREEN\b/.test(parentCmd)) {
+        result.origin = 'screen';
+        // Extract session name from parent cmdline: SCREEN -dmS <name> ...
+        const m = parentCmd.match(/-[sS]\s+(\S+)/);
+        if (m) result.screenSession = m[1];
+      } else if (/\btmux\b/.test(parentCmd)) {
+        result.origin = 'tmux';
+        // tmux session: read TMUX env var from leader's environ
+        const environ = readProcEnviron(leaderPid);
+        const tmuxSocket = environ.TMUX || '';
+        const parts = tmuxSocket.split(',');
+        if (parts.length >= 3) result.screenSession = parts[2]; // session index as fallback
+      } else if (/gnome-terminal|xterm|konsole|alacritty|kitty|wezterm|urxvt/i.test(parentCmd)) {
+        result.origin = 'local';
+      } else {
+        result.origin = 'local';
+      }
+    } else {
+      result.origin = 'local';
+    }
+  }
+
+  // --- desktop + windowTitle ---
+  // wmctrl matches by terminal emulator PID (which owns the window, not the harness PID).
+  // Walk up the process tree to find the terminal emulator ancestor.
+  try {
+    const windows = getWmctrlWindows();
+    if (windows.length > 0) {
+      // Try: look for a window whose title contains the Claude Code "active" prefix (✳ or ⠐)
+      // or contains typical harness-related content. Fall back to walking the process tree.
+      const activePrefixes = ['✳', '⠐']; // ✳ ⠐
+      let matched = null;
+
+      // Walk up PID tree to find terminal process that owns a window
+      let cur = pid;
+      let depth = 0;
+      while (cur && cur > 1 && depth < 10) {
+        const win = windows.find(w => w.pid === cur);
+        if (win) {
+          matched = win;
+          break;
+        }
+        cur = getPpid(cur);
+        depth++;
+      }
+
+      if (matched) {
+        result.desktop = matched.desktop;
+        result.windowTitle = matched.title;
+      }
+    }
+  } catch (e) {
+    // wmctrl unavailable or failed — fields stay null
+  }
+
+  return result;
+}
 
 function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (_) { return false; }
@@ -174,6 +415,8 @@ function upsertSession(handle, host, pid, enrichment) {
     'linesAdded', 'linesRemoved',
     'contextPct', 'contextSize', 'tokensIn', 'tokensOut',
     'transcriptPath', 'rateLimits', 'enriched',
+    // environment enrichment fields
+    'origin', 'sourceHost', 'desktop', 'windowTitle', 'ttyPath', 'screenSession',
   ];
   for (const f of copyFields) {
     if (enrichment[f] !== undefined) setFields[f] = enrichment[f];
@@ -287,6 +530,10 @@ function scanEntityPidSessions(handle, entityPath) {
     }
   }
 
+  // Environment enrichment: origin, sourceHost, desktop, windowTitle, ttyPath, screenSession
+  const envFields = enrichEnvironment(pid);
+  Object.assign(enrichment, envFields);
+
   upsertSession(handle, host, pid, enrichment);
 }
 
@@ -357,7 +604,17 @@ function upsertFromSessionJson(handle, entityPath, payload, fileMtime) {
     enriched: true,
   };
 
+  // Environment enrichment: read harness.pid for this entity to get TTY/origin context.
+  // Only applied on insert (new session); pid-scanner refresh keeps it updated after that.
   const existing = Sessions.findOne({ _id: sid });
+  if (!existing) {
+    const harnessPid = readHarnessPid(entityPath);
+    if (harnessPid && pidAlive(harnessPid)) {
+      const envFields = enrichEnvironment(harnessPid);
+      Object.assign(doc, envFields);
+    }
+  }
+
   if (existing) {
     doc.startedAt = existing.startedAt;
     Sessions.update(sid, { $set: doc });
@@ -440,6 +697,7 @@ function watchEntitySessions(handle, entityPath) {
 }
 
 function scanAll() {
+  invalidateWmctrlCache(); // fresh wmctrl snapshot per sweep
   const entities = EntityScanner.Entities.find().fetch();
   for (const entity of entities) {
     scanEntitySessions(entity.handle, entity.path);
@@ -615,6 +873,7 @@ function periodicStaleCheck() {
   const Sessions = globalThis.SessionsCollection;
   if (!Sessions) return;
 
+  invalidateWmctrlCache(); // fresh wmctrl snapshot per periodic sweep
   const now = Date.now();
   const staleCutoff = new Date(now - STALE_MS);
 
