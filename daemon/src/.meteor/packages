@@ -4,6 +4,7 @@ koad:io-merkle-tree
 koad:io-daemon-indexers
 koad:io-daemon-api
 koad:io-declarations
+koad:io-emission-types
 kingofalldata:brand-components
 templating
 check
