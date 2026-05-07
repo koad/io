@@ -1,0 +1,12 @@
+{
+  "name": "healer-kingdom-heal-sweep",
+  "kind": "worker",
+  "version": "1.0.0",
+  "description": "Daily kingdom-wide heal sweep. Walks all entity dirs, detects orphan frontmatter (relates-to: refs to non-existent paths), deprecated frontmatter keys (related-briefs:→relates-to:, specs:→related-specs:), and broken trust-bond refs. Emits one finding event per anomaly. Writes a dated summary report to <entity>/heals/YYYY-MM-DD-auto-sweep.md.",
+  "roles": ["healer"],
+  "requires": [],
+  "tags": ["heal", "frontmatter", "orphan", "daily", "kingdom", "salus"],
+  "interval": 1440,
+  "delay": 0,
+  "runImmediately": false
+}

@@ -1,0 +1,12 @@
+{
+  "name": "auditor-mercury-gate-readiness",
+  "kind": "worker",
+  "version": "1.0.0",
+  "description": "Scans the Mercury post queue daily. Identifies posts where Iris voice review is cleared and Veritas verdict has been rendered but Argus Mercury Gate verdict is absent. Emits one alert per gate-ready post found.",
+  "roles": ["auditor"],
+  "requires": [],
+  "tags": ["mercury", "gate", "argus", "auditor", "daily", "alert"],
+  "interval": 1440,
+  "delay": 540,
+  "runImmediately": false
+}
