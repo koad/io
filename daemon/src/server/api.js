@@ -814,6 +814,20 @@ app.use('/api/entities', async (req, res, next) => {
   }
 });
 
+// GET /api/merkle — current kingdom merkle tree state (VESTA-SPEC-173)
+app.use('/api/merkle', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/merkle')) return next();
+  try {
+    const state = typeof MerkleBuilder !== 'undefined'
+      ? MerkleBuilder.buildMerkleState()
+      : { status: 'unavailable', message: 'MerkleBuilder not loaded' };
+    jsonOk(res, state);
+  } catch (err) {
+    console.error('[API/merkle] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
 // GET /api/kingdoms — all indexed kingdoms
 app.use('/api/kingdoms', async (req, res, next) => {
   if (req.method !== 'GET' || !pathIs(req, '/api/kingdoms')) return next();
