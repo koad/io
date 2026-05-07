@@ -819,7 +819,7 @@ app.use('/api/merkle', async (req, res, next) => {
   if (req.method !== 'GET' || !pathIs(req, '/api/merkle')) return next();
   try {
     const state = typeof MerkleBuilder !== 'undefined'
-      ? MerkleBuilder.buildMerkleState()
+      ? await MerkleBuilder.buildMerkleState()
       : { status: 'unavailable', message: 'MerkleBuilder not loaded' };
     jsonOk(res, state);
   } catch (err) {

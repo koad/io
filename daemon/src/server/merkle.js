@@ -95,7 +95,17 @@ function buildLeafSet() {
 }
 
 // Build the tree state. Shared by the Meteor method and REST endpoint.
-function buildMerkleState() {
+//
+// If the kingdom signing key is loaded (kingdom-keys.js), the returned root
+// is signed (signature populated, seqno populated). Without the key, returns
+// an unsigned summary. Either way, the merkle root hash is computed.
+//
+// seqno semantics for v1:
+//   - Volatile build: seqno is held at 1 across rebuilds with the same leaf set.
+//   - Persistence/append-only seqno bumping is wired in a future flight when the
+//     daemon adds a "publish root" action that writes ~/.koad-io/kingdoms/<slug>/
+//     merkle/roots/<seqno>.json (SPEC-173 §8).
+async function buildMerkleState() {
   const { leaves, allEntities, skippedCount, kingdomTip, kingdomSeq } = buildLeafSet();
   const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
@@ -123,14 +133,45 @@ function buildMerkleState() {
     const { root } = KingdomMerkleTree.buildTree(sorted);
     const rootHex = root.toString('hex');
 
+    // Try to sign the root if the kingdom signing key is loaded
+    // (kingdom-keys.js sets globalThis.KingdomKeys).
+    let signed = null;
+    let signError = null;
+    if (typeof KingdomKeys !== 'undefined' && KingdomKeys.isAvailable()) {
+      try {
+        signed = await KingdomMerkleTree.signRoot(
+          {
+            kingdom:    KINGDOM_HANDLE,
+            seqno:      1,        // see seqno semantics note above
+            root:       rootHex,
+            leaf_count: leaves.length,
+            timestamp,
+            prev_root:  null,     // first signed root in this session
+            skip:       {},
+          },
+          KingdomKeys.privateKey,
+        );
+      } catch (err) {
+        signError = err.message;
+        console.error('[MERKLE] signRoot failed:', err.message);
+      }
+    }
+
     return {
       kingdom: KINGDOM_HANDLE,
       status: 'built',
       message: null,
       leaf_count: leaves.length,
       root: rootHex,
-      signature: null,
-      seqno: null,
+      signature:    signed ? signed.signature  : null,
+      seqno:        signed ? signed.seqno      : null,
+      schema:       signed ? signed.schema     : null,
+      prev_root:    signed ? signed.prev_root  : null,
+      signedRoot:   signed,                       // full signed-root object (or null)
+      kingdomPubkey: (typeof KingdomKeys !== 'undefined' && KingdomKeys.isAvailable())
+        ? KingdomKeys.publicKeyHex
+        : null,
+      signError,
       timestamp,
       skip: {},
       leaves,
@@ -163,7 +204,7 @@ function buildMerkleState() {
 
 Meteor.methods({
   async 'merkle.buildState'() {
-    return buildMerkleState();
+    return await buildMerkleState();
   },
 });
 
