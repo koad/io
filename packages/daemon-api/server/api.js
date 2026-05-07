@@ -3,12 +3,22 @@
 
 import { WebApp } from 'meteor/webapp';
 import bodyParser from 'body-parser';
-import { receiveHeadSubmission, queryIdentityHeads } from '@koad-io/node/identity-receiver';
 
 const os = Npm.require('os');
 const fs = Npm.require('fs');
 const path = Npm.require('path');
 const app = WebApp.connectHandlers;
+
+// @koad-io/node is ESM with ESM-only deps (multiformats, @ipld/dag-json).
+// Meteor's bundler cannot follow ESM-only npm exports maps, so a top-level
+// `import` here would crash the boot. Lazy-load through the .cjs bridge:
+// the package exports "./identity-receiver": { "require": "./identity-receiver.cjs" }
+// and that file uses dynamic import() internally. Same pattern as control-tower.
+let _receiverMod = null;
+async function getReceiver() {
+  if (!_receiverMod) _receiverMod = Npm.require('@koad-io/node/identity-receiver');
+  return _receiverMod;
+}
 
 // ---------------------------------------------------------------------------
 // Message inbox writer — disk persistence for `request` type emissions.
@@ -2030,7 +2040,8 @@ app.use('/api/identity/head/submit', async (req, res, next) => {
       };
     }
 
-    const result = await receiveHeadSubmission(submission, {
+    const receiver = await getReceiver();
+    const result = await receiver.receiveHeadSubmission(submission, {
       vestaEntitiesDir,
       ipfsFetch,
     });
@@ -2055,7 +2066,8 @@ app.use('/api/identity/heads', async (req, res, next) => {
     const params = parseQuery(req.originalUrl || req.url || '');
     const vestaEntitiesDir = path.join(os.homedir(), '.vesta', 'entities');
 
-    const result = await queryIdentityHeads(params, { vestaEntitiesDir });
+    const receiver = await getReceiver();
+    const result = await receiver.queryIdentityHeads(params, { vestaEntitiesDir });
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');

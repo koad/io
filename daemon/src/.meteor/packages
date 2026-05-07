@@ -2,6 +2,7 @@ koad:io-core
 koad:io-worker-processes
 koad:io-merkle-tree
 koad:io-daemon-indexers
+koad:io-daemon-api
 kingofalldata:brand-components
 templating
 check
