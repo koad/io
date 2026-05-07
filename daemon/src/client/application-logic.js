@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 
 import { Template } from 'meteor/templating';
 import './merkle.js';
+import './indexers.js';
 
 Passengers = new Mongo.Collection('Passengers');
 Alerts = new Mongo.Collection('Alerts');
@@ -14,6 +15,11 @@ Template.registerHelper('isOverview', function () {
 // Global helper: route /merkle to the MerkleView template
 Template.registerHelper('isMerkle', function () {
   return window.location.pathname === '/merkle';
+});
+
+// Global helper: route /indexers to the IndexersAdmin template
+Template.registerHelper('isIndexers', function () {
+  return window.location.pathname === '/indexers';
 });
 Template.WidgetQuickLaunch.onCreated(function() {
   // Subscribe to the 'current' publication

@@ -15,6 +15,8 @@
 		{{> brandKingdomOverview}}
 	{{else if isMerkle}}
 		{{> MerkleView}}
+	{{else if isIndexers}}
+		{{> IndexersAdmin}}
 	{{else}}
 		{{> WidgetQuickLaunch}}
 	{{/if}}

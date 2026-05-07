@@ -41,6 +41,7 @@ Package.onUse(function(api) {
 		'server/emissions-summary.js',
 		'server/indexer-registry.js',
 		'server/pluggable-indexers-startup.js',
+		'server/indexer-admin-api.js',
 	], 'server');
 
 	// EntityScanner and KingdomsIndexer are referenced by app-level files
