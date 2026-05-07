@@ -27,6 +27,7 @@ Meteor.startup(() => {
   console.log('[INDEXERS] Entity scanner: always on');
   console.log('[INDEXERS] Alerts: always on');
   console.log('[INDEXERS] Entity workers: always on');
+  console.log('[INDEXERS] Founding cohort scanner: always on (CACULA-SPEC-004)');
   console.log('[INDEXERS] Active:', active.length ? active.join(', ') : 'none');
   if (inactive.length) {
     console.log('[INDEXERS] Inactive:', inactive.join(', '));
