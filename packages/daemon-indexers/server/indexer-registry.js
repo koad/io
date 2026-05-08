@@ -136,7 +136,8 @@ function resolveGlob(rawGlob, yamlFile) {
 
 // ---------------------------------------------------------------------------
 // Scan directories for .koad-io-index.yaml files.
-// Scans: $HOME/.*/  and  $HOME/.forge/*/
+// Scans: $HOME/.*/  and  $HOME/.forge/*/  and  $HOME/.forge/packages/*/
+//        and  $HOME/.koad-io/*/ (recursive one level for nested index files)
 // ---------------------------------------------------------------------------
 
 function scanForYamlFiles() {
@@ -150,6 +151,17 @@ function scanForYamlFiles() {
     } catch (_) { /* not present */ }
   }
 
+  function scanOneLevel(parentDir) {
+    try {
+      const entries = fs.readdirSync(parentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          tryDir(path.join(parentDir, entry.name));
+        }
+      }
+    } catch (_) { /* dir absent or unreadable */ }
+  }
+
   // $HOME/.*/ directories
   try {
     const homeEntries = fs.readdirSync(HOME, { withFileTypes: true });
@@ -161,15 +173,23 @@ function scanForYamlFiles() {
   } catch (_) { /* HOME unreadable */ }
 
   // $HOME/.forge/*/
-  const forgeDir = path.join(HOME, '.forge');
+  scanOneLevel(path.join(HOME, '.forge'));
+
+  // $HOME/.forge/packages/*/ — package-level indexers
+  scanOneLevel(path.join(HOME, '.forge', 'packages'));
+
+  // $HOME/.koad-io/*/ — framework sub-dirs (e.g. me/trust/)
+  const koadIoDir = path.join(HOME, '.koad-io');
+  scanOneLevel(koadIoDir);
+  // Also scan two levels deep for nested dirs like .koad-io/me/trust/
   try {
-    const forgeEntries = fs.readdirSync(forgeDir, { withFileTypes: true });
-    for (const entry of forgeEntries) {
+    const koadIoEntries = fs.readdirSync(koadIoDir, { withFileTypes: true });
+    for (const entry of koadIoEntries) {
       if (entry.isDirectory()) {
-        tryDir(path.join(forgeDir, entry.name));
+        scanOneLevel(path.join(koadIoDir, entry.name));
       }
     }
-  } catch (_) { /* .forge absent */ }
+  } catch (_) { /* absent */ }
 
   return yamlFiles;
 }

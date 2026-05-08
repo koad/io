@@ -5,7 +5,5 @@ koad:io-daemon-api
 koad:io-declarations
 koad:io-emission-types
 koad:io-session-history
-koad:io-worker-processes
-kingofalldata:brand-components
 templating
 check

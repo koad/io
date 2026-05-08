@@ -48,18 +48,6 @@ echo "turning down the volume a bunch"
 amixer -D pulse sset Master 20%
 sleep "$SLEEP_DURATION"
 
-for dir in "$HOME"/.*; do
-    if [[ -d "$dir" && -f "$dir/hooks/upstart.sh" ]]; then
-        echo -e "\e[36mRunning $dir/hooks/upstart.sh...\e[0m"
-        export ENTITY_FOLDER=$dir
-        bash "$dir/hooks/upstart.sh"
-        wmctrl -s $MAIN_WORKSPACE
-        wmctrl -a "koad:io-upstart"
-        sleep "$SLEEP_DURATION"
-    fi
-done
-
-
 if [[ -d "$HOME/.koad-io/daemon" ]]; then
     console_log "starting koad:io daemon"
     # gnome-terminal -- bash -c "cd /home/koad/.koad-io/daemon/ && koad-io start local; exec bash"
@@ -76,6 +64,18 @@ if [[ -d "$HOME/.koad-io/desktop" ]] && [[ -n "$DISPLAY" ]] && [[ -z "$SSH_CONNE
     sleep "$SLEEP_DURATION"
 fi
 
+sleep "$SLEEP_DURATION"
+
+for dir in "$HOME"/.*; do
+    if [[ -d "$dir" && -f "$dir/hooks/upstart.sh" ]]; then
+        echo -e "\e[36mRunning $dir/hooks/upstart.sh...\e[0m"
+        export ENTITY_FOLDER=$dir
+        bash "$dir/hooks/upstart.sh"
+        wmctrl -s $MAIN_WORKSPACE
+        wmctrl -a "koad:io-upstart"
+        sleep "$SLEEP_DURATION"
+    fi
+done
 
 sleep "$SLEEP_DURATION"
 screen -ls

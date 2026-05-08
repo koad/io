@@ -14,7 +14,6 @@ Package.onUse(function(api) {
 	api.use('random');
 	api.use('check');
 	api.use('koad:io-core');
-	api.use('koad:io-worker-processes');
 	api.use('koad:io-merkle-tree');
 
 	// Load order matters:
