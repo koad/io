@@ -8,6 +8,8 @@ Package.describe({
 
 Package.onUse(function(api) {
 
+	api.use('ecmascript');
+	api.use('webapp');
 	api.use('mongo');
 	api.use('random');
 	api.use('check');

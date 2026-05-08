@@ -8,6 +8,7 @@ Package.describe({
 
 Package.onUse(function(api) {
 
+	api.use('ecmascript');
 	api.use('mongo');
 	api.use('check');
 	api.use('meteor');

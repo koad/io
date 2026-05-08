@@ -127,6 +127,10 @@ Meteor.startup(() => {
 // DDP methods — preserve existing passenger interaction API
 Meteor.methods({
   'passenger.check.in'(passengerName) {
+    // Desktop app sometimes passes the koad object instead of a string handle
+    if (passengerName && typeof passengerName === 'object') {
+      passengerName = passengerName.handle || passengerName.name || passengerName.entity;
+    }
     check(passengerName, String);
     const passenger = Passengers.findOne({ name: passengerName });
     if (!passenger) return Meteor.Error('not-found', 'Passenger not found');

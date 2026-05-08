@@ -8,8 +8,11 @@ Package.describe({
 
 Package.onUse(function(api) {
 
+	api.use('ecmascript');
 	api.use('webapp');
 	api.use('meteor');
+	api.use('mongo');
+	api.use('check');
 
 	api.addFiles([
 		'server/sessions.js',

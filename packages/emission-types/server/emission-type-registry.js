@@ -25,10 +25,11 @@
 //   GET  /api/emissions/types          — full registry (supports ?entity=X filter)
 //   POST /api/emissions/types/reload   — re-scan all entity dirs, hot reload
 
+import { WebApp } from 'meteor/webapp';
+
 const fs   = Npm.require('fs');
 const path = Npm.require('path');
 const os   = Npm.require('os');
-const { WebApp } = require('meteor/webapp');
 
 const HOME = os.homedir();
 const app  = WebApp.connectHandlers;
