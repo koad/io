@@ -884,6 +884,39 @@ app.use('/api/bonds', async (req, res, next) => {
   }
 });
 
+// GET /api/bonds/has?handle=<handle> — binary: does this entity have any bond on disk?
+// Returns { handle, hasBond: true|false }. Used by /me becoming page Stage 4.
+// Checks both issued and received bonds (any entry in bonds[] is sufficient).
+// Optional ?status=active — filter to only count bonds with status === 'active'.
+app.use('/api/bonds/has', async (req, res, next) => {
+  if (req.method !== 'GET' || !pathIs(req, '/api/bonds/has')) return next();
+  try {
+    const q = parseQuery(req.originalUrl || req.url);
+    const handle = q.handle;
+    if (!handle || typeof handle !== 'string') {
+      return jsonErr(res, 400, 'Missing required query param: handle');
+    }
+    const filterStatus = q.status || null; // optional: 'active', 'pending', etc.
+
+    const BondsRef = new Mongo.Collection('BondsIndex', { connection: null });
+    const doc = await BondsRef.findOneAsync({ handle });
+
+    let hasBond = false;
+    if (doc && Array.isArray(doc.bonds) && doc.bonds.length > 0) {
+      if (filterStatus) {
+        hasBond = doc.bonds.some(b => b.status === filterStatus);
+      } else {
+        hasBond = true;
+      }
+    }
+
+    jsonOk(res, { status: 'ok', handle, hasBond });
+  } catch (err) {
+    console.error('[API/bonds/has] error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
 // GET /api/tickler — pending tickles per entity
 // GET /api/tickler?entity=juno — filter to one entity
 app.use('/api/tickler', async (req, res, next) => {
@@ -2084,4 +2117,125 @@ app.use('/api/identity/heads', async (req, res, next) => {
     res.writeHead(500);
     res.end(JSON.stringify({ ok: false, error: 'ERR_INTERNAL', message: err.message }));
   }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/declarations/:cid — single declaration by CID
+// VESTA-SPEC-147 §4.1 — used by the forge signature-api.js content-negotiation endpoint.
+// Returns the declaration doc from DeclarationsIndex if indexed.
+// Registers BEFORE /api/declarations list endpoint (prefix-match order).
+// ---------------------------------------------------------------------------
+app.use('/api/declarations', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  // Match /api/declarations/<cid>
+  const m = url.match(/^\/api\/declarations\/([^/?]+)/);
+  if (!m) return next(); // fall through to list endpoint
+
+  const cid = decodeURIComponent(m[1]);
+
+  const _Declarations = globalThis.DeclarationsIndex;
+  if (!_Declarations) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'DeclarationsIndex not ready' }));
+  }
+
+  const doc = _Declarations.findOne({ _id: cid });
+  if (!doc) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'declaration not found', cid }));
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'public, max-age=86400', // CIDs are immutable
+  });
+  res.end(JSON.stringify(doc));
+});
+
+// POST /api/declarations — upsert declaration from forge (me.signature.create)
+// Called by the forge method after client-side signing. Triggers indexer upsert.
+app.use('/api/declarations', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+
+  const url = req.originalUrl || req.url || '';
+  // Only handle bare /api/declarations, not /api/declarations/<cid>/status
+  if (url.match(/^\/api\/declarations\/[^/]+/)) return next();
+
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', async () => {
+    try {
+      const doc = JSON.parse(body);
+      const handler = globalThis._declarationsUpsertHandler;
+      if (!handler) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'indexer not ready' }));
+      }
+      const result = await handler(doc);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+  });
+});
+
+// POST /api/declarations/<cid>/status — update verification status
+app.use('/api/declarations', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+
+  const url = req.originalUrl || req.url || '';
+  const m = url.match(/^\/api\/declarations\/([^/?]+)\/status/);
+  if (!m) return next();
+
+  const cid = decodeURIComponent(m[1]);
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', async () => {
+    try {
+      const update = JSON.parse(body);
+      const _Declarations = globalThis.DeclarationsIndex;
+      if (!_Declarations) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'DeclarationsIndex not ready' }));
+      }
+      _Declarations.update({ _id: cid }, { $set: {
+        status:       update.status,
+        last_checked: update.last_checked,
+        claims:       update.claims,
+      }});
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+  });
+});
+
+// GET /api/declarations — list all declarations (optionally filtered by handle)
+// GET /api/declarations?handle=koad — filter by entity handle
+app.use('/api/declarations', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const url = req.originalUrl || req.url || '';
+  const q = parseQuery(url);
+
+  const _Declarations = globalThis.DeclarationsIndex;
+  if (!_Declarations) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'DeclarationsIndex not ready' }));
+  }
+
+  const selector = q.handle ? { handle: q.handle } : {};
+  const docs = _Declarations.find(selector, { sort: { issued_at: -1 } }).fetch();
+
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'public, max-age=60',
+  });
+  res.end(JSON.stringify({ declarations: docs, count: docs.length }));
 });
