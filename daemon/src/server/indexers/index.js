@@ -19,6 +19,7 @@ Meteor.startup(() => {
     ['KEYS', process.env.KOAD_IO_INDEX_KEYS],
     ['TICKLER', process.env.KOAD_IO_INDEX_TICKLER],
     ['DOCUMENTS', process.env.KOAD_IO_INDEX_DOCUMENTS],
+    ['PRIMERS', process.env.KOAD_IO_INDEX_PRIMERS],
   ];
 
   const active = indexers.filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);
