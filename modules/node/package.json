@@ -43,6 +43,10 @@
     "./identity-receiver": {
       "import": "./identity-receiver.js",
       "require": "./identity-receiver.cjs"
+    },
+    "./auth": {
+      "import": "./auth.js",
+      "require": "./auth.cjs"
     }
   },
   "main": "./index.cjs",

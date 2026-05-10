@@ -24,6 +24,7 @@ Package.onUse(function(api) {
 	], 'client');
 
 	api.addFiles([
+		'server/auth.js',
 		'server/roles.js',
 		'server/methods.js',
 		'server/new-user-shaper.js',
@@ -40,6 +41,7 @@ Package.onUse(function(api) {
   api.export('Logout', 'client');
 	api.export('ApplicationInvitations', 'server');
 	api.export('ApplicationSponsors', 'server');
+	api.export('SovereignAuth', 'server');
 
 });
 
