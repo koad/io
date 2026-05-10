@@ -26,7 +26,7 @@ children:
     status: not-yet-walked
   - path: modules/
     blurb: Shared Node.js module (@koad-io/node) — identity, crypto, sigchain, BIP39 exports
-    status: not-yet-walked
+    status: documented
   - path: packages/
     blurb: Framework Meteor packages — core, workers, harness, daemon-api, daemon-indexers, declarations, search, session
     status: documented
@@ -114,7 +114,7 @@ entities:
   - juno
   - livy
 last-walked: 2026-05-10
-as-of: 27c7c83fe12793f6998f954b5e53ce19a9c87ff3
+as-of: a176654204bedb918d3342206b9ae5e226687616
 ---
 
 # ~/.koad-io/ — The Framework
@@ -156,7 +156,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `helpers/` | Sourced utilities (emit, discovery, ask, spinner) | documented |
 | `hooks/` | Framework lifecycle hooks | documented |
 | `me/` | Sovereign identity root | not-yet-walked |
-| `modules/` | Shared Node.js module (@koad-io/node) | not-yet-walked |
+| `modules/` | Shared Node.js module (@koad-io/node) | documented |
 | `packages/` | Framework Meteor packages | documented |
 | `plugins/` | Harness extensions | not-yet-walked |
 | `primitives/` | Trigger/tickler/worker/party primitives | not-yet-walked |
@@ -207,4 +207,4 @@ When in doubt: would a fresh operator cloning koad:io (not koad's kingdom) need 
 
 ---
 
-*Livy walked this folder 2026-05-09. Top-level inventory is complete; child folders marked `not-yet-walked` await their own PRIMER flights.*
+*Livy walked this folder; top-level inventory updated 2026-05-10. modules/ now documented. Child folders still marked `not-yet-walked` await their own PRIMER flights.*
