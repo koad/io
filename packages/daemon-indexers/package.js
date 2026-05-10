@@ -41,6 +41,8 @@ Package.onUse(function(api) {
 		'server/merkle.js',
 		'server/emissions-summary.js',
 		'server/indexer-registry.js',
+		'server/jsonl-projector.js',
+		'server/post-folder-projector.js',
 		'server/pluggable-indexers-startup.js',
 		'server/indexer-admin-api.js',
 	], 'server');

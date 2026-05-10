@@ -25,7 +25,12 @@ Meteor.startup(() => {
 
     for (const cfg of configs) {
       try {
-        globalThis.JsonlProjector.start(cfg);
+        const format = cfg.format || 'jsonl'; // default jsonl for backward compat
+        if (format === 'post-folder') {
+          globalThis.PostFolderProjector.start(cfg);
+        } else {
+          globalThis.JsonlProjector.start(cfg);
+        }
       } catch (err) {
         console.error(`[pluggable-indexers] failed to start indexer ${cfg.name}:`, err.message);
       }
@@ -46,7 +51,13 @@ app.use('/api/indexers/reload', (req, res, next) => {
 
   try {
     const newConfigs = globalThis.IndexerRegistry.load();
-    globalThis.JsonlProjector.reload(newConfigs);
+
+    // Dispatch reload by format — each projector manages its own _running map
+    const jsonlConfigs      = newConfigs.filter(c => !c.format || c.format === 'jsonl');
+    const postFolderConfigs = newConfigs.filter(c => c.format === 'post-folder');
+
+    globalThis.JsonlProjector.reload(jsonlConfigs);
+    globalThis.PostFolderProjector.reload(postFolderConfigs);
 
     res.writeHead(200);
     res.end(JSON.stringify({
