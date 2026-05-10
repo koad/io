@@ -1,3 +1,81 @@
+---
+type: primer
+folder: ~/.koad-io/commands/
+parents:
+  - ~/.koad-io/
+children:
+  - path: assert/
+    blurb: Sourced precondition guards — assert/datadir resolves DATADIR before any command does work
+    status: documented
+  - path: build/
+    blurb: Compile a Meteor app to a deployable bundle
+    status: not-yet-walked
+  - path: deploy/
+    blurb: Extract and link a built tarball — sub-commands for interface, service, site
+    status: not-yet-walked
+  - path: emit/
+    blurb: Structured narration for open lifecycle emissions — status/note/results subcommands
+    status: documented
+  - path: entity/
+    blurb: Entity memory sub-commands — write, rotate, consolidate, verify
+    status: not-yet-walked
+  - path: generate/
+    blurb: Generator utilities — generate/cid derives stable 17-char Content IDs
+    status: not-yet-walked
+  - path: gestate/
+    blurb: New-entity creation — directory, keys, .env, wrapper command, sovereign sigchain entries
+    status: documented
+  - path: identity/
+    blurb: Identity management commands — SPEC-175 key shape, device provisioning
+    status: not-yet-walked
+  - path: init/
+    blurb: State-aware idempotent entity init — state-detect, migrate, re-seed, secondary-device, launcher + AGENTS.md
+    status: documented
+  - path: install/
+    blurb: Post-clone setup — opencode and starship sub-commands
+    status: not-yet-walked
+  - path: kingdom/
+    blurb: Kingdom-level management commands
+    status: not-yet-walked
+  - path: restart/
+    blurb: Stop (if running) then start — thin wrapper over stop + start
+    status: not-yet-walked
+  - path: start/
+    blurb: Start application in a detached screen session (production or dev mode)
+    status: not-yet-walked
+  - path: stop/
+    blurb: Stop the running application by quitting its screen session
+    status: not-yet-walked
+  - path: test/
+    blurb: Smoke test — confirm dispatch chain working; prints EXEC_FILE and args
+    status: not-yet-walked
+  - path: upload/
+    blurb: scp file/folder to remote using entity SSH key
+    status: not-yet-walked
+  - path: upstart/
+    blurb: Desktop session boot — run entity hooks, start daemon and desktop services
+    status: not-yet-walked
+features:
+  - name: command-discovery-order
+    blurb: Entity → local → framework three-step resolution; first match wins; nested paths descend into subdirs
+    location: ~/.koad-io/bin/koad-io
+  - name: gitignore-whitelist-pattern
+    blurb: commands/.gitignore is deny-by-default — new commands need !name and !name/** entries or they vanish on clone
+    location: ~/.koad-io/commands/.gitignore
+  - name: self-documenting-footer
+    blurb: discovery.sh sourced at end of command.sh prints subs+flags on TTY — every command is its own help text
+    location: ~/.koad-io/helpers/discovery.sh
+relates-to:
+  - ~/.koad-io/PRIMER.md
+  - ~/.koad-io/KOAD_IO.md
+  - ~/.koad-io/helpers/PRIMER.md
+entities:
+  - vulcan
+  - juno
+last-walked: 2026-05-09
+as-of: 8c1ff61de5e9585fa98c3dd6327371c91fdee8ed
+---
+
 <!-- SPDX-License-Identifier: CC0-1.0 -->
 
 # PRIMER — `~/.koad-io/commands/`
