@@ -17,7 +17,7 @@ children:
     status: documented
   - path: helpers/
     blurb: Sourced utilities — emit.sh/py, discovery.sh, ask.sh, spinner, cd-reflex, tickler-reflex
-    status: not-yet-walked
+    status: documented
   - path: hooks/
     blurb: Framework-tier lifecycle hooks — subagent-env-prefix, assemble-and-rewrite-dispatch, heartbeat
     status: not-yet-walked
@@ -104,7 +104,7 @@ entities:
   - juno
   - livy
 last-walked: 2026-05-09
-as-of: 8c1ff61de5e9585fa98c3dd6327371c91fdee8ed
+as-of: e2358fbeebd7fca667a412db7ed6fc47a7fd294c
 ---
 
 # ~/.koad-io/ — The Framework
@@ -143,7 +143,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `commands/` | Framework command set | documented |
 | `daemon/` | Kingdom backbone (Meteor, dev-mode, never built) | documented |
 | `harness/` | Role primers + startup | documented |
-| `helpers/` | Sourced utilities (emit, discovery, ask, spinner) | not-yet-walked |
+| `helpers/` | Sourced utilities (emit, discovery, ask, spinner) | documented |
 | `hooks/` | Framework lifecycle hooks | not-yet-walked |
 | `me/` | Sovereign identity root | not-yet-walked |
 | `modules/` | Shared Node.js module (@koad-io/node) | not-yet-walked |
