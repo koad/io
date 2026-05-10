@@ -14,7 +14,7 @@ children:
     status: documented
   - path: harness/
     blurb: Role primers (auditor/engineer/orchestrator etc.) and harness startup logic
-    status: not-yet-walked
+    status: documented
   - path: helpers/
     blurb: Sourced utilities — emit.sh/py, discovery.sh, ask.sh, spinner, cd-reflex, tickler-reflex
     status: not-yet-walked
@@ -142,7 +142,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `bin/` | Launchers + CLI tools | not-yet-walked |
 | `commands/` | Framework command set | documented |
 | `daemon/` | Kingdom backbone (Meteor, dev-mode, never built) | documented |
-| `harness/` | Role primers + startup | not-yet-walked |
+| `harness/` | Role primers + startup | documented |
 | `helpers/` | Sourced utilities (emit, discovery, ask, spinner) | not-yet-walked |
 | `hooks/` | Framework lifecycle hooks | not-yet-walked |
 | `me/` | Sovereign identity root | not-yet-walked |
