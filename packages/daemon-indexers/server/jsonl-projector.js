@@ -127,6 +127,20 @@ function globRecordId(slugValue, lineOffset) {
 }
 
 // ---------------------------------------------------------------------------
+// Resolve composite or simple key from an entry.
+// ---------------------------------------------------------------------------
+
+function resolveKey(entry, key) {
+  if (Array.isArray(key)) {
+    const parts = key.map(k => entry[k]);
+    if (parts.some(p => p === undefined || p === null)) return null;
+    return parts.join(':');
+  }
+  const v = entry[key];
+  return (v !== undefined && v !== null) ? String(v) : null;
+}
+
+// ---------------------------------------------------------------------------
 // Project entries into a collection according to mode.
 // ---------------------------------------------------------------------------
 
@@ -138,8 +152,8 @@ function project(collection, entries, config) {
     // Build a map: keyValue → last entry with that key
     const latest = {};
     for (const entry of entries) {
-      const kv = entry[key];
-      if (kv !== undefined && kv !== null) {
+      const kv = resolveKey(entry, key);
+      if (kv !== null) {
         latest[kv] = entry;
       }
     }
