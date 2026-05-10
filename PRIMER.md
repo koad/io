@@ -38,7 +38,7 @@ children:
     status: not-yet-walked
   - path: skeletons/
     blurb: Starter templates for new entities and project types (entity, meteor, garden, seed, etc.)
-    status: not-yet-walked
+    status: documented
   - path: training/
     blurb: Graduated lessons and topical syllabi — the master training layer for the kingdom
     status: not-yet-walked
@@ -160,7 +160,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `packages/` | Framework Meteor packages | not-yet-walked |
 | `plugins/` | Harness extensions | not-yet-walked |
 | `primitives/` | Trigger/tickler/worker/party primitives | not-yet-walked |
-| `skeletons/` | Starter templates | not-yet-walked |
+| `skeletons/` | Starter templates | documented |
 | `training/` | Master training layer | not-yet-walked |
 | `kingdoms/` | Cross-kingdom index | not-yet-walked |
 | `onboarding/` | Newcomer orientation | not-yet-walked |
