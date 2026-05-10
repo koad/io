@@ -29,7 +29,7 @@ children:
     status: not-yet-walked
   - path: packages/
     blurb: Framework Meteor packages — core, workers, harness, daemon-api, daemon-indexers, declarations, search, session
-    status: not-yet-walked
+    status: documented
   - path: plugins/
     blurb: Harness extensions (opencode plugin) — teach a harness to feel like it comes from the kingdom
     status: not-yet-walked
@@ -113,8 +113,8 @@ entities:
   - vulcan
   - juno
   - livy
-last-walked: 2026-05-09
-as-of: a67de948cfdb6f265035629f9c92160f546265ad
+last-walked: 2026-05-10
+as-of: a60d06f3bfc30afa2a006bfdc8e09adb0e4dac9b
 ---
 
 # ~/.koad-io/ — The Framework
@@ -157,7 +157,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `hooks/` | Framework lifecycle hooks | documented |
 | `me/` | Sovereign identity root | not-yet-walked |
 | `modules/` | Shared Node.js module (@koad-io/node) | not-yet-walked |
-| `packages/` | Framework Meteor packages | not-yet-walked |
+| `packages/` | Framework Meteor packages | documented |
 | `plugins/` | Harness extensions | not-yet-walked |
 | `primitives/` | Trigger/tickler/worker/party primitives | not-yet-walked |
 | `skeletons/` | Starter templates | documented |
