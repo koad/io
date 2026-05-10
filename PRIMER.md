@@ -41,7 +41,7 @@ children:
     status: documented
   - path: training/
     blurb: Graduated lessons and topical syllabi — the master training layer for the kingdom
-    status: not-yet-walked
+    status: documented
   - path: kingdoms/
     blurb: Cross-kingdom index — one folder per kingdom this operator participates in
     status: not-yet-walked
@@ -114,7 +114,7 @@ entities:
   - juno
   - livy
 last-walked: 2026-05-10
-as-of: a60d06f3bfc30afa2a006bfdc8e09adb0e4dac9b
+as-of: 27c7c83fe12793f6998f954b5e53ce19a9c87ff3
 ---
 
 # ~/.koad-io/ — The Framework
@@ -161,7 +161,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `plugins/` | Harness extensions | not-yet-walked |
 | `primitives/` | Trigger/tickler/worker/party primitives | not-yet-walked |
 | `skeletons/` | Starter templates | documented |
-| `training/` | Master training layer | not-yet-walked |
+| `training/` | Master training layer | documented |
 | `kingdoms/` | Cross-kingdom index | not-yet-walked |
 | `onboarding/` | Newcomer orientation | not-yet-walked |
 | `documentation/` | Kingdom model docs | not-yet-walked |
@@ -193,7 +193,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 - `daemon/PRIMER.md` — daemon architecture, guardrails, dev-mode lifecycle, `MONGO_URL=false`
 - `helpers/PRIMER.md` — emit.sh/py, discovery.sh, ask.sh usage patterns
 - `hooks/PRIMER.md` — framework hook details: executed-without-arguments, entity-upstart, CWD PRIMER injection; three-tier cascade explained; drift note on orchestrator hooks living in juno not here
-- `training/PRIMER.md` — graduation ladder for lessons
+- `training/PRIMER.md` — graduation ladder for lessons; four documented subfolders (cascade, layout, pluggable-indexers, sovereign-services)
 
 ## What goes here vs. forge
 

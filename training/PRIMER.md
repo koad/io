@@ -1,3 +1,57 @@
+---
+type: primer
+folder: ~/.koad-io/training/
+parents:
+  - ~/.koad-io/
+children:
+  - path: cascade/
+    blurb: Graduated lesson — end-to-end env cascade walkthrough
+    status: documented
+  - path: layout/
+    blurb: Topical syllabus — how a koad:io app composes visual presence from packages
+    status: documented
+  - path: pluggable-indexers/
+    blurb: Graduated tutorial — declare a JSONL indexer and subscribe from a Meteor consumer
+    status: documented
+  - path: sovereign-services/
+    blurb: Graduated tutorial — standalone Node/MCP/JSONL service pattern (dance-hall reference)
+    status: documented
+features:
+  - name: training-graduation-ladder
+    blurb: Local-first lesson discipline — write in the package, graduate here when proven broadly applicable
+    location: ~/.koad-io/training/PRIMER.md
+  - name: training-distributed-architecture
+    blurb: Training lives where the code it teaches lives — three-tier hierarchy (master / package / entity)
+    location: ~/.koad-io/training/PRIMER.md, finding-training.md
+  - name: training-finding-lessons
+    blurb: Three search methods — grep PRIMER:, find training/ dirs, kingdom search --where
+    location: ~/.koad-io/training/finding-training.md
+  - name: training-inline-primer-convention
+    blurb: PRIMER: comment block pattern — inline teachable moment with relative link to nearest lesson
+    location: ~/.koad-io/training/PRIMER.md
+  - name: training-cascade-lesson
+    blurb: Graduated reference — complete env cascade walkthrough with worked example and known gaps
+    location: ~/.koad-io/training/cascade/index.md
+  - name: training-layout-syllabus
+    blurb: Topical syllabus — four compositional cells, lesson index, cross-package open questions for the layout topic
+    location: ~/.koad-io/training/layout/index.md
+  - name: training-pluggable-indexers-tutorial
+    blurb: Step-by-step tutorial — YAML declaration, reload trigger, DDP subscription (Path A / Path B), live update loop
+    location: ~/.koad-io/training/pluggable-indexers/index.md
+  - name: training-sovereign-service-pattern
+    blurb: Architectural pattern — five-concern standalone Express+MCP+JSONL service with daemon projection; dance-hall is the reference
+    location: ~/.koad-io/training/sovereign-services/index.md
+relates-to:
+  - ~/.koad-io/PRIMER.md
+  - ~/.koad-io/KOAD_IO.md
+  - ~/.livy/features/INDEX.md
+entities:
+  - livy
+  - vulcan
+last-walked: 2026-05-10
+as-of: 27c7c83fe12793f6998f954b5e53ce19a9c87ff3
+---
+
 # koad:io Training
 
 > Curated, progressive, practitioner-focused lessons for the koad:io framework.
@@ -123,3 +177,7 @@ No fixed taxonomy. Topics emerge from the work. Graduation happens when it's ear
 - [`finding-training.md`](./finding-training.md) — entry meta-lesson
 - `~/.documentation/` — koad's broader personal manual, published at book.koad.sh
 - `~/.koad-io/skeletons/` — the skeleton set users fork
+
+---
+
+*Livy walked this folder 2026-05-10. All four child subfolders documented.*
