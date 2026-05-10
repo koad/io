@@ -18,9 +18,7 @@
 // @noble/ed25519 is already vendored in deps.js. Lazily imported so this module
 // loads synchronously even though sign/verify are async.
 
-import { createRequire } from 'module';
-const _require = createRequire(import.meta.url);
-const crypto = _require('crypto');
+import { randomBytes } from 'crypto';
 
 // Nonce TTL in milliseconds. Challenges expire after 5 minutes.
 const NONCE_TTL_MS = 5 * 60 * 1000;
@@ -79,7 +77,7 @@ function challengeMessage(nonce) {
  * @returns {{ nonce: string, expires: number }} — nonce in hex, expiry as Unix ms timestamp
  */
 function challenge() {
-  const nonce = crypto.randomBytes(32).toString('hex');
+  const nonce = randomBytes(32).toString('hex');
   const expires = Date.now() + NONCE_TTL_MS;
   pendingNonces.set(nonce, expires);
   return { nonce, expires };
