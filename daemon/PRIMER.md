@@ -1,3 +1,81 @@
+---
+type: primer
+folder: ~/.koad-io/daemon/
+parents:
+  - ~/.koad-io/
+children:
+  - path: src/
+    blurb: Live Meteor application source — the only thing that runs; edit here, hot-reload picks it up
+    status: documented
+  - path: src/server/
+    blurb: App-level server files — effectors, workspace-entity mapping, kingdom signing keys, indexer loader
+    status: documented
+  - path: src/client/
+    blurb: Operator dashboard UI — WidgetQuickLaunch, MerkleView, IndexersAdmin, KingdomOverview routing
+    status: documented
+  - path: src/server/indexers/
+    blurb: App-level indexer loader (index.js only) — actual indexers now live in koad:io-daemon-indexers package
+    status: documented
+  - path: config/
+    blurb: Per-device Meteor settings JSON — workspace-entity mapping, optional indexer overrides
+    status: not-yet-walked
+  - path: features/
+    blurb: Older-format feature specs (pre-Arc 3 planning artifacts — not the current documentation layer)
+    status: stub
+  - path: archive/
+    blurb: JSONL archive of closed emissions and flights — written by the daemon archiver
+    status: not-yet-walked
+  - path: builds/
+    blurb: Obsolete — daemon is never built; this folder is a historical artifact
+    status: stub
+  - path: runtime/
+    blurb: Runtime support files (patch scripts, ESM bridge)
+    status: not-yet-walked
+  - path: logs/
+    blurb: One log file per daemon start — fresh file per invocation, hot-reload appends
+    status: not-yet-walked
+features:
+  - name: daemon-emission-bus
+    blurb: In-memory Emissions collection with DDP pub/sub, REST POST /emit, lifecycle (open/update/close), ancestry enrichment, trigger dispatch
+    location: ~/.koad-io/packages/daemon-indexers/server/emissions.js
+  - name: daemon-rest-api
+    blurb: REST endpoints — /emit, /emit/update, /heartbeat, /flight, /health, /api/messages/counts, /api/indexers, /api/indexers/reload, /api/indexers/yaml, /api/identity-receiver
+    location: ~/.koad-io/packages/daemon-api/server/api.js
+  - name: daemon-entity-scanner
+    blurb: Always-on background scanner — detects ~/.<name>/ entity dirs via .env + passenger.json; populates Entities collection; all other indexers depend on it
+    location: ~/.koad-io/packages/daemon-indexers/server/indexers/entity-scanner.js
+  - name: daemon-pluggable-indexers
+    blurb: File-based indexer discovery via .koad-io-index.yaml in ~/.* and ~/.forge/* dirs; settings.json overrides; JSONL and post-folder projectors
+    location: ~/.koad-io/packages/daemon-indexers/server/indexer-registry.js
+  - name: daemon-merkle-tree
+    blurb: On-demand kingdom merkle tree (VESTA-SPEC-173) — entity sigchain tips as leaves, sovereign sigchain as kingdom leaf, Ed25519-signed root
+    location: ~/.koad-io/packages/daemon-indexers/server/merkle.js
+  - name: daemon-kingdom-signing-key
+    blurb: Ed25519 anchoring key loader/generator — persists to ~/.koad-io/kingdoms/<slug>/keys/anchoring-key.json; exposed as KingdomKeys globalThis
+    location: ~/.koad-io/daemon/src/server/kingdom-keys.js
+  - name: daemon-workspace-entity-mapping
+    blurb: DDP methods workspace.setState / workspace.getActive — desktop app reports X11 workspace number; daemon marks matching Passenger as selected
+    location: ~/.koad-io/daemon/src/server/workspace-entity.js
+  - name: daemon-effectors
+    blurb: Operator-triggered DDP methods — harness.launch, open.with.default.app, open.pwa, open.with.chrome, open.with.brave
+    location: ~/.koad-io/daemon/src/server/effectors.js
+  - name: daemon-operator-dashboard
+    blurb: Blaze UI at / — route-dispatched to WidgetQuickLaunch (default), KingdomOverview (/overview), MerkleView (/merkle), IndexersAdmin (/indexers)
+    location: ~/.koad-io/daemon/src/client/
+relates-to:
+  - ~/.koad-io/PRIMER.md
+  - ~/.koad-io/packages/daemon-api/
+  - ~/.koad-io/packages/daemon-indexers/
+  - ~/.koad-io/packages/core/
+  - ~/.koad-io/packages/workers/
+  - ~/.livy/features/INDEX.md
+entities:
+  - vulcan
+  - juno
+last-walked: 2026-05-09
+as-of: e96d9337de4b8ce946ad6be6c5cee441513e230f
+---
+
 # koad:io Daemon — Primer
 
 > The kingdom's long-running backbone. The evolution space. Never built.
@@ -22,6 +100,19 @@ There is **no authentication** on the daemon's HTTP surface. That is intentional
 The daemon runs in **dev mode** (`koad-io start --local`, or via the `KOAD_IO_LOCAL=true` pin in `.env`) so meteor watches `src/`, hot-reloads on edit, and exposes `meteor shell` for live method calls. This is the one Meteor app in the kingdom that is never built — it is the place the kingdom evolves in real time. Every other Meteor app (websites, portals) gets bundled and shipped; the daemon stays fluid.
 
 Corollary: if you're editing `~/.koad-io/daemon/src/**`, the running daemon picks up the change within seconds. No restart needed for most edits.
+
+## Package architecture
+
+The daemon's core logic now lives in two framework packages (not in `src/` directly):
+
+| Package | What lives there |
+|---------|-----------------|
+| `koad:io-daemon-indexers` | 14 indexers (entity-scanner, alerts, bonds, keys, kingdoms, env, tickler, triggers, workers-scanner, documents, provisioner, founding-cohort-scanner, passengers, primers) + emissions bus + merkle tree + pluggable indexer registry |
+| `koad:io-daemon-api` | REST API — /emit, /emit/update, /heartbeat, /flight, /health, /api/* endpoints + identity receiver |
+
+App-level `src/server/` files handle things specific to one operator's daemon instance: workspace→entity mapping, kingdom signing key, end-effectors, and the indexer loader summary.
+
+The 14 indexers in `daemon-indexers` are opt-in via `KOAD_IO_INDEX_<NAME>=true` in `.env` (except entity-scanner, alerts, entity-workers, and founding-cohort-scanner, which are always on).
 
 ## Guardrails that matter
 
@@ -140,7 +231,7 @@ Check the log — you should see `[EMIT/REST] juno/notice: test`.
 
 ### Dashboard
 
-Open the daemon URL in a browser (from inside the ZeroTier/Netbird network): `http://10.10.10.10:28282/`. The operator dashboard renders from `src/client/`.
+Open the daemon URL in a browser (from inside the ZeroTier/Netbird network): `http://10.10.10.10:28282/`. The operator dashboard renders from `src/client/`. Routes: `/overview` (KingdomOverview), `/merkle` (MerkleView), `/indexers` (IndexersAdmin), `/` (WidgetQuickLaunch).
 
 ## What lives where
 
@@ -151,30 +242,40 @@ Open the daemon URL in a browser (from inside the ZeroTier/Netbird network): `ht
 ├── src/                       # THE LIVE SOURCE — edit here, hot reload picks it up
 │   ├── .meteor/               # Meteor runtime (don't touch)
 │   ├── server/
-│   │   ├── api.js             # HTTP endpoints (POST /emit, POST /flight)
-│   │   ├── flights.js         # Flight telemetry collection + methods
-│   │   ├── emissions.js       # Emission bus collection + methods
-│   │   ├── effectors.js       # harness.launch, process spawning
-│   │   ├── workspace-entity.js  # Workspace → entity mapping (desktop widget)
-│   │   └── indexers/          # Background workers (bonds, keys, tickler, env,
-│   │                          #   entity-scanner, kingdoms, passengers, alerts)
+│   │   ├── effectors.js       # harness.launch, open.*, DDP methods
+│   │   ├── kingdom-keys.js    # Ed25519 signing key loader/generator
+│   │   ├── workspace-entity.js  # workspace→entity mapping (desktop widget)
+│   │   └── indexers/
+│   │       └── index.js       # Indexer loader summary (prints active/inactive)
 │   └── client/                # Operator dashboard UI
+│       ├── application-logic.js  # Template routing, WidgetQuickLaunch
+│       ├── indexers.js/html/css  # IndexersAdmin — /indexers panel
+│       ├── merkle.js/html/css    # MerkleView — /merkle panel
+│       ├── templates.html        # Body router + WidgetQuickLaunch template
+│       └── styles.css            # Global dashboard styles
 ├── builds/                    # Obsolete — daemon is never built anymore
 ├── logs/<timestamp>.log       # Every start writes a fresh log
-└── features/                  # Feature specs (planning artifacts)
+└── features/                  # Older feature specs (planning artifacts, pre-Arc 3)
 ```
 
 Packages consumed (from `~/.koad-io/packages/`):
-- `core` — koad.mongo wrapper, logger, identity, search, collections
-- `workers` — periodic worker-process framework (WorkerProcesses collection)
-- `harness` — harness integration (not always active in daemon)
+- `koad:io-core` — koad.mongo wrapper, logger, identity, search, collections
+- `koad:io-daemon-indexers` — 14 indexers + emissions bus + merkle + pluggable registry
+- `koad:io-daemon-api` — REST API
+- `koad:io-merkle-tree` — merkle tree builder (consumed by daemon-indexers)
+- `koad:io-declarations` — declarations collection
+- `koad:io-emission-types` — emission type registry
+- `koad:io-session-history` — session persistence
+- `kingofalldata:brand-components` — shared Blaze components (KingdomOverview)
 
 ## What it does
 
-- **Entity state** — 22 entities indexed into `Passengers` collection on startup; kept current by the `entity-scanner` indexer
-- **Flight telemetry** — entities POST to `/flight` on dispatch and landing; the `Flights` collection is the live projection (full logs stay on disk in `~/.<entity>/control/flights/`)
-- **Emissions** — entities push notices/warnings/errors/requests via `/emit`; consumed via DDP by the dashboard for a live stream
-- **Worker orchestration** — periodic indexers (bonds every 2 min, keys, tickler, env, entity-scanner, kingdoms, alerts) keep the collections fresh
+- **Entity state** — entity dirs scanned into `Entities` collection by entity-scanner; kept current by periodic re-scan
+- **Emissions** — entities push notices/warnings/errors/requests via REST `/emit` or DDP `entity.emit`; stored as in-memory `Emissions` collection; consumed via DDP subscription by dashboard and bridge layers
+- **Indexers** — 14 opt-in background indexers (bonds, keys, tickler, env, kingdoms, alerts, documents, passengers, primers, etc.) keep collections fresh on recurring schedules
+- **Pluggable indexers** — external `.koad-io-index.yaml` files declare additional JSONL/post-folder indexers discovered at boot
+- **Merkle tree** — on-demand VESTA-SPEC-173 kingdom merkle tree signed with the Ed25519 sovereign key
+- **Worker orchestration** — `koad:io-workers` package manages periodic worker-process lifecycle
 - **Dashboard** — operator view at `/` — the kingdom's single pane of glass
 
 ## What it is not
@@ -183,3 +284,4 @@ Packages consumed (from `~/.koad-io/packages/`):
 - Not a source of truth. Entity state of record lives on disk; the daemon reflects it.
 - Not public. Bound to ZeroTier/Netbird, no auth, trust is network membership.
 - Not built. Always runs from `src/` with hot reload. Every other Meteor app in the kingdom gets built; the daemon stays fluid.
+- Not the flight telemetry store. Flight logs live on disk in `~/.<entity>/control/flights/`; the daemon reflects the live projection only.
