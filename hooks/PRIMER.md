@@ -1,152 +1,131 @@
-<!-- SPDX-License-Identifier: CC0-1.0 -->
-
-# hooks/
-
-Framework-level hook defaults. Every file here is a template. If an entity
-has a file with the same name in its own `~/.$ENTITY/hooks/` folder, that
-file fires instead and the framework default is never called.
-
-Most entities should NOT ship overrides. The framework defaults read each
-entity's `.env` cascade and behave correctly for every shipped harness
-(claude, opencode, pi, hermez). An override is only justified when an
-entity needs behavior the cascade cannot express — and when that happens,
-the preferred fix is to teach the cascade a new knob, not fork the hook.
-
-Current overrides in the field (as of 2026-04-14):
-
-| Entity | File | Reason | Retire when |
-|--------|------|--------|------------|
-| juno   | `executed-without-arguments.sh` | pre-cascade fork, `--dangerously-skip-permissions` | `ENTITY_SKIP_PERMISSIONS=true` added to `.env`, delete fork |
-
-Chiron's fork was retired 2026-04-14 (vulcan#17) once lockfile /
-result-extraction / continue landed as env-gated behaviors in
-`harness/claude`.
-
+---
+type: primer
+folder: ~/.koad-io/hooks/
+parents:
+  - ~/.koad-io/
+children: []
+features:
+  - name: entity-no-args-hook
+    blurb: The "just type the entity name" door — resolves work dir, injects CWD PRIMER, delegates to harness default
+    location: ~/.koad-io/hooks/executed-without-arguments.sh
+  - name: entity-upstart-hook
+    blurb: Boot-time daemon and desktop launcher; lock-guarded so only one copy runs per upstart
+    location: ~/.koad-io/hooks/entity-upstart.sh
+  - name: cwd-primer-injection
+    blurb: Auto-prepend of $CWD/PRIMER.md to PROMPT when an entity is invoked inside a project folder
+    location: ~/.koad-io/hooks/executed-without-arguments.sh
+relates-to:
+  - ~/.koad-io/
+  - ~/.forge/hooks/PRIMER.md
+  - ~/.koad-io/harness/
+  - ~/.koad-io/commands/harness/
+  - ~/.livy/features/INDEX.md
+entities:
+  - vulcan
+  - juno
+  - livy
+last-walked: 2026-05-09
+as-of: a67de948cfdb6f265035629f9c92160f546265ad
 ---
 
-# entity-upstart.sh
+# ~/.koad-io/hooks/
 
-Template for an entity's upstart script. Copy to `~/.$ENTITY/hooks/upstart.sh`
-to make the entity participate in upstart.
+Framework-tier lifecycle hooks. Two bash scripts and a TUI config file. They are the first door every entity walks through — not orchestration logic, not harness logic. Just the door.
 
-```bash
-cp ~/.koad-io/hooks/entity-upstart.sh ~/.$ENTITY/hooks/upstart.sh
-```
+## What lives here (and what does not)
 
-`koad-io upstart` (bound to `<Super>u` on desktop) runs
-`~/.koad-io/commands/upstart/command.sh`, which:
+| File | Type | Purpose |
+|------|------|---------|
+| `executed-without-arguments.sh` | Lifecycle hook | Fires when an entity is invoked with no args |
+| `entity-upstart.sh` | Boot template | Starts daemon + desktop on system upstart |
+| `tui.json` | Config | opencode TUI theme (carbonfox) |
+| `PRIMER.md` | This file | Agent orientation |
 
-- If `$ENTITY` is set: fires `~/.$ENTITY/hooks/upstart.sh` only
-- If `$ENTITY` is unset: scans all `~/.*` dirs and fires every `hooks/upstart.sh` found
+The orchestration hooks (flight assembly, subagent env prefix, heartbeat, flight close) live in **juno's** hooks dir (`~/.juno/hooks/`). They are juno-tier, not framework-tier. KOAD_IO.md's hook table lists them under framework — that is a known documentation drift. The framework hooks dir contains only the two scripts above.
 
-A lock in `/dev/shm/.koad-io/locks/upstart` prevents double-firing per
-session.
+## The three-tier cascade
 
----
-
-# executed-without-arguments.sh
-
-Called when an entity command is invoked with no arguments — `vulcan`,
-`juno`, `alice`. Single global script, no per-entity logic baked in. The
-script itself is ~45 lines: pick the working directory (rooted vs roaming),
-set a terminal title, delegate to `harness default`.
-
-All divergence between entities is expressed through the `.env` cascade.
-Adding a new entity should never require touching this file.
-
-## Env-var contract
-
-Read in this precedence (first hit wins):
-
-1. Entity `.env` at `~/.$ENTITY/.env`
-2. Framework `.env` at `~/.koad-io/.env`
-3. Hardcoded fallback inside the leaf harness script
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `ENTITY_DEFAULT_HARNESS` | `opencode` | Which AI harness to launch. Valid: `claude`, `opencode`, `pi`, `hermez`. |
-| `ENTITY_DEFAULT_PROVIDER` | harness-specific | Provider inside the harness (e.g. `anthropic`, `ollama`). |
-| `ENTITY_DEFAULT_MODEL` | harness-specific | Model name (e.g. `opus-4-6`, `big-pickle`). |
-| `ENTITY_SKIP_PERMISSIONS` | `false` | If `true`, pass `--dangerously-skip-permissions` (claude harness only). Juno-only by convention. |
-| `ENTITY_LOCKFILE` | `false` | If `true`, one-shot (`-p`) claude launches check `$ENTITY_DIR/.lock/harness-claude.pid` and refuse (exit 75) if a live PID holds it. Stale locks auto-reclaim. Prevents orchestrator races into a single conversation. Interactive mode unguarded. Opt-in. |
-| `ENTITY_EXTRACT_RESULT` | `false` | If `true`, one-shot (`-p`) claude launches force `--output-format=json` and pipe stdout through `python3` to emit just the `.result` field. Gives dispatchers a clean string to parse. Interactive unaffected. Opt-in. |
-| `ENTITY_CONTINUE` | `false` | If `true`, interactive claude launches (no prompt) default to `-c` so the entity resumes its last session automatically. Equivalent to always typing `<entity> -c`. One-shot mode unaffected — continuity there stays an explicit caller choice (`CONTINUE=1`). Opt-in per-entity in `.env`. |
-| `KOAD_IO_ROOTED` | unset | If `true`, entity works from `$ENTITY_DIR`. Unset = roaming (works from `$CWD`). |
-| `KOAD_IO_ROOM` | unset | Sealed portable room — overrides `CLAUDE_CONFIG_DIR` when set. |
-| `ENTITY_HOST` | unset | Rooted entity's home host. Framework ssh's here before launch. |
-| `REMOTE_HARNESS_BIN` | harness name | Full path to harness binary on the remote host (macOS + NVM workaround). |
-| `REMOTE_NVM_INIT` | unset | PATH setup to run before harness on remote host. |
-
-Framework-level equivalents live in `~/.koad-io/.env` as
-`KOAD_IO_DEFAULT_HARNESS`, `KOAD_IO_DEFAULT_PROVIDER`, `KOAD_IO_DEFAULT_MODEL`.
-They catch entities that don't pin their own.
-
-## What the hook actually does
+Framework hooks are the lowest tier:
 
 ```
-~/.koad-io/hooks/executed-without-arguments.sh
-  │
-  ├─ Resolve $ENTITY_DIR (default $HOME/.$ENTITY)
-  ├─ Resolve $CALL_DIR (the CWD the user typed the command from)
-  ├─ Pick $HARNESS_WORK_DIR:
-  │    KOAD_IO_ROOTED=true → $ENTITY_DIR
-  │    otherwise           → $CALL_DIR
-  ├─ Set terminal title ("entity on host in cwd")
-  ├─ cd "$HARNESS_WORK_DIR"
-  └─ exec ~/.koad-io/commands/harness/default/command.sh
-       │
-       └─ Reads $ENTITY_DEFAULT_HARNESS, execs
-          ~/.koad-io/commands/harness/$HARNESS/command.sh
-            │
-            └─ That script (e.g. harness/claude) does:
-                 - Read $ENTITY_DEFAULT_PROVIDER / $ENTITY_DEFAULT_MODEL
-                 - Read $ENTITY_SKIP_PERMISSIONS (claude only)
-                 - Read $KOAD_IO_ROOM / $KOAD_IO_ROOTED for CLAUDE_CONFIG_DIR
-                 - Run startup.sh → SYSTEM_PROMPT
-                 - exec claude ... (or opencode, pi, hermez)
+~/.koad-io/hooks/     ← framework tier (this folder)
+~/.forge/hooks/       ← forge tier (kingdom-wide harness extensions)
+~/.<entity>/hooks/    ← entity tier (per-entity overrides)
 ```
 
-Each layer is thin and single-purpose. The hook is just the door;
-delegation does the work.
+When an entity command is invoked, the entity launcher looks for `hooks/<name>` first in the entity dir, then in the forge, then here. First match wins. Framework defaults fire when no override exists.
 
-## Adding a new entity
+Most entities should never need to override. All divergence should be expressed through the `.env` cascade (see KOAD_IO.md). The one active entity-level override as of 2026-05-09 is documented in this PRIMER's history notes.
 
-Nothing to do. As long as `~/.$ENTITY/.env` exists with
-`ENTITY_DEFAULT_HARNESS` set (or the framework default is acceptable),
-`$ENTITY` as a typed command will find this hook and launch the configured
-harness.
+## `executed-without-arguments.sh`
 
-A hook override in `~/.$ENTITY/hooks/executed-without-arguments.sh` is
-almost always the wrong answer. If you find yourself wanting one, ask
-first:
+Called when `juno`, `vulcan`, `alice`, or any other entity command is typed with no subcommand.
+
+It does four things in order:
+
+1. Resolves `$HARNESS_WORK_DIR` — `$ENTITY_DIR` if `KOAD_IO_ROOTED=true`, otherwise `$CALL_DIR`
+2. Sets the terminal title to `entity on host in cwd`
+3. Auto-injects `$CALL_DIR/PRIMER.md` into `$PROMPT` if the caller is inside a project folder (and that folder is not the entity's own dir)
+4. Delegates to `~/.koad-io/harness/default/command.sh` (or the `$KOAD_IO_HARNESS` override)
+
+Behavior is driven entirely by the `.env` cascade:
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `ENTITY_DEFAULT_HARNESS` | framework default | `claude`, `opencode`, `pi`, or `hermez` |
+| `ENTITY_DEFAULT_PROVIDER` | harness-specific | Provider inside the harness |
+| `ENTITY_DEFAULT_MODEL` | harness-specific | Model name |
+| `ENTITY_SKIP_PERMISSIONS` | `false` | If `true`, passes `--dangerously-skip-permissions` (claude only) |
+| `ENTITY_LOCKFILE` | `false` | PID busy-guard on one-shot claude launches |
+| `ENTITY_EXTRACT_RESULT` | `false` | Forces `--output-format=json` on one-shot, extracts `.result` |
+| `ENTITY_CONTINUE` | `false` | Adds `-c` to interactive claude launches (resumes last session) |
+| `KOAD_IO_ROOTED` | unset | `true` = entity works from its own dir; default = roaming from CWD |
+
+Adding a new entity requires no changes here. The hook is a shared door.
+
+## `entity-upstart.sh`
+
+Template for a system-upstart integration. Copy to `~/.$ENTITY/hooks/upstart.sh` and the upstart command (`koad-io upstart`) will invoke it.
+
+Lock guard: checks `/dev/shm/koad-io.upstart.lock` before proceeding. Subsequent upstart calls are no-ops.
+
+Start order:
+1. Daemon: `screen -dmS koad-daemon` in `~/.koad-io/daemon/`
+2. Desktop (if present): `screen -dmS koad-desktop` in `~/.koad-io/desktop/` — 3-second delay for daemon to settle
+
+Falls back gracefully (no `screen`) to background subshells.
+
+## `tui.json`
+
+Not a lifecycle hook. The opencode TUI reads this file from `$CWD` (or a parent dir walk) to pick a color theme. Setting `carbonfox` here makes the kingdom's TUI dark by default.
+
+## CWD PRIMER injection
+
+The most impactful behavior in this folder is not immediately obvious. When an entity is invoked inside a project directory that has a `PRIMER.md`, the hook reads it and injects it:
+
+- If `$PROMPT` is already set: prepends `Project context (from $CALL_DIR/PRIMER.md):\n<contents>\n\n---\n\n<original prompt>`
+- If `$PROMPT` is unset (interactive session): sets `$KOAD_IO_CWD_PRIMER` to the PRIMER path; the harness picks it up at startup
+
+This means every entity that reads `~/.koad-io/PRIMER.md` or a forge package PRIMER gets the entity oriented to where it was invoked, for free, before any prompt reaches the harness. The feature graph (PRIMERs in every folder) pays dividends here.
+
+Skipped if the caller is inside the entity's own dir (that PRIMER already loads via the identity cascade in startup.sh).
+
+## Override discipline
+
+Forking `executed-without-arguments.sh` into an entity dir is almost always wrong. The three questions to ask first:
 
 1. Can this be expressed as a new `$ENTITY_*` env var in the cascade?
-2. Can the leaf harness script (`commands/harness/<name>/command.sh`)
-   grow to handle this? That fixes it for every entity on that harness,
-   not just mine.
-3. Is this really entity-specific, or is it a category (rooted, Juno-class,
-   orchestrator, ...)? If it's a category, teach the cascade.
+2. Should the leaf harness script (`commands/harness/<name>/command.sh`) grow to handle it? That fixes it for every entity on that harness.
+3. Is this a category (rooted, orchestrator, ...): teach the cascade, don't fork.
 
-Only fork the hook as a last resort. Forked hooks drift. The global hook
-doesn't.
+Only fork as a last resort. Forked hooks drift. The global hook doesn't.
 
-## Interactive vs non-interactive
+## History
 
-The hook itself does not distinguish — it always launches interactive.
-Non-interactive orchestration goes through `<entity> harness default
-"prompt"` or `PROMPT="..." <entity> harness default`, which skips the
-hook entirely and enters the cascade directly.
-
-See [feedback_harness_dispatch] in MEMORY for canonical dispatch patterns.
-
----
-
-## Guestbook
-
-Sessions that shaped this file.
-
-| Date | Agent | Notes |
-|------|-------|-------|
-| 2026-04-04 | Juno (claude-sonnet-4-6) | Wrote the original PRIMER. Established `KOAD_IO_ENTITY_HARNESS` — opencode as framework default (free LLMs, try before buy), claude as explicit opt-in for team entities. Renamed `REMOTE_CLAUDE_BIN` → `REMOTE_HARNESS_BIN`. Documented upstart pattern. |
-| 2026-04-14 | Vulcan (claude-opus-4-6) | koad/vulcan#17. Rewrote for cascade-driven global hook. `KOAD_IO_ENTITY_HARNESS` is gone — replaced by `ENTITY_DEFAULT_HARNESS` (entity) and `KOAD_IO_DEFAULT_HARNESS` (framework), resolved by `commands/harness/default`. Added `ENTITY_SKIP_PERMISSIONS` knob to `harness/claude` so Juno's fork can retire. Documented field overrides (juno, chiron) and the retire-when criteria. Hook itself now has SPDX header. Did NOT delete entity copies in this flight — migration is a follow-up. |
-| 2026-04-14 | Vulcan (claude-opus-4-6) | koad/vulcan#17 closeout. Promoted Chiron's three fork behaviors into `harness/claude` as env-gated knobs: `ENTITY_LOCKFILE` (PID busy-guard at `$ENTITY_DIR/.lock/harness-claude.pid`, one-shot only), `ENTITY_EXTRACT_RESULT` (force `--output-format=json` and pipe through `python3` `.result` extractor on `-p`), `ENTITY_CONTINUE` (reflexive `-c` on interactive no-prompt launches). All three default off so nobody inherits new behavior by surprise. Chiron's `hooks/executed-without-arguments.sh` fork retired same day; Chiron's `.env` now carries the three flags. |
+| Date | Commit | Agent | Change |
+|------|--------|-------|--------|
+| 2026-04-14 | 9d19a93 | Vulcan | Canonical global hook + `ENTITY_SKIP_PERMISSIONS` cascade |
+| 2026-04-14 | ce24024 | Vulcan | Auto-inject `$CWD/PRIMER.md` into prompt |
+| 2026-04-14 | 6941a59 | Vulcan | `ENTITY_LOCKFILE`, `ENTITY_EXTRACT_RESULT`, `ENTITY_CONTINUE` knobs |
+| 2026-04-14 | 5f59287 | Vulcan | `KOAD_IO_HARNESS` override for kindergarten default |
+| 2026-05-09 | a38f85a | Vulcan | Treat CALL_DIR PRIMER as context (not prompt) in no-args case |

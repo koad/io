@@ -19,8 +19,8 @@ children:
     blurb: Sourced utilities — emit.sh/py, discovery.sh, ask.sh, spinner, cd-reflex, tickler-reflex
     status: documented
   - path: hooks/
-    blurb: Framework-tier lifecycle hooks — subagent-env-prefix, assemble-and-rewrite-dispatch, heartbeat
-    status: not-yet-walked
+    blurb: Framework-tier lifecycle hooks — entity-no-args-hook, entity-upstart, CWD PRIMER injection
+    status: documented
   - path: me/
     blurb: Sovereign identity root — id/, sigchain/, trust/ for the kingdom operator (koad)
     status: not-yet-walked
@@ -94,17 +94,27 @@ features:
   - name: koad-io-version-pin
     blurb: KOAD_IO_VERSION file written to every entity dir at gestation — records the framework SHA the entity was born at
     location: ~/.koad-io/commands/gestate/command.sh
+  - name: entity-no-args-hook
+    blurb: The "just type the entity name" door — resolves work dir, injects CWD PRIMER, delegates to harness default
+    location: ~/.koad-io/hooks/executed-without-arguments.sh
+  - name: cwd-primer-injection
+    blurb: Auto-prepend of $CWD/PRIMER.md to PROMPT when an entity is invoked inside a project folder
+    location: ~/.koad-io/hooks/executed-without-arguments.sh
+  - name: entity-upstart-hook
+    blurb: Boot-time daemon and desktop launcher; lock-guarded so only one copy runs per upstart
+    location: ~/.koad-io/hooks/entity-upstart.sh
 relates-to:
   - ~/.koad-io/KOAD_IO.md
   - ~/.koad-io/commands/PRIMER.md
   - ~/.koad-io/daemon/PRIMER.md
+  - ~/.koad-io/hooks/PRIMER.md
   - ~/.livy/features/INDEX.md
 entities:
   - vulcan
   - juno
   - livy
 last-walked: 2026-05-09
-as-of: e2358fbeebd7fca667a412db7ed6fc47a7fd294c
+as-of: a67de948cfdb6f265035629f9c92160f546265ad
 ---
 
 # ~/.koad-io/ — The Framework
@@ -144,7 +154,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `daemon/` | Kingdom backbone (Meteor, dev-mode, never built) | documented |
 | `harness/` | Role primers + startup | documented |
 | `helpers/` | Sourced utilities (emit, discovery, ask, spinner) | documented |
-| `hooks/` | Framework lifecycle hooks | not-yet-walked |
+| `hooks/` | Framework lifecycle hooks | documented |
 | `me/` | Sovereign identity root | not-yet-walked |
 | `modules/` | Shared Node.js module (@koad-io/node) | not-yet-walked |
 | `packages/` | Framework Meteor packages | not-yet-walked |
@@ -182,7 +192,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 - `commands/PRIMER.md` — full command inventory, `.gitignore` whitelist pattern, command shape contract
 - `daemon/PRIMER.md` — daemon architecture, guardrails, dev-mode lifecycle, `MONGO_URL=false`
 - `helpers/PRIMER.md` — emit.sh/py, discovery.sh, ask.sh usage patterns
-- `hooks/PRIMER.md` — three-tier hook cascade (entity → forge → framework)
+- `hooks/PRIMER.md` — framework hook details: executed-without-arguments, entity-upstart, CWD PRIMER injection; three-tier cascade explained; drift note on orchestrator hooks living in juno not here
 - `training/PRIMER.md` — graduation ladder for lessons
 
 ## What goes here vs. forge
