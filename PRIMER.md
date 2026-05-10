@@ -32,7 +32,7 @@ children:
     status: documented
   - path: plugins/
     blurb: Harness extensions (opencode plugin) — teach a harness to feel like it comes from the kingdom
-    status: not-yet-walked
+    status: documented
   - path: primitives/
     blurb: Shared trigger/tickler/worker/party primitives used by daemon and forked applications
     status: not-yet-walked
@@ -158,7 +158,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `me/` | Sovereign identity root | not-yet-walked |
 | `modules/` | Shared Node.js module (@koad-io/node) | documented |
 | `packages/` | Framework Meteor packages | documented |
-| `plugins/` | Harness extensions | not-yet-walked |
+| `plugins/` | Harness extensions | documented |
 | `primitives/` | Trigger/tickler/worker/party primitives | not-yet-walked |
 | `skeletons/` | Starter templates | documented |
 | `training/` | Master training layer | documented |
