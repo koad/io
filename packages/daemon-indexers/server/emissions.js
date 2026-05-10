@@ -1,6 +1,10 @@
 // Entity emissions — in-memory notification bus
 // Entities push notices/warnings/errors/requests via DDP method or REST
 // Operator subscribes via DDP to see them in real time
+//
+// Merged from kindergarten daemon (structured narration fields: status_line, note, results)
+// and control-tower (EmissionTypeRegistry check). Kindergarten version was ahead on
+// structured narration; control-tower was ahead on type registry integration.
 
 const VALID_TYPES = ['notice', 'warning', 'error', 'request', 'session', 'flight', 'service', 'conversation', 'hook'];
 
@@ -49,6 +53,14 @@ Meteor.methods({
 
     if (!VALID_TYPES.includes(data.type)) {
       throw new Meteor.Error('invalid-type', `Type must be one of: ${VALID_TYPES.join(', ')}`);
+    }
+
+    // Emission-type registry check — warn-only (see emission-type-registry.js).
+    // Custom/compound types go through the REST /emit path (open-vocabulary TYPE_PATTERN).
+    // DDP types are constrained by VALID_TYPES above, so this fires on every registered
+    // base type — useful for entities that declare base types in their registry.
+    if (globalThis.EmissionTypeRegistry) {
+      globalThis.EmissionTypeRegistry.checkType(data.entity, data.type);
     }
 
     const now = new Date();

@@ -1,10 +1,13 @@
 Package.describe({
   name: 'koad:io-daemon-indexers',
   version: '0.0.1',
-  summary: 'Kingdom daemon indexers — entity scanner, alerts, keys, kingdoms, env, tickler, triggers, workers, documents, provisioner, founding cohort, pluggable indexer registry',
+  summary: 'Kingdom daemon indexers — entity scanner, alerts, keys, kingdoms, env, tickler, triggers, workers, documents, provisioner, founding cohort, pluggable indexer registry, emissions, bonds, passengers, primers',
   git: '',
   documentation: null
 });
+
+// js-yaml is used by the primers indexer for YAML frontmatter parsing
+Npm.depends({ 'js-yaml': '4.1.0' });
 
 Package.onUse(function(api) {
 
@@ -18,16 +21,21 @@ Package.onUse(function(api) {
 
 	// Load order matters:
 	//   1. entity-scanner first — all other indexers depend on EntityScanner
-	//   2. kingdoms, alerts, env, keys, tickler — depend on EntityScanner
-	//   3. triggers-scanner — depends on EntityScanner
-	//   4. workers-scanner — depends on EntityScanner + koad.workers
-	//   5. documents — depends on EntityScanner
-	//   6. provisioner — depends on EntityScanner + EmissionsCollection + evaluateEmissionTriggers
-	//   7. founding-cohort-scanner — depends on EntityScanner
-	//   8. merkle — depends on EntityScanner
-	//   9. pluggable indexer infrastructure
+	//   2. emissions — sets globalThis.EmissionsCollection (needed by provisioner)
+	//   3. kingdoms, alerts, env, keys, tickler — depend on EntityScanner
+	//   4. triggers-scanner — depends on EntityScanner; sets evaluateEmissionTriggers
+	//   5. workers-scanner — depends on EntityScanner + koad.workers
+	//   6. documents — depends on EntityScanner
+	//   7. provisioner — depends on EntityScanner + globalThis.EmissionsCollection + evaluateEmissionTriggers (lazy refs, safe)
+	//   8. founding-cohort-scanner — depends on EntityScanner
+	//   9. merkle — depends on EntityScanner
+	//  10. pluggable indexer infrastructure
+	//  11. bonds — depends on EntityScanner + Kingdoms (lazy ref, safe)
+	//  12. passengers — depends on EntityScanner
+	//  13. primers — depends on nothing (self-contained walk)
 	api.addFiles([
 		'server/indexers/entity-scanner.js',
+		'server/emissions.js',
 		'server/indexers/kingdoms.js',
 		'server/indexers/alerts.js',
 		'server/indexers/env.js',
@@ -45,6 +53,9 @@ Package.onUse(function(api) {
 		'server/post-folder-projector.js',
 		'server/pluggable-indexers-startup.js',
 		'server/indexer-admin-api.js',
+		'server/indexers/bonds.js',
+		'server/indexers/passengers.js',
+		'server/indexers/primers.js',
 	], 'server');
 
 	// EntityScanner and KingdomsIndexer are referenced by app-level files

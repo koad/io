@@ -40,6 +40,59 @@ function parseFrontmatter(filePath) {
   }
 }
 
+// Normalize a raw status prose string to a structured enum value.
+// "ACTIVE — signed by..." → "active"
+// "REVOKED" → "revoked"
+// "EXPIRED" → "expired"
+// Unknown → "unsigned" (issuer hasn't set active yet)
+function normalizeStatus(rawStatus) {
+  if (!rawStatus || typeof rawStatus !== 'string') return 'unsigned';
+  const upper = rawStatus.toUpperCase();
+  if (upper.startsWith('ACTIVE')) return 'active';
+  if (upper.startsWith('REVOK')) return 'revoked';
+  if (upper.startsWith('EXPIR')) return 'expired';
+  return 'unsigned';
+}
+
+// Parse a date string into a Date object, or null on failure.
+function parseDate(str) {
+  if (!str || typeof str !== 'string') return null;
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Parse renewal field: "Annual (2027-03-31)" → Date(2027-03-31), or null.
+function parseRenewal(str) {
+  if (!str || typeof str !== 'string') return null;
+  const m = str.match(/\((\d{4}-\d{2}-\d{2})\)/);
+  if (!m) return parseDate(str); // try raw date parse as fallback
+  return parseDate(m[1]);
+}
+
+// Scan bond file body for recipient-acknowledgment checkbox state.
+// Returns true if "[ x] Recipient acknowledges" is checked, false otherwise.
+// Looks for lines matching /^\[x\]/i after a ## Signing section.
+function parseAcknowledged(filePath, toHandle) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    // Look for the signing section
+    const signingIdx = content.indexOf('## Signing');
+    const block = signingIdx !== -1 ? content.slice(signingIdx) : content;
+    // Match checked checkbox lines: "[x]" at start of line (case-insensitive)
+    const lines = block.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Match: [x] <anything containing "acknowledges">
+      if (/^\[x\]/i.test(trimmed) && trimmed.toLowerCase().includes('acknowledges')) {
+        return true;
+      }
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
 // Parse fromHandle/toHandle from a bond filename (e.g. "juno-to-vulcan.md" → {from:"juno",to:"vulcan"})
 function parseHandlesFromFilename(filename) {
   const base = filename.replace(/\.(md|asc|json)$/, '');
@@ -71,22 +124,57 @@ function parseBondSummary(filePath) {
   }
 }
 
-// Enrich a bond entry (.md file) with frontmatter fields, handle pair, and summary
-// Returns an object with enriched fields merged in
-function enrichBondEntry(entry, bondFilePath) {
+// Enrich a bond entry (.md file) with frontmatter fields, handle pair, summary,
+// and tier-1 enhanced fields: normalized status enum, parsed dates, sigStatus,
+// acknowledged boolean.
+// ascPresent: boolean — whether a companion .asc file exists in the bonds dir.
+function enrichBondEntry(entry, bondFilePath, ascPresent) {
   const fm = parseFrontmatter(bondFilePath);
   const { fromHandle, toHandle } = parseHandlesFromFilename(entry.filename);
   const summary = parseBondSummary(bondFilePath);
+  const acknowledged = parseAcknowledged(bondFilePath, toHandle);
   const enriched = Object.assign({}, entry);
+
+  // Handle pair
   if (fromHandle) enriched.fromHandle = fromHandle;
   if (toHandle)   enriched.toHandle   = toHandle;
+
+  // Frontmatter fields
   if (fm.type)       enriched.bondType   = fm.type;
   if (fm.from)       enriched.from       = fm.from;
   if (fm.to)         enriched.to         = fm.to;
-  if (fm.status)     enriched.status     = fm.status;
   if (fm.visibility) enriched.visibility = fm.visibility;
-  if (fm.created)    enriched.created    = fm.created;
-  if (summary)       enriched.summary    = summary;
+
+  // status — normalized enum (replaces raw prose string)
+  enriched.status = normalizeStatus(fm.status || '');
+
+  // Apply pending override: active + no acknowledgment = pending
+  if (enriched.status === 'active' && !acknowledged) {
+    enriched.status = 'pending';
+  }
+
+  // createdAt — parsed Date; also keep 'created' as backward-compat string alias
+  // (storefront sigchain reads b.created as a string — preserving it avoids a consumer update)
+  enriched.created   = fm.created || null;  // raw string from frontmatter (compat)
+  enriched.createdAt = parseDate(fm.created || null); // parsed Date (new canonical field)
+
+  // renewalAt — parsed Date (new field, previously dropped)
+  const renewalDate = parseRenewal(fm.renewal || null);
+  if (renewalDate) {
+    enriched.renewalAt = renewalDate;
+    // Override status to expired if past renewalAt
+    if (enriched.status !== 'revoked' && renewalDate < new Date()) {
+      enriched.status = 'expired';
+    }
+  }
+
+  // sigStatus — derived from .asc companion presence
+  enriched.sigStatus = ascPresent ? 'signed' : 'unsigned';
+
+  // acknowledged — boolean from checkbox scan
+  enriched.acknowledged = acknowledged;
+
+  if (summary) enriched.summary = summary;
   return enriched;
 }
 
@@ -177,11 +265,27 @@ function indexEntity(handle, entityPath) {
   const bondsDir = path.join(entityPath, 'trust', 'bonds');
   try {
     const files = fs.readdirSync(bondsDir);
+
+    // Build a set of .md filenames that have a companion .asc signature.
+    // "juno-to-vulcan.md.asc" → .asc companion for "juno-to-vulcan.md"
+    const ascPresenceSet = new Set();
+    for (const filename of files) {
+      if (filename.endsWith('.md.asc')) {
+        // Strip the trailing ".asc" to get the .md filename
+        ascPresenceSet.add(filename.slice(0, -4)); // e.g. "juno-to-vulcan.md"
+      }
+    }
+
     const intraBonds = [];
     const crossBondFilenames = new Set();
 
     for (const filename of files) {
       if (filename.startsWith('.')) continue;
+
+      // Skip .asc files — their presence is captured via ascPresenceSet above
+      // and merged into the parent .md entry as sigStatus. They no longer appear
+      // as standalone bonds[] entries (tier-1 cleanup).
+      if (filename.endsWith('.asc')) continue;
 
       const ext = path.extname(filename);
       const base = path.basename(filename, ext);
@@ -194,12 +298,13 @@ function indexEntity(handle, entityPath) {
       } else {
         const rawEntry = {
           filename,
-          type: ext === '.asc' ? 'signed' : ext === '.md' ? 'bond' : 'other',
+          type: ext === '.md' ? 'bond' : 'other',
           base,
         };
-        // Enrich .md bond files with frontmatter + summary
+        // Enrich .md bond files with frontmatter, summary, and tier-1 enhanced fields
+        const ascPresent = ascPresenceSet.has(filename);
         const finalEntry = (ext === '.md')
-          ? enrichBondEntry(rawEntry, bondFilePath)
+          ? enrichBondEntry(rawEntry, bondFilePath, ascPresent)
           : rawEntry;
         intraBonds.push(finalEntry);
       }
@@ -212,7 +317,7 @@ function indexEntity(handle, entityPath) {
       }
     });
 
-    // Update BondsIndex with intra-kingdom bonds
+    // Update BondsIndex with intra-kingdom bonds (count now reflects .md files only)
     const existing = BondsIndex.findOne({ handle });
     const doc = { handle, bonds: intraBonds, count: intraBonds.length, scannedAt: new Date() };
 
