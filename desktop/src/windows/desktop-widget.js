@@ -130,7 +130,7 @@ module.exports = (name) => {
 
   win.loadURL(
     url.format({
-      pathname: '127.0.0.1:28282',
+      pathname: `${process.env.KOAD_IO_BIND_IP || '10.10.10.10'}:${process.env.KOAD_IO_LIGHTHOUSE_PORT || '28282'}`,
       protocol: "http:",
       slashes: true
     }), {userAgent: 'koad:io-desktop'} // does this work?

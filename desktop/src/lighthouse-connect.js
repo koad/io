@@ -46,7 +46,7 @@ if (!ENTITY_TOKEN) {
   // Do not fall back to a hardcoded token. The token was rotated 2026-04-16.
 }
 // const endpoint = process.env.KOAD_IO_LIGHTHOUSE;
-const endpoint = '127.0.0.1:28282'
+const endpoint = `${process.env.KOAD_IO_BIND_IP || '127.0.0.1'}:${process.env.KOAD_IO_LIGHTHOUSE_PORT || '28282'}`;
 
 const { app, BrowserWindow, screen } = require("electron");
 const jetpack = require("fs-jetpack");
