@@ -27,8 +27,8 @@ import { createRequire } from 'module';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Resolve the shared ceremony — one level up (commands/), then into migrate-entity/
-const SHARED_CEREMONY = path.resolve(__dirname, '..', 'migrate-entity', 'ceremony.mjs');
+// Resolve the shared ceremony — one level up (commands/), then into init/
+const SHARED_CEREMONY = path.resolve(__dirname, '..', 'init', 'ceremony.mjs');
 
 // Re-execute the shared ceremony with the same argv so all commands are available.
 // We use a dynamic import with process.argv intact — the shared ceremony reads

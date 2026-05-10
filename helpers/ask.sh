@@ -132,13 +132,18 @@ ask() {
 
         echo "$result"
     else
-        # Non-interactive and no env value — fail clearly
-        local var_hint=""
-        # Derive a plausible env var name from the prompt for the error message
-        var_hint=$(echo "$prompt" | tr '[:lower:] ' '[:upper:]_' | tr -cd 'A-Z0-9_')
-        echo "[ask] ERROR: Non-interactive mode — cannot prompt for: $prompt" >&2
-        echo "[ask] Set env var (e.g. KOAD_IO_${var_hint}) or run interactively." >&2
-        exit 1
+        # Non-interactive: use default if available, otherwise fail
+        if [ -n "$default" ]; then
+            echo "$default"
+        elif [ "$required" -eq 0 ]; then
+            echo ""
+        else
+            local var_hint=""
+            var_hint=$(echo "$prompt" | tr '[:lower:] ' '[:upper:]_' | tr -cd 'A-Z0-9_')
+            echo "[ask] ERROR: Non-interactive mode — cannot prompt for: $prompt" >&2
+            echo "[ask] Set env var (e.g. KOAD_IO_${var_hint}) or run interactively." >&2
+            exit 1
+        fi
     fi
 }
 
