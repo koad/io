@@ -28,6 +28,8 @@ Meteor.startup(() => {
         const format = cfg.format || 'jsonl'; // default jsonl for backward compat
         if (format === 'post-folder') {
           globalThis.PostFolderProjector.start(cfg);
+        } else if (format === 'brief-folder') {
+          globalThis.BriefFolderProjector.start(cfg);
         } else {
           globalThis.JsonlProjector.start(cfg);
         }
@@ -53,11 +55,13 @@ app.use('/api/indexers/reload', (req, res, next) => {
     const newConfigs = globalThis.IndexerRegistry.load();
 
     // Dispatch reload by format — each projector manages its own _running map
-    const jsonlConfigs      = newConfigs.filter(c => !c.format || c.format === 'jsonl');
-    const postFolderConfigs = newConfigs.filter(c => c.format === 'post-folder');
+    const jsonlConfigs        = newConfigs.filter(c => !c.format || c.format === 'jsonl');
+    const postFolderConfigs   = newConfigs.filter(c => c.format === 'post-folder');
+    const briefFolderConfigs  = newConfigs.filter(c => c.format === 'brief-folder');
 
     globalThis.JsonlProjector.reload(jsonlConfigs);
     globalThis.PostFolderProjector.reload(postFolderConfigs);
+    globalThis.BriefFolderProjector.reload(briefFolderConfigs);
 
     res.writeHead(200);
     res.end(JSON.stringify({
