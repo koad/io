@@ -195,8 +195,19 @@ function projectAll(collection, sourceDir, entity) {
       collection.update(doc._id, { $set: doc });
       updated++;
     } else {
-      collection.insert(doc);
-      inserted++;
+      try {
+        collection.insert(doc);
+        inserted++;
+      } catch (err) {
+        // Guard against concurrent scans: if insert fails due to duplicate _id,
+        // fall back to update (watcher fires before initial scan completes).
+        if (err.message && err.message.includes('Duplicate _id')) {
+          collection.update(doc._id, { $set: doc });
+          updated++;
+        } else {
+          throw err;
+        }
+      }
     }
   }
 
