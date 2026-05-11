@@ -46,9 +46,10 @@ Package.onUse(function(api) {
 
 });
 
-Package.onTest(function(api) {
+Npm.depends({
+  "kbpgp": "2.1.15",
 });
 
-// node-fetch and body-parser were removed — neither is imported anywhere in the accounts package.
-// Meteor 3.x (Node 18) has native fetch. If fetch is needed, use it directly.
+Package.onTest(function(api) {
+});
 
