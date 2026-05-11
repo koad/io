@@ -34,6 +34,7 @@ Package.onUse(function(api) {
 	//  12. bonds — depends on EntityScanner + Kingdoms (lazy ref, safe)
 	//  13. passengers — depends on EntityScanner
 	//  14. primers — depends on nothing (self-contained walk)
+	//  11. pluggable indexer infrastructure (jsonl, post-folder, brief-folder, claude-session, json-folder)
 	//  15. atlas-snapshot — Meteor.methods for fast corpus delivery; must follow documents
 	//  16. effectors — self-contained Meteor.methods, no ordering constraint
 	//  17. workspace-entity — self-contained Meteor.methods + Passengers collection ref
@@ -58,6 +59,7 @@ Package.onUse(function(api) {
 		'server/post-folder-projector.js',
 		'server/brief-folder-projector.js',
 		'server/claude-session-projector.js',
+		'server/json-folder-projector.js',
 		'server/pluggable-indexers-startup.js',
 		'server/indexer-admin-api.js',
 		'server/indexers/bonds.js',
