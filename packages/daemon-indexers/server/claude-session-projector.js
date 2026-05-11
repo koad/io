@@ -82,6 +82,47 @@ const crypto = Npm.require('crypto');
 const _running = {}; // name → { config, watcher, directoryWatchers, collections }
 
 // ---------------------------------------------------------------------------
+// Per-file fs.watch — fires on appends on Linux (unlike directory watches).
+// We install one per JSONL file the first time we see it.
+// Stored in _fileWatchers[projName][filePath] to avoid duplicates.
+// ---------------------------------------------------------------------------
+
+const _fileWatchers = {}; // projName → Map<filePath, FSWatcher>
+
+function ensureFileWatcher(projName, filePath, onAppend) {
+  if (!_fileWatchers[projName]) _fileWatchers[projName] = new Map();
+  if (_fileWatchers[projName].has(filePath)) return; // already watching
+
+  try {
+    const debounce = { t: null };
+    const w = fs.watch(filePath, { persistent: false }, () => {
+      if (debounce.t) clearTimeout(debounce.t);
+      debounce.t = Meteor.setTimeout(() => {
+        debounce.t = null;
+        onAppend();
+      }, 150);
+    });
+    w.on('error', err => {
+      console.warn(`[claude-session-projector] ${projName}: per-file watcher error on ${filePath}: ${err.message}`);
+      _fileWatchers[projName].delete(filePath);
+    });
+    _fileWatchers[projName].set(filePath, w);
+  } catch (err) {
+    // Non-fatal — directory watcher still runs as fallback
+    console.warn(`[claude-session-projector] ${projName}: could not watch file ${filePath}: ${err.message}`);
+  }
+}
+
+function closeFileWatchers(projName) {
+  const map = _fileWatchers[projName];
+  if (!map) return;
+  for (const w of map.values()) {
+    try { w.close(); } catch (_) {}
+  }
+  delete _fileWatchers[projName];
+}
+
+// ---------------------------------------------------------------------------
 // file.touched emission — fired after each ToolCall insert with a targetPath.
 // Fire-and-forget: never blocks ToolCall insertion.
 // ---------------------------------------------------------------------------
@@ -511,6 +552,14 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
   const { SubagentFlights, ToolCalls } = collections;
   const existing = SubagentFlights.findOne(agentId) || {};
 
+  // Bug 2 fix: resolve entity from meta.json agentType (lowercased) so subagent
+  // tool calls are attributed to the acting entity (e.g. "argus", "vulcan"),
+  // not the parent session's entity (e.g. "juno").
+  const meta = readSubagentMeta(filePath);
+  const subagentEntity = meta.agentType !== 'unknown'
+    ? meta.agentType.toLowerCase()
+    : entity;
+
   let toolCallCount        = existing.toolCallCount        || 0;
   let toolCallSequence     = existing.toolCallSequence     || [];
   let totalInputTokens     = existing.totalInputTokens     || 0;
@@ -540,7 +589,7 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
         const tc = {
           sessionId:       parentSessionId,
           agentId,
-          entity,
+          entity:          subagentEntity,  // Bug 2 fix: use agentType, not parent entity
           toolName:        toolUse.name,
           toolUseId:       toolUse.id,
           targetPath:      rawTargetPath,
@@ -560,7 +609,7 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
           const subagentCwd = parentSession && parentSession.cwd || null;
           const normalizedPath = normalizeTouchPath(rawTargetPath, subagentCwd);
           if (normalizedPath) {
-            emitFileTouch(entity, toolUse.name, normalizedPath, parentSessionId, agentId);
+            emitFileTouch(subagentEntity, toolUse.name, normalizedPath, parentSessionId, agentId);  // Bug 2 fix
           }
         }
       }
@@ -574,13 +623,12 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
   }
   const status = computeStatus(endedAt);
 
-  const meta = readSubagentMeta(filePath);
-
+  // meta was already read at function start (above); reuse it.
   const flightDoc = {
     parentSessionId,
     agentType:       existing.agentType   || meta.agentType,
     description:     existing.description || meta.description,
-    entity,
+    entity:          subagentEntity,  // Bug 2 fix: use agentType, not parent entity
     startedAt,
     endedAt,
     durationMs,
@@ -857,21 +905,48 @@ function start(config) {
 
   const activeWatchers = []; // all fs.FSWatcher instances for cleanup on stop
 
+  // Process a session JSONL file on watcher event or per-file append.
+  // isBackfill=false: live path only.
+  function processSessionFile(filePath, sessionId, projectKey) {
+    if (!fs.existsSync(filePath)) return;
+    const { newLines, newOffset } = readNewLines(filePath, name);
+    if (newLines.length > 0) {
+      processSessionLines(name, filePath, newLines, sessionId, entity, projectKey, collections, false);
+    }
+    setOffset(name, filePath, newOffset);
+  }
+
+  // Process a subagent JSONL file on watcher event or per-file append.
+  // isBackfill=false: live path only.
+  function processSubagentFile(filePath, agentId, parentSessionId, subagentsDir) {
+    if (!fs.existsSync(filePath)) return;
+    const { newLines, newOffset } = readNewLines(filePath, name);
+    if (newLines.length > 0) {
+      processSubagentLines(name, filePath, newLines, agentId, parentSessionId, entity, collections, false);
+      setOffset(name, filePath, newOffset);
+
+      // Update parent session subagentCount
+      let count = 0;
+      try {
+        count = fs.readdirSync(subagentsDir).filter(f => looksLikeSubagentFile(f)).length;
+      } catch (_) {}
+      const sessionDoc = Sessions.findOne(parentSessionId);
+      if (sessionDoc) {
+        Sessions.update(parentSessionId, { $set: { subagentCount: count } });
+      }
+    }
+  }
+
   // Watch a project-key dir (level 2)
   function watchProjectKeyDir(projectKeyDir, projectKey) {
     const w = watchDir(name, projectKeyDir, `project-key:${projectKey}`, (eventType, filename, dir) => {
       const filePath = path.join(dir, filename);
       if (looksLikeSessionFile(filename)) {
-        // New session JSONL or append to existing
+        // New session JSONL or (rare) directory-level append event
         const sessionId = sessionIdFromFilename(filename);
-        if (fs.existsSync(filePath)) {
-          const { newLines, newOffset } = readNewLines(filePath, name);
-          if (newLines.length > 0) {
-            // isBackfill=false: watcher event means live append, not startup history.
-            processSessionLines(name, filePath, newLines, sessionId, entity, projectKey, collections, false);
-          }
-          setOffset(name, filePath, newOffset);
-        }
+        processSessionFile(filePath, sessionId, projectKey);
+        // Bug 3 fix: ensure per-file watcher so appends fire reliably on Linux
+        attachSessionFileWatcher(filePath, sessionId, projectKey);
       } else if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
         // New session UUID directory appeared — watch its subagents/ dir
         const subagentsDir = path.join(filePath, 'subagents');
@@ -880,16 +955,37 @@ function start(config) {
     });
     if (w) activeWatchers.push(w);
 
-    // Also scan for any existing UUID subdirs and watch their subagents/ dirs
+    // Scan for existing session JSONLs and attach per-file watchers for Bug 3
     try {
       const entries = fs.readdirSync(projectKeyDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(entry.name)) continue;
-        const subagentsDir = path.join(projectKeyDir, entry.name, 'subagents');
-        watchSubagentsDir(subagentsDir, entry.name);
+        if (entry.isFile() && looksLikeSessionFile(entry.name)) {
+          const sessionId = sessionIdFromFilename(entry.name);
+          const filePath  = path.join(projectKeyDir, entry.name);
+          attachSessionFileWatcher(filePath, sessionId, projectKey);
+        }
+        // Also scan for existing UUID subdirs and watch their subagents/ dirs
+        if (entry.isDirectory() &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(entry.name)) {
+          const subagentsDir = path.join(projectKeyDir, entry.name, 'subagents');
+          watchSubagentsDir(subagentsDir, entry.name);
+        }
       }
     } catch (_) {}
+  }
+
+  // Attach a per-file watcher to a session JSONL (Bug 3 fix).
+  function attachSessionFileWatcher(filePath, sessionId, projectKey) {
+    ensureFileWatcher(name, filePath, () => {
+      processSessionFile(filePath, sessionId, projectKey);
+    });
+  }
+
+  // Attach a per-file watcher to a subagent JSONL (Bug 1 fix).
+  function attachSubagentFileWatcher(filePath, agentId, parentSessionId, subagentsDir) {
+    ensureFileWatcher(name, filePath, () => {
+      processSubagentFile(filePath, agentId, parentSessionId, subagentsDir);
+    });
   }
 
   // Watch a subagents/ dir (level 3)
@@ -900,24 +996,22 @@ function start(config) {
       if (!fs.existsSync(filePath)) return;
 
       const agentId = agentIdFromFilename(filename);
-      const { newLines, newOffset } = readNewLines(filePath, name);
-      if (newLines.length > 0) {
-        // isBackfill=false: watcher event means live append, not startup history.
-        processSubagentLines(name, filePath, newLines, agentId, parentSessionId, entity, collections, false);
-        setOffset(name, filePath, newOffset);
-
-        // Update parent session subagentCount
-        let count = 0;
-        try {
-          count = fs.readdirSync(dir).filter(f => looksLikeSubagentFile(f)).length;
-        } catch (_) {}
-        const sessionDoc = Sessions.findOne(parentSessionId);
-        if (sessionDoc) {
-          Sessions.update(parentSessionId, { $set: { subagentCount: count } });
-        }
-      }
+      // Directory event — process any new bytes, then attach per-file watcher (Bug 1 fix)
+      processSubagentFile(filePath, agentId, parentSessionId, dir);
+      attachSubagentFileWatcher(filePath, agentId, parentSessionId, dir);
     });
     if (w) activeWatchers.push(w);
+
+    // Scan for existing subagent JSONLs and attach per-file watchers (Bug 1 fix)
+    try {
+      const entries = fs.readdirSync(subagentsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile() || !looksLikeSubagentFile(entry.name)) continue;
+        const filePath = path.join(subagentsDir, entry.name);
+        const agentId  = agentIdFromFilename(entry.name);
+        attachSubagentFileWatcher(filePath, agentId, parentSessionId, subagentsDir);
+      }
+    } catch (_) {}
   }
 
   // Watch sourceDir (level 1) for new project-key directories
@@ -958,6 +1052,9 @@ function stop(name) {
   for (const w of (entry.activeWatchers || [])) {
     try { w.close(); } catch (_) {}
   }
+
+  // Close per-file watchers (Bug 1 & 3 fix)
+  closeFileWatchers(name);
 
   // Remove docs belonging to this entity only (Sessions/SubagentFlights/ToolCalls)
   const entity = entry.config.entity || null;
