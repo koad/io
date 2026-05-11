@@ -144,6 +144,28 @@ function normalizeTouchPath(rawPath, cwd) {
   return resolved;
 }
 
+// ---------------------------------------------------------------------------
+// Flood-rate guard for file.touched emissions.
+// Logs a warning if sustained emit rate exceeds 100/sec.
+// ---------------------------------------------------------------------------
+
+const _touchRateWindow = { count: 0, windowStart: 0 };
+const TOUCH_RATE_WARN_PER_SEC = 100;
+const TOUCH_RATE_WINDOW_MS    = 1000;
+
+function _checkTouchFloodRate() {
+  const now = Date.now();
+  if (now - _touchRateWindow.windowStart > TOUCH_RATE_WINDOW_MS) {
+    // New window
+    _touchRateWindow.windowStart = now;
+    _touchRateWindow.count       = 0;
+  }
+  _touchRateWindow.count++;
+  if (_touchRateWindow.count === TOUCH_RATE_WARN_PER_SEC + 1) {
+    console.warn(`[claude-session-projector] WARNING: file.touched emission rate exceeds ${TOUCH_RATE_WARN_PER_SEC}/sec — possible flood`);
+  }
+}
+
 // Emit a file.touched emission. Non-throwing — daemon being down must not
 // affect ToolCall insertion.
 function emitFileTouch(entity, toolName, targetPath, sessionId, parentSessionId) {
@@ -166,6 +188,7 @@ function emitFileTouch(entity, toolName, targetPath, sessionId, parentSessionId)
       },
     };
     Emissions.insert(doc);
+    _checkTouchFloodRate();
     // Update entity lastActivity (best-effort)
     if (globalThis.EntityScanner) {
       EntityScanner.Entities.update({ handle: entity }, { $set: { lastActivity: now } });
@@ -363,9 +386,12 @@ function upsertDoc(collection, _id, doc) {
 // Process new JSONL lines for a MAIN SESSION file.
 // Updates Sessions doc and inserts new ToolCalls docs.
 // Returns the updated session aggregate data (for upsert).
+//
+// isBackfill: true during initial fullScan startup — suppresses emitFileTouch so
+// historical ToolCalls don't flood the emission stream with ancient events.
 // ---------------------------------------------------------------------------
 
-function processSessionLines(projName, filePath, newLines, sessionId, entity, projectKey, collections) {
+function processSessionLines(projName, filePath, newLines, sessionId, entity, projectKey, collections, isBackfill) {
   const { Sessions, ToolCalls } = collections;
   const existing = Sessions.findOne(sessionId) || {};
 
@@ -437,8 +463,9 @@ function processSessionLines(projName, filePath, newLines, sessionId, entity, pr
         };
         upsertDoc(ToolCalls, tcId, tc);
 
-        // Emit file.touched for file-touching tools (fire-and-forget)
-        if (shouldEmitTouch(toolUse.name) && rawTargetPath) {
+        // Emit file.touched for file-touching tools (fire-and-forget).
+        // Skip during backfill — historical tool calls must not flood the stream.
+        if (!isBackfill && shouldEmitTouch(toolUse.name) && rawTargetPath) {
           const normalizedPath = normalizeTouchPath(rawTargetPath, cwd);
           if (normalizedPath) {
             emitFileTouch(entity, toolUse.name, normalizedPath, sessionId, null);
@@ -476,9 +503,11 @@ function processSessionLines(projName, filePath, newLines, sessionId, entity, pr
 // ---------------------------------------------------------------------------
 // Process new JSONL lines for a SUBAGENT file.
 // Updates SubagentFlights doc and inserts new ToolCalls docs.
+//
+// isBackfill: true during initial fullScan startup — suppresses emitFileTouch.
 // ---------------------------------------------------------------------------
 
-function processSubagentLines(projName, filePath, newLines, agentId, parentSessionId, entity, collections) {
+function processSubagentLines(projName, filePath, newLines, agentId, parentSessionId, entity, collections, isBackfill) {
   const { SubagentFlights, ToolCalls } = collections;
   const existing = SubagentFlights.findOne(agentId) || {};
 
@@ -523,8 +552,9 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
         };
         upsertDoc(ToolCalls, tcId, tc);
 
-        // Emit file.touched for file-touching tools (fire-and-forget)
-        if (shouldEmitTouch(toolUse.name) && rawTargetPath) {
+        // Emit file.touched for file-touching tools (fire-and-forget).
+        // Skip during backfill — historical tool calls must not flood the stream.
+        if (!isBackfill && shouldEmitTouch(toolUse.name) && rawTargetPath) {
           // Subagent sessions don't carry cwd in the JSONL — look up parent session for cwd
           const parentSession = collections.Sessions && collections.Sessions.findOne(parentSessionId);
           const subagentCwd = parentSession && parentSession.cwd || null;
@@ -606,9 +636,11 @@ function looksLikeSubagentFile(filename) {
 // ---------------------------------------------------------------------------
 // Discover and scan all subagent files under a session's subagents/ dir.
 // Updates subagentCount on the parent Sessions doc.
+//
+// isBackfill: true during initial fullScan — suppresses emitFileTouch.
 // ---------------------------------------------------------------------------
 
-function scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, collections) {
+function scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, collections, isBackfill) {
   let entries;
   try {
     entries = fs.readdirSync(subagentsDir, { withFileTypes: true });
@@ -628,7 +660,7 @@ function scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, colle
     if (newLines.length > 0 || !collections.SubagentFlights.findOne(agentId)) {
       // Full scan needed for new files (newLines only has bytes since last offset)
       // If this file is new (no offset), readNewLines returns all content from 0
-      processSubagentLines(projName, filePath, newLines, agentId, parentSessionId, entity, collections);
+      processSubagentLines(projName, filePath, newLines, agentId, parentSessionId, entity, collections, isBackfill);
     }
     setOffset(projName, filePath, newOffset);
     count++;
@@ -638,9 +670,11 @@ function scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, colle
 
 // ---------------------------------------------------------------------------
 // Scan one project-key directory: find session JSONLs and their subagents/ dirs.
+//
+// isBackfill: true during initial fullScan — suppresses emitFileTouch.
 // ---------------------------------------------------------------------------
 
-function scanProjectKeyDir(projName, projectKeyDir, projectKey, entity, collections) {
+function scanProjectKeyDir(projName, projectKeyDir, projectKey, entity, collections, isBackfill) {
   let entries;
   try {
     entries = fs.readdirSync(projectKeyDir, { withFileTypes: true });
@@ -656,7 +690,7 @@ function scanProjectKeyDir(projName, projectKeyDir, projectKey, entity, collecti
 
       const { newLines, newOffset } = readNewLines(filePath, projName);
       if (newLines.length > 0 || !collections.Sessions.findOne(sessionId)) {
-        processSessionLines(projName, filePath, newLines, sessionId, entity, projectKey, collections);
+        processSessionLines(projName, filePath, newLines, sessionId, entity, projectKey, collections, isBackfill);
       }
       setOffset(projName, filePath, newOffset);
     }
@@ -670,7 +704,7 @@ function scanProjectKeyDir(projName, projectKeyDir, projectKey, entity, collecti
 
     const parentSessionId = entry.name;
     const subagentsDir    = path.join(projectKeyDir, entry.name, 'subagents');
-    const count           = scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, collections);
+    const count           = scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, collections, isBackfill);
 
     // Update subagentCount on the parent session doc if it exists
     if (count > 0) {
@@ -702,10 +736,12 @@ function fullScan(projName, sourceDir, entity, collections) {
     return;
   }
 
+  // isBackfill=true: historical ToolCalls must not flood the emission stream.
+  // Watcher-triggered paths pass isBackfill=false (live events fire normally).
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const projectKeyDir = path.join(sourceDir, entry.name);
-    scanProjectKeyDir(projName, projectKeyDir, entry.name, entity, collections);
+    scanProjectKeyDir(projName, projectKeyDir, entry.name, entity, collections, true);
   }
 }
 
@@ -831,7 +867,8 @@ function start(config) {
         if (fs.existsSync(filePath)) {
           const { newLines, newOffset } = readNewLines(filePath, name);
           if (newLines.length > 0) {
-            processSessionLines(name, filePath, newLines, sessionId, entity, projectKey, collections);
+            // isBackfill=false: watcher event means live append, not startup history.
+            processSessionLines(name, filePath, newLines, sessionId, entity, projectKey, collections, false);
           }
           setOffset(name, filePath, newOffset);
         }
@@ -865,7 +902,8 @@ function start(config) {
       const agentId = agentIdFromFilename(filename);
       const { newLines, newOffset } = readNewLines(filePath, name);
       if (newLines.length > 0) {
-        processSubagentLines(name, filePath, newLines, agentId, parentSessionId, entity, collections);
+        // isBackfill=false: watcher event means live append, not startup history.
+        processSubagentLines(name, filePath, newLines, agentId, parentSessionId, entity, collections, false);
         setOffset(name, filePath, newOffset);
 
         // Update parent session subagentCount
@@ -887,8 +925,9 @@ function start(config) {
     const fullPath = path.join(dir, filename);
     try {
       if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
-        // New project-key dir appeared — scan it immediately and set up watchers
-        scanProjectKeyDir(name, fullPath, filename, entity, collections);
+        // New project-key dir appeared — scan it immediately and set up watchers.
+        // isBackfill=false: this is a live watcher event, not startup history.
+        scanProjectKeyDir(name, fullPath, filename, entity, collections, false);
         watchProjectKeyDir(fullPath, filename);
       }
     } catch (_) {}
