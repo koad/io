@@ -61,6 +61,9 @@ function parseFrontmatter(raw) {
   for (const line of fmLines) {
     if (!line.trim() || line.trim().startsWith('#')) continue;
 
+    // Skip indented lines — continuation of multi-line values or block sequences
+    if (/^\s/.test(line)) continue;
+
     const colon = line.indexOf(':');
     if (colon === -1) continue;
 
