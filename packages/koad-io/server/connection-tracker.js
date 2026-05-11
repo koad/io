@@ -125,6 +125,8 @@ Meteor.onConnection(function(connection){
 			engine: r.engine,
 			cpu: r.cpu
 		},
+		fingerprint: null, // Set by auth.verify method (VESTA-SPEC-185 §8)
+		identifiedAt: null, // Timestamp when fingerprint was first set
 		pageviews: 0,
 		calls: 0,
 		counters: {

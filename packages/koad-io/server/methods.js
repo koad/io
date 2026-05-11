@@ -60,11 +60,15 @@ Meteor.methods({
 		}
 
 		// Handle returning visitors (link this session to previous one)
+		// Track any fingerprint to carry forward before building updateObj
+		let _carriedFingerprint = null;
+		let _carriedIdentifiedAt = null;
+
 		if (data.lastSession == null) {
 			log.system('[enable.connection] New client connection established', { ip });
 		} else {
 			const earlierVisit = await ApplicationSessions.findOneAsync({ _id: data.lastSession });
-			
+
 			if (earlierVisit === undefined) {
 				log.warning('[enable.connection] Previous session not found', {
 					reportedSession: data.lastSession,
@@ -73,12 +77,18 @@ Meteor.methods({
 				});
 			} else {
 				log.system('[enable.connection] Returning client connection established', { ip });
-				
+
 				// Link previous session to this one
 				await ApplicationSessions.updateAsync(
 					{ _id: earlierVisit._id },
 					{ $set: { nextConnection: this.connection.id } }
 				);
+
+				// Capture PGP fingerprint to carry forward (VESTA-SPEC-185 §8)
+				if (earlierVisit.fingerprint) {
+					_carriedFingerprint = earlierVisit.fingerprint;
+					_carriedIdentifiedAt = earlierVisit.identifiedAt || null;
+				}
 			}
 		}
 
@@ -101,6 +111,12 @@ Meteor.methods({
 			trafficSource: data,
 			state: 'connected'
 		};
+
+		// Carry forward PGP fingerprint from previous identified session (VESTA-SPEC-185 §8)
+		if (_carriedFingerprint) {
+			updateObj.fingerprint = _carriedFingerprint;
+			if (_carriedIdentifiedAt) updateObj.identifiedAt = _carriedIdentifiedAt;
+		}
 
 		// Set username if not already authenticated
 		// (if user logged in before enable.connection, userId/username are already set)
