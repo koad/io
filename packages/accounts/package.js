@@ -32,6 +32,7 @@ Package.onUse(function(api) {
 		'server/invitations.js',
 		'server/oauth-methods.js',
 		'server/rate-limiting.js',
+		'server/pgp-auth.js',
 	], 'server');
 
   // api.export('Accounts');
