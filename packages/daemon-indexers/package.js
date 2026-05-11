@@ -1,7 +1,7 @@
 Package.describe({
   name: 'koad:io-daemon-indexers',
   version: '0.0.1',
-  summary: 'Kingdom daemon indexers — entity scanner, alerts, keys, kingdoms, env, tickler, triggers, workers, documents, provisioner, founding cohort, pluggable indexer registry, emissions, bonds, passengers, primers',
+  summary: 'Kingdom daemon indexers — entity scanner, alerts, keys, kingdoms, env, tickler, triggers, workers, documents, provisioner, founding cohort, pluggable indexer registry, emissions, bonds, passengers, primers, kingdom signing keys, effectors, workspace-entity',
   git: '',
   documentation: null
 });
@@ -28,11 +28,14 @@ Package.onUse(function(api) {
 	//   6. documents — depends on EntityScanner
 	//   7. provisioner — depends on EntityScanner + globalThis.EmissionsCollection + evaluateEmissionTriggers (lazy refs, safe)
 	//   8. founding-cohort-scanner — depends on EntityScanner
-	//   9. merkle — depends on EntityScanner
-	//  10. pluggable indexer infrastructure
-	//  11. bonds — depends on EntityScanner + Kingdoms (lazy ref, safe)
-	//  12. passengers — depends on EntityScanner
-	//  13. primers — depends on nothing (self-contained walk)
+	//   9. kingdom-keys — must load before merkle.js (merkle reads KingdomKeys global)
+	//  10. merkle — depends on EntityScanner + KingdomKeys (lazy ref, safe after #9)
+	//  11. pluggable indexer infrastructure
+	//  12. bonds — depends on EntityScanner + Kingdoms (lazy ref, safe)
+	//  13. passengers — depends on EntityScanner
+	//  14. primers — depends on nothing (self-contained walk)
+	//  15. effectors — self-contained Meteor.methods, no ordering constraint
+	//  16. workspace-entity — self-contained Meteor.methods + Passengers collection ref
 	api.addFiles([
 		'server/indexers/entity-scanner.js',
 		'server/emissions.js',
@@ -46,6 +49,7 @@ Package.onUse(function(api) {
 		'server/indexers/documents.js',
 		'server/indexers/provisioner.js',
 		'server/indexers/founding-cohort-scanner.js',
+		'server/kingdom-keys.js',
 		'server/merkle.js',
 		'server/emissions-summary.js',
 		'server/indexer-registry.js',
@@ -57,12 +61,17 @@ Package.onUse(function(api) {
 		'server/indexers/bonds.js',
 		'server/indexers/passengers.js',
 		'server/indexers/primers.js',
+		'server/effectors.js',
+		'server/workspace-entity.js',
 	], 'server');
 
 	// EntityScanner and KingdomsIndexer are referenced by app-level files
 	// (bonds.js, api.js etc.) via the implicit global — no export needed.
 	// MerkleBuilder is used by app-level REST endpoints.
+	// KingdomKeys is used by merkle.js (within this package) and may be referenced
+	// by app-level code that reads signing key metadata.
 	api.export('EntityScanner', 'server');
 	api.export('KingdomsIndexer', 'server');
 	api.export('MerkleBuilder', 'server');
+	api.export('KingdomKeys', 'server');
 });

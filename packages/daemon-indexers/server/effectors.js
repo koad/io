@@ -1,7 +1,7 @@
 // End-effector actions — operator-triggered via DDP from passenger widgets
 // No auth — inside the hard shell (localhost only)
 
-const { exec } = Npm.require('child_process');
+const { exec, execFile } = Npm.require('child_process');
 
 Meteor.methods({
 
@@ -55,7 +55,7 @@ Meteor.methods({
   'open.with.default.app'(targetUrl) {
     check(targetUrl, String);
     console.log(`[EFFECTOR] open.with.default.app: ${targetUrl}`);
-    exec(`xdg-open "${targetUrl}"`);
+    execFile('xdg-open', [targetUrl]);
   },
 
   /**
@@ -64,7 +64,7 @@ Meteor.methods({
   'open.pwa'(appId) {
     check(appId, String);
     console.log(`[EFFECTOR] open.pwa: ${appId}`);
-    exec(`google-chrome --profile-directory=Default --app-id=${appId}`);
+    execFile('google-chrome', ['--profile-directory=Default', `--app-id=${appId}`]);
   },
 
   /**
@@ -73,7 +73,7 @@ Meteor.methods({
   'open.pwa.with.brave'(appId) {
     check(appId, String);
     console.log(`[EFFECTOR] open.pwa.with.brave: ${appId}`);
-    exec(`brave-browser --profile-directory=Default --app-id=${appId}`);
+    execFile('brave-browser', ['--profile-directory=Default', `--app-id=${appId}`]);
   },
 
   /**
@@ -82,7 +82,7 @@ Meteor.methods({
   'open.with.chrome'(url) {
     check(url, String);
     console.log(`[EFFECTOR] open.with.chrome: ${url}`);
-    exec(`google-chrome --profile-directory=Default "${url}"`);
+    execFile('google-chrome', ['--profile-directory=Default', url]);
   },
 
   /**
@@ -91,7 +91,7 @@ Meteor.methods({
   'open.with.brave'(url) {
     check(url, String);
     console.log(`[EFFECTOR] open.with.brave: ${url}`);
-    exec(`brave-browser --profile-directory=Default "${url}"`);
+    execFile('brave-browser', ['--profile-directory=Default', url]);
   },
 
 });
