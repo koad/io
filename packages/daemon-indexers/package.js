@@ -26,6 +26,7 @@ Package.onUse(function(api) {
 	//   4. triggers-scanner — depends on EntityScanner; sets evaluateEmissionTriggers
 	//   5. workers-scanner — depends on EntityScanner + koad.workers
 	//   6. documents — depends on EntityScanner
+	//   6b. file-touch-reactor — depends on documents (Documents collection) + emissions (EmissionsCollection)
 	//   7. provisioner — depends on EntityScanner + globalThis.EmissionsCollection + evaluateEmissionTriggers (lazy refs, safe)
 	//   8. founding-cohort-scanner — depends on EntityScanner
 	//   9. kingdom-keys — must load before merkle.js (merkle reads KingdomKeys global)
@@ -49,6 +50,7 @@ Package.onUse(function(api) {
 		'server/indexers/triggers-scanner.js',
 		'server/indexers/workers-scanner.js',
 		'server/indexers/documents.js',
+		'server/file-touch-reactor.js',
 		'server/indexers/provisioner.js',
 		'server/indexers/founding-cohort-scanner.js',
 		'server/kingdom-keys.js',

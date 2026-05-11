@@ -75,10 +75,106 @@
 
 const fs     = Npm.require('fs');
 const path   = Npm.require('path');
+const os     = Npm.require('os');
 const crypto = Npm.require('crypto');
 
 // Track running projectors for reload
 const _running = {}; // name → { config, watcher, directoryWatchers, collections }
+
+// ---------------------------------------------------------------------------
+// file.touched emission — fired after each ToolCall insert with a targetPath.
+// Fire-and-forget: never blocks ToolCall insertion.
+// ---------------------------------------------------------------------------
+
+// Tools that clearly touch a file by targetPath.
+const TOUCH_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit']);
+
+// Directories to ignore — transient, generated, or VCS-internal.
+const IGNORE_PREFIXES = [
+  path.join(os.homedir(), '.git') + '/',
+  '/tmp/',
+  '/var/folders/',
+];
+const IGNORE_DIRS = new Set(['.git', 'node_modules', '.meteor', '.npm', '.trash', '.archive']);
+
+function shouldEmitTouch(toolName) {
+  return TOUCH_TOOLS.has(toolName);
+}
+
+// Resolve a targetPath to absolute, optionally against session cwd.
+// Returns null if the path should be skipped.
+function normalizeTouchPath(rawPath, cwd) {
+  if (!rawPath || typeof rawPath !== 'string') return null;
+
+  let resolved = rawPath;
+
+  // Expand ~/ prefix
+  if (resolved.startsWith('~/')) {
+    resolved = path.join(os.homedir(), resolved.slice(2));
+  }
+
+  // Resolve relative paths against session cwd
+  if (!path.isAbsolute(resolved)) {
+    if (cwd) {
+      resolved = path.resolve(cwd, resolved);
+    } else {
+      // No cwd available — can't resolve relative path safely, skip
+      return null;
+    }
+  }
+
+  // Skip ignored dirs — check each path segment
+  const parts = resolved.split(path.sep);
+  for (const part of parts) {
+    if (IGNORE_DIRS.has(part)) return null;
+  }
+
+  // Skip ignored prefixes
+  for (const prefix of IGNORE_PREFIXES) {
+    if (resolved.startsWith(prefix)) return null;
+  }
+
+  // Skip if the file doesn't exist on disk (transient/virtual)
+  try {
+    if (!fs.existsSync(resolved)) return null;
+  } catch (_) {
+    return null;
+  }
+
+  return resolved;
+}
+
+// Emit a file.touched emission. Non-throwing — daemon being down must not
+// affect ToolCall insertion.
+function emitFileTouch(entity, toolName, targetPath, sessionId, parentSessionId) {
+  try {
+    const Emissions = globalThis.EmissionsCollection;
+    if (!Emissions) return; // Emissions not yet loaded — skip
+    const now = new Date();
+    const doc = {
+      entity,
+      type: 'file.touched',
+      body: `${toolName} ${targetPath}`,
+      timestamp: now,
+      meta: {
+        payload: {
+          path: targetPath,
+          toolName,
+          sessionId,
+          parentSessionId: parentSessionId || null,
+        },
+      },
+    };
+    Emissions.insert(doc);
+    // Update entity lastActivity (best-effort)
+    if (globalThis.EntityScanner) {
+      EntityScanner.Entities.update({ handle: entity }, { $set: { lastActivity: now } });
+    }
+  } catch (err) {
+    // Non-fatal — projector must keep working if emission fails
+    console.warn(`[claude-session-projector] emitFileTouch failed: ${err.message}`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Byte-offset store — per projector-name, per file path.
@@ -325,13 +421,14 @@ function processSessionLines(projName, filePath, newLines, sessionId, entity, pr
         // Skip if already inserted
         if (ToolCalls.findOne(tcId)) continue;
 
+        const rawTargetPath = extractTargetPath(toolUse);
         const tc = {
           sessionId,
           agentId:          null,
           entity,
           toolName:         toolUse.name,
           toolUseId:        toolUse.id,
-          targetPath:       extractTargetPath(toolUse),
+          targetPath:       rawTargetPath,
           command:          extractCommand(toolUse),
           timestamp:        ts,
           inputTokens:      usage.input_tokens              || 0,
@@ -339,6 +436,14 @@ function processSessionLines(projName, filePath, newLines, sessionId, entity, pr
           cacheReadTokens:  usage.cache_read_input_tokens   || 0,
         };
         upsertDoc(ToolCalls, tcId, tc);
+
+        // Emit file.touched for file-touching tools (fire-and-forget)
+        if (shouldEmitTouch(toolUse.name) && rawTargetPath) {
+          const normalizedPath = normalizeTouchPath(rawTargetPath, cwd);
+          if (normalizedPath) {
+            emitFileTouch(entity, toolUse.name, normalizedPath, sessionId, null);
+          }
+        }
       }
     }
   }
@@ -402,13 +507,14 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
         const tcId = toolCallId(parentSessionId, toolUse.id);
         if (ToolCalls.findOne(tcId)) continue;
 
+        const rawTargetPath = extractTargetPath(toolUse);
         const tc = {
           sessionId:       parentSessionId,
           agentId,
           entity,
           toolName:        toolUse.name,
           toolUseId:       toolUse.id,
-          targetPath:      extractTargetPath(toolUse),
+          targetPath:      rawTargetPath,
           command:         extractCommand(toolUse),
           timestamp:       ts,
           inputTokens:     usage.input_tokens              || 0,
@@ -416,6 +522,17 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
           cacheReadTokens: usage.cache_read_input_tokens   || 0,
         };
         upsertDoc(ToolCalls, tcId, tc);
+
+        // Emit file.touched for file-touching tools (fire-and-forget)
+        if (shouldEmitTouch(toolUse.name) && rawTargetPath) {
+          // Subagent sessions don't carry cwd in the JSONL — look up parent session for cwd
+          const parentSession = collections.Sessions && collections.Sessions.findOne(parentSessionId);
+          const subagentCwd = parentSession && parentSession.cwd || null;
+          const normalizedPath = normalizeTouchPath(rawTargetPath, subagentCwd);
+          if (normalizedPath) {
+            emitFileTouch(entity, toolUse.name, normalizedPath, parentSessionId, agentId);
+          }
+        }
       }
     }
   }
