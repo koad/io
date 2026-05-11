@@ -57,6 +57,7 @@ Package.onUse(function(api) {
 		'server/jsonl-projector.js',
 		'server/post-folder-projector.js',
 		'server/brief-folder-projector.js',
+		'server/claude-session-projector.js',
 		'server/pluggable-indexers-startup.js',
 		'server/indexer-admin-api.js',
 		'server/indexers/bonds.js',

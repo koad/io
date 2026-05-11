@@ -30,6 +30,8 @@ Meteor.startup(() => {
           globalThis.PostFolderProjector.start(cfg);
         } else if (format === 'brief-folder') {
           globalThis.BriefFolderProjector.start(cfg);
+        } else if (format === 'claude-session') {
+          globalThis.ClaudeSessionProjector.start(cfg);
         } else {
           globalThis.JsonlProjector.start(cfg);
         }
@@ -55,13 +57,15 @@ app.use('/api/indexers/reload', (req, res, next) => {
     const newConfigs = globalThis.IndexerRegistry.load();
 
     // Dispatch reload by format — each projector manages its own _running map
-    const jsonlConfigs        = newConfigs.filter(c => !c.format || c.format === 'jsonl');
-    const postFolderConfigs   = newConfigs.filter(c => c.format === 'post-folder');
-    const briefFolderConfigs  = newConfigs.filter(c => c.format === 'brief-folder');
+    const jsonlConfigs           = newConfigs.filter(c => !c.format || c.format === 'jsonl');
+    const postFolderConfigs      = newConfigs.filter(c => c.format === 'post-folder');
+    const briefFolderConfigs     = newConfigs.filter(c => c.format === 'brief-folder');
+    const claudeSessionConfigs   = newConfigs.filter(c => c.format === 'claude-session');
 
     globalThis.JsonlProjector.reload(jsonlConfigs);
     globalThis.PostFolderProjector.reload(postFolderConfigs);
     globalThis.BriefFolderProjector.reload(briefFolderConfigs);
+    globalThis.ClaudeSessionProjector.reload(claudeSessionConfigs);
 
     res.writeHead(200);
     res.end(JSON.stringify({
