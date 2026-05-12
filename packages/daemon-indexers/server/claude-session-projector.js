@@ -590,7 +590,7 @@ function agentIdFromFilename(filename) {
 
 function looksLikeSessionFile(filename) {
   if (!filename.endsWith('.jsonl')) return false;
-  const base = filename.slice(0, -5);
+  const base = filename.slice(0, -6); // .jsonl is 6 chars
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(base);
 }
 
@@ -768,6 +768,15 @@ function start(config) {
       console.log(`[claude-session-projector] ${name}: PgSessions ready — initial scan of ${sourceDir} (entity: ${entity})`);
       fullScan(name, sourceDir, entity, liveCol, cwdResolver);
       console.log(`[claude-session-projector] ${name}: startup scan dispatched to PG — counts settling asynchronously`);
+      // Log PG counts after a short settle to confirm writes landed
+      Meteor.setTimeout(() => {
+        const pg2 = globalThis.PgSessions;
+        if (pg2 && pg2.ready()) {
+          pg2.counts().then(c => {
+            console.log(`[claude-session-projector] ${name}: PG counts after settle — sessions:${c.sessions} subagents:${c.subagentFlights} toolCalls:${c.toolCalls}`);
+          }).catch(() => {});
+        }
+      }, 10000);
     } else {
       _pgWaitAttempts++;
       if (_pgWaitAttempts >= _pgWaitMax) {
