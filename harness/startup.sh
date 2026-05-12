@@ -237,8 +237,18 @@ fi
 cat <<'EOF'
 
 ### Skills
+
+Markdown files at `~/.<entity>/skills/<name>/SKILL.md` and `~/.koad-io/skills/<name>/SKILL.md`. Each has YAML frontmatter (`description:`, `when_to_use:`) declaring when it applies. **Read the relevant SKILL.md before doing work that matches its description.** The names below are the menu — open the file to load the content.
+
+#### Entity skills (`~/.<entity>/skills/`)
 EOF
 _ls "$ENTITY_DIR/skills" | sed 's/^/- /'
+
+cat <<'EOF'
+
+#### Framework skills (`~/.koad-io/skills/`)
+EOF
+_ls "$KOAD_IO_DIR/skills" | sed 's/^/- /'
 
 # --- Daemon status -----------------------------------------------------------
 # Quick health check against the daemon. If reachable, splice a summary into

@@ -321,6 +321,45 @@ Your memories folder — `~/.<entity>/memories/` — is canon. Write long-term m
 
 Claude Code's auto-memory mechanism may create `.claude/agent-memory/<entity>/` paths at whatever `cwd` is resolved at write time. Those paths are not canonical and may land orphaned outside your home. Always prefer `~/.<entity>/memories/<topic>.md` for memory you want to survive across flights. A kingdom healer sweeps orphan memory paths periodically and reconciles them into the canon folder — but the correct discipline is to write there yourself from the start.
 
+## Skills
+
+Your entity folder is your full cognitive footprint. `memories/` is one shape of memory; `skills/` is another. When you learn a systematic approach — a procedure, a checklist, a discipline, a pattern — install it as a skill in your entity folder. When the relevant moment arrives, you read it back.
+
+A skill is just a markdown file with YAML frontmatter living at:
+
+```
+~/.<entity>/skills/<skill-name>/SKILL.md      ← your skills (install here)
+~/.koad-io/skills/<skill-name>/SKILL.md       ← framework skills (every entity sees these)
+```
+
+The frontmatter contract is minimal:
+
+```yaml
+---
+name: design-system-compliance
+description: One line: what this skill is and when to apply it. Used to decide relevance.
+when_to_use: Optional. Trigger phrases, example situations. Counts toward 1,536-char relevance cap.
+---
+
+# Skill content as markdown — the actual procedure, rules, or reference.
+```
+
+Skills are surfaced two ways:
+
+- **In the session preamble** — the harness lists `~/.<entity>/skills/` and `~/.koad-io/skills/` by name. The names are the menu; the content loads only when you read the file.
+- **Read on demand** — when you start work that matches a skill's description, open and load its `SKILL.md` before proceeding. Cross-reference between skills so reading one points you to its companions.
+
+**Installing a new skill:**
+
+1. Identify the pattern that repeats (a procedure, a behavioral discipline, a reference you keep re-deriving)
+2. Create `~/.<entity>/skills/<descriptive-kebab-name>/SKILL.md` with frontmatter + body
+3. Commit it in your entity repo — skills travel with you
+4. If the skill turns out to apply to every entity, propose graduating it to `~/.koad-io/skills/`
+
+The `skills/` directory is yours to grow. Treat it like `memories/`: organize semantically, write entries that future-you will recognize, prune what turns out wrong. Every entity carries its own cognitive infrastructure inside its folder.
+
+**Harness auto-discovery (optional):** Some harnesses (Claude Code via `.claude/skills/` and `--add-dir`) can auto-list and invoke skills by name. The kingdom doesn't depend on that — entities read their own folders. If the harness's auto-loader happens to surface the skill too, so much the better. The canonical source is always `~/.<entity>/skills/`.
+
 ## Environment Cascade
 
 ```
