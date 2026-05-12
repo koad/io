@@ -1,9 +1,18 @@
-// claude-session-projector.js — project Claude Code JSONL session files into Mongo
+// claude-session-projector.js — project Claude Code JSONL session files into Postgres
 //
 // Handles indexer configs with format: claude-session
 //
 // Watches a projects/ directory for session JSONL files and subagent JSONL files.
-// Produces three collections from the raw transcript data.
+// Writes to three Postgres tables in the control_tower database:
+//
+//   claude_sessions         — one row per session JSONL
+//   subagent_flights        — one row per subagent JSONL
+//   tool_calls              — one row per tool_use block
+//
+// Additionally maintains a small Mongo ring buffer collection:
+//
+//   ToolCallsLive — last 60s / 200 docs for atlas live reactivity (DDP).
+//                   Periodically pruned. NOT a mirror of the PG table.
 //
 // File layout (discovered by this projector):
 //
@@ -15,63 +24,12 @@
 //           agent-<agentId>.jsonl          ← subagent transcript
 //           agent-<agentId>.meta.json      ← { agentType, description }
 //
-// Output collections (all connection: null, published as indexed.*):
-//
-//   Sessions — one doc per session JSONL:
-//     _id:                  session UUID (from JSONL entries)
-//     entity:               from config.entity
-//     projectKey:           the project-key directory name
-//     sessionId:            same as _id
-//     cwd:                  from first user/assistant entry
-//     gitBranch:            from first user/assistant entry
-//     version:              harness version string
-//     startedAt:            timestamp of first entry
-//     lastActivityAt:       timestamp of last entry seen
-//     messageCount:         number of user+assistant entries
-//     toolCallCount:        total tool_use blocks seen
-//     totalInputTokens:     sum of usage.input_tokens
-//     totalOutputTokens:    sum of usage.output_tokens
-//     totalCacheReadTokens: sum of usage.cache_read_input_tokens
-//     subagentCount:        number of subagent files for this session
-//     status:               "active" | "idle" | "closed"  (heuristic)
-//     filePath:             absolute path to the JSONL file
-//
-//   SubagentFlights — one doc per subagent JSONL:
-//     _id:               agentId (from filename)
-//     parentSessionId:   parent session UUID
-//     agentType:         from meta.json (or "unknown")
-//     description:       from meta.json (or null)
-//     entity:            from config.entity (or agentType if cross-entity)
-//     startedAt:         timestamp of first entry
-//     endedAt:           timestamp of last entry
-//     durationMs:        endedAt − startedAt
-//     toolCallCount:     total tool_use blocks
-//     toolCallSequence:  ordered array of tool names
-//     totalInputTokens:  sum of usage.input_tokens
-//     totalOutputTokens: sum of usage.output_tokens
-//     status:            "active" | "closed"
-//     filePath:          absolute path
-//
-//   ToolCalls — one doc per tool_use block in any session or subagent:
-//     _id:                     MD5(sessionId + ":" + toolUseId)
-//     sessionId:               parent session UUID
-//     agentId:                 agentId for subagent calls, null for main session
-//     entity:                  the acting entity (config.entity or agentType)
-//     toolName:                e.g. "Bash", "Read", "Edit", "Write", "Agent"
-//     toolUseId:               raw tool_use.id from JSONL
-//     targetPath:              file_path/notebook_path input for file tools, null otherwise
-//     command:                 for Bash, first 200 chars of command; null otherwise
-//     timestamp:               from the containing assistant message
-//     inputTokens:             usage.input_tokens for the turn (or 0)
-//     outputTokens:            usage.output_tokens for the turn (or 0)
-//     cacheReadTokens:         usage.cache_read_input_tokens for the turn (or 0)
-//
 // Byte-offset tracking:
 //   Each watched file keeps its last-read byte offset in a Map.
 //   On watcher event, only new bytes (beyond the stored offset) are parsed.
 //   This lets the projector handle large, append-only files efficiently.
 //
-// Publications: indexed.Sessions, indexed.SubagentFlights, indexed.ToolCalls
+// Publications: indexed.ToolCallsLive (for atlas reactivity only)
 
 const fs     = Npm.require('fs');
 const path   = Npm.require('path');
@@ -79,12 +37,11 @@ const os     = Npm.require('os');
 const crypto = Npm.require('crypto');
 
 // Track running projectors for reload
-const _running = {}; // name → { config, watcher, directoryWatchers, collections }
+const _running = {}; // name → { config, watcher, directoryWatchers }
 
 // ---------------------------------------------------------------------------
 // Per-file fs.watch — fires on appends on Linux (unlike directory watches).
 // We install one per JSONL file the first time we see it.
-// Stored in _fileWatchers[projName][filePath] to avoid duplicates.
 // ---------------------------------------------------------------------------
 
 const _fileWatchers = {}; // projName → Map<filePath, FSWatcher>
@@ -123,14 +80,71 @@ function closeFileWatchers(projName) {
 }
 
 // ---------------------------------------------------------------------------
-// file.touched emission — fired after each ToolCall insert with a targetPath.
-// Fire-and-forget: never blocks ToolCall insertion.
+// ToolCallsLive ring buffer — Mongo collection for atlas live reactivity.
+// Hard cap: last 60 seconds OR last 200 docs, whichever is smaller.
+// Periodically pruned every 30s (timer set in start()).
 // ---------------------------------------------------------------------------
 
-// Tools that clearly touch a file by targetPath.
+const LIVE_RING_MAX_DOCS = 200;
+const LIVE_RING_MAX_AGE_MS = 60 * 1000; // 60 seconds
+
+function getOrCreateToolCallsLive() {
+  if (globalThis.ToolCallsLive instanceof Mongo.Collection) {
+    return globalThis.ToolCallsLive;
+  }
+  const col = new Mongo.Collection('ToolCallsLive', { connection: null });
+  globalThis.ToolCallsLive = col;
+  try {
+    Meteor.publish('indexed.ToolCallsLive', function () {
+      return col.find();
+    });
+    console.log('[claude-session-projector] registered publication indexed.ToolCallsLive');
+  } catch (err) {
+    if (!err.message || !err.message.includes('already registered')) {
+      console.warn('[claude-session-projector] ToolCallsLive publish note:', err.message);
+    }
+  }
+  return col;
+}
+
+function pruneToolCallsLive(col) {
+  if (!col) return;
+  const cutoff = new Date(Date.now() - LIVE_RING_MAX_AGE_MS);
+  try {
+    col.remove({ timestamp: { $lt: cutoff } });
+  } catch (_) {}
+
+  // Hard cap: if still over max, remove oldest
+  try {
+    const count = col.find().count();
+    if (count > LIVE_RING_MAX_DOCS) {
+      const excess = count - LIVE_RING_MAX_DOCS;
+      const oldest = col.find({}, { sort: { timestamp: 1 }, limit: excess }).fetch();
+      for (const doc of oldest) {
+        try { col.remove(doc._id); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
+function insertLive(col, tc) {
+  if (!col) return;
+  try {
+    col.insert(tc);
+  } catch (err) {
+    if (!err.message || !err.message.includes('Duplicate _id')) {
+      console.warn('[claude-session-projector] ToolCallsLive insert error:', err.message);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// file.touched emission — fired after each live ToolCall with a targetPath.
+// Fire-and-forget: never blocks insertion.
+// ---------------------------------------------------------------------------
+
 const TOUCH_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit']);
 
-// Directories to ignore — transient, generated, or VCS-internal.
 const IGNORE_PREFIXES = [
   path.join(os.homedir(), '.git') + '/',
   '/tmp/',
@@ -142,40 +156,32 @@ function shouldEmitTouch(toolName) {
   return TOUCH_TOOLS.has(toolName);
 }
 
-// Resolve a targetPath to absolute, optionally against session cwd.
-// Returns null if the path should be skipped.
 function normalizeTouchPath(rawPath, cwd) {
   if (!rawPath || typeof rawPath !== 'string') return null;
 
   let resolved = rawPath;
 
-  // Expand ~/ prefix
   if (resolved.startsWith('~/')) {
     resolved = path.join(os.homedir(), resolved.slice(2));
   }
 
-  // Resolve relative paths against session cwd
   if (!path.isAbsolute(resolved)) {
     if (cwd) {
       resolved = path.resolve(cwd, resolved);
     } else {
-      // No cwd available — can't resolve relative path safely, skip
       return null;
     }
   }
 
-  // Skip ignored dirs — check each path segment
   const parts = resolved.split(path.sep);
   for (const part of parts) {
     if (IGNORE_DIRS.has(part)) return null;
   }
 
-  // Skip ignored prefixes
   for (const prefix of IGNORE_PREFIXES) {
     if (resolved.startsWith(prefix)) return null;
   }
 
-  // Skip if the file doesn't exist on disk (transient/virtual)
   try {
     if (!fs.existsSync(resolved)) return null;
   } catch (_) {
@@ -185,11 +191,6 @@ function normalizeTouchPath(rawPath, cwd) {
   return resolved;
 }
 
-// ---------------------------------------------------------------------------
-// Flood-rate guard for file.touched emissions.
-// Logs a warning if sustained emit rate exceeds 100/sec.
-// ---------------------------------------------------------------------------
-
 const _touchRateWindow = { count: 0, windowStart: 0 };
 const TOUCH_RATE_WARN_PER_SEC = 100;
 const TOUCH_RATE_WINDOW_MS    = 1000;
@@ -197,22 +198,19 @@ const TOUCH_RATE_WINDOW_MS    = 1000;
 function _checkTouchFloodRate() {
   const now = Date.now();
   if (now - _touchRateWindow.windowStart > TOUCH_RATE_WINDOW_MS) {
-    // New window
     _touchRateWindow.windowStart = now;
     _touchRateWindow.count       = 0;
   }
   _touchRateWindow.count++;
   if (_touchRateWindow.count === TOUCH_RATE_WARN_PER_SEC + 1) {
-    console.warn(`[claude-session-projector] WARNING: file.touched emission rate exceeds ${TOUCH_RATE_WARN_PER_SEC}/sec — possible flood`);
+    console.warn(`[claude-session-projector] WARNING: file.touched rate exceeds ${TOUCH_RATE_WARN_PER_SEC}/sec`);
   }
 }
 
-// Emit a file.touched emission. Non-throwing — daemon being down must not
-// affect ToolCall insertion.
 function emitFileTouch(entity, toolName, targetPath, sessionId, parentSessionId) {
   try {
     const Emissions = globalThis.EmissionsCollection;
-    if (!Emissions) return; // Emissions not yet loaded — skip
+    if (!Emissions) return;
     const now = new Date();
     const doc = {
       entity,
@@ -230,12 +228,10 @@ function emitFileTouch(entity, toolName, targetPath, sessionId, parentSessionId)
     };
     Emissions.insert(doc);
     _checkTouchFloodRate();
-    // Update entity lastActivity (best-effort)
     if (globalThis.EntityScanner) {
       EntityScanner.Entities.update({ handle: entity }, { $set: { lastActivity: now } });
     }
   } catch (err) {
-    // Non-fatal — projector must keep working if emission fails
     console.warn(`[claude-session-projector] emitFileTouch failed: ${err.message}`);
   }
 }
@@ -244,7 +240,6 @@ function emitFileTouch(entity, toolName, targetPath, sessionId, parentSessionId)
 // Byte-offset store — per projector-name, per file path.
 // ---------------------------------------------------------------------------
 
-// offsets[projectorName][filePath] = byteOffset
 const _offsets = {};
 
 function getOffset(projName, filePath) {
@@ -259,17 +254,6 @@ function setOffset(projName, filePath, offset) {
 
 function clearOffsets(projName) {
   delete _offsets[projName];
-}
-
-// ---------------------------------------------------------------------------
-// Generate a stable _id for a ToolCall: MD5(sessionId:toolUseId)
-// ---------------------------------------------------------------------------
-
-function toolCallId(sessionId, toolUseId) {
-  return crypto
-    .createHash('md5')
-    .update(`${sessionId}:${toolUseId}`)
-    .digest('hex');
 }
 
 // ---------------------------------------------------------------------------
@@ -311,31 +295,7 @@ function readNewLines(filePath, projName) {
 }
 
 // ---------------------------------------------------------------------------
-// Read all JSONL lines from a file (full scan, no offset tracking).
-// Used for initial session metadata derivation from existing files.
-// ---------------------------------------------------------------------------
-
-function readAllLines(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) return [];
-    const raw = fs.readFileSync(filePath, 'utf8');
-    const result = [];
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const entry = JSON.parse(line);
-        if (entry) result.push(entry);
-      } catch (_) {}
-    }
-    return result;
-  } catch (_) {
-    return [];
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Extract tool uses from an assistant entry's content array.
-// Returns array of { id, name, input }.
+// Helpers — tool use extraction
 // ---------------------------------------------------------------------------
 
 function extractToolUses(entry) {
@@ -344,19 +304,10 @@ function extractToolUses(entry) {
   return content.filter(item => item && item.type === 'tool_use');
 }
 
-// ---------------------------------------------------------------------------
-// Derive targetPath from a tool_use block.
-// File tools carry file_path, notebook_path, or path in their input.
-// ---------------------------------------------------------------------------
-
 function extractTargetPath(toolUse) {
   const input = toolUse.input || {};
   return input.file_path || input.notebook_path || input.path || null;
 }
-
-// ---------------------------------------------------------------------------
-// Derive command snippet from a Bash tool_use block (first 200 chars).
-// ---------------------------------------------------------------------------
 
 function extractCommand(toolUse) {
   if (toolUse.name !== 'Bash') return null;
@@ -365,13 +316,6 @@ function extractCommand(toolUse) {
   return typeof cmd === 'string' ? cmd.slice(0, 200) : null;
 }
 
-// ---------------------------------------------------------------------------
-// Compute session status heuristic.
-// Active: last activity within 5 minutes.
-// Idle: between 5 minutes and 2 hours.
-// Closed: more than 2 hours ago.
-// ---------------------------------------------------------------------------
-
 function computeStatus(lastActivityAt) {
   if (!lastActivityAt) return 'active';
   const ageMs = Date.now() - new Date(lastActivityAt).getTime();
@@ -379,11 +323,6 @@ function computeStatus(lastActivityAt) {
   if (ageMs < 2 * 60 * 60 * 1000) return 'idle';
   return 'closed';
 }
-
-// ---------------------------------------------------------------------------
-// Read meta.json for a subagent (sibling to the .jsonl file).
-// Returns { agentType, description } or defaults.
-// ---------------------------------------------------------------------------
 
 function readSubagentMeta(jsonlPath) {
   const metaPath = jsonlPath.replace(/\.jsonl$/, '.meta.json');
@@ -400,63 +339,60 @@ function readSubagentMeta(jsonlPath) {
 }
 
 // ---------------------------------------------------------------------------
-// Upsert or update a document in a collection.
-// For Sessions and SubagentFlights: merge aggregates (use $set + $inc logic).
-// We avoid $inc by computing full values and doing a full $set.
+// PG write helpers — fire-and-forget wrappers so PG errors don't block writes
 // ---------------------------------------------------------------------------
 
-function upsertDoc(collection, _id, doc) {
-  const existing = collection.findOne(_id);
-  if (existing) {
-    collection.update(_id, { $set: doc });
-  } else {
-    try {
-      collection.insert(Object.assign({}, doc, { _id }));
-    } catch (err) {
-      // Race between initial scan and watcher — fall back to update
-      if (err.message && err.message.includes('Duplicate _id')) {
-        collection.update(_id, { $set: doc });
-      } else {
-        throw err;
-      }
-    }
-  }
+function pgUpsertSession(doc) {
+  const pg = globalThis.PgSessions;
+  if (!pg || !pg.ready()) return;
+  Promise.resolve(pg.upsertSession(doc)).catch(err => {
+    console.warn('[claude-session-projector] pgUpsertSession error:', err.message);
+  });
+}
+
+function pgUpsertSubagentFlight(doc) {
+  const pg = globalThis.PgSessions;
+  if (!pg || !pg.ready()) return;
+  Promise.resolve(pg.upsertSubagentFlight(doc)).catch(err => {
+    console.warn('[claude-session-projector] pgUpsertSubagentFlight error:', err.message);
+  });
+}
+
+function pgInsertToolCall(doc) {
+  const pg = globalThis.PgSessions;
+  if (!pg || !pg.ready()) return;
+  Promise.resolve(pg.insertToolCall(doc)).catch(err => {
+    console.warn('[claude-session-projector] pgInsertToolCall error:', err.message);
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Process new JSONL lines for a MAIN SESSION file.
-// Updates Sessions doc and inserts new ToolCalls docs.
-// Returns the updated session aggregate data (for upsert).
+// Writes session aggregate to PG. Inserts new ToolCalls to PG + ToolCallsLive.
 //
-// isBackfill: true during initial fullScan startup — suppresses emitFileTouch so
-// historical ToolCalls don't flood the emission stream with ancient events.
+// isBackfill: true during initial fullScan startup — suppresses emitFileTouch.
 // ---------------------------------------------------------------------------
 
-function processSessionLines(projName, filePath, newLines, sessionId, entity, projectKey, collections, isBackfill) {
-  const { Sessions, ToolCalls } = collections;
-  const existing = Sessions.findOne(sessionId) || {};
-
-  // Aggregate running totals from existing doc
-  let messageCount         = existing.messageCount         || 0;
-  let toolCallCount        = existing.toolCallCount        || 0;
-  let totalInputTokens     = existing.totalInputTokens     || 0;
-  let totalOutputTokens    = existing.totalOutputTokens    || 0;
-  let totalCacheReadTokens = existing.totalCacheReadTokens || 0;
-  let startedAt            = existing.startedAt            || null;
-  let lastActivityAt       = existing.lastActivityAt       || null;
-  let cwd                  = existing.cwd                  || null;
-  let gitBranch            = existing.gitBranch            || null;
-  let version              = existing.version              || null;
+function processSessionLines(projName, filePath, newLines, sessionId, entity, projectKey, liveCol, isBackfill) {
+  // Accumulate session aggregate from new lines only.
+  // PG upsert uses GREATEST/COALESCE so we can safely pass partial updates.
+  let messageCount         = 0;
+  let toolCallCount        = 0;
+  let totalInputTokens     = 0;
+  let totalOutputTokens    = 0;
+  let totalCacheReadTokens = 0;
+  let startedAt            = null;
+  let lastActivityAt       = null;
+  let cwd                  = null;
+  let gitBranch            = null;
+  let version              = null;
 
   for (const entry of newLines) {
     const ts = entry.timestamp || null;
 
-    // Track earliest timestamp
     if (ts && (!startedAt || ts < startedAt)) startedAt = ts;
-    // Track latest timestamp
     if (ts && (!lastActivityAt || ts > lastActivityAt)) lastActivityAt = ts;
 
-    // Grab cwd, gitBranch, version from user or assistant entries
     if ((entry.type === 'user' || entry.type === 'assistant') && entry.cwd && !cwd) {
       cwd = entry.cwd;
     }
@@ -479,33 +415,37 @@ function processSessionLines(projName, filePath, newLines, sessionId, entity, pr
       totalOutputTokens    += usage.output_tokens             || 0;
       totalCacheReadTokens += usage.cache_read_input_tokens   || 0;
 
-      // Extract tool uses
       const toolUses = extractToolUses(entry);
       for (const toolUse of toolUses) {
         toolCallCount++;
 
-        const tcId = toolCallId(sessionId, toolUse.id);
-        // Skip if already inserted
-        if (ToolCalls.findOne(tcId)) continue;
-
         const rawTargetPath = extractTargetPath(toolUse);
         const tc = {
           sessionId,
-          agentId:          null,
+          parentSessionId: null,
+          agentId:         null,
           entity,
-          toolName:         toolUse.name,
-          toolUseId:        toolUse.id,
-          targetPath:       rawTargetPath,
-          command:          extractCommand(toolUse),
-          timestamp:        ts,
-          inputTokens:      usage.input_tokens              || 0,
-          outputTokens:     usage.output_tokens             || 0,
-          cacheReadTokens:  usage.cache_read_input_tokens   || 0,
+          toolName:        toolUse.name,
+          toolUseId:       toolUse.id,
+          targetPath:      rawTargetPath,
+          command:         extractCommand(toolUse),
+          timestamp:       ts,
+          inputTokens:     usage.input_tokens              || 0,
+          outputTokens:    usage.output_tokens             || 0,
+          cacheReadTokens: usage.cache_read_input_tokens   || 0,
         };
-        upsertDoc(ToolCalls, tcId, tc);
 
-        // Emit file.touched for file-touching tools (fire-and-forget).
-        // Skip during backfill — historical tool calls must not flood the stream.
+        // Primary write — Postgres (idempotent)
+        pgInsertToolCall(tc);
+
+        // Live ring buffer — Mongo (atlas only)
+        if (!isBackfill) {
+          insertLive(liveCol, Object.assign({}, tc, {
+            _id: crypto.createHash('md5').update(`${sessionId}:${toolUse.id}`).digest('hex'),
+          }));
+        }
+
+        // file.touched emission (live only)
         if (!isBackfill && shouldEmitTouch(toolUse.name) && rawTargetPath) {
           const normalizedPath = normalizeTouchPath(rawTargetPath, cwd);
           if (normalizedPath) {
@@ -516,10 +456,13 @@ function processSessionLines(projName, filePath, newLines, sessionId, entity, pr
     }
   }
 
+  // Always upsert session to PG — GREATEST/COALESCE handles partial updates.
+  // This ensures every session file on disk has a PG row after the initial scan,
+  // even if this particular call only processed a subset of its lines.
   const sessionDoc = {
+    sessionId,
     entity,
     projectKey,
-    sessionId,
     cwd,
     gitBranch,
     version,
@@ -533,39 +476,28 @@ function processSessionLines(projName, filePath, newLines, sessionId, entity, pr
     status: computeStatus(lastActivityAt),
     filePath,
   };
-  // subagentCount is managed separately when subagent dirs are scanned
-  if (existing.subagentCount !== undefined) {
-    sessionDoc.subagentCount = existing.subagentCount;
-  }
-
-  upsertDoc(Sessions, sessionId, sessionDoc);
+  pgUpsertSession(sessionDoc);
 }
 
 // ---------------------------------------------------------------------------
 // Process new JSONL lines for a SUBAGENT file.
-// Updates SubagentFlights doc and inserts new ToolCalls docs.
+// Writes flight aggregate to PG. Inserts new ToolCalls to PG + ToolCallsLive.
 //
-// isBackfill: true during initial fullScan startup — suppresses emitFileTouch.
+// isBackfill: true during initial fullScan — suppresses emitFileTouch.
 // ---------------------------------------------------------------------------
 
-function processSubagentLines(projName, filePath, newLines, agentId, parentSessionId, entity, collections, isBackfill) {
-  const { SubagentFlights, ToolCalls } = collections;
-  const existing = SubagentFlights.findOne(agentId) || {};
-
-  // Bug 2 fix: resolve entity from meta.json agentType (lowercased) so subagent
-  // tool calls are attributed to the acting entity (e.g. "argus", "vulcan"),
-  // not the parent session's entity (e.g. "juno").
-  const meta = readSubagentMeta(filePath);
+function processSubagentLines(projName, filePath, newLines, agentId, parentSessionId, entity, liveCol, cwdResolver, isBackfill) {
+  const meta           = readSubagentMeta(filePath);
   const subagentEntity = meta.agentType !== 'unknown'
     ? meta.agentType.toLowerCase()
     : entity;
 
-  let toolCallCount        = existing.toolCallCount        || 0;
-  let toolCallSequence     = existing.toolCallSequence     || [];
-  let totalInputTokens     = existing.totalInputTokens     || 0;
-  let totalOutputTokens    = existing.totalOutputTokens    || 0;
-  let startedAt            = existing.startedAt            || null;
-  let endedAt              = existing.endedAt              || null;
+  let toolCallCount        = 0;
+  let toolCallSequence     = [];
+  let totalInputTokens     = 0;
+  let totalOutputTokens    = 0;
+  let startedAt            = null;
+  let endedAt              = null;
 
   for (const entry of newLines) {
     const ts = entry.timestamp || null;
@@ -582,14 +514,12 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
         toolCallCount++;
         toolCallSequence.push(toolUse.name);
 
-        const tcId = toolCallId(parentSessionId, toolUse.id);
-        if (ToolCalls.findOne(tcId)) continue;
-
         const rawTargetPath = extractTargetPath(toolUse);
         const tc = {
           sessionId:       parentSessionId,
+          parentSessionId,
           agentId,
-          entity:          subagentEntity,  // Bug 2 fix: use agentType, not parent entity
+          entity:          subagentEntity,
           toolName:        toolUse.name,
           toolUseId:       toolUse.id,
           targetPath:      rawTargetPath,
@@ -599,36 +529,40 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
           outputTokens:    usage.output_tokens             || 0,
           cacheReadTokens: usage.cache_read_input_tokens   || 0,
         };
-        upsertDoc(ToolCalls, tcId, tc);
 
-        // Emit file.touched for file-touching tools (fire-and-forget).
-        // Skip during backfill — historical tool calls must not flood the stream.
+        // Primary write — Postgres
+        pgInsertToolCall(tc);
+
+        // Live ring buffer — Mongo
+        if (!isBackfill) {
+          insertLive(liveCol, Object.assign({}, tc, {
+            _id: crypto.createHash('md5').update(`${parentSessionId}:${toolUse.id}`).digest('hex'),
+          }));
+        }
+
+        // file.touched emission (live only)
         if (!isBackfill && shouldEmitTouch(toolUse.name) && rawTargetPath) {
-          // Subagent sessions don't carry cwd in the JSONL — look up parent session for cwd
-          const parentSession = collections.Sessions && collections.Sessions.findOne(parentSessionId);
-          const subagentCwd = parentSession && parentSession.cwd || null;
+          const subagentCwd = cwdResolver ? cwdResolver(parentSessionId) : null;
           const normalizedPath = normalizeTouchPath(rawTargetPath, subagentCwd);
           if (normalizedPath) {
-            emitFileTouch(subagentEntity, toolUse.name, normalizedPath, parentSessionId, agentId);  // Bug 2 fix
+            emitFileTouch(subagentEntity, toolUse.name, normalizedPath, parentSessionId, agentId);
           }
         }
       }
     }
   }
 
-  // Derive duration and status
   let durationMs = null;
   if (startedAt && endedAt) {
     durationMs = new Date(endedAt).getTime() - new Date(startedAt).getTime();
   }
-  const status = computeStatus(endedAt);
 
-  // meta was already read at function start (above); reuse it.
   const flightDoc = {
+    agentId,
     parentSessionId,
-    agentType:       existing.agentType   || meta.agentType,
-    description:     existing.description || meta.description,
-    entity:          subagentEntity,  // Bug 2 fix: use agentType, not parent entity
+    entity:          subagentEntity,
+    agentType:       meta.agentType,
+    description:     meta.description,
     startedAt,
     endedAt,
     durationMs,
@@ -636,59 +570,39 @@ function processSubagentLines(projName, filePath, newLines, agentId, parentSessi
     toolCallSequence,
     totalInputTokens,
     totalOutputTokens,
-    status,
+    status:          computeStatus(endedAt),
     filePath,
   };
-
-  upsertDoc(SubagentFlights, agentId, flightDoc);
+  pgUpsertSubagentFlight(flightDoc);
 }
 
 // ---------------------------------------------------------------------------
-// Parse the session UUID from a JSONL filename (strip .jsonl extension).
+// Filename helpers
 // ---------------------------------------------------------------------------
 
 function sessionIdFromFilename(filename) {
-  // filename like: 6a3594db-43d2-4964-8b3e-b7eae160fa2a.jsonl
   return filename.replace(/\.jsonl$/, '');
 }
-
-// ---------------------------------------------------------------------------
-// Parse the agent ID from a subagent JSONL filename.
-// filename like: agent-abcd11d1851d09b89.jsonl → abcd11d1851d09b89
-// ---------------------------------------------------------------------------
 
 function agentIdFromFilename(filename) {
   return filename.replace(/^agent-/, '').replace(/\.jsonl$/, '');
 }
 
-// ---------------------------------------------------------------------------
-// Check if a filename looks like a UUID (basic heuristic).
-// ---------------------------------------------------------------------------
-
 function looksLikeSessionFile(filename) {
-  // Must be *.jsonl and look like a UUID
   if (!filename.endsWith('.jsonl')) return false;
   const base = filename.slice(0, -5);
-  // UUID pattern: 8-4-4-4-12
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(base);
 }
-
-// ---------------------------------------------------------------------------
-// Check if a filename looks like a subagent file.
-// ---------------------------------------------------------------------------
 
 function looksLikeSubagentFile(filename) {
   return filename.startsWith('agent-') && filename.endsWith('.jsonl');
 }
 
 // ---------------------------------------------------------------------------
-// Discover and scan all subagent files under a session's subagents/ dir.
-// Updates subagentCount on the parent Sessions doc.
-//
-// isBackfill: true during initial fullScan — suppresses emitFileTouch.
+// Scan subagents/ dir — all subagent JSONLs under a session.
 // ---------------------------------------------------------------------------
 
-function scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, collections, isBackfill) {
+function scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, liveCol, cwdResolver, isBackfill) {
   let entries;
   try {
     entries = fs.readdirSync(subagentsDir, { withFileTypes: true });
@@ -705,11 +619,9 @@ function scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, colle
     const agentId  = agentIdFromFilename(entry.name);
 
     const { newLines, newOffset } = readNewLines(filePath, projName);
-    if (newLines.length > 0 || !collections.SubagentFlights.findOne(agentId)) {
-      // Full scan needed for new files (newLines only has bytes since last offset)
-      // If this file is new (no offset), readNewLines returns all content from 0
-      processSubagentLines(projName, filePath, newLines, agentId, parentSessionId, entity, collections, isBackfill);
-    }
+    // Always process subagent files — even if no new lines, we need the PG row.
+    // readNewLines from offset=0 gives all lines on first scan.
+    processSubagentLines(projName, filePath, newLines, agentId, parentSessionId, entity, liveCol, cwdResolver, isBackfill);
     setOffset(projName, filePath, newOffset);
     count++;
   }
@@ -717,12 +629,10 @@ function scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, colle
 }
 
 // ---------------------------------------------------------------------------
-// Scan one project-key directory: find session JSONLs and their subagents/ dirs.
-//
-// isBackfill: true during initial fullScan — suppresses emitFileTouch.
+// Scan one project-key directory.
 // ---------------------------------------------------------------------------
 
-function scanProjectKeyDir(projName, projectKeyDir, projectKey, entity, collections, isBackfill) {
+function scanProjectKeyDir(projName, projectKeyDir, projectKey, entity, liveCol, cwdResolver, isBackfill) {
   let entries;
   try {
     entries = fs.readdirSync(projectKeyDir, { withFileTypes: true });
@@ -730,52 +640,37 @@ function scanProjectKeyDir(projName, projectKeyDir, projectKey, entity, collecti
     return;
   }
 
-  // Build a set of session UUIDs that have subagent dirs
+  // Scan session JSONL files
   for (const entry of entries) {
     if (entry.isFile() && looksLikeSessionFile(entry.name)) {
       const sessionId = sessionIdFromFilename(entry.name);
       const filePath  = path.join(projectKeyDir, entry.name);
 
       const { newLines, newOffset } = readNewLines(filePath, projName);
-      if (newLines.length > 0 || !collections.Sessions.findOne(sessionId)) {
-        processSessionLines(projName, filePath, newLines, sessionId, entity, projectKey, collections, isBackfill);
-      }
+      // Always call processSessionLines — PG upsert is idempotent and
+      // GREATEST/COALESCE handles partial updates safely. This ensures every
+      // session file on disk has a PG row even if all content was already read.
+      processSessionLines(projName, filePath, newLines, sessionId, entity, projectKey, liveCol, isBackfill);
       setOffset(projName, filePath, newOffset);
     }
   }
 
-  // Now scan for subagent dirs (these are directories with UUID names)
+  // Scan subagent dirs (UUID-named subdirs)
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    // Check if it looks like a session UUID dir
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(entry.name)) continue;
 
     const parentSessionId = entry.name;
     const subagentsDir    = path.join(projectKeyDir, entry.name, 'subagents');
-    const count           = scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, collections, isBackfill);
-
-    // Update subagentCount on the parent session doc if it exists
-    if (count > 0) {
-      const sessionDoc = collections.Sessions.findOne(parentSessionId);
-      if (sessionDoc) {
-        const existing = sessionDoc.subagentCount || 0;
-        if (existing !== count) {
-          collections.Sessions.update(parentSessionId, { $set: { subagentCount: count } });
-        }
-      } else {
-        // Session file may not have been seen yet — store for when it arrives
-        // (will be picked up when session file is scanned)
-      }
-    }
+    scanSubagentsDir(projName, subagentsDir, parentSessionId, entity, liveCol, cwdResolver, isBackfill);
   }
 }
 
 // ---------------------------------------------------------------------------
 // Full scan of the root source directory.
-// Walks all project-key subdirectories.
 // ---------------------------------------------------------------------------
 
-function fullScan(projName, sourceDir, entity, collections) {
+function fullScan(projName, sourceDir, entity, liveCol, cwdResolver) {
   let entries;
   try {
     entries = fs.readdirSync(sourceDir, { withFileTypes: true });
@@ -784,18 +679,15 @@ function fullScan(projName, sourceDir, entity, collections) {
     return;
   }
 
-  // isBackfill=true: historical ToolCalls must not flood the emission stream.
-  // Watcher-triggered paths pass isBackfill=false (live events fire normally).
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const projectKeyDir = path.join(sourceDir, entry.name);
-    scanProjectKeyDir(projName, projectKeyDir, entry.name, entity, collections, true);
+    scanProjectKeyDir(projName, projectKeyDir, entry.name, entity, liveCol, cwdResolver, true);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Watch a directory and debounce events.
-// Returns the fs.FSWatcher instance, or null on error.
+// Directory watcher helper
 // ---------------------------------------------------------------------------
 
 function watchDir(projName, dirPath, label, onEvent) {
@@ -838,46 +730,18 @@ function start(config) {
     return;
   }
 
-  // --- Create or reuse collections ---
+  // Ensure ToolCallsLive ring buffer collection exists
+  const liveCol = getOrCreateToolCallsLive();
 
-  function getOrCreateCollection(collectionName) {
-    if (globalThis[collectionName] instanceof Mongo.Collection) {
-      console.log(`[claude-session-projector] ${name}: reusing collection ${collectionName}`);
-      return globalThis[collectionName];
-    }
-    const col = new Mongo.Collection(collectionName, { connection: null });
-    globalThis[collectionName] = col;
-    console.log(`[claude-session-projector] ${name}: created collection ${collectionName}`);
-    return col;
+  // Resolve CWD for subagent file.touched from PG sessions table.
+  // This is best-effort — if PG isn't ready we skip normalization.
+  function cwdResolver(sessionId) {
+    const pg = globalThis.PgSessions;
+    if (!pg || !pg.ready()) return null;
+    // Synchronous lookup not possible in async PG context; return null and
+    // skip normalization for subagent touch events during live path.
+    return null;
   }
-
-  function registerPublication(collectionName, col) {
-    const pubName = `indexed.${collectionName}`;
-    try {
-      Meteor.publish(pubName, function () {
-        return col.find();
-      });
-      console.log(`[claude-session-projector] ${name}: registered publication ${pubName}`);
-    } catch (err) {
-      if (!err.message || !err.message.includes('already registered')) {
-        console.warn(`[claude-session-projector] ${name}: publish note for ${pubName}: ${err.message}`);
-      }
-    }
-  }
-
-  const sessionsName       = config.sessionsCollection       || 'Sessions';
-  const subagentFlightsName = config.subagentFlightsCollection || 'SubagentFlights';
-  const toolCallsName      = config.toolCallsCollection      || 'ToolCalls';
-
-  const Sessions       = getOrCreateCollection(sessionsName);
-  const SubagentFlights = getOrCreateCollection(subagentFlightsName);
-  const ToolCalls      = getOrCreateCollection(toolCallsName);
-
-  registerPublication(sessionsName,        Sessions);
-  registerPublication(subagentFlightsName, SubagentFlights);
-  registerPublication(toolCallsName,       ToolCalls);
-
-  const collections = { Sessions, SubagentFlights, ToolCalls };
 
   // Ensure source dir exists
   try {
@@ -890,72 +754,52 @@ function start(config) {
 
   // --- Initial full scan ---
   console.log(`[claude-session-projector] ${name}: initial scan of ${sourceDir} (entity: ${entity})`);
-  fullScan(name, sourceDir, entity, collections);
-  console.log(`[claude-session-projector] ${name}: startup complete — ${Sessions.find().count()} sessions, ${SubagentFlights.find().count()} subagents, ${ToolCalls.find().count()} tool calls`);
+  fullScan(name, sourceDir, entity, liveCol, cwdResolver);
+  // Note: PG upserts are async (fire-and-forget). Count logging happens after
+  // startup settle; accurate counts available via GET /api/sessions/counts.
+  console.log(`[claude-session-projector] ${name}: startup scan dispatched to PG — counts settling asynchronously`);
+
+  // --- Prune ToolCallsLive every 30s ---
+  const pruneTimer = Meteor.setInterval(() => {
+    pruneToolCallsLive(liveCol);
+  }, 30 * 1000);
 
   // --- Watchers ---
-  //
-  // We watch three levels:
-  //  1. sourceDir itself — new project-key directories appearing
-  //  2. each project-key dir — new session JSONL files or session UUID subdirs appearing
-  //  3. each subagents/ dir — new subagent JSONL files or appends
-  //
-  // For level 2 and 3 we install watchers on all directories found at startup,
-  // and add new watchers when level-1 or level-2 events reveal new directories.
 
-  const activeWatchers = []; // all fs.FSWatcher instances for cleanup on stop
+  const activeWatchers = [];
 
-  // Process a session JSONL file on watcher event or per-file append.
-  // isBackfill=false: live path only.
   function processSessionFile(filePath, sessionId, projectKey) {
     if (!fs.existsSync(filePath)) return;
     const { newLines, newOffset } = readNewLines(filePath, name);
     if (newLines.length > 0) {
-      processSessionLines(name, filePath, newLines, sessionId, entity, projectKey, collections, false);
+      processSessionLines(name, filePath, newLines, sessionId, entity, projectKey, liveCol, false);
     }
     setOffset(name, filePath, newOffset);
   }
 
-  // Process a subagent JSONL file on watcher event or per-file append.
-  // isBackfill=false: live path only.
-  function processSubagentFile(filePath, agentId, parentSessionId, subagentsDir) {
+  function processSubagentFile(filePath, agentId, parentSessionId) {
     if (!fs.existsSync(filePath)) return;
     const { newLines, newOffset } = readNewLines(filePath, name);
     if (newLines.length > 0) {
-      processSubagentLines(name, filePath, newLines, agentId, parentSessionId, entity, collections, false);
+      processSubagentLines(name, filePath, newLines, agentId, parentSessionId, entity, liveCol, cwdResolver, false);
       setOffset(name, filePath, newOffset);
-
-      // Update parent session subagentCount
-      let count = 0;
-      try {
-        count = fs.readdirSync(subagentsDir).filter(f => looksLikeSubagentFile(f)).length;
-      } catch (_) {}
-      const sessionDoc = Sessions.findOne(parentSessionId);
-      if (sessionDoc) {
-        Sessions.update(parentSessionId, { $set: { subagentCount: count } });
-      }
     }
   }
 
-  // Watch a project-key dir (level 2)
   function watchProjectKeyDir(projectKeyDir, projectKey) {
     const w = watchDir(name, projectKeyDir, `project-key:${projectKey}`, (eventType, filename, dir) => {
       const filePath = path.join(dir, filename);
       if (looksLikeSessionFile(filename)) {
-        // New session JSONL or (rare) directory-level append event
         const sessionId = sessionIdFromFilename(filename);
         processSessionFile(filePath, sessionId, projectKey);
-        // Bug 3 fix: ensure per-file watcher so appends fire reliably on Linux
         attachSessionFileWatcher(filePath, sessionId, projectKey);
       } else if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
-        // New session UUID directory appeared — watch its subagents/ dir
         const subagentsDir = path.join(filePath, 'subagents');
         watchSubagentsDir(subagentsDir, filename /* parentSessionId */);
       }
     });
     if (w) activeWatchers.push(w);
 
-    // Scan for existing session JSONLs and attach per-file watchers for Bug 3
     try {
       const entries = fs.readdirSync(projectKeyDir, { withFileTypes: true });
       for (const entry of entries) {
@@ -964,7 +808,6 @@ function start(config) {
           const filePath  = path.join(projectKeyDir, entry.name);
           attachSessionFileWatcher(filePath, sessionId, projectKey);
         }
-        // Also scan for existing UUID subdirs and watch their subagents/ dirs
         if (entry.isDirectory() &&
             /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(entry.name)) {
           const subagentsDir = path.join(projectKeyDir, entry.name, 'subagents');
@@ -974,21 +817,18 @@ function start(config) {
     } catch (_) {}
   }
 
-  // Attach a per-file watcher to a session JSONL (Bug 3 fix).
   function attachSessionFileWatcher(filePath, sessionId, projectKey) {
     ensureFileWatcher(name, filePath, () => {
       processSessionFile(filePath, sessionId, projectKey);
     });
   }
 
-  // Attach a per-file watcher to a subagent JSONL (Bug 1 fix).
-  function attachSubagentFileWatcher(filePath, agentId, parentSessionId, subagentsDir) {
+  function attachSubagentFileWatcher(filePath, agentId, parentSessionId) {
     ensureFileWatcher(name, filePath, () => {
-      processSubagentFile(filePath, agentId, parentSessionId, subagentsDir);
+      processSubagentFile(filePath, agentId, parentSessionId);
     });
   }
 
-  // Watch a subagents/ dir (level 3)
   function watchSubagentsDir(subagentsDir, parentSessionId) {
     const w = watchDir(name, subagentsDir, `subagents:${parentSessionId}`, (eventType, filename, dir) => {
       if (!looksLikeSubagentFile(filename)) return;
@@ -996,39 +836,33 @@ function start(config) {
       if (!fs.existsSync(filePath)) return;
 
       const agentId = agentIdFromFilename(filename);
-      // Directory event — process any new bytes, then attach per-file watcher (Bug 1 fix)
-      processSubagentFile(filePath, agentId, parentSessionId, dir);
-      attachSubagentFileWatcher(filePath, agentId, parentSessionId, dir);
+      processSubagentFile(filePath, agentId, parentSessionId);
+      attachSubagentFileWatcher(filePath, agentId, parentSessionId);
     });
     if (w) activeWatchers.push(w);
 
-    // Scan for existing subagent JSONLs and attach per-file watchers (Bug 1 fix)
     try {
       const entries = fs.readdirSync(subagentsDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isFile() || !looksLikeSubagentFile(entry.name)) continue;
         const filePath = path.join(subagentsDir, entry.name);
         const agentId  = agentIdFromFilename(entry.name);
-        attachSubagentFileWatcher(filePath, agentId, parentSessionId, subagentsDir);
+        attachSubagentFileWatcher(filePath, agentId, parentSessionId);
       }
     } catch (_) {}
   }
 
-  // Watch sourceDir (level 1) for new project-key directories
   const sourceDirWatcher = watchDir(name, sourceDir, 'source', (eventType, filename, dir) => {
     const fullPath = path.join(dir, filename);
     try {
       if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
-        // New project-key dir appeared — scan it immediately and set up watchers.
-        // isBackfill=false: this is a live watcher event, not startup history.
-        scanProjectKeyDir(name, fullPath, filename, entity, collections, false);
+        scanProjectKeyDir(name, fullPath, filename, entity, liveCol, cwdResolver, false);
         watchProjectKeyDir(fullPath, filename);
       }
     } catch (_) {}
   });
   if (sourceDirWatcher) activeWatchers.push(sourceDirWatcher);
 
-  // Install per-project-key watchers for all existing project-key dirs
   try {
     const pkEntries = fs.readdirSync(sourceDir, { withFileTypes: true });
     for (const entry of pkEntries) {
@@ -1038,7 +872,7 @@ function start(config) {
     }
   } catch (_) {}
 
-  _running[name] = { config, activeWatchers, collections };
+  _running[name] = { config, activeWatchers, pruneTimer };
 }
 
 // ---------------------------------------------------------------------------
@@ -1053,15 +887,10 @@ function stop(name) {
     try { w.close(); } catch (_) {}
   }
 
-  // Close per-file watchers (Bug 1 & 3 fix)
   closeFileWatchers(name);
 
-  // Remove docs belonging to this entity only (Sessions/SubagentFlights/ToolCalls)
-  const entity = entry.config.entity || null;
-  if (entry.collections && entity) {
-    try { entry.collections.Sessions.remove({ entity });       } catch (_) {}
-    try { entry.collections.SubagentFlights.remove({ entity }); } catch (_) {}
-    try { entry.collections.ToolCalls.remove({ entity });      } catch (_) {}
+  if (entry.pruneTimer) {
+    try { Meteor.clearInterval(entry.pruneTimer); } catch (_) {}
   }
 
   clearOffsets(name);
