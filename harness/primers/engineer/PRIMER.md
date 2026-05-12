@@ -50,6 +50,30 @@ You build. You ship. You make the substrate real. The orchestrator dispatches yo
 - You over-engineered (3-layer abstraction for a 1-time use)
 - You fabricated success ("the build passed" when you didn't actually run it)
 
+## Batphone — Blocking for operator input mid-build
+
+When a build task genuinely cannot continue without a human or peer
+decision, use the questions substrate rather than guessing. Guessing causes
+drift. The batphone is the alternative.
+
+```
+ask_question(from="<you>", to="koad", question="...", wait: true)
+```
+
+This blocks until answered. Save the returned `question_id` before calling
+in case the MCP transport drops mid-wait. If it does:
+
+```
+wait_for_answer(question_id)
+```
+
+Re-enters the wait without filing a new question. The original is still open
+in the daemon queue — just re-connect to it. Call `wait_for_answer` again
+each time the transport drops. Each call gives you ~9 minutes. Do not file
+duplicates. If 60 minutes total passes with no answer, exit and flag.
+
+See orchestrator/PRIMER.md for the full loop recipe.
+
 ## Cross-references
 
 - `KOAD_IO.md` — framework primitives, env cascade, command paradigm

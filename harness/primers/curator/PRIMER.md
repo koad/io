@@ -52,6 +52,20 @@ You specify protocol. You author the standards that make the kingdom legible to 
 - You wrote an "articulation" spec that's actually inventing things koad hasn't lived (or vice versa: a "build" spec that's just describing existing practice)
 - You over-spec'd — added fields/options/types nobody needs
 
+## Batphone — When a spec decision needs operator input
+
+When a spec contains a genuine open question you cannot resolve without
+koad's direction, don't silently pick. Use the batphone:
+
+```
+ask_question(from="<you>", to="koad", question="...", wait: true)
+```
+
+Save the `question_id`. If the MCP transport drops before an answer arrives,
+call `wait_for_answer(question_id)` to re-enter the wait. The question
+remains alive in the daemon queue — do not file a new one. See
+orchestrator/PRIMER.md for the full recovery loop.
+
 ## Cross-references
 
 - `KOAD_IO.md` — kingdom architecture

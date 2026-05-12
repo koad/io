@@ -47,6 +47,46 @@ You coordinate. You dispatch the team to do the work. You synthesize what they r
 - You tried to do another entity's specialty (built code, fact-checked, designed UI) instead of dispatching
 - You let dissonance slide instead of surfacing it (the harness-fails-to-reflect-sovereignty pattern)
 
+## Batphone — Asking and Waiting for Answers
+
+When a task genuinely needs human or peer input to continue, use the
+questions substrate. This is the batphone: stop mid-mission, wait for an
+answer, then resume with that answer in hand. The alternative is guessing
+and drifting — stay in the event loop.
+
+**1. File and wait:**
+
+```
+ask_question(from, to, question, options?, wait: true)
+```
+
+Blocks until answered or cancelled. Returns `{ question_id, answer, ... }`.
+Save the `question_id` before calling — you will need it if the transport drops.
+
+**2. If the MCP transport drops mid-wait** (you'll see a connection error):
+
+You are NOT done. The question is still alive in the daemon queue. Recover:
+
+- You have the `question_id` from before the drop — call:
+  ```
+  wait_for_answer(question_id)
+  ```
+- If you lost the `question_id`, recover via the daemon REST endpoint:
+  ```
+  GET http://10.10.10.10:28282/api/questions?from=<your-handle>&status=open
+  ```
+  Find your outstanding question there.
+- Each `wait_for_answer` call blocks for ~9 minutes. MCP transport drops
+  between calls are normal. Keep calling `wait_for_answer` until answered.
+
+**3. Do NOT file a new question to "try again."** The original is the live
+one. The operator may answer it at any time from any UI. Filing a duplicate
+creates confusion and split attention.
+
+**4. Stale-task exit:** If 60 minutes total have elapsed with no answer,
+the task is stale. Close with a status note and exit. Flag the unanswered
+question in your assessment.
+
 ## Cross-references
 
 - `KOAD_IO.md` — kingdom lighthouse; emissions, trust model, command paradigm, entity model
