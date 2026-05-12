@@ -1233,7 +1233,7 @@ app.use('/api/questions', async (req, res, next) => {
     }
 
     // Answer
-    const { answer, answered_by } = body;
+    const { answer, answered_by, answer_note } = body;
     if (!answer || typeof answer !== 'string') {
       return jsonErr(res, 400, 'answer field required');
     }
@@ -1253,6 +1253,7 @@ app.use('/api/questions', async (req, res, next) => {
       answer,
       answered_by: answered_by || 'unknown',
       answered_at: new Date().toISOString(),
+      answer_note: (typeof answer_note === 'string' && answer_note.trim()) ? answer_note.trim() : null,
     });
     questionsQueueAppend(updated);
 
