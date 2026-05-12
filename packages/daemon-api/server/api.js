@@ -1145,6 +1145,55 @@ app.use('/api/questions', async (req, res, next) => {
   }
 });
 
+// POST /api/questions — file a new question
+app.use('/api/questions', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  const url = req.originalUrl || req.url || '';
+  // Only handle bare /api/questions (not /api/questions/<id>/...)
+  if (!pathIs(req, '/api/questions')) return next();
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+
+  try {
+    const body = req.body || {};
+    const { from, to, question, options, workdir, context_ref } = body;
+
+    if (!from || typeof from !== 'string') return jsonErr(res, 400, 'from field required');
+    if (!to   || typeof to   !== 'string') return jsonErr(res, 400, 'to field required');
+    if (!question || typeof question !== 'string') return jsonErr(res, 400, 'question field required');
+
+    const now = new Date();
+    const isoTs = now.toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
+    const randHex = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+    const _id = `q-${isoTs}-${from}-${randHex}`;
+
+    const record = {
+      _id,
+      from,
+      to,
+      question,
+      workdir: workdir || null,
+      filed: now.toISOString(),
+      status: 'open',
+      options: Array.isArray(options) ? options : null,
+      context_ref: context_ref || null,
+      answer: null,
+      answered_by: null,
+      answered_at: null,
+    };
+
+    questionsQueueAppend(record);
+
+    res.writeHead(200);
+    return res.end(JSON.stringify({ ok: true, question_id: _id }));
+  } catch (err) {
+    console.error('[API/questions] POST error:', err.message);
+    jsonErr(res, 500, err.message);
+  }
+});
+
 // POST /api/questions/<id>/answer
 app.use('/api/questions', async (req, res, next) => {
   if (req.method !== 'POST') return next();
