@@ -753,11 +753,34 @@ function start(config) {
   }
 
   // --- Initial full scan ---
-  console.log(`[claude-session-projector] ${name}: initial scan of ${sourceDir} (entity: ${entity})`);
-  fullScan(name, sourceDir, entity, liveCol, cwdResolver);
-  // Note: PG upserts are async (fire-and-forget). Count logging happens after
-  // startup settle; accurate counts available via GET /api/sessions/counts.
-  console.log(`[claude-session-projector] ${name}: startup scan dispatched to PG — counts settling asynchronously`);
+  // PgSessions bootstrap is async. Poll until ready (up to 30s) before scanning
+  // so session upserts don't silently no-op when PG isn't connected yet.
+  // Tool calls and subagent flights write to PG via the same guard, so this
+  // delay ensures all three tables are populated from the initial scan.
+  console.log(`[claude-session-projector] ${name}: waiting for PgSessions...`);
+
+  let _pgWaitAttempts = 0;
+  const _pgWaitMax    = 60; // 60 × 500ms = 30s max wait
+
+  function _doScan() {
+    const pg = globalThis.PgSessions;
+    if (pg && pg.ready()) {
+      console.log(`[claude-session-projector] ${name}: PgSessions ready — initial scan of ${sourceDir} (entity: ${entity})`);
+      fullScan(name, sourceDir, entity, liveCol, cwdResolver);
+      console.log(`[claude-session-projector] ${name}: startup scan dispatched to PG — counts settling asynchronously`);
+    } else {
+      _pgWaitAttempts++;
+      if (_pgWaitAttempts >= _pgWaitMax) {
+        console.warn(`[claude-session-projector] ${name}: PgSessions not ready after 30s — scanning anyway (writes may fail silently)`);
+        fullScan(name, sourceDir, entity, liveCol, cwdResolver);
+        console.log(`[claude-session-projector] ${name}: startup scan complete (PG unavailable)`);
+      } else {
+        Meteor.setTimeout(_doScan, 500);
+      }
+    }
+  }
+
+  _doScan();
 
   // --- Prune ToolCallsLive every 30s ---
   const pruneTimer = Meteor.setInterval(() => {
