@@ -2,6 +2,12 @@
 // Reads ~/.<entity>/passenger.json, indexes UI registration + outfit + buttons
 // Avatar served from forge public folder as /<handle>.png — no base64 embedding
 // Refactored from the original passenger-methods.js
+//
+// VESTA-SPEC-001 §5.1 — runtime write isolation:
+// passenger.json is the tracked identity record (never written by daemon).
+// passenger.runtime.json (gitignored) holds daemon-writable ephemeral values
+// (outfit.h, hue, and similar). At read time both files are overlaid —
+// runtime values win for any field they define.
 
 const fs = Npm.require('fs');
 const path = Npm.require('path');
@@ -23,16 +29,35 @@ function generateDefaultOutfit(name) {
   };
 }
 
-// Load passenger.json from an entity folder
+// Load passenger.json overlaid with passenger.runtime.json (VESTA-SPEC-001 §5.1).
+// passenger.json is the tracked identity source; passenger.runtime.json holds
+// daemon-written ephemeral state (outfit.h, hue, etc.). Runtime fields win.
 function loadPassengerConfig(entityPath) {
   const passengerJsonPath = path.join(entityPath, 'passenger.json');
+  const runtimeJsonPath   = path.join(entityPath, 'passenger.runtime.json');
 
+  let base;
   try {
     const content = fs.readFileSync(passengerJsonPath, 'utf8');
-    const config = JSON.parse(content);
-    return config;
+    base = JSON.parse(content);
   } catch (e) {
     return null;
+  }
+
+  // Overlay runtime file if present — top-level and nested outfit fields merged.
+  try {
+    const runtimeContent = fs.readFileSync(runtimeJsonPath, 'utf8');
+    const runtime = JSON.parse(runtimeContent);
+    // Shallow merge at top level; for `outfit`, merge one level deeper so that
+    // runtime can override individual outfit fields without wiping tracked ones.
+    const merged = Object.assign({}, base, runtime);
+    if (base.outfit || runtime.outfit) {
+      merged.outfit = Object.assign({}, base.outfit || {}, runtime.outfit || {});
+    }
+    return merged;
+  } catch (e) {
+    // runtime file absent or unreadable — use tracked file as-is
+    return base;
   }
 }
 
@@ -72,18 +97,34 @@ function indexEntity(handle, entityPath) {
   }
 }
 
-// Watch a single entity's passenger.json
+// Watch a single entity's passenger.json AND passenger.runtime.json.
+// Either file changing triggers a re-index (the overlay read handles the merge).
 function watchEntity(handle, entityPath) {
   if (watchers.has(handle)) return;
 
-  const jsonPath = path.join(entityPath, 'passenger.json');
+  const reindex = () => Meteor.setTimeout(() => indexEntity(handle, entityPath), 300);
+
+  const jsonPath    = path.join(entityPath, 'passenger.json');
+  const runtimePath = path.join(entityPath, 'passenger.runtime.json');
+
   try {
-    const watcher = fs.watch(jsonPath, { persistent: false }, () => {
-      Meteor.setTimeout(() => indexEntity(handle, entityPath), 300);
-    });
+    const watcher = fs.watch(jsonPath, { persistent: false }, reindex);
     watchers.set(handle, watcher);
   } catch (e) {
     // File might not exist — that's fine
+  }
+
+  // Watch runtime file if present; if it doesn't exist yet, we'll pick it up
+  // on the next scanAll cycle once it appears (entity-scanner home-dir watch
+  // covers newly-created files in entity dirs).
+  try {
+    const runtimeWatcherKey = `${handle}:runtime`;
+    if (!watchers.has(runtimeWatcherKey)) {
+      const runtimeWatcher = fs.watch(runtimePath, { persistent: false }, reindex);
+      watchers.set(runtimeWatcherKey, runtimeWatcher);
+    }
+  } catch (e) {
+    // runtime file not yet created — watcher added when file appears
   }
 }
 
