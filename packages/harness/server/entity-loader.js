@@ -57,28 +57,20 @@ async function loadEntity(handle, baseDir) {
   // VESTA-SPEC-067: Context load order — kingdom → entity → implement → location → memory
   const koadIoDir = path.join(baseDir, '.koad-io');
 
-  const [koadIoMd, entityMd, envContent, claudeMd, primerMd, landingMd, passengerRaw, passengerRuntimeRaw, fallbacksRaw, memoriesDir] = await Promise.all([
-    KoadHarnessUtils.readFile(path.join(koadIoDir, 'KOAD_IO.md')),        // Layer 1: Kingdom
-    KoadHarnessUtils.readFile(path.join(dir, 'ENTITY.md')),               // Layer 2: Entity
+  const [koadIoMd, entityMd, envContent, claudeMd, primerMd, landingMd, passengerRaw, fallbacksRaw, memoriesDir] = await Promise.all([
+    KoadHarnessUtils.readFile(path.join(koadIoDir, 'KOAD_IO.md')),   // Layer 1: Kingdom
+    KoadHarnessUtils.readFile(path.join(dir, 'ENTITY.md')),           // Layer 2: Entity
     KoadHarnessUtils.readFile(path.join(dir, '.env')),
-    KoadHarnessUtils.readFile(path.join(dir, 'CLAUDE.md')),               // Layer 3: Implement
-    KoadHarnessUtils.readFile(path.join(dir, 'PRIMER.md')),               // Layer 4: Location
+    KoadHarnessUtils.readFile(path.join(dir, 'CLAUDE.md')),           // Layer 3: Implement
+    KoadHarnessUtils.readFile(path.join(dir, 'PRIMER.md')),           // Layer 4: Location
     KoadHarnessUtils.readFile(path.join(dir, 'landing.md')),
     KoadHarnessUtils.readFile(path.join(dir, 'passenger.json')),
-    KoadHarnessUtils.readFile(path.join(dir, 'passenger.runtime.json')), // SPEC-001 §5.1
     KoadHarnessUtils.readFile(path.join(dir, 'fallbacks.json')),
-    KoadHarnessUtils.readDir(path.join(dir, 'memories')),                 // Layer 5: Memory
+    KoadHarnessUtils.readDir(path.join(dir, 'memories')),             // Layer 5: Memory
   ]);
 
   const env = KoadHarnessUtils.parseEnv(envContent);
-  // VESTA-SPEC-001 §5.1: overlay passenger.runtime.json onto passenger.json.
-  // Runtime values (outfit.h, hue, ephemeral visual prefs) win; tracked identity
-  // fields (handle, name, buttons, etc.) come from the committed file.
-  const passengerBase    = passengerRaw ? JSON.parse(passengerRaw) : {};
-  const passengerRuntime = passengerRuntimeRaw ? JSON.parse(passengerRuntimeRaw) : {};
-  const passenger = Object.assign({}, passengerBase, passengerRuntime, {
-    outfit: Object.assign({}, passengerBase.outfit || {}, passengerRuntime.outfit || {}),
-  });
+  const passenger = passengerRaw ? JSON.parse(passengerRaw) : {};
   const fallbacks = fallbacksRaw ? JSON.parse(fallbacksRaw) : {};
 
   const memoryFiles = memoriesDir

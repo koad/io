@@ -399,9 +399,6 @@ ssl/session.pem
 proc/
 var/
 
-# Daemon-written runtime passenger state (VESTA-SPEC-001 §5.1)
-passenger.runtime.json
-
 # Editor temp files
 *~
 *.swp
