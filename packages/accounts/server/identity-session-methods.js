@@ -25,11 +25,15 @@ Meteor.methods({
    * Tags a pending (fingerprint=null) DDP session with the calling connection's fingerprint.
    * Device A (sign-mode, already authenticated) authorizes Device B (new device, /me cold state).
    *
+   * SPEC-185 v1.2 §8.7: The authorizing device MUST be in sign-mode (proof required).
+   * This prevents an observe-mode device from silently extending its access to new devices.
+   *
    * @param {string} targetSessionId — the target DDP session ID (from Device B's QR code)
+   * @param {object} proof — sign-mode proof per SPEC-185 §8.8 ({ ts, signature, fingerprint })
    * @returns {{ ok: true }}
    * @throws Meteor.Error on any validation failure
    */
-  'identity.authorizeSession': async function ({ targetSessionId } = {}) {
+  'identity.authorizeSession': async function ({ targetSessionId, proof } = {}) {
     check(targetSessionId, String);
     this.unblock();
 
@@ -38,12 +42,13 @@ Meteor.methods({
       throw new Meteor.Error('no-session', 'No DDP session for this connection');
     }
 
-    // Load caller's session to confirm they have a fingerprint
-    const callerSession = await ApplicationSessions.findOneAsync({ _id: callerSessionId });
-    if (!callerSession || !callerSession.fingerprint) {
-      throw new Meteor.Error('unauthorized', 'Caller must be authenticated (fingerprint required)');
-    }
-    const callerFingerprint = callerSession.fingerprint;
+    // SPEC-185 v1.2 §8.7: authorizing another session MUST be sign-mode.
+    // Prevents an observe-mode device from silently extending its access to new devices.
+    const { fingerprint: callerFingerprint } = await requireSignMode(
+      callerSessionId,
+      'identity.authorizeSession',
+      proof
+    );
 
     // Prevent self-authorization (no-op but also semantically wrong)
     if (targetSessionId === callerSessionId) {
@@ -80,13 +85,8 @@ Meteor.methods({
       }
     );
 
-    // Mark calling session's source as 'self' if not already set
-    if (!callerSession.fingerprintSource) {
-      await ApplicationSessions.updateAsync(
-        { _id: callerSessionId },
-        { $set: { fingerprintSource: 'self' } }
-      );
-    }
+    // Note: requireSignMode already confirmed caller is sign-mode (proof verified).
+    // No need to back-fill fingerprintSource — it is already 'self' for a sign-mode session.
 
     log.system(`[identity.authorizeSession] ${callerSessionId.slice(0, 8)} tagged ${targetSessionId.slice(0, 8)} as ${callerFingerprint.slice(0, 8)}`);
     return { ok: true };
