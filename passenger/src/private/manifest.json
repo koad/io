@@ -144,6 +144,17 @@
 	// "default_locale": "en",
 	// "default_locale": "en_CA",
 
-	"minimum_chrome_version": "116"
+	"minimum_chrome_version": "116",
+
+	// https://developer.chrome.com/docs/extensions/reference/api/runtime#manifest-externally_connectable
+	// Allows the Meteor dev app and production lighthouses to communicate with the
+	// service worker directly via chrome.runtime.sendMessage (externally_connectable).
+	"externally_connectable": {
+		"matches": [
+			"http://10.10.10.10:58008/*",
+			"https://wonderland.koad.sh/*",
+			"https://koad.sh/*"
+		]
+	}
 
 }
