@@ -33,6 +33,8 @@ Package.onUse(function(api) {
 		'server/oauth-methods.js',
 		'server/rate-limiting.js',
 		'server/pgp-auth.js',
+		'server/sign-required.js',
+		'server/identity-session-methods.js',
 	], 'server');
 
   // api.export('Accounts');
