@@ -90,6 +90,15 @@
 			"matches": ["<all_urls>"],
 			"css": ["global/styles.css"],
 			"js": ["global/logic.js"]
+		},{
+			"description": "Relay between the page (postMessage) and the service worker (chrome.runtime) for kingdom lighthouses.",
+			"matches": [
+				"http://10.10.10.10:58008/*",
+				"https://wonderland.koad.sh/*",
+				"https://koad.sh/*"
+			],
+			"js": ["shims/passenger-bridge.js"],
+			"run_at": "document_idle"
 		}
 	],
 	"omnibox": { "keyword" : "koad" },
@@ -146,15 +155,5 @@
 
 	"minimum_chrome_version": "116",
 
-	// https://developer.chrome.com/docs/extensions/reference/api/runtime#manifest-externally_connectable
-	// Allows the Meteor dev app and production lighthouses to communicate with the
-	// service worker directly via chrome.runtime.sendMessage (externally_connectable).
-	"externally_connectable": {
-		"matches": [
-			"http://10.10.10.10:58008/*",
-			"https://wonderland.koad.sh/*",
-			"https://koad.sh/*"
-		]
-	}
 
 }

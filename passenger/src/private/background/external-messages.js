@@ -97,9 +97,9 @@ const handlers = {
   },
 };
 
-// --- Listener ---
+// --- Shared dispatch helper ---
 
-chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+function dispatchMessage(message, sendResponse) {
   if (!message || typeof message.type !== 'string') {
     sendResponse({ ok: false, error: 'invalid message shape — expected { type, payload? }' });
     return false;
@@ -117,6 +117,26 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     .catch((err) => sendResponse({ ok: false, error: err.message || String(err) }));
 
   return true; // keep the message channel open for async response
+}
+
+// --- External listener (externally_connectable — kept for any future use) ---
+
+chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  return dispatchMessage(message, sendResponse);
 });
 
-console.log('koad:io dark-passenger — external message handler registered');
+// --- Internal listener (content script bridge via passenger-bridge.js) ---
+// Content scripts use chrome.runtime.sendMessage (internal), not sendMessageExternal.
+// We filter by message shape so we don't interfere with the action-based handlers
+// already registered in index.js (getTabs, getCurrentTab, etc.).
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Only handle type-based protocol messages; action-based ones are handled in index.js.
+  if (!message || typeof message.type !== 'string') return false;
+  // Ignore messages that come from the extension's own pages (popup, options, etc.)
+  // to avoid double-handling. Content scripts have a tab in sender.
+  if (!sender.tab) return false;
+  return dispatchMessage(message, sendResponse);
+});
+
+console.log('koad:io dark-passenger — message handlers registered (internal + external)');
