@@ -2,7 +2,7 @@
 
 > A system for remembering how to be yourself.
 
-You are an entity in the koad:io kingdom. This file is loaded before anything else — it orients you to the framework, the principles, and the shared infrastructure that every entity inherits.
+You are an entity in the koad:io kingdom. Let's orient you to the framework, the principles, and the shared infrastructure that every entity inherits.
 
 ## Sovereignty First
 
@@ -103,18 +103,6 @@ Kindergarten-minimum primitives — generic shapes any kingdom needs.
 | `restart/`, `start/`, `stop/`, `upstart/` | Service lifecycle (always restart through cascade per the Cascade discipline above) |
 | `test/`, `upload/` | Build pipeline support |
 
-### Forge / business commands (`~/.forge/commands/`)
-
-Kingdom-specific tooling. Lives in forge tier; some graduates to framework when generic.
-
-| Command | Purpose |
-|---------|---------|
-| `session/` | Session awareness suite — objective, land, intent-update, watch, inbox. See "Session Awareness" section below. |
-| `conversation/` | Long-lived topic folders — create, dispatch, list. Persists at `~/.conversations/YYYY/MM/<slug>/`. |
-| `channel/` | SPEC-154 channels — create, join, inject, cue_deliver, close. SSE-substrate (SPEC-156). |
-| `harness/` | Per-harness command suites (claude/, opencode/, etc.) — entry points the launchers exec |
-| `announce/`, `tickle/`, `pin/`, `message/`, `git/`, `console/` | Other kingdom utilities |
-
 ### Helpers (`~/.koad-io/helpers/`)
 
 Sourced by other commands; not invoked directly.
@@ -135,13 +123,13 @@ Three-tier hook cascade — framework → forge (kingdom-wide) → entity (per-e
 | Tier | Examples |
 |------|----------|
 | Framework (`~/.koad-io/hooks/`) | `assemble-and-rewrite-dispatch.py`, `close-flight-on-agent-return.py`, `subagent-env-prefix.py`, `heartbeat.sh` |
-| Forge (`~/.forge/hooks/`) | `prompt-awareness.sh` (surfaces session inbox in every prompt), `standing-watchers.sh` (loads `~/.<entity>/watchers/*.yaml` at SessionStart) |
+| Forge (`~/.forge/hooks/`) | Kingdom-level operational hooks (session awareness, standing watchers); see `~/.forge/KOAD_IO.md` |
 | Entity (`~/.<entity>/hooks/`) | Entity-specific overrides; rare |
 
 ### How to learn more
 
 - **Run any command with no args** → self-documenting footer prints subs + flags
-- **Read the command's `PRIMER.md`** if present (e.g. `~/.forge/commands/session/PRIMER.md`)
+- **Read the command's `PRIMER.md`** if present in the command folder
 - **Read a role's primer** at `~/.koad-io/harness/primers/<role>/PRIMER.md` for role-shaped tool guidance
 - **Search across the kingdom** — `search <topic>` finds memories, briefs, specs, READMEs touching that topic
 - **Check `~/.juno/projects/-home-koad--juno/memory/MEMORY.md`** — index of accumulated kingdom learnings; many entries point to specific tools
@@ -380,7 +368,7 @@ Harness state vars use `HARNESS_` prefix — **not** `KOAD_IO_`, so they survive
 | `HARNESS_SESSION_ID` | `<entity>-<pid>` (e.g. `juno-3304592`) | stable session id for harness lifetime |
 | `HARNESS_EMISSION_ID` | UUID-style | current parent flight emission id (for nesting) |
 
-Set by `~/.forge/commands/harness/claude/command.sh` at session start. All kingdom commands, hooks, and subagents inherit them via process tree. The emit helper auto-injects `HARNESS_SESSION_ID` as `meta.session_id` and nests child emissions under `HARNESS_EMISSION_ID`.
+Set by the harness command at session start. All kingdom commands, hooks, and subagents inherit them via process tree. The emit helper auto-injects `HARNESS_SESSION_ID` as `meta.session_id` and nests child emissions under `HARNESS_EMISSION_ID`.
 
 ## Trust Model
 
@@ -492,52 +480,6 @@ When Juno (or any orchestrator) dispatches an Agent, hooks open a `flight` emiss
 ### Archive
 
 Closed emissions, landed flights, and ended sessions older than `KOAD_IO_ARCHIVE_DAYS` (default 7) sweep to `~/.koad-io/daemon/archive/<collection>/YYYY-MM-DD.jsonl`. Active records are never touched. Hourly automatic, manual via `POST /api/archive/sweep`.
-
-## Session Awareness
-
-The session-awareness substrate gives entities situational context at runtime — what they intend, what they've landed, what's happening in the kingdom that matters to them.
-
-### Session Commands
-
-Available at `~/.forge/commands/session/` (forge tier). Invoke via the entity launcher:
-
-| Command | Effect |
-|---------|--------|
-| `koad-io session objective <text>` | Declare session intent |
-| `koad-io session land <type> <ref> [<summary>]` | Atomic landing event (types: brief/spec/memory/tickle/commit/build/dispatch) |
-| `koad-io session intent-update <focus>` | Update current focus mid-session |
-| `koad-io session watch <pattern>` | Register a watcher for kingdom emissions this session |
-| `koad-io session inbox` | Read pending watcher-matched events |
-
-**Pattern vocabulary** (for `session watch` and standing watchers): `error`, `entity:<name>`, `topic:<slug>`, `type:<name>`, `flight-close-error`, or bare type name as fallback.
-
-### Inbox Auto-Surfacing
-
-The forge-tier `prompt-awareness.sh` hook (`~/.forge/hooks/`) reads new inbox entries on every `UserPromptSubmit` and renders them as system-reminder context. Cursor-tracked — each entry surfaces once, then never again unless re-fired. **You don't need to run `session inbox` manually; it's ambient.**
-
-### Per-Entity Standing Watchers
-
-Declare patterns the entity always cares about in `~/.<entity>/watchers/*.yaml`. Auto-loaded at SessionStart via `~/.forge/hooks/standing-watchers.sh`. Persists across sessions; use for always-relevant signals (session watch is for contextual, per-flight signals).
-
-```yaml
-- error
-- flight-close-error
-- entity:vesta
-```
-
-Standing watchers auto-register under the current `HARNESS_SESSION_ID` at session start. A new entity with no `watchers/` dir silently no-ops.
-
-### Hook Tiers
-
-Hooks apply at three tiers, searched in this order (first match wins for the same hook file name):
-
-| Tier | Path | Scope |
-|------|------|-------|
-| Entity | `~/.<entity>/hooks/` | Entity-specific overrides |
-| Forge | `~/.forge/hooks/` | Business-layer hooks (prompt-awareness, standing-watchers, upstart) |
-| Framework | `~/.koad-io/hooks/` | Generic framework defaults |
-
-The forge tier is the natural home for kingdom-wide operational hooks that aren't generic enough for the framework skeleton.
 
 ## MCP Tool Surface
 
