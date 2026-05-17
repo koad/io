@@ -41,17 +41,15 @@ Commands are the primitive. Everything flows through bash scripts in `commands/`
 2. `./commands/<cmd>/` — local to working directory
 3. `~/.koad-io/commands/<cmd>/` — framework fallback
 
-**Invocation:** `<entity> <command> [args]` — e.g. `juno status`, `vulcan start local`.
+**Invocation:** `<entity> <command> [args]` — e.g. `<entity> status`, `<entity> start local`.
 
 ### The Cascade Is Load-Bearing
 
-Always invoke through the entity launcher — `<entity> <command> [args]`. Never bypass it by running the underlying tool directly (e.g. `meteor` instead of `vulcan start local`).
+Always invoke through the entity launcher — `<entity> <command> [args]`. Never bypass it by running the underlying tool directly.
 
 The launcher runs an environment cascade before `command.sh` executes: framework `.env` → entity `.env` → entity `.credentials` → command-local `.env`. Every variable — ports, bind addresses, database URLs, settings paths — is resolved before your command runs. Running the tool directly skips all of this.
 
 Applies to restarts: kill the managed process and re-invoke through the launcher.
-
-**Flags:** `--flag` arguments pass through to the command; the dispatcher separates them from positional sub-command names.
 
 ## Bin Tools
 
@@ -59,14 +57,7 @@ Applies to restarts: kill the managed process and re-invoke through the launcher
 |------|---------|
 | `koad-io` | Main dispatcher |
 | `<entity>` | Per-entity launcher — sets entity context + runs full cascade |
-| `entity` | Template launcher; per-entity copies generated at init |
 | `search` | Kingdom search — text, frontmatter, constellations. See below. |
-| `tickle` | Express tickler dispatch |
-| `think` | Quick inference without full harness |
-
-## Bash Is the Substrate
-
-Every harness — Claude Code, opencode, pi, human at a terminal — is a bash process. The framework itself is bash: commands, hooks, helpers, the env cascade, the bin launchers. The dependency stack is bash, starship, and the filesystem. You cannot be locked in because there is no vendor in the stack.
 
 ## Entity Structure
 
@@ -81,7 +72,7 @@ Every harness — Claude Code, opencode, pi, human at a terminal — is a bash p
 ├── memories/         # Long-term memory
 ├── skills/           # Capabilities
 ├── hooks/            # Lifecycle hooks (override framework defaults)
-└── watchers/         # Standing watcher patterns (*.yaml, auto-loaded at SessionStart)
+└── watchers/         # Standing watcher patterns
 ```
 
 `ENTITY.md` is the identity file — harness-agnostic. Harness-specific files (`CLAUDE.md`, `OPENCODE.md`) are generated artifacts, not identity.
@@ -98,11 +89,11 @@ Every harness — Claude Code, opencode, pi, human at a terminal — is a bash p
 
 ## Your Home Directory
 
-You live at `~/.<entity>/`. Use absolute paths when saving there:
+You live at `~/.<entity>/` — `$ENTITY_DIR`. Use absolute paths when saving there:
 
 ```bash
-/home/koad/.juno/memories/something.md   # yes — always works
-memories/something.md                    # no — breaks if CWD differs
+$ENTITY_DIR/memories/something.md   # yes — always works
+memories/something.md               # no — breaks if CWD differs
 ```
 
 ### Rooted vs Roaming
@@ -114,9 +105,9 @@ memories/something.md                    # no — breaks if CWD differs
 
 ## Memory and Skills
 
-`~/.<entity>/memories/` is canon — markdown with frontmatter, organized by topic. Use absolute paths; write there from the start.
+`$ENTITY_DIR/memories/` is canon — markdown with frontmatter, organized by topic. Write there from the start.
 
-Skills live at `~/.<entity>/skills/<name>/SKILL.md` (entity) and `~/.koad-io/skills/<name>/SKILL.md` (framework). Load relevant skills before doing work that matches their description.
+Skills live at `$ENTITY_DIR/skills/<name>/SKILL.md` (entity) and `~/.koad-io/skills/<name>/SKILL.md` (framework). Load relevant skills before doing work that matches their description.
 
 ## Environment Cascade
 
@@ -126,7 +117,7 @@ Skills live at `~/.<entity>/skills/<name>/SKILL.md` (entity) and `~/.koad-io/ski
 ./commands/.env       ← Command-local overrides
 ```
 
-All kingdom vars start with `KOAD_IO_` (inspect via `env | grep KOAD_IO_`). Entity vars use `ENTITY_`. Harness state vars use `HARNESS_` (survive the launcher's `KOAD_IO_*` wipe):
+All kingdom vars start with `KOAD_IO_`. Entity vars use `ENTITY_`. Harness state vars use `HARNESS_` (survive the launcher's `KOAD_IO_*` wipe):
 
 | Var | Purpose |
 |-----|---------|
@@ -138,8 +129,8 @@ All kingdom vars start with `KOAD_IO_` (inspect via `env | grep KOAD_IO_`). Enti
 Authority flows through signed trust bonds:
 
 ```
-koad (human sovereign)
-  → authorized-agent bonds → entities (Juno, Alice, ...)
+<operator> (human sovereign)
+  → authorized-agent bonds → entities
     → peer/builder bonds → team entities
 ```
 
@@ -151,26 +142,22 @@ The daemon's nervous system. Source the helper from any bash command:
 
 ```bash
 source "$HOME/.koad-io/helpers/emit.sh" 2>/dev/null
-koad_io_emit notice "message"          # fire-and-forget
-koad_io_emit_open flight "doing X"     # open lifecycle record
-koad_io_emit_update "progress"
-koad_io_emit_close "done"
+koad_io_emit notice "message"   # fire-and-forget
+# lifecycle: koad_io_emit_open / koad_io_emit_update / koad_io_emit_close
 ```
 
-`KOAD_IO_EMIT=1` in `~/.<entity>/.env` to enable. Daemon-down emits silently no-op — telemetry never blocks work.
+`KOAD_IO_EMIT=1` in `$ENTITY_DIR/.env` to enable. Daemon-down emits silently no-op.
 
 ## Kingdom Search
 
 `search` waterfalls through every entity's operational folders and the framework.
 
 ```bash
-search "telemetry"                    # text grep across all entities
-search --where status=ready           # frontmatter query
-search --related <file>               # constellation around a file
-search --stale                        # untouched > 7 days
-search --atlas                        # all files grouped by status
-search --echo "daemon"                # fuzzy topic match
-search --entity juno --skip-complete  # narrow + filter
+search "telemetry"             # text grep across all entities
+search --where status=ready    # frontmatter query
+search --related <file>        # constellation around a file
+search --stale                 # untouched > 7 days
+search --atlas                 # all files grouped by status
 ```
 
 ## How to Learn More
