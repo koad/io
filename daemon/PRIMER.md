@@ -278,6 +278,21 @@ Packages consumed (from `~/.koad-io/packages/`):
 - **Worker orchestration** — `koad:io-workers` package manages periodic worker-process lifecycle
 - **Dashboard** — operator view at `/` — the kingdom's single pane of glass
 
+## Two-process kingdom shape — which port for what
+
+The kingdom runs two Meteor processes. Send requests to the right one:
+
+| Port | Process | What lives here |
+|------|---------|-----------------|
+| **28282** | `~/.koad-io/daemon/` — emitter + interrupter | Entity index, emissions bus, triggers, DDP pub, operator dashboard |
+| **28283** | `~/.forge/control-tower/` — control-surface | Harness telemetry, flights, sessions, Postgres audit, Mercury posts, archive ingestion, forge enrichments |
+
+`kingofalldata.com` points at **control-tower (28283)** — all public-facing consumers should too. The daemon (28282) is for low-level harness emission posts, mesh probes, and control-tower's own subscription.
+
+**Flight telemetry goes to 28283, not 28282.** `POST /flight` calls methods only defined in control-tower's `flights.js` — it will fail or no-op on the daemon. Harnesses set `KOAD_IO_CONTROL_URL` (28283) for flight reporting and `KOAD_IO_DAEMON_URL` (28282) for emission posts.
+
+Shared packages (`koad:io-daemon-indexers`, `koad:io-daemon-api`, etc.) run identically in both processes — the difference is what forge-layer packages control-tower adds on top.
+
 ## What it is not
 
 - Not an entity. No ENTITY.md, no trust bonds, no identity.

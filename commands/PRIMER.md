@@ -191,6 +191,24 @@ Checklist when adding a new framework command:
 5. Update the table in this PRIMER
 6. Commit
 
+## Flag parsing gotchas
+
+**Value-carrying flags must use `--flag=value` form, not `--flag value`.** The dispatcher strips `--*` args into `KOAD_IO_FLAGS` but passes positionals through `$@`. `assert/datadir` assigns the first bare positional to `KOAD_IO_TYPE` — so `--tail 30s` makes `KOAD_IO_TYPE=30s`, breaks workspace detection, and exits. `--tail=30s` is one token, stripped cleanly. Document only `--flag=value` in any new command that takes a value.
+
+**Flag-parse loops iterate `"$@"` only — never include `${KOAD_IO_FLAGS:-}`.** The dispatcher also exports `KOAD_IO_FLAGS` as a space-joined legacy string. If a loop iterates both, the second pass word-splits and clobbers values: `--body="text with spaces"` arrives correct via `"$@"`, then gets clobbered to `"text"` when `${KOAD_IO_FLAGS:-}` re-splits. New commands: `for _arg in "$@"; do` — full stop.
+
+## HARNESS_* env vars
+
+Three vars are exported by the harness launcher and survive across all kingdom subprocesses:
+
+| Var | Value | Purpose |
+|-----|-------|---------|
+| `HARNESS_PID` | numeric | per-instance handle |
+| `HARNESS_SESSION_ID` | `<entity>-<pid>` | stable session id for harness lifetime |
+| `HARNESS_EMISSION_ID` | UUID | parent flight emission id (for nesting) |
+
+Named `HARNESS_*` (not `KOAD_IO_*`) specifically to escape the launcher's pre-cascade sanitization wipe — the wipe clears all `KOAD_IO_*` vars to make the cascade the single source of truth. Harness state is categorically distinct from kingdom config, so it lives outside that prefix. Set in `~/.forge/commands/harness/claude/command.sh`; consumed by prompt-awareness hook, standing-watchers hook, all session commands, and emit helpers.
+
 ## Related
 
 - `README.md` — the human-facing README: sovereignty principles, why you shouldn't blindly copy, command-index-by-category. Philosophy, not orientation.
