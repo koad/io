@@ -16,6 +16,21 @@ else
     mkdir -p "$LOCKS_FOLDER"
 fi
 
+wait_for_ready() {
+  local url="$1" label="$2" timeout="${3:-300}"
+  local elapsed=0
+  echo "[koad-io:upstart] waiting for $label to be ready ($url)..."
+  while ! curl -skfo /dev/null "$url" 2>/dev/null; do
+    sleep 2
+    elapsed=$((elapsed + 2))
+    if [ "$elapsed" -ge "$timeout" ]; then
+      echo "[koad-io:upstart] WARNING: $label not ready after ${timeout}s — continuing"
+      return 1
+    fi
+  done
+  echo "[forge:upstart] $label ready (${elapsed}s)"
+}
+
 # Define a custom console_log function
 console_log() {
     local message="$*"
@@ -55,6 +70,9 @@ if [[ -d "$HOME/.koad-io/daemon" ]]; then
     screen -dmS koad:io-daemon bash -c 'cd /home/koad/.koad-io/daemon && ~/.koad-io/bin/koad-io start'
     sleep 6
 fi
+
+# Daemon — everything else depends on this
+wait_for_ready "http://10.10.10.10:28282/.well-known/koad-io.json" "daemon" 300
 
 if [[ -d "$HOME/.koad-io/desktop" ]] && [[ -n "$DISPLAY" ]] && [[ -z "$SSH_CONNECTION" ]]; then
     console_log "starting koad:io desktop ui"

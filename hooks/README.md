@@ -38,8 +38,3 @@ $EDITOR ~/.$ENTITY/hooks/executed-without-arguments.sh
 
 The entity hook takes precedence over this framework default.
 
----
-
-## `entity-upstart.sh`
-
-Called at system upstart. Starts the koad:io daemon and desktop UI if present.

@@ -256,7 +256,7 @@ _ls "$KOAD_IO_DIR/skills" | sed 's/^/- /'
 # Unreachable = skip silently. Never block startup on telemetry.
 _daemon_url="${KOAD_IO_DAEMON_URL:-http://10.10.10.10:28282}"
 _daemon_health="$(curl -sSf --max-time 1 "$_daemon_url/api/health" 2>/dev/null || true)"
-if [ -n "$_daemon_health" ] && command -v jq >/dev/null 2>&1; then
+if [ -n "$_daemon_health" ] && command -v jq >/dev/null 2>&1 && echo "$_daemon_health" | jq . >/dev/null 2>&1; then
   _d_status=$(echo "$_daemon_health" | jq -r '.status // "unknown"')
   _d_uptime=$(echo "$_daemon_health" | jq -r '.uptime_s // 0')
   _d_flights=$(echo "$_daemon_health" | jq -r '.counts.flights // 0')
