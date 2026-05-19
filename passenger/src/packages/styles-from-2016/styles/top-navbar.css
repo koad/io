@@ -1,0 +1,26 @@
+._topnavbar {
+	position: absolute;
+	padding: 8px;
+	left:0;
+	right: 0;
+	top: 0;
+	height: 15px;
+	border-bottom: 1px solid #23232323;
+
+    color: white;
+    font-size: 12px;
+    font-weight: 400;
+    text-transform: uppercase;
+    background-color: #90191C;
+    font-style: normal;
+    font-family: 'Lato', sans-serif;
+    z-index: 100;
+}
+
+._topnavspacer {
+	height: 30px;
+	width: 100%; 
+}
+
+.logo {
+}

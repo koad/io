@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+start=`date +%s`
+
+CURRENTDATETIME=`date +"%Y-%m-%d-%H-%M"`
+DATADIR=$PWD
+
+[[ ! -d $DATADIR ]] && 'Cannot find specified site, please check your call and try again.'
+
+cd $DATADIR
+[[ ! -f ./.env ]] && echo 'It doesnt appear to me that you are in a valid koad:io directory.' && exit 64
+
+set -a
+source .env
+
+[[ -z "${SOURCE}" ]] && SOURCE='src'
+
+BUILDDIR=$DATADIR/bundles/$CURRENTDATETIME
+
+[[ -z "${SOURCE}" ]] && echo 'SOURCE var not set' && exit 64
+
+echo bundle source: $DATADIR/$SOURCE
+echo extention destination: $BUILDDIR
+
+if [ -d "$BUILDDIR" ] 
+then
+  echo "Directory $BUILDDIR exists, removing it" 
+  rm -rf $BUILDDIR
+fi
+
+mkdir -p $BUILDDIR
+BUILDPACK=$DATADIR/builds/latest
+echo BUILDPACK: $BUILDPACK
+
+
+cd $DATADIR/$SOURCE
+
+ 
+ 
+# meteor build $BUILDDIR --directory  # Built as a directory instead of a tar package, maybe for file:// or chrome ext? or ipfs?  sweet. 
+# meteor-build-client $BUILDDIR --usebuild $DATADIR/builds/latest 
+
+rm -rf $DATADIR/ext/panes/options
+meteor-build-client $DATADIR/ext/panes/options/ --usebuild $DATADIR/builds/latest/ -p "" --yci --ddp https://reset.lol --url https://reset.lol -s $DATADIR/config/wonderland.json
+
+
+# meteor build $BUILDDIR  # Built as a directory instead of a tar package
+# meteor build $BUILDDIR --directory  # Built as a directory instead of a tar package
+
+# If we werent building for this local machine, we would stop here and deliver the package to 
+# the host to run it.  We would then to the following commands on that machine instead. (after 
+# unpacking the package that is.)
+
+# # Install required node modules
+# cd $BUILDDIR
+# cd bundle/programs/server/ && npm install && npm update && npm install --save @babel/runtime
+
+# # All things are good, lets update our pointer to the current build,
+[[ -d $DATADIR/bundles/latest ]] && rm $DATADIR/bundles/latest
+ln -s -f $BUILDDIR $DATADIR/bundles/latest
+
+echo -e "\033[0;32mextention bundle complete.\033[0m"
+
+# actualsize=$(wc -c <"$BUILDDIR/bundle")
+# echo "bundle is `echo ${actualsize}/1024/1024 | bc` megabytes"
+
+end=`date +%s`
+runtime=$( echo "$end - $start" | bc -l )
+
+echo "bundle process took $runtime seconds."

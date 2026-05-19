@@ -1,0 +1,66 @@
+:root {
+  --ytrb-bar-height: 4px;
+  --ytrb-bar-opacity: 1;
+  --ytrb-bar-likes-color: #3095e3;
+  --ytrb-bar-dislikes-color: #cfcfcf;
+  --ytrb-bar-likes-shadow: none;
+  --ytrb-bar-dislikes-shadow: none;
+}
+
+ytrb-bar {
+  display: block;
+  position: absolute;
+  width: 100%;
+  z-index: 999;
+  transition: opacity 0.2s ease-out 0.2s;
+  opacity: var(--ytrb-bar-opacity);
+}
+
+ytrb-rating {
+  display: flex;
+}
+
+ytrb-no-rating {
+  display: flex;
+  height: var(--ytrb-bar-height);
+  background-color: #888;
+}
+
+ytrb-likes {
+  height: var(--ytrb-bar-height);
+  background-color: var(--ytrb-bar-likes-color);
+}
+
+ytrb-dislikes {
+  flex-grow: 1;
+  height: var(--ytrb-bar-height);
+  background-color: var(--ytrb-bar-dislikes-color);
+  box-shadow: var(--ytrb-bar-dislikes-shadow);
+}
+
+/* For YouTube Gaming. Keeps the rating bar contained in the thumbnail. */
+#thumbnail-container {
+  position: relative;
+}
+
+/* For YouTube Gaming. Prevents the rating bar from showing over the top menu bar. */
+ytg-thumbnail .ytrb-bar {
+  z-index: 1;
+}
+
+/* For YouTube mobile. Keeps the rating bar contained in the thumbnail. */
+ytm-app a.media-item-thumbnail-container, ytm-app a.compact-media-item-image {
+  position: relative;
+}
+
+/* For YouTube mobile. Keeps the rating bar below the header. */
+ytm-app ytrb-bar {
+  z-index: auto;
+}
+
+/* On mobile, make the bar full width. */
+ytm-media-item ytrb-bar {
+  margin-left: -12px;
+  margin-right: -12px;
+  width: calc(100% + 24px);
+}

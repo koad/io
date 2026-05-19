@@ -1,0 +1,8 @@
+#ryd-bar {
+  background-color: var(--ytrb-bar-likes-color) !important;
+  box-shadow: var(--ytrb-bar-likes-shadow);
+}
+
+#ryd-bar-container {
+  background-color: var(--ytrb-bar-dislikes-color) !important;
+}

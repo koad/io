@@ -1,0 +1,7 @@
+p:hover, li:hover{
+	background-color: #FF00FF44;
+}
+
+p:active, li:active{
+	background-color: #FF00FF88;
+}

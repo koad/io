@@ -1,0 +1,20 @@
+.oku{
+	background-color: #ffffff11;
+	width: 100%;
+	min-width: 200px;
+}
+.oku:hover {
+	background-color: #ffffff22;
+}
+
+.oku:focus {
+	background-color: #ffffff22;
+}
+
+.contenteditable{
+	border: 1px dotted #444444;
+	border-radius: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+	line-height: 22px;
+}

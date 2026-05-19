@@ -1,0 +1,82 @@
+.navLink a{
+	color: white;
+	cursor: pointer;
+    margin-top: 10px;
+    right: 10px;
+    position: absolute;
+}
+
+.topBanner {
+    padding-right: 30px;
+}
+.infobar {
+	width: 100%;
+	text-align: right;
+	padding: 10px;
+}
+.infobar a{
+	color: white;
+	cursor: pointer;
+}
+.spacedOut{
+	padding-right: 10px;
+	padding-left: 10px;
+}
+
+.small-language-icon{
+	height:30px;
+	width:30px;
+	margin:-10px; 
+	margin:-10px;
+}
+
+.brand-title h2 {
+    text-transform: uppercase;
+    font-weight: bold;
+    font-size: 30px;
+    margin-bottom: 0px;
+    padding-bottom: 0px;
+}
+
+.brand h3 {
+    text-transform: uppercase;
+    font-weight: bold;
+    font-size: 20px;
+    margin-bottom: 0px;
+    padding-bottom: 0px;
+}
+
+.brand-line {
+    display: inline-block;
+    width: 170px;
+    height: 2px;
+    background-color: #ed2024;
+}
+
+.footer {
+    font-size: 14px;
+}
+
+.float-right{
+	float: right;
+}
+
+
+
+.text-align-right{
+  text-align: right;
+}
+
+.text-align-left{
+  text-align: left;
+}
+
+.text-dimmed{
+  color: #777;
+}
+
+
+
+.dimmed-red{
+  color: #844;
+}

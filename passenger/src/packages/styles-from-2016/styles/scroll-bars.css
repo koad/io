@@ -1,0 +1,24 @@
+::-webkit-scrollbar {
+	width: 12px;
+}
+
+::-webkit-scrollbar-track {
+	margin-top: calc(88px + 22vh);
+	margin-bottom: 22vh;
+	background: #f1f1f112;
+	border-top-left-radius: 8px;
+	border-bottom-left-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+	background: #FFFFFF33;
+	border-top-left-radius: 8px;
+	border-bottom-left-radius: 8px;
+	border:  2px solid #FFFFFF00;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: #FFFFFF55;
+	border:  2px solid #FFFFFF00;
+}
+

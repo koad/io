@@ -1,0 +1,79 @@
+.text-danger{
+	color: red;
+}
+.text-warning{
+	color: orange;
+}
+.text-info{
+	/*color: red;*/
+}
+
+input[type=text] {  
+    border-radius:4px;
+    color: #eeeeee;
+    background-color: #ffffff00;
+    border: 1px solid #FFF0;
+}
+
+input[type=password] {
+}
+
+textarea:focus, input:focus{
+    outline: none;
+    background-color: #0000
+}
+
+
+.max-width-320px{ max-width: 320px; }
+.max-width-480px{ max-width: 480px; }
+.max-width-540px{ max-width: 540px; }
+
+.text-max-width-ellipsis{
+    overflow: hidden; /* Hide any content that exceeds the max-width */
+    text-overflow: ellipsis; /* Display an ellipsis (...) to indicate truncated text */
+    white-space: nowrap; /* Prevent text from wrapping onto a new line */
+}
+
+
+.text-wrap {
+    overflow-wrap: break-word; /* Ensures long words break and wrap onto the next line */
+    word-wrap: break-word; /* Alternative syntax for older browsers */
+    word-break: break-word; /* Handles word breaks in a better manner */
+    white-space: pre-wrap; /* Causes whitespace to be preserved */
+}
+
+
+.big-ol-star{
+    font-size: 24px;
+    cursor: pointer;
+}
+
+.text-danger-glow {
+    color: rgba(255, 120, 120, 1);
+    text-shadow: 0 0 5px rgba(255, 0, 0, 0.3);
+    animation: glow-red 1s 1200 alternate;
+}
+
+.text-warning-glow {
+    color: rgba(255, 195, 120, 1);
+    text-shadow: 0 0 5px rgba(255, 165, 0, 0.3);
+    animation: glow-orange 1s 1200 alternate;
+}
+
+@keyframes glow-red {
+    from {
+        text-shadow: 0 0 5px rgba(255, 0, 0, 0.3);
+    }
+    to {
+        text-shadow: 0 0 10px rgba(255, 0, 0, 1);
+    }
+}
+
+@keyframes glow-orange {
+    from {
+        text-shadow: 0 0 5px rgba(255, 165, 0, 0.3);
+    }
+    to {
+        text-shadow: 0 0 10px rgba(255, 165, 0, 1);
+    }
+}

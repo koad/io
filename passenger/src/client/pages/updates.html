@@ -1,0 +1,22 @@
+
+<template name='Updates'>
+	<center>
+		<h2><span><span class="text-success">This software is up to date!</span></span></h2>
+		<span class="text-muted"><span>{{instance}}</span></span><br>
+		<span>version: <span>{{version}}</span></span><br>
+		<br>
+
+		{{#with eCoinCoreBeacon}}
+			<h3><span>CRxv5ZxFGfcycnj4isQuYBS5LhjMmnt2EB</span></h3>
+			<span class="text-muted">update tree on Canada eCoin holds an empty leaf</span><br>
+			<span>current height: {{blockchainHeight "canadaecoin"}}</span><br>
+			<span>asof: {{Reldate blockchainAsof "canadaecoin"}}</span>
+		{{else}}
+			<center><h3>Update tree not set!</h3></center>
+		{{/with}}
+		<br>
+		<br>
+		<button class="btn btn-gradient btn-gestate-vanity">add your vain</button>
+		<button class="btn btn-gradient btn-check-update-tree">check fur updates</button>
+	</center>
+</template>

@@ -1,0 +1,110 @@
+table {
+	width: 100%;
+	/*background-color: hsla(var(--application-h), var(--application-s), 22%, 0.28);*/
+	/*background-color: rgba(0,0,0,0);*/
+	font-family: var(--table-font); 
+	border-collapse: collapse;
+	white-space: nowrap;
+}
+
+
+table tbody {
+	width: 100%;
+}
+
+table thead {
+	position: sticky;
+	top: 0px; /* Don't forget this, required for the stickiness */
+	z-index: 200;
+
+	background-color: var(--background-color);
+	/*border: 1px solid var(--background-color);*/
+	/*background-color: var(--highlight-color-transparent);*/
+	backdrop-filter:  blur(16px);
+}
+
+thead th{
+	padding-bottom: 9px!important;
+}
+
+thead th:first-child{
+	padding-top: 4px!important;
+}
+
+
+.the2adwtf {
+	background-color: var(--background-color);
+		text-transform: uppercase;
+	color: var(--text-color);
+	font-family: var(--heading-font); 
+}
+
+td{
+	padding-right: 0px;
+	padding-left: 0px;
+	border: 0px;
+    vertical-align: inherit!important;
+    display: table-cell;
+}
+
+table .embedded{
+	border: 0px solid var(--accent-color);
+	width: 100%;
+	max-width: 100%;
+}
+
+
+tbody tr:hover {
+	background-color: var(--accent-color);
+	color: var(--accent-text-color)!important;
+}
+
+td, th {
+	padding-left: 3px;
+	padding-right: 3px;
+	position: relative;
+}
+
+.txtr td {
+	border: 1px solid black;
+}
+.rectr td {
+	border: 1px solid black;
+	color: #555;
+}
+
+.dimmed-cell{
+	color: #555;
+}
+
+.dimmed-cells td{
+	color: #999;
+}
+
+
+th.rotate {
+  /* Something you can count on */
+  height: 114px;
+  width:  10px;
+  white-space: nowrap;
+	color: var(--text-color);
+  border-bottom: 1px solid #555;
+  font-size: 12px;
+  text-align: center;
+  font-weight: 400;
+}
+
+th.rotate > div {
+  transform: 
+    /* Magic Numbers */
+    translate(6px, 55px)
+    /* 45 is really 360 - 45 */
+    rotate(270deg);
+  width: 6px;
+}
+
+th.rotate > div > span {
+  /*padding: 5px 10px;*/
+}
+
+

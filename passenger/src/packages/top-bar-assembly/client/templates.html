@@ -1,0 +1,47 @@
+<template name="__top_bar_assembly__">
+	{{#if isPopup}}
+	{{else}}
+		<div class="toolbar topnavbar-assembly no-print">
+			<div class="menu-top-menu-container draggable">
+				<ul id="primary-menu" class="toolbar-nav">
+					{{#if SiteHasSearch}}
+						<li><a href="/search"><i class="fa fa-search" aria-hidden="true"></i></a></li>
+					{{/if}}
+					{{#if NavItems}}
+						{{#each NavItems}}
+							<li class="{{ isActivePath path }}"><a title={{tooltip}} href="{{path}}">{{#if icon}}<span class="material-symbols-outlined material-symbols-navigation">{{icon}}</span>{{/if}}{{title}}</a></li>
+						{{/each}}
+					{{/if}}
+				</ul>
+			</div>
+
+			<div class="topBanner draggable">
+				{{#with infobar}}
+					<div class="infobar">
+						{{#if link}}
+							<a href="{{link}}">
+								{{#if icon}}<span class="material-symbols-outlined material-symbols-infobar">{{icon}}</span>{{/if}}
+								{{text}}
+							</a>
+						{{else}}
+							<a href="/profiles.html">Create Your Sovereign Identity</a>
+						{{/if}}
+						<!-- <span class="user-messages"><a href="/messages/notifications" class="btn-logged-in-as"><span class="material-symbols-outlined material-symbols-infobar">mail</span> No Messages</a></span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; -->
+
+						<!-- <span class="user-wallet"><a href="/wallet" class="btn-logged-in-as"><span class="material-symbols-outlined material-symbols-infobar">currency_bitcoin</span> $0.00 <span class="text-muted">CAD<small></small></span></a></span> -->
+					</div>
+				{{else}}
+					<div></div>
+				{{/with}}
+			</div>
+			{{#if homeButtonTarget}}
+				<a href="{{homeButtonTarget}}"><img class="banner" src="/logo.png"></a>
+			{{else}}
+				<img class="banner" src="/logo.png">
+			{{/if}}
+		</div>
+		<div class="navPadding"></div>
+	{{/if}}
+</template>
+
+<body>{{> __top_bar_assembly__}}</body>

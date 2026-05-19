@@ -1,0 +1,12 @@
+
+a {
+	color: inherit;
+	text-decoration: inherit;
+}
+
+
+a:hover {
+	color: var(--highlight-color);
+	text-decoration: none;
+}
+

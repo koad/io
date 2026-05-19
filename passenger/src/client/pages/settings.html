@@ -1,0 +1,82 @@
+<template name="SettingsOptionUI">
+	<div class="settings-card">
+		<div class="settings-card-title">{{name}}</div>
+		<p>{{description}}</p>
+		{{#each options}}
+			<div class="settings-option-container clickable">
+				<label style="cursor: pointer;">
+					<span class="setting-key">{{key}}</span><br>
+					<span class="setting-summary">{{description}}</span><br>
+					{{#if typeIsBoolean}}
+						<input {{checkedIfTrue}} {{disabledIfDisabled}} type="checkbox" name="{{option}}" />{{option}}<br>
+					{{/if}}
+
+					{{#if typeIsString}}
+						<span>{{option}} <span><input class="input-settings-text" placeholder="{{content}}" type="text" name="{{option}}" /></span></span><br>
+					{{/if}}
+					<span class="setting-note">{{note}}</span>
+				</label>
+			</div>
+		{{/each}}
+		{{#each notes}}<span class="option-notes"><br>{{this}}</span>{{/each}}
+	</div>
+</template>
+
+<template name='Settings'>
+	<center>
+		<div class="settings-page-container">
+			{{#each Settings}}
+				{{> SettingsOptionUI}}
+			{{else}}
+				<center>
+					<span class="text-danger">no settings loaded, this is an error!</span>
+					<br>
+					<span class="btn btn-outline">signal a complaint</span>
+				</center>
+			{{/each}}
+		</div>
+	</center>
+</template>
+
+<template name='ServiceWorkers'>
+	{{> DeveloperWatermark}}
+	<div>
+		<center><h2>service workers</h2></center>
+		<div class="service-workers">
+			<span>discord</span><br>
+			<span>github</span><br>
+			<span>keybase</span><br>
+			<span>matrix</span><br>
+			<span>spotify</span><br>
+			<span>telegram</span><br>
+			<span>twitter</span><br>
+			<span>youtube</span><br>
+		</div>
+	</div>
+</template>
+
+<template name='Shims'>
+	{{> DeveloperWatermark}}
+	<div>
+		<center><h2>shims</h2></center>
+		<div class="shims">
+			<span>amazon</span><br>
+			<span>discord</span><br>
+			<span>facebook</span><br>
+			<span>github</span><br>
+			<span>google</span><br>
+			<span>instagram</span><br>
+			<span>keybase</span><br>
+			<span>linkedin</span><br>
+			<span>matrix</span><br>
+			<span>meetup</span><br>
+			<span>office365</span><br>
+			<span>spotify</span><br>
+			<span>telegram</span><br>
+			<span>twitter</span><br>
+			<span>wechat</span><br>
+			<span>weibo</span><br>
+			<span>youtube</span><br>
+		</div>
+	</div>
+</template>
