@@ -13,6 +13,10 @@
       "content": {
         "type": "string",
         "description": "Full markdown content of the brief"
+      },
+      "attributed_to": {
+        "type": "string",
+        "description": "Handle, key fingerprint, or session token of the visitor who contributed the idea. Optional."
       }
     },
     "required": ["filename", "content"]

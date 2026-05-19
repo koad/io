@@ -25,8 +25,30 @@ module.exports = async function write_brief(params, context) {
     fs.mkdirSync(briefsDir, { recursive: true });
   }
 
+  let body = params.content;
+
+  if (params.attributed_to) {
+    const date   = new Date().toISOString().slice(0, 10);
+    const entity = context.entity || '';
+
+    if (body.startsWith('---\n')) {
+      // Caller supplied frontmatter — inject attributed_to + entity before the closing ---
+      const closingIdx = body.indexOf('\n---\n', 4);
+      if (closingIdx !== -1) {
+        const before = body.slice(0, closingIdx);
+        const after  = body.slice(closingIdx);
+        body = `${before}\nattributed_to: ${params.attributed_to}\nentity: ${entity}\ndate: ${date}${after}`;
+      } else {
+        // Malformed frontmatter — prepend a fresh block instead
+        body = `---\nattributed_to: ${params.attributed_to}\nentity: ${entity}\ndate: ${date}\n---\n\n${params.content}`;
+      }
+    } else {
+      body = `---\nattributed_to: ${params.attributed_to}\nentity: ${entity}\ndate: ${date}\n---\n\n${params.content}`;
+    }
+  }
+
   try {
-    fs.writeFileSync(target, params.content, 'utf8');
+    fs.writeFileSync(target, body, 'utf8');
     return { ok: true, path: `briefs/${basename}` };
   } catch (e) {
     return { error: e.message };
