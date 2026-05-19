@@ -1,0 +1,16 @@
+{
+  "name": "read_file",
+  "description": "Read a file from your entity directory. Path must be relative to your entity home (e.g. 'memories/foo.md', 'briefs/bar.md', 'ENTITY.md'). Returns file contents as a string.",
+  "version": "1.0.0",
+  "invocation": "native",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Relative path within your entity directory"
+      }
+    },
+    "required": ["path"]
+  }
+}
