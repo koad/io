@@ -6,12 +6,12 @@ const crypto = require('crypto');
 
 // Registered interaction type slugs per harness tool spec
 const VALID_INTERACTION_TYPES = new Set([
-  'greeting',
-  'question-answered',
+  'conversation-complete',
+  'level-complete',
+  'curriculum-complete',
   'insight-acknowledged',
-  'feedback-received',
-  'idea-explored',
-  'challenge-posed',
+  'milestone-reached',
+  'first-contact',
 ]);
 
 // EASILY_RECOGNIZABLE alphabet — mirrors koad.generate.cid.fromBytes in global-helpers.js

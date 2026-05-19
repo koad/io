@@ -12,7 +12,7 @@
       },
       "interaction_type": {
         "type": "string",
-        "description": "One of: greeting, question-answered, insight-acknowledged, feedback-received, idea-explored, challenge-posed"
+        "description": "One of: conversation-complete, level-complete, curriculum-complete, insight-acknowledged, milestone-reached, first-contact"
       },
       "brief_ref": {
         "type": "string",
