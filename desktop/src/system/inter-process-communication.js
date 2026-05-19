@@ -14,6 +14,7 @@ const IPC_CHANNELS = {
   // ACTIVE_ENTITY_CHANGED kept as a named constant for any legacy renderer code
   // that may still listen; the daemon's 'current' publication is the authoritative source.
   ACTIVE_ENTITY_CHANGED: 'active-entity-changed',   // kept for compat (no longer pushed from main)
+  OPEN_ENTITYLESS_WINDOW: 'open-entityless-window', // open full window when no entity is active
 };
 
 // Broadcast a message to all renderer windows.
@@ -67,6 +68,12 @@ const setupIPC = (mainWindow) => {
     mainWindow.close();
   });
 
+  // Spawn a new full window (separate from the widget) for entity-less flows.
+  // Renderer (daemon-served UI) calls ipcRenderer.send(OPEN_ENTITYLESS_WINDOW, { url? }).
+  ipcMain.on(IPC_CHANNELS.OPEN_ENTITYLESS_WINDOW, (_event, payload = {}) => {
+    openEntitylessWindow(payload.url);
+  });
+
   ipcMain.on('zoom-in', (event) => {
     const factor = event.sender.getZoomFactor()
     const newFactor = factor + 0.1;
@@ -96,6 +103,53 @@ const setupIPC = (mainWindow) => {
 
 };
 
+// Spawn a new full window (separate from the widget) for entity-less flows.
+// Default URL targets the external dashboard surface.
+function openEntitylessWindow(url = 'http://10.10.10.10:21221/') {
+  const clampZoom = (z) => Math.max(0.5, Math.min(2.0, z));
+  let zoomFactor = 1;
+
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    autoHideMenuBar: true,
+    frame: false,            // no window-manager chrome
+    titleBarStyle: 'hidden',
+    skipTaskbar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  // Seed zoom
+  win.webContents.setZoomFactor(zoomFactor);
+
+  // Keyboard zoom controls: Ctrl/Cmd + = / - / 0
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const accel = input.control || input.meta;
+    if (!accel) return;
+
+    if (input.key === '=' || input.code === 'Equal') {
+      event.preventDefault();
+      zoomFactor = clampZoom(zoomFactor + 0.1);
+      win.webContents.setZoomFactor(zoomFactor);
+    } else if (input.key === '-' || input.code === 'Minus') {
+      event.preventDefault();
+      zoomFactor = clampZoom(zoomFactor - 0.1);
+      win.webContents.setZoomFactor(zoomFactor);
+    } else if (input.key === '0' || input.code === 'Digit0') {
+      event.preventDefault();
+      zoomFactor = 1;
+      win.webContents.setZoomFactor(zoomFactor);
+    }
+  });
+
+  win.loadURL(url, { userAgent: 'koad:io-desktop' });
+  return win;
+}
+
 const sendToRendererProcess = (channel, data) => {
   ipcMain.on(channel, (event, data) => {
     console.log(`ipcMain.on(${channel})`);
@@ -117,4 +171,5 @@ module.exports = {
   broadcastToRenderers,
   send: sendToRendererProcess,
   sendToMainProcess,
+  openEntitylessWindow,
 };

@@ -17,6 +17,7 @@ let passengers = []; // Dynamic passenger list
 
 const { app, Menu, Tray } = require('electron');
 const { logger } = require('../library/logger.js');
+const { openEntitylessWindow } = require('./inter-process-communication');
 
 // Shared DDP connection — single instance for the whole desktop process.
 // lighthouse-connect.js owns the connection lifecycle (connect, auth, reconnect).
@@ -83,6 +84,13 @@ function updateContextMenu() {
 
   const contextMenu = Menu.buildFromTemplate([
     ...menuItems,
+    { type: 'separator' },
+    {
+      label: 'open dashboard',
+      click: () => {
+        openEntitylessWindow();
+      }
+    },
     { type: 'separator' },
 
     {
