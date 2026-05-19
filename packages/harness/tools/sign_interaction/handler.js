@@ -1,3 +1,5 @@
+'use strict';
+
 const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
@@ -161,36 +163,63 @@ function loadPrivateKey(keyPath) {
   }
 }
 
-function findSigningKey(idDir, entity) {
-  const filenames = [...KEY_FILENAMES];
-  if (entity) {
-    filenames.push(`${entity}_ed25519`, `${entity}_ed25519.pem`, `${entity}_ed25519_private.pem`);
+function deviceKeyCandidates(idDir) {
+  const devicesDir = path.join(idDir, 'devices');
+  const candidates = [];
+  const hostnames = [process.env.HOSTNAME, require('os').hostname()].filter(Boolean);
+
+  for (const hostname of [...new Set(hostnames)]) {
+    candidates.push(path.join(devicesDir, hostname, 'device.key'));
   }
 
-  for (const filename of filenames) {
-    const keyPath = path.join(idDir, filename);
-    if (fs.existsSync(keyPath)) {
-      return keyPath;
+  if (fs.existsSync(devicesDir)) {
+    for (const entry of fs.readdirSync(devicesDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        candidates.push(path.join(devicesDir, entry.name, 'device.key'));
+      }
     }
   }
 
-  return null;
+  return [...new Set(candidates)];
 }
 
-module.exports = async function sign_interaction(params, context) {
+function signingKeyCandidates(idDir, entity) {
+  const candidates = deviceKeyCandidates(idDir);
+  for (const filename of KEY_FILENAMES) {
+    candidates.push(path.join(idDir, filename));
+  }
+  if (entity) {
+    candidates.push(
+      path.join(idDir, `${entity}_ed25519`),
+      path.join(idDir, `${entity}_ed25519.pem`),
+      path.join(idDir, `${entity}_ed25519_private.pem`)
+    );
+  }
+  return [...new Set(candidates)];
+}
+
+function findSigningKey(idDir, entity) {
+  const candidates = signingKeyCandidates(idDir, entity);
+  return {
+    keyPath: candidates.find(candidate => fs.existsSync(candidate)) || null,
+    expectedPath: candidates[0] || path.join(idDir, KEY_FILENAMES[0]),
+  };
+}
+
+module.exports = async function sign_interaction(params = {}, context = {}) {
   try {
     const interactionType = params.interaction_type;
     if (!INTERACTION_TYPES.has(interactionType)) {
       return { error: `unknown interaction_type: ${interactionType}` };
     }
 
-    const entity = context.entity;
+    const entity = context.entity || process.env.ENTITY_NAME;
     const entityDir = path.join(context.entityBaseDir || process.env.HOME || '/home/koad', `.${entity}`);
     const idDir = path.join(entityDir, 'id');
-    const keyPath = findSigningKey(idDir, entity);
+    const { keyPath, expectedPath } = findSigningKey(idDir, entity);
 
     if (!keyPath) {
-      return { error: `signing key not found at ${path.join(idDir, KEY_FILENAMES[0])}` };
+      return { error: `signing key not found at ${expectedPath}` };
     }
 
     const proof = {
