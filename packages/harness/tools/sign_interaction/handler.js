@@ -4,7 +4,8 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
-const INTERACTION_TYPES = new Set([
+// Registered interaction type slugs per harness tool spec
+const VALID_INTERACTION_TYPES = new Set([
   'greeting',
   'question-answered',
   'insight-acknowledged',
@@ -13,136 +14,57 @@ const INTERACTION_TYPES = new Set([
   'challenge-posed',
 ]);
 
-const KEY_FILENAMES = [
-  'ed25519_private.pem',
-  'ed25519.pem',
-  'ed25519',
-  'id_ed25519',
-  'interaction-issuer.pem',
-  'interaction_issuer.pem',
-  'interaction-issuer_private.pem',
-  'entity_ed25519_private.pem',
-];
+// EASILY_RECOGNIZABLE alphabet — mirrors koad.generate.cid.fromBytes in global-helpers.js
+// (VESTA-SPEC-147 §3.2)
+const EASILY_RECOGNIZABLE = '23456789ABCDEFGHJKLMNPQRSTWXYZabcdefghijkmnopqrstuvwxyz';
 
-function readUint32(buffer, offset) {
-  if (offset + 4 > buffer.length) {
-    throw new Error('truncated OpenSSH private key');
+/**
+ * Compute a 17-character kingdom-native CID from raw bytes.
+ * SHA-256 of bytes → 17 chars mapped via EASILY_RECOGNIZABLE alphabet.
+ */
+function cidFromBytes(bytes) {
+  const digest = crypto.createHash('sha256').update(bytes).digest();
+  let cid = '';
+  for (let i = 0; i < 17; i++) {
+    cid += EASILY_RECOGNIZABLE[digest[i] % EASILY_RECOGNIZABLE.length];
   }
-  return buffer.readUInt32BE(offset);
+  return cid;
 }
 
-function readString(buffer, offset) {
-  const length = readUint32(buffer, offset);
-  const start = offset + 4;
-  const end = start + length;
-  if (end > buffer.length) {
-    throw new Error('truncated OpenSSH private key');
-  }
-  return { value: buffer.subarray(start, end), offset: end };
-}
+/**
+ * Load the entity's Ed25519 device key from disk.
+ *
+ * Key location: ~/.<entity>/id/devices/<device>/device.key
+ *   — 64-char hex string = 32-byte raw Ed25519 seed
+ *
+ * Prefers HOSTNAME env var to select device dir; falls back to first available.
+ * Returns { privateKey: KeyObject, fingerprint: string } or throws with a
+ * descriptive message the caller converts to { error }.
+ */
+function loadDeviceKey(idDir) {
+  const devicesDir = path.join(idDir, 'devices');
 
-function ed25519SeedToKeyObject(seed) {
-  if (!Buffer.isBuffer(seed) || seed.length !== 32) {
-    throw new Error('Ed25519 seed must be 32 bytes');
-  }
-
-  // RFC 8410 PKCS#8 DER wrapper for a raw Ed25519 private key seed.
-  const prefix = Buffer.from('302e020100300506032b657004220420', 'hex');
-  return crypto.createPrivateKey({
-    key: Buffer.concat([prefix, seed]),
-    format: 'der',
-    type: 'pkcs8',
-  });
-}
-
-function loadOpenSshEd25519PrivateKey(pem) {
-  const b64 = pem
-    .replace(/-----BEGIN OPENSSH PRIVATE KEY-----/g, '')
-    .replace(/-----END OPENSSH PRIVATE KEY-----/g, '')
-    .replace(/\s+/g, '');
-  const buffer = Buffer.from(b64, 'base64');
-  const magic = Buffer.from('openssh-key-v1\0', 'utf8');
-
-  if (!buffer.subarray(0, magic.length).equals(magic)) {
-    throw new Error('invalid OpenSSH private key');
+  if (!fs.existsSync(devicesDir)) {
+    throw new Error(`signing key not found at ${devicesDir}`);
   }
 
-  let offset = magic.length;
-  let part = readString(buffer, offset);
-  const ciphername = part.value.toString('utf8');
-  offset = part.offset;
+  // Prefer device matching HOSTNAME; fall back to first dir with a device.key
+  const hostname = process.env.HOSTNAME || '';
+  let deviceDir  = hostname ? path.join(devicesDir, hostname) : null;
 
-  part = readString(buffer, offset);
-  const kdfname = part.value.toString('utf8');
-  offset = part.offset;
-
-  part = readString(buffer, offset); // kdf options
-  offset = part.offset;
-
-  const nkeys = readUint32(buffer, offset);
-  offset += 4;
-
-  if (ciphername !== 'none' || kdfname !== 'none') {
-    throw new Error('encrypted OpenSSH private keys are not supported');
-  }
-  if (nkeys !== 1) {
-    throw new Error(`unsupported OpenSSH key count: ${nkeys}`);
-  }
-
-  part = readString(buffer, offset); // public key blob
-  offset = part.offset;
-
-  part = readString(buffer, offset);
-  const privateBlob = part.value;
-  offset = 0;
-
-  const check1 = readUint32(privateBlob, offset);
-  offset += 4;
-  const check2 = readUint32(privateBlob, offset);
-  offset += 4;
-  if (check1 !== check2) {
-    throw new Error('invalid OpenSSH private key checkints');
-  }
-
-  part = readString(privateBlob, offset);
-  const keytype = part.value.toString('utf8');
-  offset = part.offset;
-  if (keytype !== 'ssh-ed25519') {
-    throw new Error(`unsupported OpenSSH key type: ${keytype}`);
-  }
-
-  part = readString(privateBlob, offset); // public key
-  offset = part.offset;
-
-  part = readString(privateBlob, offset);
-  const privateKey = part.value;
-  if (privateKey.length !== 64) {
-    throw new Error('invalid OpenSSH Ed25519 private key length');
-  }
-
-  return ed25519SeedToKeyObject(privateKey.subarray(0, 32));
-}
-
-function loadRawSeedKey(data) {
-  if (data.length === 32) {
-    return ed25519SeedToKeyObject(data);
-  }
-
-  const text = data.toString('utf8').trim();
-  if (/^[0-9a-fA-F]{64}$/.test(text)) {
-    return ed25519SeedToKeyObject(Buffer.from(text, 'hex'));
-  }
-
-  const normalized = text.replace(/-/g, '+').replace(/_/g, '/');
-  if (/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
-    const decoded = Buffer.from(normalized, 'base64');
-    if (decoded.length === 32) {
-      return ed25519SeedToKeyObject(decoded);
+  if (!deviceDir || !fs.existsSync(path.join(deviceDir, 'device.key'))) {
+    const entries = fs.readdirSync(devicesDir, { withFileTypes: true });
+    const found   = entries.find(
+      e => e.isDirectory() && fs.existsSync(path.join(devicesDir, e.name, 'device.key'))
+    );
+    if (!found) {
+      throw new Error(`signing key not found at ${devicesDir}/<device>/device.key`);
     }
+    deviceDir = path.join(devicesDir, found.name);
   }
 
-  throw new Error('unsupported Ed25519 private key format');
-}
+  const keyFilePath = path.join(deviceDir, 'device.key');
+  const hexSeed     = fs.readFileSync(keyFilePath, 'utf8').trim();
 
 function loadPrivateKey(keyPath) {
   const data = fs.readFileSync(keyPath);
@@ -294,4 +216,69 @@ module.exports = async function sign_interaction(params = {}, context = {}) {
   } catch (e) {
     return { error: e.message };
   }
+
+  // --- Build proof object (SPEC-193 §3 simplified harness schema) ---
+  const timestamp = new Date().toISOString();
+  const proof_id  = crypto.randomBytes(8).toString('hex'); // 16-char hex
+
+  const proof = {
+    version:          '1',
+    entity:           entity,
+    visitor_id:       params.visitor_id.trim(),
+    interaction_type: params.interaction_type,
+    brief_ref:        params.brief_ref    || null,
+    context_note:     params.context_note || null,
+    timestamp:        timestamp,
+    proof_id:         proof_id,
+  };
+
+  // Canonical JSON: sorted keys, no whitespace
+  const canonicalJson = JSON.stringify(proof, Object.keys(proof).sort());
+  const payloadBytes  = Buffer.from(canonicalJson, 'utf8');
+
+  // --- Sign ---
+  let signatureBytes;
+  try {
+    signatureBytes = crypto.sign(null, payloadBytes, privateKey);
+  } catch (e) {
+    return { error: `signing failed: ${e.message}` };
+  }
+
+  // base64url, no padding
+  const signature = signatureBytes.toString('base64url').replace(/=/g, '');
+
+  // --- Compute CID of canonical payload bytes ---
+  const cid = cidFromBytes(payloadBytes);
+
+  // --- Assemble signed proof record ---
+  const signedProof = {
+    ...proof,
+    issuer_fingerprint: fingerprint,
+    signature,
+    cid,
+  };
+
+  // --- Persist to ~/.<entity>/proofs/ ---
+  const proofsDir = path.join(entityDir, 'proofs');
+  const indexPath = path.join(proofsDir, 'index.jsonl');
+
+  // Date-partitioned archival copy: proofs/issued/YYYY/MM/YYYY-MM-DD-<cid>.jsonl
+  const dateSlice  = timestamp.slice(0, 10);          // YYYY-MM-DD
+  const year       = timestamp.slice(0, 4);
+  const month      = timestamp.slice(5, 7);
+  const issuedDir  = path.join(proofsDir, 'issued', year, month);
+  const archivePath = path.join(issuedDir, `${dateSlice}-${cid}.jsonl`);
+
+  try {
+    if (!fs.existsSync(proofsDir)) fs.mkdirSync(proofsDir, { recursive: true });
+    if (!fs.existsSync(issuedDir)) fs.mkdirSync(issuedDir, { recursive: true });
+
+    const line = JSON.stringify(signedProof) + '\n';
+    fs.appendFileSync(indexPath,   line, 'utf8');
+    fs.writeFileSync(archivePath,  line, 'utf8');
+  } catch (e) {
+    return { error: `failed to persist proof: ${e.message}` };
+  }
+
+  return signedProof;
 };
