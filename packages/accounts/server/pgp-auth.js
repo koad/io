@@ -27,6 +27,7 @@ const crypto = Npm.require('crypto');
 // ---------------------------------------------------------------------------
 
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes — matches SPEC-185 §6.1 + SPEC-140 §3.3
+const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const CHALLENGE_PREFIX = 'koad-io:pgp-auth:v1:'; // distinct from Ed25519 prefix in SPEC-140
 const FINGERPRINT_RE = /^[0-9A-F]{40}$/; // 40-char uppercase hex
 
@@ -38,11 +39,20 @@ const FINGERPRINT_RE = /^[0-9A-F]{40}$/; // 40-char uppercase hex
 
 const _nonces = new Map();
 
-// Sweep expired nonces periodically (60s interval, same pattern as auth.js)
+// Session token store — token → { fingerprint, expires }
+const _tokens = new Map();
+
+// Known keys store — fingerprint → armoredKey (persists for server lifetime)
+const _knownKeys = new Map();
+
+// Sweep expired nonces and tokens periodically (60s interval)
 Meteor.setInterval(function () {
   const now = Date.now();
   for (const [key, expires] of _nonces.entries()) {
     if (now > expires) _nonces.delete(key);
+  }
+  for (const [token, entry] of _tokens.entries()) {
+    if (now > entry.expires) _tokens.delete(token);
   }
 }, 60 * 1000);
 
@@ -141,25 +151,60 @@ async function fetchFromKeyserver(fingerprint) {
 
 Meteor.methods({
   /**
-   * auth.challenge — Issue a nonce challenge for a given fingerprint.
+   * auth.challenge — Issue a nonce challenge for a given fingerprint or public key.
    *
-   * Input: { fingerprint }  (40-char hex, upper or lower, spaces stripped)
-   * Returns: { nonce, expires }
+   * Input: { fingerprint?, publicKey? }  — at least one required
+   *   fingerprint: 40-char hex (upper or lower, spaces stripped)
+   *   publicKey: armored PGP public key block — fingerprint extracted from it
+   * Returns: { nonce, fingerprint, expires }
    * Throws: Meteor.Error on invalid input
    */
-  'auth.challenge': async function ({ fingerprint } = {}) {
-    const fp = normalizeFingerprint(fingerprint);
-    if (!fp) {
-      throw new Meteor.Error('invalid-fingerprint', 'fingerprint must be 40 hex characters');
+  'auth.challenge': async function ({ fingerprint, publicKey } = {}) {
+    let fp = normalizeFingerprint(fingerprint);
+
+    // If publicKey provided, import it and extract/confirm fingerprint
+    if (publicKey) {
+      let km;
+      try {
+        km = await importPublicKey(publicKey);
+      } catch (err) {
+        throw new Meteor.Error('key-import-failed', 'Failed to import public key: ' + err.message);
+      }
+      const keyFp = kmFingerprint(km);
+      if (fp && keyFp !== fp) {
+        throw new Meteor.Error('fingerprint-mismatch', `key fingerprint (${keyFp}) does not match provided fingerprint (${fp})`);
+      }
+      fp = keyFp;
+      // Store for future fingerprint-only lookups
+      if (fp) _knownKeys.set(fp, publicKey);
     }
 
-    const nonce = crypto.randomBytes(32).toString('hex'); // 64-char lowercase hex
+    if (!fp) {
+      throw new Meteor.Error('invalid-input', 'Provide a 40-char hex fingerprint or an armored PGP public key');
+    }
+
+    // Check if we can resolve this fingerprint to a key (for verify later)
+    // Don't block the challenge — just flag whether we have the key
+    let keyKnown = !!publicKey || _knownKeys.has(fp);
+    if (!keyKnown && typeof WellKnownKeys !== 'undefined') {
+      keyKnown = !!WellKnownKeys.findOne({ fingerprint: fp });
+    }
+    if (!keyKnown) {
+      // Try keyserver (async, but worth it to give the right signal)
+      const ksKey = await fetchFromKeyserver(fp);
+      if (ksKey) {
+        _knownKeys.set(fp, ksKey);
+        keyKnown = true;
+      }
+    }
+
+    const nonce = crypto.randomBytes(32).toString('hex');
     const expires = Date.now() + NONCE_TTL_MS;
     const storeKey = `${fp}:${nonce}`;
     _nonces.set(storeKey, expires);
 
-    log.debug(`[auth.challenge] issued nonce for ${fp.slice(0, 8)}...`);
-    return { nonce, expires };
+    log.debug(`[auth.challenge] issued nonce for ${fp.slice(0, 8)}... keyKnown=${keyKnown}`);
+    return { nonce, fingerprint: fp, expires, keyKnown };
   },
 
   /**
@@ -200,11 +245,14 @@ Meteor.methods({
     // Reconstruct expected challenge message
     const expectedChallenge = `${CHALLENGE_PREFIX}${nonce}`;
 
-    // Resolve public key (priority: body → WellKnownKeys → keyserver)
+    // Resolve public key (priority: body → knownKeys → WellKnownKeys → keyserver)
     let armoredKey = publicKey || null;
 
     if (!armoredKey) {
-      // Check WellKnownKeys collection if it exists (daemon-indexed)
+      armoredKey = _knownKeys.get(fp) || null;
+    }
+
+    if (!armoredKey) {
       if (typeof WellKnownKeys !== 'undefined') {
         const knownEntry = WellKnownKeys.findOne({ fingerprint: fp });
         if (knownEntry && knownEntry.armoredKey) {
@@ -214,7 +262,6 @@ Meteor.methods({
     }
 
     if (!armoredKey) {
-      // Attempt keyserver fetch
       armoredKey = await fetchFromKeyserver(fp);
     }
 
@@ -268,6 +315,11 @@ Meteor.methods({
     // Consume nonce (single-use)
     _nonces.delete(storeKey);
 
+    // Store key for future fingerprint-only lookups
+    if (armoredKey && !_knownKeys.has(fp)) {
+      _knownKeys.set(fp, armoredKey);
+    }
+
     // Tag the ApplicationSession with the fingerprint (VESTA-SPEC-185 §8.2)
     const sessionId = this.connection && this.connection.id;
     if (!sessionId) {
@@ -281,16 +333,60 @@ Meteor.methods({
 
     log.system(`[auth.verify] session ${sessionId.slice(0, 8)}... identified as ${fp.slice(0, 8)}...`);
 
-    return { fingerprint: fp };
+    // Issue a session token for persistence across page refreshes
+    const token = crypto.randomBytes(32).toString('hex');
+    _tokens.set(token, { fingerprint: fp, expires: Date.now() + TOKEN_TTL_MS });
+
+    return { fingerprint: fp, token };
   },
 
   /**
-   * auth.logout — Clear the fingerprint from the current session.
-   * No-op if the session is already unauthenticated.
+   * auth.resume — Re-tag the current DDP session using a previously issued token.
+   *
+   * Input: { token }
+   * Returns: { fingerprint }
+   * Throws: Meteor.Error if token is invalid or expired
    */
-  'auth.logout': async function () {
+  'auth.resume': async function ({ token } = {}) {
+    if (typeof token !== 'string' || token.length !== 64) {
+      throw new Meteor.Error('invalid-token', 'token must be a 64-char hex string');
+    }
+
+    const entry = _tokens.get(token);
+    if (!entry) {
+      throw new Meteor.Error('token-not-found', 'session token not found or expired');
+    }
+
+    if (Date.now() > entry.expires) {
+      _tokens.delete(token);
+      throw new Meteor.Error('token-expired', 'session token expired — identify again');
+    }
+
+    const sessionId = this.connection && this.connection.id;
+    if (!sessionId) {
+      throw new Meteor.Error('no-session', 'No DDP session found for this connection');
+    }
+
+    await ApplicationSessions.updateAsync(
+      { _id: sessionId },
+      { $set: { fingerprint: entry.fingerprint, identifiedAt: new Date() } }
+    );
+
+    log.debug(`[auth.resume] session ${sessionId.slice(0, 8)}... resumed as ${entry.fingerprint.slice(0, 8)}...`);
+    return { fingerprint: entry.fingerprint };
+  },
+
+  /**
+   * auth.logout — Clear the fingerprint from the current session and invalidate token.
+   */
+  'auth.logout': async function ({ token } = {}) {
     const sessionId = this.connection && this.connection.id;
     if (!sessionId) return;
+
+    // Invalidate the token if provided
+    if (token && typeof token === 'string') {
+      _tokens.delete(token);
+    }
 
     await ApplicationSessions.updateAsync(
       { _id: sessionId },
