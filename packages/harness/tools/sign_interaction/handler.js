@@ -198,6 +198,22 @@ function signingKeyCandidates(idDir, entity) {
   return [...new Set(candidates)];
 }
 
+// EASILY_RECOGNIZABLE alphabet — mirrors koad.generate.cid.fromBytes in global-helpers.js
+// (VESTA-SPEC-147 §3.2)
+const EASILY_RECOGNIZABLE = '23456789ABCDEFGHJKLMNPQRSTWXYZabcdefghijkmnopqrstuvwxyz';
+
+/**
+ * 17-character kingdom-native CID from raw bytes (SHA-256, EASILY_RECOGNIZABLE alphabet).
+ */
+function cidFromBytes(bytes) {
+  const digest = crypto.createHash('sha256').update(bytes).digest();
+  let cid = '';
+  for (let i = 0; i < 17; i++) {
+    cid += EASILY_RECOGNIZABLE[digest[i] % EASILY_RECOGNIZABLE.length];
+  }
+  return cid;
+}
+
 function findSigningKey(idDir, entity) {
   const candidates = signingKeyCandidates(idDir, entity);
   return {
@@ -213,9 +229,13 @@ module.exports = async function sign_interaction(params = {}, context = {}) {
       return { error: `unknown interaction_type: ${interactionType}` };
     }
 
-    const entity = context.entity || process.env.ENTITY_NAME;
+    if (!params.visitor_id || !String(params.visitor_id).trim()) {
+      return { error: 'visitor_id is required and must not be empty' };
+    }
+
+    const entity    = context.entity || process.env.ENTITY_NAME;
     const entityDir = path.join(context.entityBaseDir || process.env.HOME || '/home/koad', `.${entity}`);
-    const idDir = path.join(entityDir, 'id');
+    const idDir     = path.join(entityDir, 'id');
     const { keyPath, expectedPath } = findSigningKey(idDir, entity);
 
     if (!keyPath) {
@@ -223,38 +243,52 @@ module.exports = async function sign_interaction(params = {}, context = {}) {
     }
 
     const proof = {
-      version: '1',
+      version:          '1',
       entity,
-      visitor_id: params.visitor_id,
+      visitor_id:       String(params.visitor_id).trim(),
       interaction_type: interactionType,
-      brief_ref: params.brief_ref || null,
-      context_note: params.context_note || null,
-      timestamp: new Date().toISOString(),
-      proof_id: crypto.randomBytes(8).toString('hex'),
+      brief_ref:        params.brief_ref    || null,
+      context_note:     params.context_note || null,
+      timestamp:        new Date().toISOString(),
+      proof_id:         crypto.randomBytes(8).toString('hex'),
     };
 
-    const canonicalJson = JSON.stringify(proof, Object.keys(proof).sort());
+    const canonicalJson  = JSON.stringify(proof, Object.keys(proof).sort());
+    const payloadBytes   = Buffer.from(canonicalJson, 'utf8');
     let signature;
 
     try {
       const privateKey = loadPrivateKey(keyPath);
-      signature = crypto
-        .sign(null, Buffer.from(canonicalJson, 'utf8'), privateKey)
-        .toString('base64url');
+      signature = crypto.sign(null, payloadBytes, privateKey).toString('base64url');
     } catch (e) {
       return { error: `signing failed: ${e.message}` };
     }
 
-    const signedProof = { ...proof, signature };
-    const proofsDir = path.join(entityDir, 'proofs');
-    const indexPath = path.join(proofsDir, 'index.jsonl');
+    // Compute kingdom-native CID of canonical payload bytes (VESTA-SPEC-147 §3.2)
+    const cid         = cidFromBytes(payloadBytes);
+    const signedProof = { ...proof, signature, cid };
+
+    // Persist to ~/.<entity>/proofs/
+    const proofsDir  = path.join(entityDir, 'proofs');
+    const indexPath  = path.join(proofsDir, 'index.jsonl');
+
+    // Date-partitioned archival copy: proofs/issued/YYYY/MM/YYYY-MM-DD-<cid>.jsonl
+    const dateSlice   = proof.timestamp.slice(0, 10);
+    const year        = proof.timestamp.slice(0, 4);
+    const month       = proof.timestamp.slice(5, 7);
+    const issuedDir   = path.join(proofsDir, 'issued', year, month);
+    const archivePath = path.join(issuedDir, `${dateSlice}-${cid}.jsonl`);
 
     if (!indexPath.startsWith(proofsDir + path.sep)) {
       return { error: 'path outside proofs directory' };
     }
 
-    fs.mkdirSync(proofsDir, { recursive: true });
-    fs.appendFileSync(indexPath, `${JSON.stringify(signedProof)}\n`, 'utf8');
+    fs.mkdirSync(proofsDir,  { recursive: true });
+    fs.mkdirSync(issuedDir,  { recursive: true });
+
+    const line = JSON.stringify(signedProof) + '\n';
+    fs.appendFileSync(indexPath,  line, 'utf8');
+    fs.writeFileSync(archivePath, line, 'utf8');
 
     return signedProof;
   } catch (e) {
