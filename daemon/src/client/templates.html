@@ -24,7 +24,6 @@
 
 <template name="WidgetQuickLaunch">
 	<div id="drag-container">
-		{{#with Entity}}
 
 			{{#with outfit}}
 				<style type="text/css">
@@ -68,12 +67,5 @@
 				{{/each}}
 			</div>
 
-		{{else}}
-
-			<div class="container">
-				<div class="main-icon draggable"><img class="entity-icon" src="/logo.png"></div>
-			</div>
-
-		{{/with}}
 	</div>
 </template>

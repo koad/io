@@ -104,6 +104,28 @@ Template.WidgetQuickLaunch.helpers({
 });
 
 
+const OPEN_ENTITYLESS_WINDOW = 'open-entityless-window';
+
+function getIpcRenderer() {
+  // Safe lookup — only present inside the Electron renderer context.
+  try {
+    if (typeof window !== 'undefined' && window.require) {
+      const { ipcRenderer } = window.require('electron');
+      return ipcRenderer;
+    }
+  } catch (_) {
+    // fall through to null
+  }
+  return null;
+}
+
+function openEntitylessWindow(url = 'http://10.10.10.10:21221/') {
+  const ipc = getIpcRenderer();
+  if (ipc) {
+    ipc.send(OPEN_ENTITYLESS_WINDOW, { url });
+  }
+}
+
 Template.WidgetQuickLaunch.events({
   'dblclick .main-diamond'(event, instance) {
     event.preventDefault();
@@ -181,6 +203,12 @@ Template.WidgetQuickLaunch.events({
       }
     });
 
+  },
+
+  // No entity selected: clicking the main icon opens a full window via IPC.
+  'click .main-icon'(event, instance) {
+    event.preventDefault();
+    openEntitylessWindow();
   },
 });
 

@@ -20,6 +20,9 @@ Meteor.startup(() => {
     ['TICKLER', process.env.KOAD_IO_INDEX_TICKLER],
     ['DOCUMENTS', process.env.KOAD_IO_INDEX_DOCUMENTS],
     ['PRIMERS', process.env.KOAD_IO_INDEX_PRIMERS],
+    ['REPOS', process.env.KOAD_IO_INDEX_REPOS],
+    ['GOALS', process.env.KOAD_IO_INDEX_GOALS],       // VESTA-SPEC-192
+    ['PROJECTS', process.env.KOAD_IO_INDEX_PROJECTS], // VESTA-SPEC-192
   ];
 
   const active = indexers.filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);
