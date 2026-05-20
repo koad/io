@@ -126,6 +126,12 @@ Meteor.startup(async () => {
 			asof: new Date(),
 			entity: koad.entity || process.env.ENTITY || 'unknown',
 			internals,
+			health: {
+				...(koad.health || {}),
+				uptime: Math.floor((Date.now() - upstart.getTime()) / 1000),
+				status: (koad.services || []).some(s => s.status === 'down') ? 'degraded' : (koad.health?.status || 'up'),
+			},
+			services: koad.services || [],
 			version: Meteor.settings?.public?.version,
 			application: Meteor.settings?.public?.ident?.application
 		};
@@ -133,6 +139,7 @@ Meteor.startup(async () => {
 		res.end(JSON.stringify(discoveryInfo, null, 3));
 	});
 
+	koad.services.push({ id: 'well-known', endpoint: '/.well-known/koad-io.json', method: 'GET', status: 'up' });
 	log.success('[discovery] Well-known endpoint registered: /.well-known/koad-io.json');
 });
 

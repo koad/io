@@ -1,6 +1,8 @@
 koad={
   ...koad,
   upstart: new Date(),
+  services: [],
+  health: { status: 'up', db: 'unknown' },
   environment: process.env.NODE_ENV,
 	process: null,
 	device: null,
