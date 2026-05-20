@@ -16,6 +16,8 @@ modules:
     role: SPEC-196 §2 central fetch helper — base URL from tier, Bearer auth injection, structured status returns
   - name: sovereign-profile-cache.js
     role: SPEC-196 §5 caches public sovereign profile while online, populates Tier 3 fallback view
+  - name: outbound-queue.js
+    role: SPEC-196 §5.3-5.4 FIFO buffer for offline writes; persists in chrome.storage.local; flushes on Tier 1/2 transition; dead-letters after MAX_ATTEMPTS
   - name: panel.js
     role: enables the side panel on every tab; sets path to panel.html
   - name: ddp-connection.js

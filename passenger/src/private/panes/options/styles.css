@@ -219,6 +219,55 @@ select:focus {
 	word-break: break-all;
 }
 
+.options-queue-status {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 12px;
+	background-color: var(--bg);
+	border-radius: 6px;
+	margin-bottom: 8px;
+	font-size: 13px;
+}
+
+.options-queue-total,
+.options-queue-dead {
+	font-weight: 800;
+}
+
+.options-queue-total { color: var(--tier-2); }
+.options-queue-dead { color: var(--tier-3); }
+
+.options-queue-separator {
+	color: var(--border);
+}
+
+.options-queue-flush,
+.options-queue-clear-dead {
+	margin-left: auto;
+	background-color: var(--bg-elevated);
+	color: var(--text);
+	border: 1px solid var(--border);
+	padding: 4px 10px;
+	border-radius: 4px;
+	font-family: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.options-queue-flush:first-of-type {
+	margin-left: auto;
+}
+
+.options-queue-clear-dead {
+	margin-left: 0;
+}
+
+.options-queue-flush:hover,
+.options-queue-clear-dead:hover {
+	border-color: var(--accent);
+}
+
 .options-footer {
 	display: flex;
 	align-items: center;

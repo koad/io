@@ -81,6 +81,20 @@
 		</section>
 
 		<section class="options-section">
+			<h2>Outbound queue</h2>
+
+			<div class="options-queue-status">
+				<span class="options-queue-total">0</span> queued
+				<span class="options-queue-separator">·</span>
+				<span class="options-queue-dead">0</span> dead-lettered
+				<button class="options-queue-flush">flush now</button>
+				<button class="options-queue-clear-dead">clear dead</button>
+			</div>
+
+			<p class="options-hint">Writes (like <code>injectContext</code>) made while offline (Tier 3) are buffered to <code>chrome.storage.local</code> and flushed when Tier 1/2 returns. Dead-lettered entries failed <code>MAX_ATTEMPTS</code> times and are kept for inspection only.</p>
+		</section>
+
+		<section class="options-section">
 			<h2>Session token (MCP)</h2>
 
 			<div class="options-token">

@@ -32,6 +32,7 @@ const tierEl = document.querySelector('.card-tier');
 const tierLabelEl = document.querySelector('.card-tier-label');
 const corpusCountEl = document.querySelector('.card-corpus-count');
 const scriptsCountEl = document.querySelector('.card-scripts-count');
+const queueCountEl = document.querySelector('.card-queue-count');
 const activeTabEl = document.querySelector('.card-active-tab');
 
 function renderState(state) {
@@ -46,6 +47,9 @@ function renderState(state) {
   corpusCountEl.textContent = String((state.actionable || []).length);
   // Scripts count is wired once the script registry is exposed (SPEC-196 §9).
   scriptsCountEl.textContent = '0';
+  const q = state.queue || { total: 0 };
+  queueCountEl.textContent = String(q.total);
+  if (q.total > 0) queueCountEl.style.color = 'var(--g3)';
   if (state.activeTab && state.activeTab.url) {
     try {
       const u = new URL(state.activeTab.url);

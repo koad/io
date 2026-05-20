@@ -23,6 +23,11 @@ const els = {
 	tokenDisplay:   document.querySelector('.options-token-display'),
 	rotateBtn:      document.querySelector('.options-token-rotate'),
 
+	queueTotal:     document.querySelector('.options-queue-total'),
+	queueDead:      document.querySelector('.options-queue-dead'),
+	queueFlushBtn:  document.querySelector('.options-queue-flush'),
+	queueClearBtn:  document.querySelector('.options-queue-clear-dead'),
+
 	saveBtn:        document.querySelector('.options-save'),
 	saveStatus:     document.querySelector('.options-save-status'),
 };
@@ -92,6 +97,9 @@ async function refreshTierIndicator() {
 			const key = String(state.tier);
 			els.tierDot.setAttribute('data-tier', key);
 			els.tierLabel.textContent = TIER_LABELS[key] || 'unknown';
+			const q = state.queue || { total: 0, deadLettered: 0 };
+			els.queueTotal.textContent = String(q.total);
+			els.queueDead.textContent = String(q.deadLettered);
 		} else {
 			els.tierDot.setAttribute('data-tier', 'probing');
 			els.tierLabel.textContent = TIER_LABELS.probing;
@@ -155,6 +163,16 @@ els.reprobeBtn.addEventListener('click', async () => {
 els.rotateBtn.addEventListener('click', async () => {
 	await chrome.runtime.sendMessage({ action: 'rotateToken' }).catch(() => {});
 	refreshToken();
+});
+
+els.queueFlushBtn.addEventListener('click', async () => {
+	await chrome.runtime.sendMessage({ action: 'queueFlush' }).catch(() => {});
+	setTimeout(refreshTierIndicator, 800);
+});
+
+els.queueClearBtn.addEventListener('click', async () => {
+	await chrome.runtime.sendMessage({ action: 'queueClearDead' }).catch(() => {});
+	refreshTierIndicator();
 });
 
 chrome.runtime.onMessage.addListener((msg) => {

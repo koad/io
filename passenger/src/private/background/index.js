@@ -8,6 +8,7 @@ import { currentTier, onTierChange, resolveWorkspaceUrl, probeNow } from './tier
 import { getActiveTab } from './active-tab.js';
 import { daemonGet, daemonPost } from './daemon-proxy.js';
 import { rotateToken } from './session-token.js';
+import { enqueue as enqueueOutbound, queueSize, flush as flushOutbound, clearDeadLettered } from './outbound-queue.js';
 import './sovereign-profile-cache.js';  // caches public profile for Tier 3 fallback
 
 globalThis.koad = { asof: new Date(), daemon: ddp}
@@ -48,6 +49,9 @@ async function getPanelState() {
     }
   }
 
+  // Outbound queue size — surfaces in popup HUD and options page.
+  const queue = await queueSize().catch(() => ({ total: 0, deadLettered: 0 }));
+
   return {
     ok: true,
     tier,
@@ -56,6 +60,7 @@ async function getPanelState() {
     activeTab,
     profile: tier === 3 ? profile : null,
     actionable,
+    queue,
   };
 }
 
@@ -134,14 +139,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // SPEC-196 §6 — window.__koad_io__.injectContext(...) from a page.
-  // The SW forwards the payload to the daemon (which routes it into the
-  // active entity's context bubble). 401/404/offline degrade gracefully.
+  // Forwards to daemon (Tier 1/2); queues for later when Tier 3 (offline).
   if (request.action === "injectContext") {
-    daemonPost('/api/context/inject', {
+    const body = {
       origin: request.origin,
       payload: request.payload,
       activeTabHint: sender.tab ? { id: sender.tab.id, url: sender.tab.url, title: sender.tab.title } : null,
-    }).then(result => sendResponse({ ok: result.status === 'ok', ...result }))
+    };
+    const tier = currentTier();
+    if (tier === 3 || tier === null) {
+      // Buffer for later — SPEC-196 §5.3.
+      enqueueOutbound({ action: 'injectContext', path: '/api/context/inject', payload: body })
+        .then(id => sendResponse({ ok: true, status: 'queued', id }))
+        .catch(err => sendResponse({ ok: false, error: String(err) }));
+      return true;
+    }
+    daemonPost('/api/context/inject', body)
+      .then(result => sendResponse({ ok: result.status === 'ok', ...result }))
       .catch(err => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
@@ -178,6 +192,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Options page — manually rotate the MCP session token.
   if (request.action === "rotateToken") {
     rotateToken().then((token) => sendResponse({ ok: true, token })).catch((err) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  // Options page — manually flush outbound queue.
+  if (request.action === "queueFlush") {
+    flushOutbound().then(() => sendResponse({ ok: true })).catch((err) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  // Options page — clear dead-lettered entries.
+  if (request.action === "queueClearDead") {
+    clearDeadLettered().then(() => sendResponse({ ok: true })).catch((err) => {
       sendResponse({ ok: false, error: String(err) });
     });
     return true;
