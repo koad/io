@@ -4,10 +4,10 @@ import './panel.js';
 import './settings-daemon.js';
 import './settings-subscription.js';
 import './external-messages.js';
-import { currentTier, onTierChange, resolveWorkspaceUrl } from './tier-detection.js';
+import { currentTier, onTierChange, resolveWorkspaceUrl, probeNow } from './tier-detection.js';
 import { getActiveTab } from './active-tab.js';
 import { daemonGet, daemonPost } from './daemon-proxy.js';
-import './session-token.js';            // primes MCP token on SW startup
+import { rotateToken } from './session-token.js';
 import './sovereign-profile-cache.js';  // caches public profile for Tier 3 fallback
 
 globalThis.koad = { asof: new Date(), daemon: ddp}
@@ -165,6 +165,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chrome.runtime.sendMessage({ action: 'panelStateChanged', reason: 'page' }).catch(() => {});
     sendResponse({ ok: true });
     return false;
+  }
+
+  // Options page — re-probe tiers immediately (after settings change or user request).
+  if (request.action === "reprobeTier") {
+    probeNow().then((tier) => sendResponse({ ok: true, tier })).catch((err) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
+  }
+
+  // Options page — manually rotate the MCP session token.
+  if (request.action === "rotateToken") {
+    rotateToken().then((token) => sendResponse({ ok: true, token })).catch((err) => {
+      sendResponse({ ok: false, error: String(err) });
+    });
+    return true;
   }
 
   if (request.action === "getTabs") {

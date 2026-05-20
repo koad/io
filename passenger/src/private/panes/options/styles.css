@@ -1,0 +1,234 @@
+:root {
+	--bg: rgb(10, 10, 10);
+	--bg-elevated: rgb(18, 18, 18);
+	--bg-input: rgb(26, 26, 26);
+	--border: rgb(39, 39, 39);
+	--border-focus: rgb(3, 169, 244);
+	--text: rgb(222, 222, 222);
+	--text-dim: rgb(140, 140, 140);
+	--accent: rgb(3, 169, 244);
+	--tier-1: rgb(46, 204, 113);
+	--tier-2: rgb(241, 196, 15);
+	--tier-3: rgb(231, 76, 60);
+	--tier-probing: rgb(140, 140, 140);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+	margin: 0;
+	padding: 0;
+	background-color: var(--bg);
+	color: var(--text);
+	font-family: "Anek Latin", sans-serif;
+	min-height: 100vh;
+}
+
+.options-container {
+	max-width: 720px;
+	margin: 0 auto;
+	padding: 32px 24px 96px;
+}
+
+.options-header {
+	margin-bottom: 32px;
+	padding-bottom: 16px;
+	border-bottom: 1px solid var(--border);
+}
+
+.options-header h1 {
+	margin: 0;
+	font-size: 22px;
+	font-weight: 800;
+	letter-spacing: 0.02em;
+}
+
+.options-subtitle {
+	margin: 4px 0 0 0;
+	font-size: 13px;
+	color: var(--text-dim);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.options-section {
+	margin-bottom: 32px;
+	padding: 20px;
+	background-color: var(--bg-elevated);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+
+.options-section h2 {
+	margin: 0 0 16px 0;
+	font-size: 14px;
+	font-weight: 800;
+	color: var(--text-dim);
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+}
+
+.options-tier-status {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 12px;
+	background-color: var(--bg);
+	border-radius: 6px;
+	margin-bottom: 20px;
+	font-size: 13px;
+}
+
+.options-tier-dot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background-color: var(--tier-probing);
+}
+
+.options-tier-dot[data-tier="1"] { background-color: var(--tier-1); }
+.options-tier-dot[data-tier="2"] { background-color: var(--tier-2); }
+.options-tier-dot[data-tier="3"] { background-color: var(--tier-3); }
+
+.options-tier-label {
+	flex: 1;
+	color: var(--text-dim);
+}
+
+.options-reprobe,
+.options-save,
+.options-token-rotate {
+	background-color: var(--accent);
+	color: var(--bg);
+	border: none;
+	padding: 8px 16px;
+	border-radius: 4px;
+	font-family: inherit;
+	font-weight: 700;
+	font-size: 12px;
+	cursor: pointer;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.options-reprobe:hover,
+.options-save:hover,
+.options-token-rotate:hover { filter: brightness(1.1); }
+
+fieldset {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 16px;
+	margin: 0 0 16px 0;
+}
+
+legend {
+	padding: 0 8px;
+	color: var(--text-dim);
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+}
+
+label {
+	display: grid;
+	grid-template-columns: 100px 1fr;
+	gap: 12px;
+	align-items: center;
+	margin-bottom: 10px;
+	font-size: 13px;
+	color: var(--text-dim);
+}
+
+input[type="text"],
+input[type="number"],
+select {
+	background-color: var(--bg-input);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 8px 10px;
+	color: var(--text);
+	font-family: inherit;
+	font-size: 13px;
+}
+
+input:focus,
+select:focus {
+	outline: none;
+	border-color: var(--border-focus);
+}
+
+.options-hint {
+	margin: 8px 0 0 0;
+	font-size: 12px;
+	color: var(--text-dim);
+	font-style: italic;
+}
+
+.options-hint code,
+.options-token-display {
+	font-family: monospace;
+	font-style: normal;
+	color: var(--accent);
+	background-color: var(--bg);
+	padding: 1px 6px;
+	border-radius: 3px;
+	font-size: 11px;
+}
+
+.options-profile {
+	font-size: 13px;
+	color: var(--text);
+}
+
+.options-profile-empty {
+	margin: 0;
+	color: var(--text-dim);
+	font-style: italic;
+}
+
+.options-profile dl {
+	display: grid;
+	grid-template-columns: 140px 1fr;
+	gap: 6px 12px;
+	margin: 0 0 12px 0;
+}
+
+.options-profile dt {
+	color: var(--text-dim);
+	font-weight: 600;
+}
+
+.options-profile dd {
+	margin: 0;
+	word-break: break-all;
+}
+
+.options-token {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 8px;
+}
+
+.options-token-display {
+	flex: 1;
+	padding: 8px 12px;
+	font-size: 12px;
+	word-break: break-all;
+}
+
+.options-footer {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	padding-top: 16px;
+	border-top: 1px solid var(--border);
+}
+
+.options-save-status {
+	color: var(--tier-1);
+	font-size: 12px;
+	font-style: italic;
+}

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>koad:io — passenger settings</title>
+
+	<link rel="stylesheet" href="/fonts/google-symbols.css" />
+	<link rel="stylesheet" href="/fonts/anek-latin.css" />
+
+	<link rel="stylesheet" href="styles.css">
+	<script defer type="text/javascript" src="logic.js"></script>
+</head>
+<body>
+	<div class="options-container">
+		<header class="options-header">
+			<h1>koad:io — dark passenger</h1>
+			<p class="options-subtitle">connection &amp; identity settings</p>
+		</header>
+
+		<section class="options-section">
+			<h2>Connection</h2>
+
+			<div class="options-tier-status">
+				<span class="options-tier-dot" data-tier="probing"></span>
+				<span class="options-tier-label">probing…</span>
+				<button class="options-reprobe">re-probe now</button>
+			</div>
+
+			<fieldset>
+				<legend>Tier 1 — ZeroTier daemon</legend>
+				<label>host
+					<input type="text" name="tier1-host" placeholder="10.10.10.10">
+				</label>
+				<label>port
+					<input type="number" name="tier1-port" placeholder="28282">
+				</label>
+				<label>protocol
+					<select name="tier1-proto">
+						<option value="http">http</option>
+						<option value="https">https</option>
+					</select>
+				</label>
+				<p class="options-hint">Default: <code>10.10.10.10:28282</code>. The daemon must respond 200 OK at <code>/health</code> for the tier to come up.</p>
+			</fieldset>
+
+			<fieldset>
+				<legend>Tier 2 — Public lighthouse</legend>
+				<label>host
+					<input type="text" name="tier2-host" placeholder="wonderland.koad.sh">
+				</label>
+				<label>port (optional)
+					<input type="number" name="tier2-port" placeholder="(default)">
+				</label>
+				<label>protocol
+					<select name="tier2-proto">
+						<option value="https">https</option>
+						<option value="http">http</option>
+					</select>
+				</label>
+				<p class="options-hint">Probed only if Tier 1 fails. Leave host blank to disable Tier 2 (skip straight to offline fallback).</p>
+			</fieldset>
+
+			<fieldset>
+				<legend>Workspace URL override</legend>
+				<label>
+					<input type="text" name="workspace-url" placeholder="(derived from active tier)">
+				</label>
+				<p class="options-hint">URL the side panel iframe loads when connected. Leave blank to use the active tier's host (e.g. <code>http://10.10.10.10:28282/</code>). Override for a specific daemon-interface URL (e.g. <code>https://kingofalldata.com/overview</code>).</p>
+			</fieldset>
+		</section>
+
+		<section class="options-section">
+			<h2>Identity</h2>
+
+			<div class="options-profile">
+				<p class="options-profile-empty">No cached sovereign profile.</p>
+			</div>
+
+			<p class="options-hint">Cached on each Tier 1/2 connection from <code>/api/sovereign-profile</code>. Public data only — the extension never holds private keys. Used to render the offline fallback view in the side panel.</p>
+		</section>
+
+		<section class="options-section">
+			<h2>Session token (MCP)</h2>
+
+			<div class="options-token">
+				<code class="options-token-display">(none)</code>
+				<button class="options-token-rotate">rotate</button>
+			</div>
+
+			<p class="options-hint">UUID generated at extension startup, sent as <code>Authorization: Bearer &lt;token&gt;</code> to the daemon. Cleared on browser close. Per SPEC-196 §4 — the extension never holds private keys; this is the only credential surface.</p>
+		</section>
+
+		<footer class="options-footer">
+			<button class="options-save">save</button>
+			<span class="options-save-status"></span>
+		</footer>
+	</div>
+</body>
+</html>

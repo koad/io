@@ -115,7 +115,7 @@
 	"omnibox": { "keyword" : "koad" },
 
 	// provide full screen application
-	"options_page": "/index.html",
+	"options_page": "panes/options/index.html",
 
 	// https://developer.chrome.com/docs/extensions/reference/api/sidePanel
 	"side_panel": { "default_path": "panel.html" },
