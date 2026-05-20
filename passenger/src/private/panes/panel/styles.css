@@ -136,6 +136,39 @@ html, body {
 	background-color: var(--bg);
 }
 
+.panel-workspace-fallback {
+	flex: 1;
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+}
+
+.panel-workspace-fallback p {
+	margin: 0;
+	font-size: 13px;
+	color: var(--text-dim);
+}
+
+.panel-open-in-tab {
+	padding: 10px 18px;
+	background-color: var(--accent);
+	color: var(--bg);
+	border: none;
+	border-radius: 6px;
+	font-family: inherit;
+	font-weight: 700;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.panel-open-in-tab:hover {
+	filter: brightness(1.1);
+}
+
 .panel-fallback {
 	flex: 1;
 	padding: 16px;

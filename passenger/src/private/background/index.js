@@ -7,7 +7,8 @@ import './external-messages.js';
 import { currentTier, onTierChange, resolveWorkspaceUrl } from './tier-detection.js';
 import { getActiveTab } from './active-tab.js';
 import { daemonGet, daemonPost } from './daemon-proxy.js';
-import './session-token.js';  // primes MCP token on SW startup
+import './session-token.js';            // primes MCP token on SW startup
+import './sovereign-profile-cache.js';  // caches public profile for Tier 3 fallback
 
 globalThis.koad = { asof: new Date(), daemon: ddp}
 
