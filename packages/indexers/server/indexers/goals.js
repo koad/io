@@ -7,8 +7,8 @@
 // DDP publication: goals.all
 //
 // Derived fields per document:
-//   projectCount      — count of Projects with goal: <this slug>
-//   activeFlightCount — count of open Flights with goal: <this slug>
+//   projectCount      — count of Projects with goal_refs containing <this slug>
+//   activeFlightCount — count of open Flights with goal ancestry
 //
 // Stale-reference handling: invalid slugs in frontmatter are indexed as-is;
 // the validator is the query layer, not the indexer.
@@ -96,17 +96,21 @@ function buildGoal(filePath) {
 
   // Validate required fields — index regardless, mark invalid for callers
   const missing = [];
-  for (const f of ['name', 'title', 'status', 'horizon', 'created']) {
+  for (const f of ['name', 'title', 'status', 'horizon']) {
     if (!fm[f]) missing.push(f);
   }
 
-  // Normalize owner to array
-  let owner = fm.owner || [];
-  if (typeof owner === 'string') owner = [owner];
+  let owners = fm.owners || fm.owner || [];
+  if (typeof owners === 'string') owners = [owners];
 
-  // Normalize tags to array
+  let projectRefs = fm.project_refs || [];
+  if (typeof projectRefs === 'string') projectRefs = [projectRefs];
+
   let tags = fm.tags || [];
   if (typeof tags === 'string') tags = [tags];
+
+  let success = fm.success || [];
+  if (typeof success === 'string') success = [success];
 
   return {
     _id:         slug,
@@ -117,8 +121,11 @@ function buildGoal(filePath) {
     horizon:     fm.horizon || null,
     created:     fm.created || null,
     updated:     fm.updated || null,
-    owner,
+    owners,
+    owner:       owners[0] || null, // compatibility
+    project_refs: projectRefs,
     tags,
+    success,
     target:      fm.target      || null,
     relatesTo:   fm['relates-to'] ? (Array.isArray(fm['relates-to']) ? fm['relates-to'] : [fm['relates-to']]) : [],
     supersedes:  fm.supersedes  || null,
@@ -126,6 +133,7 @@ function buildGoal(filePath) {
     // Derived — recomputed on each upsert
     projectCount:      0,
     activeFlightCount: 0,
+    body,
     // Meta
     _missing:    missing.length ? missing : null,
     _filePath:   filePath,
@@ -139,7 +147,7 @@ function buildGoal(filePath) {
 function recomputeDerived(slug) {
   // Project count: how many Projects link to this goal
   const Projects = globalThis.ProjectsCollection;
-  const projectCount = Projects ? Projects.find({ goal: slug }).count() : 0;
+  const projectCount = Projects ? Projects.find({ goal_refs: slug }).count() : 0;
 
   // Active flight count: open Flights with goal: <slug> (direct or via project)
   const Flights = globalThis.FlightsCollection;
@@ -150,7 +158,7 @@ function recomputeDerived(slug) {
         { goal: slug, status: 'flying' },
         // Derived via project — check any project with this goal
         ...(Projects ? (() => {
-          const projectSlugs = Projects.find({ goal: slug }).map(p => p.slug);
+          const projectSlugs = Projects.find({ goal_refs: slug }).map(p => p.slug);
           return projectSlugs.length ? [{ project: { $in: projectSlugs }, status: 'flying' }] : [];
         })() : []),
       ],
@@ -196,7 +204,7 @@ function fullScan() {
   console.log('[GOALS] Starting scan of', GOALS_DIR);
   let files;
   try {
-    files = fs.readdirSync(GOALS_DIR).filter(f => f.endsWith('.md'));
+    files = fs.readdirSync(GOALS_DIR).filter(f => f.endsWith('.md') && f !== 'PRIMER.md' && !f.startsWith('README'));
   } catch (e) {
     console.log('[GOALS] goals dir does not exist or is unreadable:', e.message);
     globalThis.indexerReady.goals = new Date().toISOString();

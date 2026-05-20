@@ -9,9 +9,8 @@
 // Derived fields per document:
 //   activeFlightCount — count of open Flights with project: <this slug>
 //
-// Goal linkage: each project doc carries goal: <slug> from frontmatter.
-// The indexer does NOT validate that the goal slug resolves; stale refs
-// are surfaced via _unresolvedGoal flag (SPEC-192 §6.4 pattern).
+// Goal linkage: each project doc carries goal_refs: [<slug>, ...] from frontmatter.
+// The indexer does NOT reject stale refs; unresolved refs are surfaced for callers.
 
 const fs       = Npm.require('fs');
 const path     = Npm.require('path');
@@ -99,20 +98,23 @@ function buildProject(filePath) {
     if (!fm[f]) missing.push(f);
   }
 
-  let owner = fm.owner || [];
-  if (typeof owner === 'string') owner = [owner];
+  let owners = fm.owners || fm.owner || [];
+  if (typeof owners === 'string') owners = [owners];
 
   let tags = fm.tags || [];
   if (typeof tags === 'string') tags = [tags];
 
-  const goalSlug = fm.goal || null;
+  let goalRefs = fm.goal_refs || (fm.goal ? [fm.goal] : []);
+  if (typeof goalRefs === 'string') goalRefs = [goalRefs];
 
-  // Validate goal reference — flag if unresolved (non-blocking, per SPEC §6.4)
-  let unresolvedGoal = false;
-  if (goalSlug) {
-    const Goals = globalThis.GoalsCollection;
-    if (Goals && !Goals.findOne(goalSlug)) {
-      unresolvedGoal = true;
+  let conversationRefs = fm.conversation_refs || [];
+  if (typeof conversationRefs === 'string') conversationRefs = [conversationRefs];
+
+  const unresolvedGoalRefs = [];
+  const Goals = globalThis.GoalsCollection;
+  if (Goals) {
+    for (const ref of goalRefs) {
+      if (!Goals.findOne(ref)) unresolvedGoalRefs.push(ref);
     }
   }
 
@@ -122,11 +124,14 @@ function buildProject(filePath) {
     name:         fm.name     || slug,
     title:        fm.title    || slug,
     status:       fm.status   || 'discovery',
-    goal:         goalSlug,
+    goal_refs:    goalRefs,
+    goal:         goalRefs[0] || null, // compatibility for older query surfaces
+    conversation_refs: conversationRefs,
     priority:     fm.priority || 'normal',
     created:      fm.created  || null,
     updated:      fm.updated  || null,
-    owner,
+    owners,
+    owner:        owners[0] || null, // compatibility
     tags,
     target:       fm.target      || null,
     relatesTo:    fm['relates-to'] ? (Array.isArray(fm['relates-to']) ? fm['relates-to'] : [fm['relates-to']]) : [],
@@ -134,9 +139,10 @@ function buildProject(filePath) {
     blockedBy:    fm['blocked-by'] ? (Array.isArray(fm['blocked-by']) ? fm['blocked-by'] : [fm['blocked-by']]) : [],
     // Derived — recomputed on each upsert
     activeFlightCount: 0,
+    body,
     // Meta
     _missing:         missing.length ? missing : null,
-    _unresolvedGoal:  unresolvedGoal,
+    _unresolvedGoalRefs: unresolvedGoalRefs.length ? unresolvedGoalRefs : null,
     _filePath:        filePath,
     _asof:            new Date(),
   };
@@ -155,12 +161,13 @@ function recomputeDerived(slug) {
 
   // Also update parent goal's derived counts if we can
   const proj = Projects.findOne(slug);
-  if (proj && proj.goal) {
+  if (proj && proj.goal_refs && proj.goal_refs.length) {
     const Goals = globalThis.GoalsCollection;
     if (Goals) {
-      const goalSlug = proj.goal;
-      const projectCount = Projects.find({ goal: goalSlug }).count();
-      Goals.update(goalSlug, { $set: { projectCount } });
+      for (const goalSlug of proj.goal_refs) {
+        const projectCount = Projects.find({ goal_refs: goalSlug }).count();
+        Goals.update(goalSlug, { $set: { projectCount } });
+      }
     }
   }
 }
@@ -192,12 +199,13 @@ function removeProjectFile(filePath) {
   const proj = Projects.findOne(slug);
   Projects.remove(slug);
   // Update parent goal counts
-  if (proj && proj.goal) {
+  if (proj && proj.goal_refs && proj.goal_refs.length) {
     const Goals = globalThis.GoalsCollection;
     if (Goals) {
-      const goalSlug = proj.goal;
-      const projectCount = Projects.find({ goal: goalSlug }).count();
-      Goals.update(goalSlug, { $set: { projectCount } });
+      for (const goalSlug of proj.goal_refs) {
+        const projectCount = Projects.find({ goal_refs: goalSlug }).count();
+        Goals.update(goalSlug, { $set: { projectCount } });
+      }
     }
   }
 }
