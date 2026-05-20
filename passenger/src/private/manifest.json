@@ -91,6 +91,17 @@
 			"css": ["global/styles.css"],
 			"js": ["global/logic.js"]
 		},{
+			"description": "SPEC-196 §6/§9 — exposes window.__koad_io__ in page world on every URL. Userscripts and page scripts call this API to push tab context, lookup corpus, etc.",
+			"matches": ["<all_urls>"],
+			"js": ["global/koad-io-api.js"],
+			"run_at": "document_start",
+			"world": "MAIN"
+		},{
+			"description": "SPEC-196 — isolated-world relay for koad-io-api.js. Forwards page-world postMessage to chrome.runtime.sendMessage so the page-world API can reach the service worker.",
+			"matches": ["<all_urls>"],
+			"js": ["global/koad-io-bridge.js"],
+			"run_at": "document_start"
+		},{
 			"description": "Relay between the page (postMessage) and the service worker (chrome.runtime) for kingdom lighthouses.",
 			"matches": [
 				"http://10.10.10.10:58008/*",

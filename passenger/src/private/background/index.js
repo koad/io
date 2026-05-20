@@ -6,6 +6,8 @@ import './settings-subscription.js';
 import './external-messages.js';
 import { currentTier, onTierChange, resolveWorkspaceUrl } from './tier-detection.js';
 import { getActiveTab } from './active-tab.js';
+import { daemonGet, daemonPost } from './daemon-proxy.js';
+import './session-token.js';  // primes MCP token on SW startup
 
 globalThis.koad = { asof: new Date(), daemon: ddp}
 
@@ -34,6 +36,17 @@ async function getPanelState() {
   const profileStored = await chrome.storage.local.get('sovereignProfile');
   const profile = profileStored.sovereignProfile || null;
 
+  // SPEC-196 §8 — fetch corpus items matching the active tab URL.
+  // Daemon may not expose /api/corpus/by-url yet; offline / not-found / error
+  // all degrade to an empty list.
+  let actionable = [];
+  if (tier !== 3 && activeTab && activeTab.url) {
+    const result = await daemonGet('/api/corpus/by-url', { url: activeTab.url });
+    if (result.status === 'ok' && Array.isArray(result.data)) {
+      actionable = result.data;
+    }
+  }
+
   return {
     ok: true,
     tier,
@@ -41,7 +54,7 @@ async function getPanelState() {
     daemonUrl: workspaceUrl,  // backward-compat alias for the panel
     activeTab,
     profile: tier === 3 ? profile : null,
-    actionable: [],  // SPEC-196 §8 — populated via /api/corpus/by-url once exposed
+    actionable,
   };
 }
 
@@ -117,6 +130,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ ok: false, error: String(err && err.message || err) });
     });
     return true;
+  }
+
+  // SPEC-196 §6 — window.__koad_io__.injectContext(...) from a page.
+  // The SW forwards the payload to the daemon (which routes it into the
+  // active entity's context bubble). 401/404/offline degrade gracefully.
+  if (request.action === "injectContext") {
+    daemonPost('/api/context/inject', {
+      origin: request.origin,
+      payload: request.payload,
+      activeTabHint: sender.tab ? { id: sender.tab.id, url: sender.tab.url, title: sender.tab.title } : null,
+    }).then(result => sendResponse({ ok: result.status === 'ok', ...result }))
+      .catch(err => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  // SPEC-196 §8 — window.__koad_io__.corpusByUrl(url) from a page.
+  if (request.action === "corpusByUrl") {
+    const url = (request.payload && request.payload.url) || (sender.tab && sender.tab.url);
+    if (!url) {
+      sendResponse({ ok: false, error: 'url required' });
+      return true;
+    }
+    daemonGet('/api/corpus/by-url', { url })
+      .then(result => sendResponse({ ok: result.status === 'ok', ...result }))
+      .catch(err => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  // Page-triggered panel refresh — userscript notifies the HUD that state
+  // changed (e.g. it just pushed context, so the actionable list might shift).
+  if (request.action === "panelRefresh") {
+    chrome.runtime.sendMessage({ action: 'panelStateChanged', reason: 'page' }).catch(() => {});
+    sendResponse({ ok: true });
+    return false;
   }
 
   if (request.action === "getTabs") {
