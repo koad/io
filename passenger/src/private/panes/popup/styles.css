@@ -181,3 +181,46 @@ a:hover {
 
 			
 		
+/* SPEC-196 — connection tier indicator + HUD counts */
+
+.card-tier {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 12px;
+	font-size: 2.5vmin;
+	color: rgb(140, 140, 140);
+	letter-spacing: 0.04em;
+}
+
+.card-tier-dot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background-color: rgb(140, 140, 140);
+	transition: background-color 0.2s;
+}
+
+.card-tier[data-tier="1"] .card-tier-dot { background-color: rgb(46, 204, 113); }
+.card-tier[data-tier="2"] .card-tier-dot { background-color: rgb(241, 196, 15); }
+.card-tier[data-tier="3"] .card-tier-dot { background-color: rgb(231, 76, 60); }
+
+.card-corpus-count,
+.card-scripts-count {
+	color: var(--g3);
+	font-weight: 800;
+}
+
+.card-corpus-separator {
+	color: rgb(80, 80, 80);
+	margin: 0 6px;
+}
+
+.card-active-tab {
+	font-size: 2vmin;
+	color: rgb(120, 120, 120);
+	font-family: monospace;
+	word-break: break-all;
+	display: inline-block;
+	max-width: 100%;
+}

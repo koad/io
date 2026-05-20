@@ -4,36 +4,30 @@ import './panel.js';
 import './settings-daemon.js';
 import './settings-subscription.js';
 import './external-messages.js';
+import { currentTier, onTierChange, resolveWorkspaceUrl } from './tier-detection.js';
+import { getActiveTab } from './active-tab.js';
 
 globalThis.koad = { asof: new Date(), daemon: ddp}
 
 // --- Panel state ----------------------------------------------------------
 //
-// The side panel asks for the current connection tier + workspace URL +
-// matching corpus items via `action: getPanelState`. Until full SPEC-196
-// tier detection lands, we infer tier from the DDP socket state and
-// derive the workspace URL from the lighthouse config.
+// The side panel and popup ask for current tier + workspace URL +
+// matching corpus items via `action: getPanelState`.
 //
-// Tier mapping (SPEC-196 §3):
-//   1 = ZeroTier daemon (10.10.10.10), 2 = public lighthouse, 3 = offline.
+// Tier comes from tier-detection.js (SPEC-196 §3 sequential HTTP probe).
+// Workspace URL comes from chrome.storage.local.workspaceUrl, or derived
+// from the active tier's host:port if unset.
+// Active tab comes from active-tab.js — used for SPEC-196 §6 (tab context)
+// and §8 (corpus-url surface).
 //
-// The corpus-url surface (SPEC-196 §8) is wired in once the daemon exposes
-// /api/corpus/by-url. Until then, panelState returns an empty actionable list
-// so the panel renders the "no actionable methods on this page" message.
+// Corpus actionable list returns [] until /api/corpus/by-url is exposed
+// on the daemon. Once it is, this function calls it with the active tab
+// URL and returns the matching items.
 
 async function getPanelState() {
-  const stored = await chrome.storage.local.get('lighthouse');
-  const lh = Object.assign({ host: '10.10.10.10', port: 28282, proto: 'ws' }, stored.lighthouse);
-  const connected = !!(ddp && ddp.sock && ddp.sock.readyState === WebSocket.OPEN);
-
-  // Tier inference: until SPEC-196 §3.2 detection lands, treat any open DDP
-  // socket as Tier 1 (ZeroTier) if host is the kingdom address, otherwise
-  // Tier 2 (public lighthouse). Closed socket → Tier 3.
-  let tier = 3;
-  if (connected) tier = (lh.host === '10.10.10.10' || lh.host === '127.0.0.1') ? 1 : 2;
-
-  const httpProto = lh.proto === 'wss' ? 'https' : 'http';
-  const daemonUrl = `${httpProto}://${lh.host}:${lh.port}/`;
+  const tier = currentTier() || 3;
+  const workspaceUrl = (tier === 3) ? null : await resolveWorkspaceUrl();
+  const activeTab = await getActiveTab();
 
   // Cached sovereign profile (SPEC-196 §5). Populated on last successful
   // connection; empty until the cache layer is wired.
@@ -43,11 +37,20 @@ async function getPanelState() {
   return {
     ok: true,
     tier,
-    daemonUrl: tier === 3 ? null : daemonUrl,
+    workspaceUrl,
+    daemonUrl: workspaceUrl,  // backward-compat alias for the panel
+    activeTab,
     profile: tier === 3 ? profile : null,
     actionable: [],  // SPEC-196 §8 — populated via /api/corpus/by-url once exposed
   };
 }
+
+// Broadcast tier changes so any open panel/popup re-renders.
+onTierChange((tier) => {
+  console.log('tier change → broadcasting panelStateChanged');
+  chrome.runtime.sendMessage({ action: 'panelStateChanged', reason: 'tier', tier })
+    .catch(() => { /* no listener — fine */ });
+});
 
 // This function is called when the button is clicked
 function copyTabs() {

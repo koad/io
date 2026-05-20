@@ -52,35 +52,18 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
 });
 
-// Function to perform the sequence of method calls
 async function connectDDP() {
     try {
         await ddp.connect();
         console.log('Connected to DDP server');
         startKeepalive();
-        await performPassengerChecks('dark-passenger');
+        // SPEC-196 §4 — auth handshake (MCP session token exchange) is wired
+        // here once Vulcan implements the extension-context token lifecycle.
+        // The prior `passenger.check.in / sign.in / check.duty` flow used a
+        // placeholder "exampleSignedId" and is removed pending the real flow.
     } catch (error) {
         console.error('DDP connection error:', error);
         stopKeepalive();
-    }
-}
-
-async function performPassengerChecks(passengerName) {
-    try {
-        // Step 1: Check in the passenger
-        const checkInResp = await ddp.call('passenger.check.in', passengerName);
-        console.log('Passenger check-in response:', checkInResp);
-        const signedId = "exampleSignedId"; // This should be replaced with actual PGP signed ID
-
-        // Step 2: Sign in the passenger
-        const signInResp = await ddp.call('passenger.sign.in', signedId, passengerName);
-        console.log('Passenger sign-in response:', signInResp);
-
-        // Step 3: Check which entity is on duty
-        const dutyResp = await ddp.call('passenger.check.duty');
-        console.log('On-duty entity:', dutyResp);
-    } catch (error) {
-        console.error('An error occurred:', error);
     }
 }
 
