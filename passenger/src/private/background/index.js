@@ -7,6 +7,48 @@ import './external-messages.js';
 
 globalThis.koad = { asof: new Date(), daemon: ddp}
 
+// --- Panel state ----------------------------------------------------------
+//
+// The side panel asks for the current connection tier + workspace URL +
+// matching corpus items via `action: getPanelState`. Until full SPEC-196
+// tier detection lands, we infer tier from the DDP socket state and
+// derive the workspace URL from the lighthouse config.
+//
+// Tier mapping (SPEC-196 §3):
+//   1 = ZeroTier daemon (10.10.10.10), 2 = public lighthouse, 3 = offline.
+//
+// The corpus-url surface (SPEC-196 §8) is wired in once the daemon exposes
+// /api/corpus/by-url. Until then, panelState returns an empty actionable list
+// so the panel renders the "no actionable methods on this page" message.
+
+async function getPanelState() {
+  const stored = await chrome.storage.local.get('lighthouse');
+  const lh = Object.assign({ host: '10.10.10.10', port: 28282, proto: 'ws' }, stored.lighthouse);
+  const connected = !!(ddp && ddp.sock && ddp.sock.readyState === WebSocket.OPEN);
+
+  // Tier inference: until SPEC-196 §3.2 detection lands, treat any open DDP
+  // socket as Tier 1 (ZeroTier) if host is the kingdom address, otherwise
+  // Tier 2 (public lighthouse). Closed socket → Tier 3.
+  let tier = 3;
+  if (connected) tier = (lh.host === '10.10.10.10' || lh.host === '127.0.0.1') ? 1 : 2;
+
+  const httpProto = lh.proto === 'wss' ? 'https' : 'http';
+  const daemonUrl = `${httpProto}://${lh.host}:${lh.port}/`;
+
+  // Cached sovereign profile (SPEC-196 §5). Populated on last successful
+  // connection; empty until the cache layer is wired.
+  const profileStored = await chrome.storage.local.get('sovereignProfile');
+  const profile = profileStored.sovereignProfile || null;
+
+  return {
+    ok: true,
+    tier,
+    daemonUrl: tier === 3 ? null : daemonUrl,
+    profile: tier === 3 ? profile : null,
+    actionable: [],  // SPEC-196 §8 — populated via /api/corpus/by-url once exposed
+  };
+}
+
 // This function is called when the button is clicked
 function copyTabs() {
   // Query all tabs in the current window
@@ -42,23 +84,38 @@ function uuidv4() {
   );
 }
 
-function sendRequestToDaemon(data) {
-  // Example: Send a request to the daemon's HTTP endpoint
-  fetch('http://localhost:28282/passenger/post', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(data),
-  })
-  .then(response => response.json())
-  .then(data => console.log('Daemon response:', data))
-  .catch((error) => {
+async function sendRequestToDaemon(data) {
+  // Resolve daemon URL from stored lighthouse config (same source as DDP).
+  // Uses HTTP scheme alongside the DDP ws scheme — same host:port, /passenger/post path.
+  const stored = await chrome.storage.local.get('lighthouse');
+  const lh = Object.assign({ host: '10.10.10.10', port: 28282, proto: 'ws' }, stored.lighthouse);
+  const httpProto = lh.proto === 'wss' ? 'https' : 'http';
+  const url = `${httpProto}://${lh.host}:${lh.port}/passenger/post`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const responseData = await response.json();
+    console.log('Daemon response:', responseData);
+    return responseData;
+  } catch (error) {
     console.error('Error communicating with daemon:', error);
-  });
+    return null;
+  }
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "getPanelState") {
+    getPanelState().then(sendResponse).catch((err) => {
+      console.warn('getPanelState failed:', err);
+      sendResponse({ ok: false, error: String(err && err.message || err) });
+    });
+    return true;
+  }
+
   if (request.action === "getTabs") {
     chrome.tabs.query({currentWindow: true}, (tabs) => {
       let tabsInfo = tabs.map(tab => {

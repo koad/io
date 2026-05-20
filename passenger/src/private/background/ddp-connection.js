@@ -1,6 +1,9 @@
 import DDPClient from '../lib/ddp.js';
 
-const defaults = { host: "127.0.0.1", port: 28282, proto: 'ws' };
+// Default to the kingdom's ZeroTier lighthouse address (10.10.10.10).
+// Operator can override via chrome.storage.local.set({ lighthouse: { host, port, proto } }).
+// Per SPEC-196 §3, the SW probes Tier 1 (ZeroTier daemon) before any fallback.
+const defaults = { host: "10.10.10.10", port: 28282, proto: 'ws' };
 
 async function getLighthouse() {
     const stored = await chrome.storage.local.get('lighthouse');

@@ -1,23 +1,20 @@
-const GOOGLE_ORIGIN = 'https://www.google.com';
+// Side panel — the Dark Passenger workspace. Enabled on every tab so the panel
+// rides with koad wherever he goes. Path is `panel.html` (declared in
+// manifest.json side_panel.default_path). The panel itself decides what to
+// render based on the current connection tier (SPEC-196 §2).
 
-// Allows users to open the side panel by clicking on the action toolbar icon
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => console.error(error));
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+  .catch((error) => console.error('sidePanel.setPanelBehavior failed:', error));
 
 chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
   if (!tab.url) return;
-  const url = new URL(tab.url);
-  // Enables the side panel on google.com
-  if (url.origin != GOOGLE_ORIGIN) {
+  try {
     await chrome.sidePanel.setOptions({
       tabId,
-      path: 'popup.html',
-      enabled: true
+      path: 'panel.html',
+      enabled: true,
     });
-  } else {
-    // Disables the side panel on all other sites
-    await chrome.sidePanel.setOptions({
-      tabId,
-      enabled: false
-    });
+  } catch (err) {
+    console.error('sidePanel.setOptions failed for tab', tabId, err);
   }
 });
