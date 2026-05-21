@@ -18,6 +18,7 @@ PATTERN=""
 ONLY_ENTITY=""
 ONLY_FRAMEWORK=""
 SKIP_COMPLETE=""
+FROM_MODE="fs"
 MODE="search"  # search | related | stale | atlas | echo
 MODE_ARG=""
 STALE_DAYS=7
@@ -30,6 +31,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --entity)         ONLY_ENTITY="$2"; shift 2 ;;
     --framework)      ONLY_FRAMEWORK=1; shift ;;
+    --from)           FROM_MODE="$2"; shift 2 ;;
     --skip-complete)  SKIP_COMPLETE=1; shift ;;
     --where)          WHERE_CLAUSES+=("$2"); shift 2 ;;
     --related)        MODE="related"; MODE_ARG="$2"; shift 2 ;;
@@ -56,6 +58,10 @@ Modes:
   search --atlas                Kingdom dashboard — all work grouped by status
   search --echo <topic>         Fuzzy topic match on titles and descriptions
 
+Source options:
+  --from db                    Query Postgres juno_drift.documents instead of filesystem grep
+                               (falls back to filesystem search if PG is unavailable)
+
 Where operators:
   key=value     Exact match (case-insensitive)
   key!=value    Not equal
@@ -78,6 +84,7 @@ Examples:
   search --stale 14                              # untouched for 2 weeks
   search --atlas                                 # the big picture
   search --echo "oauth"                          # anything about oauth
+  search "telemetry" --from db --entity juno     # FTS via juno_drift
 USAGE
       exit 0
       ;;
@@ -383,6 +390,94 @@ _list_entities() {
     [[ -d "$_dir" ]] || continue
     echo "$_name"
   done
+}
+
+
+# ============================================================================
+# MODE: --from db
+# Query the Janus-populated juno_drift Postgres document library. Filesystem
+# search remains the default; if PG is unavailable this returns 2 so MAIN can
+# continue with the normal grep path.
+# ============================================================================
+_mode_db_search() {
+  if [[ "$MODE" != "search" || "$FROM_MODE" != "db" ]]; then return 2; fi
+  if [[ -z "$PATTERN" ]]; then
+    echo "search --from db requires a text pattern; falling back to filesystem search" >&2
+    return 2
+  fi
+  if [[ ${#WHERE_CLAUSES[@]} -gt 0 ]]; then
+    echo "search --from db: --where is not SQL-backed yet; falling back to filesystem search" >&2
+    return 2
+  fi
+  if [[ -n "$ONLY_FRAMEWORK" ]]; then
+    echo "search --from db: --framework is filesystem-only; falling back to filesystem search" >&2
+    return 2
+  fi
+  if ! command -v psql >/dev/null 2>&1; then
+    echo "search --from db: psql not found; falling back to filesystem search" >&2
+    return 2
+  fi
+
+  local _pg_host="${KOAD_PG_HOST:-$HOME/.forge/control-tower}"
+  local _pg_port="${KOAD_PG_PORT:-28432}"
+  local _pg_user="${KOAD_PG_USER:-koad}"
+  local _pg_db="${KOAD_PG_DRIFT_DB:-juno_drift}"
+  local _rows
+  local _sql
+  _sql=$(cat <<'SQL'
+WITH vars AS (
+  SELECT NULLIF(:'q', '') AS q,
+         NULLIF(:'entity', '') AS ent,
+         NULLIF(:'skip_complete', '') AS skip_complete
+), ranked AS (
+  SELECT d.path,
+         d.entity,
+         d.kind,
+         d.filename,
+         COALESCE(d.frontmatter->>'title', '') AS title,
+         COALESCE(d.frontmatter->>'status', '') AS status,
+         d.word_count,
+         d.mtime,
+         ts_rank(d.body_tsv, plainto_tsquery('english', v.q)) AS rank,
+         regexp_replace(ts_headline('english', d.body, plainto_tsquery('english', v.q),
+           'StartSel=«, StopSel=», MaxWords=24, MinWords=6'), E'\\s+', ' ', 'g') AS snippet
+  FROM documents d, vars v
+  WHERE (v.ent IS NULL OR d.entity = v.ent)
+    AND (d.body_tsv @@ plainto_tsquery('english', v.q)
+         OR d.filename ILIKE '%' || v.q || '%'
+         OR d.path ILIKE '%' || v.q || '%')
+    AND (v.skip_complete IS NULL OR lower(COALESCE(d.frontmatter->>'status', '')) !~ '^(landed|shipped|archived|canonical|complete|completed|delivered|closed|merged|resolved)$')
+  ORDER BY rank DESC, d.mtime DESC
+  LIMIT 50
+)
+SELECT path, entity, kind,
+       regexp_replace(title, E'[\\t\\n\\r]+', ' ', 'g'),
+       regexp_replace(status, E'[\\t\\n\\r]+', ' ', 'g'),
+       word_count, to_char(mtime, 'YYYY-MM-DD'),
+       regexp_replace(trim(snippet), E'[\\t\\n\\r]+', ' ', 'g')
+FROM ranked;
+SQL
+)
+  if ! _rows=$(psql -h "$_pg_host" -p "$_pg_port" -U "$_pg_user" -d "$_pg_db" -X -q -t -A -F $'\x1f' -v ON_ERROR_STOP=1 -v q="$PATTERN" -v entity="$ONLY_ENTITY" -v skip_complete="$SKIP_COMPLETE" 2>/dev/null <<< "$_sql"); then
+    echo "search --from db: juno_drift unavailable; falling back to filesystem search" >&2
+    return 2
+  fi
+
+  if [[ -z "$_rows" ]]; then
+    echo "no db matches for '$PATTERN'"
+    return 0
+  fi
+
+  printf '\033[1m── juno_drift.documents FTS: %s ──\033[0m\n' "$PATTERN"
+  while IFS=$'\x1f' read -r _path _entity _kind _title _status _words _mtime _snippet; do
+    printf '\033[0;36m%s\033[0m' "$_path"
+    printf '  \033[0;90m%s/%s · %s words · %s\033[0m' "$_entity" "$_kind" "${_words:-0}" "$_mtime"
+    [[ -n "$_status" ]] && printf '  \033[0;35m[%s]\033[0m' "$_status"
+    printf '\n'
+    [[ -n "$_title" ]] && printf '  \033[0;33m%s\033[0m\n' "$_title"
+    [[ -n "$_snippet" ]] && printf '  %s\n' "$_snippet"
+    printf '\n'
+  done <<< "$_rows"
 }
 
 # ============================================================================
@@ -757,6 +852,15 @@ _mode_echo() {
 # ============================================================================
 # MAIN
 # ============================================================================
+
+if [[ "$FROM_MODE" != "fs" && "$FROM_MODE" != "db" ]]; then
+  echo "unknown --from source: $FROM_MODE" >&2
+  exit 1
+fi
+
+if [[ "$FROM_MODE" == "db" ]]; then
+  _mode_db_search && exit 0
+fi
 
 case "$MODE" in
   related) _mode_related "$MODE_ARG"; exit 0 ;;
