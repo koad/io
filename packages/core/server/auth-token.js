@@ -18,15 +18,11 @@
  * SPEC-196 §4.2, VESTA-SPEC-140 (fallback bearer token path).
  */
 
-const crypto = globalThis.crypto || require('crypto');
+// In-memory token store — initialized on startup when Mongo is available.
+let SessionTokens = null;
 
-// In-memory token store — cleared on daemon restart (SPEC-196 §4.3 semantics).
-const SessionTokens = new Mongo.Collection('SessionTokens', { connection: null });
-
-// Ensure TTL index so tokens don't accumulate indefinitely in long-running daemons.
-// In-memory-only means this resets on restart, but the index prevents unbounded growth
-// during a single daemon lifetime.
 Meteor.startup(() => {
+	SessionTokens = new Mongo.Collection('SessionTokens', { connection: null });
 	try {
 		SessionTokens._ensureIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
 	} catch (_) { /* index may already exist */ }
@@ -64,7 +60,6 @@ Meteor.startup(() => {
 				'Access-Control-Allow-Origin': '*',
 				'Access-Control-Allow-Methods': 'POST, OPTIONS',
 				'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-			});
 			res.end('');
 			return;
 		}
@@ -106,10 +101,7 @@ Meteor.startup(() => {
 			}
 
 			// ── Generate token ──
-			const token = (crypto.randomUUID ? crypto.randomUUID() :
-				'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-					const r = (crypto.getRandomValues(new Uint8Array(1))[0]) & 15;
-					return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+			const token = Random.id() + '-' + Random.id().slice(0, 12);
 				})
 			);
 
@@ -147,14 +139,12 @@ Meteor.startup(() => {
 				entity,
 				scope,
 				createdAt: new Date(),
-			});
 
 			// ── Respond ──
 			res.writeHead(200, {
 				'Content-Type': 'application/json',
 				'Access-Control-Allow-Origin': '*',
 				'Cache-Control': 'no-store',
-			});
 			res.end(JSON.stringify({
 				token,
 				expires_at: null,
