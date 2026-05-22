@@ -103,8 +103,6 @@ Meteor.startup(() => {
 
 			// ── Generate token ──
 			const token = Random.id() + '-' + Random.id().slice(0, 12);
-				})
-			);
 
 			// ── Bind entity from fingerprint if available ──
 			let scope = 'visitor';
