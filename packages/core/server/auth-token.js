@@ -43,29 +43,19 @@ Meteor.startup(() => {
 	WebApp.handlers.use('/api/auth/token', (req, res, next) => {
 		if (req.method !== 'POST') return next();
 
+		// CORS preflight
 		if (req.method === 'OPTIONS') {
 			res.writeHead(204, {
 				'Access-Control-Allow-Origin': '*',
 				'Access-Control-Allow-Methods': 'POST, OPTIONS',
 				'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 			});
-			res.end('');
+			res.end();
 			return;
 		}
 
-		let body = '';
-		req.on('data', function (chunk) { body += chunk; });
-		req.on('end', function () {
-			let parsed;
-			try { parsed = JSON.parse(body); } catch (e) {
-				res.writeHead(400, {
-					'Content-Type': 'application/json',
-					'Access-Control-Allow-Origin': '*',
-				});
-				res.end(JSON.stringify({ error: 'bad_request', reason: 'invalid_json' }));
-				return;
-			}
-
+		// Try req.body first (Meteor body parser), fall back to raw stream
+		function processBody(parsed) {
 			var client = parsed.client;
 			var version = parsed.version;
 			var fingerprint = parsed.fingerprint || null;
@@ -87,10 +77,8 @@ Meteor.startup(() => {
 				return;
 			}
 
-			// Generate token using Meteor's Random
 			var token = Random.id() + '-' + Random.id().slice(0, 12);
 
-			// Bind entity from fingerprint if available
 			var scope = 'visitor';
 			var entity = null;
 
@@ -114,7 +102,6 @@ Meteor.startup(() => {
 				} catch (_) { /* can't read home dir */ }
 			}
 
-			// Store token
 			SessionTokens.insert({
 				token: token,
 				client: client.trim(),
@@ -136,10 +123,30 @@ Meteor.startup(() => {
 				scope: scope,
 				entity: entity,
 			}));
+		}
+
+		// Check if body already parsed
+		if (req.body && typeof req.body === 'object' && req.body.client) {
+			processBody(req.body);
+			return;
+		}
+
+		// Fall back to raw stream
+		var rawBody = '';
+		req.on('data', function (chunk) { rawBody += chunk; });
+		req.on('end', function () {
+			try {
+				processBody(JSON.parse(rawBody));
+			} catch (e) {
+				res.writeHead(400, {
+					'Content-Type': 'application/json',
+					'Access-Control-Allow-Origin': '*',
+				});
+				res.end(JSON.stringify({ error: 'bad_request', reason: 'invalid_json' }));
+			}
 		});
 	});
 
-	// Register in service discovery
 	if (typeof koad !== 'undefined' && koad.services) {
 		koad.services.push({
 			id: 'auth-token',
