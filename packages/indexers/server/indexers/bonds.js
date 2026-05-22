@@ -16,6 +16,7 @@ const CrossKingdomBonds = new Mongo.Collection('CrossKingdomBonds', { connection
 // Parse minimal YAML frontmatter from a bond file
 // Returns an object with any frontmatter fields found, or {} on failure
 // Only reads up to the closing '---' to stay lightweight
+// Handles nested lists (capabilities:) by accumulating array items.
 function parseFrontmatter(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
@@ -24,15 +25,50 @@ function parseFrontmatter(filePath) {
     if (end === -1) return {};
     const block = content.slice(3, end).trim();
     const result = {};
+    let currentListKey = null;
+    let currentList = null;
     for (const line of block.split('\n')) {
+      // Check for list item under a known list key (e.g. "  - feature: bash")
+      // Pattern: spaces, dash, space, key: value
+      const listMatch = line.match(/^\s+-\s+(\w+):\s*(.+)$/);
+      if (listMatch && currentListKey) {
+        const itemKey = listMatch[1];
+        const itemVal = listMatch[2].trim();
+        if (itemKey === 'feature') {
+          currentList.push({ feature: itemVal });
+        } else if (itemKey === 'granted' && currentList.length > 0) {
+          currentList[currentList.length - 1].granted = (itemVal === 'true');
+        } else if (itemKey === 'level' && currentList.length > 0) {
+          currentList[currentList.length - 1].level = itemVal;
+        }
+        continue;
+      }
+
+      // Check for start of a list — a key whose value is empty (next lines are list items)
       const colon = line.indexOf(':');
-      if (colon === -1) continue;
+      if (colon === -1) {
+        // End of list — blank line or non-list after list
+        currentListKey = null;
+        currentList = null;
+        continue;
+      }
       const key = line.slice(0, colon).trim();
       const val = line.slice(colon + 1).trim();
-      // Parse booleans and bare strings
-      if (val === 'true') result[key] = true;
-      else if (val === 'false') result[key] = false;
-      else result[key] = val;
+
+      if (val === '') {
+        // Key with empty value — could be the start of a list (capabilities:, grants:, etc.)
+        // Initialize an array but only if it looks like a list container
+        currentListKey = key;
+        currentList = [];
+        result[key] = currentList;
+      } else {
+        // Scalar value
+        currentListKey = null;
+        currentList = null;
+        if (val === 'true') result[key] = true;
+        else if (val === 'false') result[key] = false;
+        else result[key] = val;
+      }
     }
     return result;
   } catch (e) {
@@ -144,6 +180,13 @@ function enrichBondEntry(entry, bondFilePath, ascPresent) {
   if (fm.from)       enriched.from       = fm.from;
   if (fm.to)         enriched.to         = fm.to;
   if (fm.visibility) enriched.visibility = fm.visibility;
+
+  // capabilities — per-feature override list (VESTA-SPEC-200 §2)
+  // Parsed as array of { feature, granted } objects from YAML frontmatter list.
+  // Absent entirely = null; empty array = []; populated = [{ feature, granted, level? }]
+  if (fm.capabilities && Array.isArray(fm.capabilities) && fm.capabilities.length > 0) {
+    enriched.capabilities = fm.capabilities;
+  }
 
   // status — normalized enum (replaces raw prose string)
   enriched.status = normalizeStatus(fm.status || '');
