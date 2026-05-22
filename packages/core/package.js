@@ -96,6 +96,7 @@ Package.onUse(function(api) {
 		"server/collections.js",
 		"server/discovery.js",
 		"server/sovereign-profile.js",
+		"server/corpus-by-url.js",
 		"server/context-inject.js",
 		"server/identity.js",
 		"server/identity-init.js",
