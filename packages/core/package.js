@@ -98,6 +98,7 @@ Package.onUse(function(api) {
 		"server/sovereign-profile.js",
 		"server/corpus-by-url.js",
 		"server/context-inject.js",
+		"server/auth-token.js",
 		"server/scripts.js",
 		"server/identity.js",
 		"server/identity-init.js",
