@@ -4,21 +4,11 @@
  * POST /api/auth/token
  *
  * Issues MCP session tokens for the Dark Passenger browser extension.
- * Tokens are UUID v4, stored in-memory (cleared on daemon restart).
- *
- * Request body (JSON):
- *   { client: string, version: string, fingerprint?: string }
- *
- * Response (200):
- *   { token: "<UUID-v4>", expires_at: null, scope: "extension"|"visitor", entity: "<handle>"|null }
- *
- * Response (400):
- *   { error: "bad_request", reason: "<message>" }
+ * Tokens are stored in-memory (cleared on daemon restart).
  *
  * SPEC-196 §4.2, VESTA-SPEC-140 (fallback bearer token path).
  */
 
-// In-memory token store — initialized on startup when Mongo is available.
 let SessionTokens = null;
 
 Meteor.startup(() => {
@@ -31,7 +21,6 @@ Meteor.startup(() => {
 /**
  * Validate a Bearer token from an incoming request.
  * Returns { valid: true, entity, scope } or { valid: false, reason }.
- * Exported for use by other endpoint handlers.
  */
 validateBearerToken = function (req) {
 	const auth = req.headers['authorization'] || '';
@@ -43,7 +32,8 @@ validateBearerToken = function (req) {
 		return { valid: false, reason: 'invalid_token_format' };
 	}
 
-	const doc = SessionTokens.findOne({ token });
+	if (!SessionTokens) return { valid: false, reason: 'not_initialized' };
+	const doc = SessionTokens.findOne({ token: token });
 	if (!doc) return { valid: false, reason: 'unknown_token' };
 
 	return { valid: true, entity: doc.entity, scope: doc.scope };
@@ -51,10 +41,8 @@ validateBearerToken = function (req) {
 
 Meteor.startup(() => {
 	WebApp.handlers.use('/api/auth/token', (req, res, next) => {
-		// Only handle POST
 		if (req.method !== 'POST') return next();
 
-		// ── CORS preflight ──
 		if (req.method === 'OPTIONS') {
 			res.writeHead(204, {
 				'Access-Control-Allow-Origin': '*',
@@ -65,10 +53,9 @@ Meteor.startup(() => {
 			return;
 		}
 
-		// ── Parse body ──
 		let body = '';
-		req.on('data', chunk => { body += chunk; });
-		req.on('end', () => {
+		req.on('data', function (chunk) { body += chunk; });
+		req.on('end', function () {
 			let parsed;
 			try { parsed = JSON.parse(body); } catch (e) {
 				res.writeHead(400, {
@@ -79,11 +66,10 @@ Meteor.startup(() => {
 				return;
 			}
 
-			const client = parsed.client;
-			const version = parsed.version;
-			const fingerprint = parsed.fingerprint || null;
+			var client = parsed.client;
+			var version = parsed.version;
+			var fingerprint = parsed.fingerprint || null;
 
-			// Validate required fields
 			if (!client || typeof client !== 'string' || !client.trim()) {
 				res.writeHead(400, {
 					'Content-Type': 'application/json',
@@ -101,54 +87,54 @@ Meteor.startup(() => {
 				return;
 			}
 
-			// ── Generate token ──
-			const token = Random.id() + '-' + Random.id().slice(0, 12);
+			// Generate token using Meteor's Random
+			var token = Random.id() + '-' + Random.id().slice(0, 12);
 
-			// ── Bind entity from fingerprint if available ──
-			let scope = 'visitor';
-			let entity = null;
+			// Bind entity from fingerprint if available
+			var scope = 'visitor';
+			var entity = null;
 
 			if (fingerprint) {
-				// Walk entity dirs looking for matching GPG fingerprint
-				const fs = require('fs');
-				const path = require('path');
-				const HOME = require('os').homedir();
+				var fs = require('fs');
+				var path = require('path');
+				var HOME = require('os').homedir();
 				try {
-					const dirs = fs.readdirSync(HOME).filter(n => n.startsWith('.') && n.length > 1);
-					for (const dir of dirs) {
-						const fpPath = path.join(HOME, dir, 'id', 'entity.fingerprint');
+					var dirs = fs.readdirSync(HOME).filter(function (n) { return n.startsWith('.') && n.length > 1; });
+					for (var i = 0; i < dirs.length; i++) {
+						var fpPath = path.join(HOME, dirs[i], 'id', 'entity.fingerprint');
 						try {
-							const fp = fs.readFileSync(fpPath, 'utf8').trim();
+							var fp = fs.readFileSync(fpPath, 'utf8').trim();
 							if (fp === fingerprint || fp.replace(/\s/g, '').toLowerCase() === fingerprint.replace(/\s/g, '').toLowerCase()) {
-								entity = dir.slice(1); // strip leading dot
+								entity = dirs[i].slice(1);
 								scope = 'extension';
 								break;
 							}
-						} catch (_) { /* no fingerprint file for this entity */ }
+						} catch (_) { /* no fingerprint file */ }
 					}
 				} catch (_) { /* can't read home dir */ }
 			}
 
-			// ── Store token ──
+			// Store token
 			SessionTokens.insert({
-				token,
+				token: token,
 				client: client.trim(),
 				version: version.trim(),
-				fingerprint,
-				entity,
-				scope,
+				fingerprint: fingerprint,
+				entity: entity,
+				scope: scope,
 				createdAt: new Date(),
+			});
 
-			// ── Respond ──
 			res.writeHead(200, {
 				'Content-Type': 'application/json',
 				'Access-Control-Allow-Origin': '*',
 				'Cache-Control': 'no-store',
+			});
 			res.end(JSON.stringify({
-				token,
+				token: token,
 				expires_at: null,
-				scope,
-				entity,
+				scope: scope,
+				entity: entity,
 			}));
 		});
 	});
