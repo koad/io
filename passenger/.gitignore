@@ -1,9 +1,0 @@
-builds
-bundles
-logs
-dist
-config
-theme
-.archive
-.local
-.env

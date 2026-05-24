@@ -91,7 +91,7 @@ Lock guard: checks `/dev/shm/koad-io.upstart.lock` before proceeding. Subsequent
 
 Start order:
 1. Daemon: `screen -dmS koad-daemon` in `~/.koad-io/daemon/`
-2. Desktop (if present): `screen -dmS koad-desktop` in `~/.koad-io/desktop/` — 3-second delay for daemon to settle
+2. Desktop (if present): `screen -dmS koad-desktop` in `~/.forge/desktop/` — 3-second delay for daemon to settle
 
 Falls back gracefully (no `screen`) to background subshells.
 

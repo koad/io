@@ -14,7 +14,7 @@ The daemon's own interface becomes the kingdom dashboard:
 - Quick-launch for any entity's commands/hooks
 - Scheduler controls (add/remove/trigger tasks)
 - Log viewer — tail any entity's latest log
-- Served via `~/.koad-io/desktop/` as a PWA on localhost
+- Served via `~/.forge/desktop/` as a PWA on localhost
 
 ## Architecture
 - Dashboard reads from the daemon's in-memory collections (passenger registry, scheduler state)

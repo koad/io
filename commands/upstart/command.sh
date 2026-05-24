@@ -67,18 +67,18 @@ if [[ -d "$HOME/.koad-io/daemon" ]]; then
     console_log "starting koad:io daemon"
     # gnome-terminal -- bash -c "cd /home/koad/.koad-io/daemon/ && koad-io start local; exec bash"
     # sleep 0.420 && wmctrl -r :ACTIVE: -e 0,1920,915,2200,423 && sleep 0.69
-    screen -dmS koad:io-daemon bash -c 'cd /home/koad/.koad-io/daemon && ~/.koad-io/bin/koad-io start'
+    screen -dmS koad:io-daemon bash -c 'cd /home/koad/.koad-io/daemon && rm -rf builds && ~/.koad-io/bin/koad-io start'
     sleep 6
 fi
 
 # Daemon — everything else depends on this
 wait_for_ready "http://10.10.10.10:28282/.well-known/koad-io.json" "daemon" 300
 
-if [[ -d "$HOME/.koad-io/desktop" ]] && [[ -n "$DISPLAY" ]] && [[ -z "$SSH_CONNECTION" ]]; then
+if [[ -d "$HOME/.forge/desktop" ]] && [[ -n "$DISPLAY" ]] && [[ -z "$SSH_CONNECTION" ]]; then
     console_log "starting koad:io desktop ui"
-    # gnome-terminal -- bash -c "cd /home/koad/.koad-io/desktop/ && sleep 3 && koad-io start; exec bash"
+    # gnome-terminal -- bash -c "cd /home/koad/.forge/desktop/ && sleep 3 && koad-io start; exec bash"
     # sleep 0.420 && wmctrl -r :ACTIVE: -e 0,1920,915,2200,423 && sleep 0.69
-    screen -dmS koad:io-desktop-ui bash -c 'cd /home/koad/.koad-io/desktop && ~/.koad-io/bin/koad-io start'
+    screen -dmS koad:io-desktop-ui bash -c 'cd /home/koad/.forge/desktop && ~/.koad-io/bin/koad-io start'
     sleep "$SLEEP_DURATION"
 fi
 
