@@ -1,7 +1,7 @@
 {
   "schema": "koad:io/anchoring-key/v1",
   "kingdom": "kingofalldata",
-  "publicKey": "c96f268c09eb0e797e3fb535c84554fc2a0562ca60500f9031b8fcc05ccc3573",
-  "privateKey": "10a09cb4e9e30d7690fe53d5ee6c03b69a4ff5469dd9cd169e26bc22b61268dc",
-  "created": "2026-05-07T17:18:10Z"
+  "publicKey": "39e32240ca9620512ca6aa9f8893b429edf7c82d08748daf1e393bbdf85c8145",
+  "privateKey": "cdc902b074007be3f72ed6130d2092f197e88043b7995d03e3e3bed14e4bccfe",
+  "created": "2026-05-24T03:32:18Z"
 }

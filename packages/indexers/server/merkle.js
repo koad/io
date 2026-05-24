@@ -103,7 +103,7 @@ function buildLeafSet() {
 // seqno semantics for v1:
 //   - Volatile build: seqno is held at 1 across rebuilds with the same leaf set.
 //   - Persistence/append-only seqno bumping is wired in a future flight when the
-//     daemon adds a "publish root" action that writes ~/.koad-io/kingdoms/<slug>/
+//     daemon adds a "publish root" action that writes ~/.koad/kingdoms/<slug>/
 //     merkle/roots/<seqno>.json (SPEC-173 §8).
 async function buildMerkleState() {
   const { leaves, allEntities, skippedCount, kingdomTip, kingdomSeq } = buildLeafSet();
