@@ -1,0 +1,329 @@
+#!/usr/bin/env bash
+# koad:io status — kingdom operational pulse + per-call history log
+#
+# Seeds from kingofalldata.com/.well-known/koad-io.json (kingdom self-report),
+# then for each service that has a URL probes /api/health to surface its
+# ready-state, indexer readiness, event-loop lag, and timing.
+#
+# Generous per-probe timeout (60s default) so the call waits patiently
+# through Meteor rebuilds rather than panicking like an LLM hitting 5s.
+# Every invocation appends a JSONL record to the probe log so we can see
+# the kingdom's responsiveness over time.
+#
+# Usage:
+#   koad-io status                         One-shot overview + log entry
+#   koad-io status --json                  Raw well-known JSON
+#   koad-io status --quiet                 No render; just log; exit 0/1 by reachability
+#   koad-io status --timeout=N             Per-probe HTTP timeout (default 60s)
+#   koad-io status --history [--last=N]    Show recent log entries (default 20)
+#   koad-io status --history --json        Raw log lines
+#
+# Log file: $KOAD_IO_STATUS_LOG or ~/.koad-io/cache/status-probes.jsonl
+
+set -euo pipefail
+
+_WELL_KNOWN="${KOAD_IO_WELL_KNOWN:-https://kingofalldata.com/.well-known/koad-io.json}"
+_LOG_FILE="${KOAD_IO_STATUS_LOG:-$HOME/.koad-io/cache/status-probes.jsonl}"
+
+_JSON=""
+_QUIET=""
+_TIMEOUT=60
+_HISTORY=""
+_HISTORY_LAST=20
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json)       _JSON=1; shift ;;
+    --quiet)      _QUIET=1; shift ;;
+    --timeout)    _TIMEOUT="$2"; shift 2 ;;
+    --timeout=*)  _TIMEOUT="${1#*=}"; shift ;;
+    --history)    _HISTORY=1; shift ;;
+    --last)       _HISTORY_LAST="$2"; shift 2 ;;
+    --last=*)     _HISTORY_LAST="${1#*=}"; shift ;;
+    -h|--help)    sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)            shift ;;
+  esac
+done
+
+# Color palette — disable when not a TTY.
+if [ -t 1 ]; then
+  _R=$'\033[0m'; _b=$'\033[1m'; _dim=$'\033[2m'
+  _g=$'\033[0;32m'; _y=$'\033[0;33m'; _r=$'\033[0;31m'
+else
+  _R="" _b="" _dim="" _g="" _y="" _r=""
+fi
+
+mkdir -p "$(dirname "$_LOG_FILE")"
+
+# --------------------------------------------------------------------------
+# --history path: render past probe log
+# --------------------------------------------------------------------------
+if [ -n "$_HISTORY" ]; then
+  if [ ! -f "$_LOG_FILE" ]; then
+    echo "no probe log yet at $_LOG_FILE" >&2
+    exit 0
+  fi
+  if [ -n "$_JSON" ]; then
+    tail -n "$_HISTORY_LAST" "$_LOG_FILE"
+    exit 0
+  fi
+  printf '%s── last %s status probes ──%s\n' "$_dim" "$_HISTORY_LAST" "$_R"
+  tail -n "$_HISTORY_LAST" "$_LOG_FILE" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try: d = json.loads(line)
+    except: continue
+    ts = d.get('ts', '')[:19].replace('T', ' ')
+    total_ms = d.get('total_ms', 0)
+    services = d.get('services', [])
+    overall = d.get('overall', '?')
+    sym = '●' if overall == 'ok' else '○' if overall == 'unreachable' else '◐'
+    # Pad total_ms (right-aligned) to 6 chars
+    line_out = f'  {sym} {ts}  total={total_ms:>5}ms  '
+    parts = []
+    for s in services:
+        n = s.get('name', '?')[:7]
+        st = s.get('status', '?')
+        ms = s.get('ms', '')
+        rd = s.get('ready', '')
+        marker = '✓' if rd == 'ready' else 'x' if rd == 'unreachable' else 'o' if rd == 'notready' else '·'
+        parts.append(f'{n}={marker}{ms}ms' if ms != '' else f'{n}={st}')
+    line_out += '  '.join(parts)
+    print(line_out)
+"
+  exit 0
+fi
+
+# --------------------------------------------------------------------------
+# probe_kingdom — fetch well-known + per-service /api/health.
+# Outputs a single JSON line (the probe record) to stdout.
+# --------------------------------------------------------------------------
+probe_kingdom() {
+  python3 - <<PYEOF "$_WELL_KNOWN" "$_TIMEOUT"
+import json, sys, time, urllib.request, urllib.error, datetime
+
+well_known = sys.argv[1]
+timeout    = int(sys.argv[2])
+record = {
+    "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
+    "timeout_s": timeout,
+}
+
+def fetch_status_and_json(url, timeout):
+    """Return (status_code, parsed_json) — non-2xx is fine as long as body parses.
+    Used for both .well-known (kingdom signs with HTTP 316) and /api/health."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read()
+            return e.code, json.loads(body)
+        except Exception:
+            raise
+
+t0 = time.monotonic()
+
+# Fetch well-known. The kingdom signs its authenticity with HTTP status 316.
+# Anything else (including a "successful" 200) is treated as a forgery —
+# someone is serving a lookalike at this domain.
+EXPECTED_WELL_KNOWN_STATUS = 316
+try:
+    status_code, d = fetch_status_and_json(well_known, timeout)
+    record["well_known_ms"] = int((time.monotonic() - t0) * 1000)
+    record["well_known_status"] = status_code
+    if status_code != EXPECTED_WELL_KNOWN_STATUS:
+        record["overall"] = "forgery"
+        record["error"] = f"well-known returned HTTP {status_code}, expected {EXPECTED_WELL_KNOWN_STATUS}"
+        record["total_ms"] = int((time.monotonic() - t0) * 1000)
+        print(json.dumps(record))
+        sys.exit(0)
+except Exception as e:
+    record["well_known_ms"] = int((time.monotonic() - t0) * 1000)
+    record["overall"] = "unreachable"
+    record["error"] = f"well-known: {str(e)[:120]}"
+    record["total_ms"] = int((time.monotonic() - t0) * 1000)
+    print(json.dumps(record))
+    sys.exit(0)
+
+record["host"] = d.get("host", "?")
+record["kingdom"] = d.get("kingdom", "?")
+record["kingdom_ts"] = d.get("timestamp", "")
+
+services_out = []
+any_unreachable = False
+any_notready = False
+
+for svc in d.get("services", []):
+    name   = svc.get("name", "?")
+    status = svc.get("status", "?")
+    url    = svc.get("url", "")
+    uptime = svc.get("uptime_s")
+
+    s_record = {"name": name, "status": status}
+    if uptime is not None:
+        s_record["uptime_s"] = uptime
+
+    if status == "up" and url:
+        s_t0 = time.monotonic()
+        try:
+            _code, health = fetch_status_and_json(url + "/api/health", timeout)
+            s_record["ms"]    = int((time.monotonic() - s_t0) * 1000)
+            s_record["ready"] = "ready" if health.get("ready") else "notready"
+            if s_record["ready"] == "notready":
+                any_notready = True
+                idx = health.get("indexers", {})
+                pending = sorted([k for k, v in idx.items() if not v])
+                if pending:
+                    s_record["pending_indexers"] = pending
+            el = health.get("eventLoop", {})
+            if el:
+                s_record["loop_p99_ms"] = el.get("p99_ms")
+                s_record["loop_max_ms"] = el.get("max_ms")
+        except Exception as e:
+            s_record["ms"]    = int((time.monotonic() - s_t0) * 1000)
+            s_record["ready"] = "unreachable"
+            s_record["error"] = str(e)[:120]
+            any_unreachable = True
+    elif status != "up":
+        any_unreachable = True
+
+    services_out.append(s_record)
+
+record["services"] = services_out
+record["total_ms"] = int((time.monotonic() - t0) * 1000)
+record["overall"]  = "unreachable" if any_unreachable else ("notready" if any_notready else "ok")
+print(json.dumps(record))
+PYEOF
+}
+
+# --------------------------------------------------------------------------
+# render_record — pretty-print a probe JSON record
+# --------------------------------------------------------------------------
+render_record() {
+  local _rec="$1"
+  python3 - <<PYEOF "$_rec" "${_R}" "${_b}" "${_dim}" "${_g}" "${_y}" "${_r}"
+import json, sys
+rec, R, B, D, G, Y, RED = sys.argv[1:8]
+d = json.loads(rec)
+
+if d.get("overall") == "forgery":
+    print(f"{RED}FORGERY DETECTED{R}: {d.get('error', 'unknown')}", file=sys.stderr)
+    print(f"  {RED}well-known did not return HTTP 316 — someone is serving a lookalike{R}", file=sys.stderr)
+    sys.exit(3)
+
+if d.get("overall") == "unreachable" and "host" not in d:
+    print(f"{RED}kingdom unreachable{R}: {d.get('error', 'unknown')}", file=sys.stderr)
+    sys.exit(2)
+
+host = d.get("host", "?")
+ts   = (d.get("kingdom_ts") or "")[:19].replace("T", " ")
+total = d.get("total_ms", 0)
+print(f"{D}── koad:io @ {host} ({ts}, probe {total}ms) ──{R}")
+
+for s in d.get("services", []):
+    name   = s.get("name", "?")
+    status = s.get("status", "?")
+    ready  = s.get("ready", "")
+    ms     = s.get("ms", "")
+    uptime = s.get("uptime_s")
+    pending = s.get("pending_indexers", [])
+    p99    = s.get("loop_p99_ms")
+    elmax  = s.get("loop_max_ms")
+
+    if status != "up":
+        sym, color = "○", RED
+    elif ready == "ready" or ready == "":
+        sym, color = "●", G
+    elif ready == "notready":
+        sym, color = "◐", Y
+    elif ready == "unreachable":
+        sym, color = "○", RED
+    else:
+        sym, color = "?", D
+
+    line = f"  {color}{sym}{R} {B}{name:20}{R} {color}{status}{R}"
+
+    if uptime is not None:
+        u = int(uptime)
+        if u < 60: u_s = f"{u}s"
+        elif u < 3600: u_s = f"{u//60}m{u%60}s"
+        elif u < 86400: u_s = f"{u//3600}h{(u%3600)//60}m"
+        else: u_s = f"{u//86400}d"
+        line += f"  {D}up {u_s}{R}"
+
+    if ms != "":
+        # Color the response time
+        ms_int = int(ms)
+        if ms_int > 5000:   ms_color = RED
+        elif ms_int > 1000: ms_color = Y
+        else:               ms_color = D
+        line += f"  {ms_color}{ms}ms{R}"
+
+    if pending:
+        line += f"  {Y}[pending: {','.join(pending)}]{R}"
+
+    if p99 is not None and p99 != 0:
+        try:
+            p99_f = float(p99)
+            if p99_f > 1000:   p_color = RED
+            elif p99_f > 100:  p_color = Y
+            else:              p_color = D
+            line += f"  {p_color}loop p99 {p99}ms{R}"
+            if elmax is not None and elmax != 0:
+                try:
+                    elmax_f = float(elmax)
+                    if elmax_f > 5000:
+                        line += f" {RED}(max {elmax}ms){R}"
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    if "error" in s:
+        line += f"  {RED}{s['error']}{R}"
+
+    print(line)
+
+overall = d.get("overall", "?")
+if overall == "ok":
+    print(f"  {G}kingdom ready{R}")
+elif overall == "notready":
+    print(f"  {Y}kingdom up but not fully ready{R}")
+elif overall == "unreachable":
+    print(f"  {RED}kingdom partially unreachable{R}", file=sys.stderr)
+PYEOF
+}
+
+# --------------------------------------------------------------------------
+# Default flow: probe, log, render
+# --------------------------------------------------------------------------
+_rec="$(probe_kingdom)" || _rec='{"overall":"unreachable","error":"probe failed"}'
+
+# Append to log (single-line JSONL)
+printf '%s\n' "$_rec" >> "$_LOG_FILE"
+
+if [ -n "$_JSON" ]; then
+  printf '%s\n' "$_rec"
+  exit 0
+fi
+
+if [ -n "$_QUIET" ]; then
+  _overall=$(printf '%s' "$_rec" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('overall','?'))" 2>/dev/null || echo "?")
+  case "$_overall" in
+    ok|notready) exit 0 ;;
+    *)           exit 1 ;;
+  esac
+fi
+
+render_record "$_rec"
+
+# Exit code reflects reachability — "notready" is still 0 since the kingdom
+# is responding, just not fully cooked. "unreachable" is 1.
+_overall=$(printf '%s' "$_rec" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('overall','?'))" 2>/dev/null || echo "?")
+case "$_overall" in
+  ok|notready) exit 0 ;;
+  *)           exit 1 ;;
+esac
