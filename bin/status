@@ -30,6 +30,9 @@ _QUIET=""
 _TIMEOUT=60
 _HISTORY=""
 _HISTORY_LAST=20
+_BURST=""
+_BURST_COUNT=10
+_BURST_INTERVAL=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -40,6 +43,12 @@ while [ $# -gt 0 ]; do
     --history)    _HISTORY=1; shift ;;
     --last)       _HISTORY_LAST="$2"; shift 2 ;;
     --last=*)     _HISTORY_LAST="${1#*=}"; shift ;;
+    --burst)      _BURST=1; shift ;;
+    --burst=*)    _BURST=1; _BURST_COUNT="${1#*=}"; shift ;;
+    --count)      _BURST_COUNT="$2"; shift 2 ;;
+    --count=*)    _BURST_COUNT="${1#*=}"; shift ;;
+    --every)      _BURST_INTERVAL="$2"; shift 2 ;;
+    --every=*)    _BURST_INTERVAL="${1#*=}"; shift ;;
     -h|--help)    sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)            shift ;;
   esac
@@ -296,6 +305,124 @@ elif overall == "unreachable":
     print(f"  {RED}kingdom partially unreachable{R}", file=sys.stderr)
 PYEOF
 }
+
+# --------------------------------------------------------------------------
+# --burst path: probe N times, _BURST_INTERVAL apart, summarize.
+# Each probe is logged to the JSONL file (so it joins the history).
+# --------------------------------------------------------------------------
+if [ -n "$_BURST" ]; then
+  _records_file="$(mktemp)"
+  trap 'rm -f "$_records_file"' EXIT
+
+  printf '%sburst probe%s — %s%s%s iterations, %s%ss%s apart\n\n' \
+    "$_b" "$_R" "$_b" "$_BURST_COUNT" "$_R" "$_b" "$_BURST_INTERVAL" "$_R"
+
+  for _i in $(seq 1 "$_BURST_COUNT"); do
+    _rec="$(probe_kingdom)" || _rec='{"overall":"unreachable","error":"probe failed"}'
+    printf '%s\n' "$_rec" >> "$_LOG_FILE"
+    printf '%s\n' "$_rec" >> "$_records_file"
+
+    # Compact per-iteration line
+    python3 - <<PYEOF "$_rec" "$_i" "$_BURST_COUNT" "${_R}" "${_dim}" "${_g}" "${_y}" "${_r}"
+import sys, json
+rec, idx, total, R, D, G, Y, RED = sys.argv[1:9]
+d = json.loads(rec)
+overall = d.get("overall", "?")
+sym = G + "●" + R if overall == "ok" else \
+      Y + "◐" + R if overall == "notready" else \
+      RED + "○" + R
+total_ms = d.get("total_ms", 0)
+parts = []
+for s in d.get("services", []):
+    name = s.get("name", "?")[:7]
+    ms   = s.get("ms")
+    rd   = s.get("ready", "")
+    if ms is None:
+        parts.append(f"{D}{name}=—{R}")
+    else:
+        color = D if ms < 100 else Y if ms < 1000 else RED
+        marker = "✓" if rd == "ready" else "x" if rd == "unreachable" else "·"
+        parts.append(f"{name}{marker}{color}{ms}ms{R}")
+loop_max = max(
+    [s.get("loop_max_ms") or 0 for s in d.get("services", []) if s.get("loop_max_ms") is not None],
+    default=None,
+)
+loop_str = ""
+if loop_max:
+    lm = float(loop_max)
+    lc = D if lm < 100 else Y if lm < 1000 else RED
+    loop_str = f"  loop_max={lc}{loop_max}ms{R}"
+print(f"  [{idx:>2}/{total}]  {sym}  total={D}{total_ms:>5}ms{R}  " + "  ".join(parts) + loop_str)
+PYEOF
+
+    # Sleep between iterations (skip after the last)
+    if [ "$_i" -lt "$_BURST_COUNT" ]; then
+      sleep "$_BURST_INTERVAL"
+    fi
+  done
+
+  # Summary across all iterations
+  echo
+  python3 - <<PYEOF "$_records_file" "${_R}" "${_b}" "${_dim}" "${_g}" "${_y}" "${_r}"
+import sys, json
+path, R, B, D, G, Y, RED = sys.argv[1:8]
+records = []
+with open(path) as f:
+    for line in f:
+        line = line.strip()
+        if not line: continue
+        try: records.append(json.loads(line))
+        except: pass
+
+if not records:
+    print(f"{RED}no records collected{R}")
+    sys.exit(1)
+
+n = len(records)
+ok_count       = sum(1 for r in records if r.get("overall") == "ok")
+notready_count = sum(1 for r in records if r.get("overall") == "notready")
+unreach_count  = sum(1 for r in records if r.get("overall") not in ("ok", "notready"))
+
+print(f"{B}summary{R} ({n} probes):  {G}{ok_count} ok{R}  {Y}{notready_count} notready{R}  {RED}{unreach_count} unreachable{R}")
+print()
+
+# Per-service stats
+seen = {}
+for r in records:
+    for s in r.get("services", []):
+        name = s.get("name", "?")
+        if name not in seen:
+            seen[name] = {"ms": [], "p99": [], "max": []}
+        if s.get("ms") is not None:
+            seen[name]["ms"].append(s["ms"])
+        if s.get("loop_p99_ms") is not None:
+            seen[name]["p99"].append(float(s["loop_p99_ms"]))
+        if s.get("loop_max_ms") is not None:
+            seen[name]["max"].append(float(s["loop_max_ms"]))
+
+# Total wall-time stats
+total_times = [r.get("total_ms", 0) for r in records]
+if total_times:
+    print(f"  {D}total wall-time{R}      min={min(total_times)}ms  max={max(total_times)}ms  avg={sum(total_times)//len(total_times)}ms")
+
+for name, stats in seen.items():
+    if stats["ms"]:
+        mn, mx, av = min(stats["ms"]), max(stats["ms"]), sum(stats["ms"])//len(stats["ms"])
+        mx_color = D if mx < 100 else Y if mx < 1000 else RED
+        print(f"  {D}{name:<20}{R}  min={mn}ms  max={mx_color}{mx}ms{R}  avg={av}ms")
+        if stats["p99"]:
+            p99_max = max(stats["p99"])
+            elmax_max = max(stats["max"]) if stats["max"] else None
+            p_color = D if p99_max < 100 else Y if p99_max < 1000 else RED
+            ex_color = D if elmax_max and elmax_max < 5000 else Y if elmax_max and elmax_max < 30000 else RED
+            extra = f"  loop_p99 worst={p_color}{p99_max}ms{R}"
+            if elmax_max:
+                extra += f"  loop_max worst={ex_color}{elmax_max}ms{R}"
+            print(" " * 22 + extra)
+PYEOF
+
+  exit 0
+fi
 
 # --------------------------------------------------------------------------
 # Default flow: probe, log, render
