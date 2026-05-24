@@ -95,7 +95,7 @@ source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint
 ```bash
 source "$HOME/.koad-io/helpers/ask.sh"
 
-HANDLE=$(ask "Your handle" "${KOAD_IO_HANDLE:-}" "" --required --write ~/.koad-io/me/.env KOAD_IO_HANDLE)
+HANDLE=$(ask "Your handle" "${KOAD_IO_HANDLE:-}" "" --required --write ~/.koad/.env KOAD_IO_HANDLE)
 if ask_yn "Enable Keybase?" "${KOAD_IO_HAS_KEYBASE:-}"; then
   # ...
 fi

@@ -1,5 +1,5 @@
 // Goals indexer — VESTA-SPEC-192
-// Watches ~/.koad-io/me/goals/*.md — one file per goal.
+// Watches ~/.koad/goals/*.md — one file per goal.
 // Indexes into in-memory Goals collection; exposes derived counts.
 //
 // Gate: KOAD_IO_INDEX_GOALS env var (any truthy value activates)
@@ -18,7 +18,7 @@ const path = Npm.require('path');
 const os   = Npm.require('os');
 
 const HOME      = process.env.HOME || os.homedir();
-const GOALS_DIR = path.join(HOME, '.koad-io', 'me', 'goals');
+const GOALS_DIR = path.join(HOME, '.koad', 'goals');
 
 // ---------------------------------------------------------------------------
 // Collection

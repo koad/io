@@ -1,5 +1,5 @@
 // Projects indexer — VESTA-SPEC-192
-// Watches ~/.koad-io/me/projects/*.md — one file per project.
+// Watches ~/.koad/projects/*.md — one file per project.
 // Indexes into in-memory Projects collection; exposes derived flight count.
 //
 // Gate: KOAD_IO_INDEX_PROJECTS env var (any truthy value activates)
@@ -17,7 +17,7 @@ const path     = Npm.require('path');
 const os       = Npm.require('os');
 
 const HOME         = process.env.HOME || os.homedir();
-const PROJECTS_DIR = path.join(HOME, '.koad-io', 'me', 'projects');
+const PROJECTS_DIR = path.join(HOME, '.koad', 'projects');
 
 // ---------------------------------------------------------------------------
 // Collection
