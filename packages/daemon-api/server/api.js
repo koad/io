@@ -1032,26 +1032,73 @@ app.use('/api/alerts', async (req, res, next) => {
 });
 
 // GET /api/workers — worker process status (koad:io-worker-processes)
-// Returns all workers registered in WorkerProcesses collection, sorted by service name.
-// errors[] is stripped to a count to avoid leaking stack traces.
+//   ?host=<hostname>     filter by host
+//   ?state=running       filter by state
+//   ?service=<name>      filter by exact service name
+//   ?insane=true|false   only insane / only sane
+//   ?enabled=true|false  only enabled / only disabled
+// Returns a lean projection with computed staleness/uptime + a summary block.
 app.use('/api/workers', async (req, res, next) => {
   if (req.method !== 'GET' || !pathIs(req, '/api/workers')) return next();
   try {
-    // WorkerProcesses collection is declared in packages/workers with Mongo name 'workers'
-    const WorkersRef = new Mongo.Collection('workers', { connection: null });
-    const raw = await WorkersRef.find({}, { sort: { service: 1 } }).fetchAsync();
+    const Workers = globalThis.WorkerProcesses;
+    if (!Workers) return jsonErr(res, 503, 'WorkerProcesses collection not initialized');
 
-    // Project out stack traces — include error count only
-    const workers = raw.map(w => {
-      const safe = Object.assign({}, w);
-      if (Array.isArray(safe.errors)) {
-        safe.errorCount = safe.errors.length;
-        delete safe.errors;
-      }
-      return safe;
+    const q = parseQuery(req.originalUrl || req.url);
+    const selector = {};
+    if (q.host)    selector.host    = q.host;
+    if (q.state)   selector.state   = q.state;
+    if (q.service) selector.service = q.service;
+    if (q.insane === 'true')   selector.insane  = true;
+    if (q.insane === 'false')  selector.insane  = { $ne: true };
+    if (q.enabled === 'true')  selector.enabled = true;
+    if (q.enabled === 'false') selector.enabled = { $ne: true };
+
+    const docs = await Workers.find(selector, { sort: { service: 1, host: 1 } }).fetchAsync();
+    const now = Date.now();
+    const workers = docs.map(w => {
+      const asofMs = w.asof    ? new Date(w.asof).getTime()    : null;
+      const upMs   = w.upstart ? new Date(w.upstart).getTime() : null;
+      const errors = Array.isArray(w.errors) ? w.errors : [];
+      return {
+        _id: w._id,
+        service: w.service,
+        type: w.type,
+        host: w.host,
+        pid: w.pid,
+        state: w.state,
+        interval: w.interval,
+        delay: w.delay,
+        enabled: w.enabled !== false,
+        disabled: !!w.disabled,
+        insane: !!w.insane,
+        asof: w.asof || null,
+        upstart: w.upstart || null,
+        stoppedAt: w.stoppedAt || null,
+        stoppedBy: w.stoppedBy || null,
+        uptimeSec:    upMs   ? Math.floor((now - upMs)   / 1000) : null,
+        stalenessSec: asofMs ? Math.floor((now - asofMs) / 1000) : null,
+        errorCount: errors.length,
+        recentErrors: errors.slice(-3).map(e => ({
+          message: e.message,
+          timestamp: e.timestamp,
+          type: e.type || null,
+          retryAttempt: e.retryAttempt
+        }))
+      };
     });
 
-    jsonOk(res, { status: 'ok', count: workers.length, workers });
+    const summary = {
+      total: workers.length,
+      running:  workers.filter(w => w.state === 'running').length,
+      starting: workers.filter(w => w.state === 'starting').length,
+      stopped:  workers.filter(w => w.state === 'stopped').length,
+      error:    workers.filter(w => w.state === 'error').length,
+      insane:   workers.filter(w => w.insane).length,
+      disabled: workers.filter(w => w.disabled || !w.enabled).length,
+    };
+
+    jsonOk(res, { status: 'ok', summary, count: workers.length, workers });
   } catch (err) {
     console.error('[API/workers] error:', err.message);
     jsonErr(res, 500, err.message);
