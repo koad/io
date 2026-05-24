@@ -487,6 +487,28 @@ koad.workers.start = async function(config) {
 				metrics.lastSuccess = new Date();
 				metrics.lastDuration = taskDuration;
 				koad.workers._metrics.set(workerId, metrics);
+
+				// Persist duration metrics into WorkerProcesses so /api/workers
+				// can surface them across daemon restarts. Uses a selector with
+				// instanceId so it silently no-ops if this process no longer owns
+				// the worker (avoids "Expected to find a document to change"
+				// rejection during restart races, which the global
+				// unhandledRejection handler treats as cause to mark every
+				// worker insane).
+				try {
+					await WorkerProcesses.updateAsync(
+						{ _id: workerId, instanceId: instanceId },
+						{ $set: {
+							lastDurationMs: taskDuration,
+							avgDurationMs: Math.round(metrics.avgDuration),
+							executions: metrics.executions,
+							successes: metrics.successes,
+							lastSuccess: metrics.lastSuccess
+						}}
+					);
+				} catch (metricsError) {
+					log.debug(`[wrappedTask] Failed to persist metrics for ${service}: ${metricsError.message}`);
+				}
 				
 				// Reset retry count on success
 				retryCount = 0;
