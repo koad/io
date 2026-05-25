@@ -270,18 +270,13 @@ function scanForYamlFiles() {
   // $HOME/.forge/packages/*/ — package-level indexers
   scanOneLevel(path.join(HOME, '.forge', 'packages'));
 
-  // $HOME/.koad-io/*/ — framework sub-dirs (e.g. me/trust/)
-  const koadIoDir = path.join(HOME, '.koad-io');
-  scanOneLevel(koadIoDir);
-  // Also scan two levels deep for nested dirs like .koad-io/me/trust/
-  try {
-    const koadIoEntries = fs.readdirSync(koadIoDir, { withFileTypes: true });
-    for (const entry of koadIoEntries) {
-      if (entry.isDirectory()) {
-        scanOneLevel(path.join(koadIoDir, entry.name));
-      }
-    }
-  } catch (_) { /* absent */ }
+  // $HOME/.koad-io/*/ — framework sub-dirs
+  scanOneLevel(path.join(HOME, '.koad-io'));
+
+  // $HOME/.koad/*/ — sovereign's entity home (koad is an entity, same shape
+  // as ~/.juno, ~/.vesta, etc.). Was ~/.koad-io/me/ pre-relocation; now a
+  // top-level entity dir scanned alongside the rest.
+  scanOneLevel(path.join(HOME, '.koad'));
 
   return yamlFiles;
 }

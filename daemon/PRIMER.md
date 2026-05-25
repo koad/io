@@ -51,7 +51,7 @@ features:
     blurb: On-demand kingdom merkle tree (VESTA-SPEC-173) — entity sigchain tips as leaves, sovereign sigchain as kingdom leaf, Ed25519-signed root
     location: ~/.koad-io/packages/daemon-indexers/server/merkle.js
   - name: daemon-kingdom-signing-key
-    blurb: Ed25519 anchoring key loader/generator — persists to ~/.koad-io/kingdoms/<slug>/keys/anchoring-key.json; exposed as KingdomKeys globalThis
+    blurb: Ed25519 anchoring key loader/generator — persists to ~/.koad/kingdoms/<slug>/keys/anchoring-key.json; exposed as KingdomKeys globalThis
     location: ~/.koad-io/daemon/src/server/kingdom-keys.js
   - name: daemon-workspace-entity-mapping
     blurb: DDP methods workspace.setState / workspace.getActive — desktop app reports X11 workspace number; daemon marks matching Passenger as selected

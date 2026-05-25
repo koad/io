@@ -23,6 +23,7 @@ Meteor.startup(() => {
     ['REPOS', process.env.KOAD_IO_INDEX_REPOS],
     ['GOALS', process.env.KOAD_IO_INDEX_GOALS],       // VESTA-SPEC-192
     ['PROJECTS', process.env.KOAD_IO_INDEX_PROJECTS], // VESTA-SPEC-192
+    ['CORPUS_URL', process.env.KOAD_IO_INDEX_CORPUS_URL], // SPEC-196 §8.1 — Dark Passenger URL reverse index
   ];
 
   const active = indexers.filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);
@@ -32,6 +33,7 @@ Meteor.startup(() => {
   console.log('[INDEXERS] Alerts: always on');
   console.log('[INDEXERS] Entity workers: always on');
   console.log('[INDEXERS] Founding cohort scanner: always on (CACULA-SPEC-004)');
+  console.log('[INDEXERS] Corpus URL projector: always on (SPEC-196 §8.1)');
   console.log('[INDEXERS] Active:', active.length ? active.join(', ') : 'none');
   if (inactive.length) {
     console.log('[INDEXERS] Inactive:', inactive.join(', '));

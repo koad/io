@@ -16,7 +16,7 @@ The daemon serves as the **central hub** for the koad:io ecosystem:
 ```
 ┌─────────────────────────────────────────┐
 │           koad:io Desktop               │
-│       ~/.koad-io/desktop                │
+│       ~/.forge/desktop                  │
 └─────────────────┬───────────────────────┘
                   │ DDP / HTTP
                   ▼

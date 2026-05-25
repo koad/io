@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# koad:io status — hit well-known endpoints, report alive/dead.
+#
+# Usage:
+#   koad-io status                  One-shot overview
+#   koad-io status --json           Raw JSON
+#   koad-io status --quiet          No render; exit 0/1/2 by health
+#   koad-io status --timeout=N      Per-probe timeout (default 5s)
+#   koad-io status --history [N]    Last N probe records (default 20)
+#
+# Targets: space-separated label=url pairs. Label=url falls back to url as label.
+# Defaults (override via KOAD_IO_STATUS_TARGETS):
+#   daemon=http://10.10.10.10:28282
+#   control-tower=http://10.10.10.10:28283
+#   kingofalldata.com=http://10.10.10.10:20553
+#   ecoincore=http://10.10.10.10:20758
+#   daemon-interface=http://10.10.10.10:21221
+
+set -euo pipefail
+
+_DEFAULT_TARGETS="daemon=http://10.10.10.10:28282 control-tower=http://10.10.10.10:28283 kingofalldata.com=http://10.10.10.10:20522 ecoincore=http://10.10.10.10:20758 daemon-interface=http://10.10.10.10:21221"
+_TARGETS="${KOAD_IO_STATUS_TARGETS:-$_DEFAULT_TARGETS}"
+_LOG_FILE="${KOAD_IO_STATUS_LOG:-$HOME/.koad-io/cache/status-probes.jsonl}"
+_TIMEOUT=5
+_JSON=""
+_QUIET=""
+_HISTORY=""
+_HISTORY_LAST=20
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json)       _JSON=1; shift ;;
+    --quiet)      _QUIET=1; shift ;;
+    --timeout)    _TIMEOUT="$2"; shift 2 ;;
+    --timeout=*)  _TIMEOUT="${1#*=}"; shift ;;
+    --history)    _HISTORY=1
+                  [[ "${2:-}" =~ ^[0-9]+$ ]] && { _HISTORY_LAST="$2"; shift; }
+                  shift ;;
+    -h|--help)    sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *)            shift ;;
+  esac
+done
+
+if [ -t 1 ]; then
+  R=$'\033[0m'; B=$'\033[1m'; D=$'\033[2m'
+  G=$'\033[0;32m'; Y=$'\033[0;33m'; RED=$'\033[0;31m'
+else
+  R="" B="" D="" G="" Y="" RED=""
+fi
+
+mkdir -p "$(dirname "$_LOG_FILE")"
+
+# ── history ──
+if [ -n "$_HISTORY" ]; then
+  [ -f "$_LOG_FILE" ] || { echo "no probe log at $_LOG_FILE" >&2; exit 0; }
+  tail -n "$_HISTORY_LAST" "$_LOG_FILE"
+  exit 0
+fi
+
+# ── probe one target, emit JSON fragment ──
+probe_one() {
+  local base="$1" label="$2"
+  local url="${base%/}/.well-known/koad-io.json"
+  local code body entity ms
+
+  ms=$(date +%s%3N 2>/dev/null || echo 0)
+  if body=$(curl -s --max-time "$_TIMEOUT" -w '\n%{http_code}' "$url" 2>/dev/null); then
+    code=$(echo "$body" | tail -1)
+    body=$(echo "$body" | sed '$d')
+    entity=$(echo "$body" | jq -r '.entity // ""' 2>/dev/null)
+  else
+    code="000"
+    entity=""
+  fi
+  ms=$(( $(date +%s%3N 2>/dev/null || echo 0) - ms ))
+  [ "$ms" -lt 0 ] && ms=0
+
+  if [ "$code" != "000" ]; then
+    printf '{"label":"%s","url":"%s","status":%s,"ms":%s,"alive":true,"entity":"%s"}' \
+      "$label" "$url" "$code" "$ms" "$entity"
+  else
+    printf '{"label":"%s","url":"%s","status":0,"ms":%s,"alive":false,"error":"unreachable"}' \
+      "$label" "$url" "$ms"
+  fi
+}
+
+# ── probe all ──
+t_start=$(date +%s%3N 2>/dev/null || echo 0)
+_parts=""
+_alive=0 _dead=0
+
+for entry in $_TARGETS; do
+  if [[ "$entry" == *"="* ]]; then
+    label="${entry%%=*}"
+    url="${entry#*=}"
+  else
+    label="$entry"
+    url="$entry"
+  fi
+  fragment=$(probe_one "$url" "$label")
+  _parts="${_parts}${fragment},"
+  if echo "$fragment" | grep -q '"alive":true'; then
+    _alive=$((_alive + 1))
+  else
+    _dead=$((_dead + 1))
+  fi
+done
+_parts="${_parts%,}"
+
+t_end=$(date +%s%3N 2>/dev/null || echo 0)
+_total_ms=$(( t_end - t_start ))
+[ "$_total_ms" -lt 0 ] && _total_ms=0
+
+_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+_rec=$(printf '{"ts":"%s","timeout_s":%s,"total_ms":%s,"alive":%s,"dead":%s,"targets":[%s]}\n' \
+  "$_ts" "$_TIMEOUT" "$_total_ms" "$_alive" "$_dead" "$_parts")
+
+# ── log ──
+printf '%s\n' "$_rec" >> "$_LOG_FILE"
+
+# ── json ──
+if [ -n "$_JSON" ]; then
+  printf '%s\n' "$_rec"
+  exit 0
+fi
+
+# ── render ──
+printf '%s── koad:io status (%s%sms%s) ──%s\n' "$D" "$B" "$_total_ms" "$D" "$R"
+
+echo "$_rec" | jq -r '.targets[] |
+  if .alive then
+    "\(.label)\(if .entity != "" and .entity != .label then " (" + .entity + ")" else "" end)|\(.status)|\(.ms)"
+  else
+    "\(.label)|0|\(.ms)|\(.error // "unreachable")"
+  end' | while IFS='|' read -r label status ms err; do
+  if [ "$status" != "0" ]; then
+    printf '  %s●%s %s%s%s  %sHTTP %s %sms%s\n' "$G" "$R" "$B" "$label" "$R" "$G" "$status" "$ms" "$R"
+  else
+    printf '  %s○%s %s%s%s  %s%s (%sms)%s\n' "$RED" "$R" "$B" "$label" "$R" "$RED" "$err" "$ms" "$R"
+  fi
+done
+
+# ── summary ──
+if [ "$_dead" -eq 0 ]; then
+  printf '  %sall %s alive%s\n' "$G" "$_alive" "$R"
+elif [ "$_alive" -eq 0 ]; then
+  printf '  %sall %s dead%s\n' "$RED" "$_dead" "$R"
+else
+  printf '  %s%s alive, %s dead%s\n' "$Y" "$_alive" "$_dead" "$R"
+fi
+
+# ── exit ──
+[ -n "$_QUIET" ] && { [ "$_dead" -eq 0 ] && exit 0; [ "$_alive" -eq 0 ] && exit 2; exit 1; }
+[ "$_dead" -eq 0 ] && exit 0
+[ "$_alive" -eq 0 ] && exit 2
+exit 1

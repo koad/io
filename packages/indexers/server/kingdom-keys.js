@@ -3,7 +3,9 @@
 // Loads (or generates on first run) the kingdom Ed25519 keypair used to sign
 // merkle tree roots and downstream anchor records.
 //
-// Canonical location: ~/.koad-io/kingdoms/<slug>/keys/anchoring-key.json
+// Canonical location: ~/.koad/kingdoms/<slug>/keys/anchoring-key.json
+// (operator-owned: kingdoms are per-sovereign, not framework-tier; lives
+// under the operator's entity home, same shape as ~/.koad/sigchain/, etc.)
 // Slug resolution: KOAD_IO_KINGDOM_SLUG env > 'kingofalldata' default
 // (SPEC-115 §14.3 — three-tier resolution; we use the env-or-default form here.)
 //
@@ -45,7 +47,7 @@ function resolveKingdomSlug() {
 
 function getKingdomDir(slug) {
   const home = process.env.HOME || os.homedir();
-  return path.join(home, '.koad-io', 'kingdoms', slug);
+  return path.join(home, '.koad', 'kingdoms', slug);
 }
 
 function loadEd25519() {

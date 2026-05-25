@@ -95,6 +95,11 @@ Package.onUse(function(api) {
 	api.addFiles([
 		"server/collections.js",
 		"server/discovery.js",
+		"server/sovereign-profile.js",
+		"server/corpus-by-url.js",
+		"server/context-inject.js",
+		"server/auth-token.js",
+		"server/scripts.js",
 		"server/identity.js",
 		"server/identity-init.js",
 		"server/system-health.js",

@@ -265,6 +265,15 @@ Meteor.startup(() => {
   koad.ready.register('entityWorkers');
   // Wait for EntityScanner and koad.workers to be ready
   Meteor.setTimeout(async () => {
+    // Gated on KOAD_IO_WORKERS_ENABLED — daemon skips entity shell workers
+    if (process.env.KOAD_IO_WORKERS_ENABLED === 'false') {
+      if (!globalThis.indexerReady) globalThis.indexerReady = {};
+      globalThis.indexerReady.entityWorkers = new Date().toISOString();
+      koad.ready.signal('entityWorkers');
+      console.log('[ENTITY-WORKERS] workers disabled (KOAD_IO_WORKERS_ENABLED=false) — skipping');
+      return;
+    }
+
     const entities = EntityScanner.Entities.find().fetch();
     let totalLoaded = 0;
 

@@ -21,7 +21,7 @@ koad-io upstart              # Run at login — typically called from a session 
 3. Lowers audio volume to 20%
 4. Scans `~/.*` for `hooks/upstart.sh` and runs each one
 5. Starts `~/.koad-io/daemon/` in a screen session if present
-6. Starts `~/.koad-io/desktop/` in a screen session if a display is available
+6. Starts `~/.forge/desktop/` in a screen session if a display is available
 7. Sends a desktop notification: "Welcome $USER! Upstart complete."
 
 ## What it expects

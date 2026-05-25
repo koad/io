@@ -75,6 +75,16 @@ if [[ ${#missing_vars[@]} -gt 0 ]]; then
   exit 64
 fi
 
+# If the app requires a display, refuse to start without one
+if [[ "${KOAD_IO_REQUIRES_DISPLAY:-}" == "true" ]]; then
+  if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    echo -e "\033[31mThis app requires a display (KOAD_IO_REQUIRES_DISPLAY=true) but none is available.\033[0m"
+    echo "Start from a session with \$DISPLAY set, or use the upstart command."
+    koad_io_emit_close "start: no display available"
+    exit 1
+  fi
+fi
+
 # Set default settings file
 [[ ! $SETTINGS_FILE ]] && SETTINGS_FILE="$PWD/config/$HOSTNAME.json";
 [[ ! -f $SETTINGS_FILE ]] && echo "settings file not found: $SETTINGS_FILE" && exit 65

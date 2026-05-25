@@ -26,7 +26,7 @@ A transparent always-on Meteor window docked bottom-left of the main monitor. Sh
 
 ## Technical
 - X11 only — requires `wmctrl`, `xdotool`, transparent window positioning, workspace detection. Wayland incompatible by design.
-- Served by `~/.koad-io/desktop/` which wraps the daemon UI
+- Served by `~/.forge/desktop/` which wraps the daemon UI
 - PWA launcher via `clicker.js` methods (already implemented)
 - Passenger data from daemon's passenger registry (feature 007)
 - Driven by `~/.koad-io/daemon/` via DDP

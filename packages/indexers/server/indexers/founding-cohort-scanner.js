@@ -559,7 +559,9 @@ Meteor.startup(() => {
       scan();
 
       // Periodic re-scan every 5 minutes (checks for new sigchain entries, close_block changes)
-      if (typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
+      // Gated on KOAD_IO_WORKERS_ENABLED — daemon runs one-shot only
+      const workersEnabled = process.env.KOAD_IO_WORKERS_ENABLED !== 'false';
+      if (workersEnabled && typeof koad !== 'undefined' && koad.workers && typeof koad.workers.start === 'function') {
         await koad.workers.start({
           service: 'founding-cohort-scan',
           type: 'indexer',

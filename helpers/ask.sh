@@ -65,8 +65,8 @@ HEADER
 # Output: echoes the answer to stdout.
 #
 # Example:
-#   HANDLE=$(ask "Your handle" "$KOAD_IO_HANDLE" "" --required --write ~/.koad-io/me/.env KOAD_IO_HANDLE)
-#   HANDLE=$(ask "Your handle" "${KOAD_IO_HANDLE:-}" "$(whoami)" --write ~/.koad-io/me/.env KOAD_IO_HANDLE)
+#   HANDLE=$(ask "Your handle" "$KOAD_IO_HANDLE" "" --required --write ~/.koad/.env KOAD_IO_HANDLE)
+#   HANDLE=$(ask "Your handle" "${KOAD_IO_HANDLE:-}" "$(whoami)" --write ~/.koad/.env KOAD_IO_HANDLE)
 ask() {
     local prompt="$1"
     local env_val="${2:-}"
@@ -156,7 +156,7 @@ ask() {
 #
 # Example:
 #   if ask_yn "Do you have a Keybase account?" "$HAS_KEYBASE"; then
-#   if ask_yn "Do you have a Keybase account?" "${KOAD_IO_HAS_KEYBASE:-}" --write ~/.koad-io/me/.env KOAD_IO_HAS_KEYBASE; then
+#   if ask_yn "Do you have a Keybase account?" "${KOAD_IO_HAS_KEYBASE:-}" --write ~/.koad/.env KOAD_IO_HAS_KEYBASE; then
 ask_yn() {
     local prompt="$1"
     local env_val="${2:-}"

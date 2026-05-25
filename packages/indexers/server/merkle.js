@@ -1,7 +1,7 @@
 // Daemon merkle tree — VESTA-SPEC-173 wiring
 //
 // Builds the kingdom merkle tree on demand from the current entity index
-// and the operator sigchain at ~/.koad-io/me/sigchain/.
+// and the operator sigchain at ~/.koad/sigchain/.
 //
 // Signing is deferred until the sovereign key infrastructure is wired
 // (VESTA-SPEC-115 §3). For now, produces an unsigned summary.
@@ -25,11 +25,11 @@ function getEntities() {
 
 const KINGDOM_HANDLE = process.env.KOAD_IO_SPIRIT || 'koad';
 
-// Read the operator sigchain head CID from ~/.koad-io/me/sigchain/metadata.json.
+// Read the operator sigchain head CID from ~/.koad/sigchain/metadata.json.
 // This becomes the kingdom leaf tip (SPEC-173 §4, SPEC-170).
 function readKingdomTip() {
   try {
-    const metaPath = path.join(process.env.HOME, '.koad-io', 'me', 'sigchain', 'metadata.json');
+    const metaPath = path.join(process.env.HOME, '.koad', 'sigchain', 'metadata.json');
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
     return meta.sigchainHeadCID || null;
   } catch (e) {
@@ -40,7 +40,7 @@ function readKingdomTip() {
 // Count entries in the operator sigchain (used as kingdom leaf seq).
 function readKingdomSeq() {
   try {
-    const entriesDir = path.join(process.env.HOME, '.koad-io', 'me', 'sigchain', 'entries');
+    const entriesDir = path.join(process.env.HOME, '.koad', 'sigchain', 'entries');
     return fs.readdirSync(entriesDir).filter(f => f.endsWith('.json')).length;
   } catch (e) {
     return 0;
@@ -103,7 +103,7 @@ function buildLeafSet() {
 // seqno semantics for v1:
 //   - Volatile build: seqno is held at 1 across rebuilds with the same leaf set.
 //   - Persistence/append-only seqno bumping is wired in a future flight when the
-//     daemon adds a "publish root" action that writes ~/.koad-io/kingdoms/<slug>/
+//     daemon adds a "publish root" action that writes ~/.koad/kingdoms/<slug>/
 //     merkle/roots/<seqno>.json (SPEC-173 §8).
 async function buildMerkleState() {
   const { leaves, allEntities, skippedCount, kingdomTip, kingdomSeq } = buildLeafSet();
