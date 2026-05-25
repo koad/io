@@ -206,6 +206,44 @@ Tests are plain ESM scripts — no test runner framework. Run with `node test-<n
 - `~/.forge/packages/sovereign-profiles/server/auth.js` — re-exports from `./auth` (bridge shim)
 - `koad:io-core/both/identity-factory.js` — **parallel implementation** (not yet importing from here — migration planned)
 
+## Meteor Runtime Resolution
+
+This package is a local kingdom module — it lives at `~/.koad-io/modules/node/`, not on the npm registry. Meteor packages that `import ... from '@koad-io/node/...'` (like `koad:io-accounts/server/auth.js`) need the module to be resolvable at runtime via Node's `node_modules` resolution.
+
+Meteor's reify compiler transforms ES module imports into `module.link()` calls that resolve from the **build directory**:
+```
+src/.meteor/local/build/programs/server/
+```
+
+Every Meteor project that consumes a package importing from `@koad-io/node` must have **two symlinks**:
+
+### Source-level symlink (persists across rebuilds)
+```bash
+mkdir -p src/node_modules/@koad-io
+ln -s /home/koad/.koad-io/modules/node src/node_modules/@koad-io/node
+```
+
+### Build-level symlink (wiped on `meteor reset`)
+```bash
+mkdir -p src/.meteor/local/build/programs/server/node_modules/@koad-io
+ln -sf /home/koad/.koad-io/modules/node \
+  src/.meteor/local/build/programs/server/node_modules/@koad-io/node
+```
+
+Use absolute paths for the build-level symlink — relative paths depend on build directory depth which can vary across Meteor versions.
+
+If you see `Cannot find module '@koad-io/node/auth'` at runtime, the build-level symlink is missing. Re-create it and restart the Meteor process.
+
+### Projects with these symlinks
+
+| Project | Source | Build |
+|---------|--------|-------|
+| `~/.koad-io/daemon/` (framework) | ✓ | ✓ |
+| `~/.forge/control-tower/` (business) | ✓ | ✓ |
+| `~/.ecoincore/daemon/` (app) | ✓ | ✓ |
+
+This is not automated — new Meteor projects that pull in `koad:io-accounts` need this set up manually. See `~/.koad-io/packages/accounts/PRIMER.md` for the consumer-side docs.
+
 ## Known drift
 
 The KOAD_IO.md description reads "The Meteor package koad:io-core imports from here." This is the intended end state, not the current state. `koad:io-core` currently has its own `both/identity-factory.js` that mirrors `identity.js` for the `api.addFiles()` non-ESM context. The migration is planned but not landed. Vulcan should be aware: claims in KOAD_IO.md about koad:io-core importing from this package are aspirational.

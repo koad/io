@@ -443,6 +443,26 @@ if [ ${#_layer1_loaded[@]} -eq 0 ]; then
   echo "[startup] layer1: no KOAD_IO.md files found" >&2
 fi
 
+# --- Layer 1b: Harness PREAMBLE ---
+# Each harness can ship a PREAMBLE.md alongside its command.sh describing
+# the native tool surface, DDP stream, bond gate, footer, live typing, etc.
+# — the operational reality that replaces bash-centric KOAD_IO.md patterns.
+# Location: $KOAD_IO_HARNESS/$KOAD_IO_HARNESS_NAME/PREAMBLE.md
+# (typically ~/.forge/commands/harness/<name>/PREAMBLE.md)
+HARNESS_CMDS="${KOAD_IO_HARNESS:-$HOME/.forge/commands/harness}"
+if [ -n "${KOAD_IO_HARNESS_NAME:-}" ]; then
+  _harness_pre="$HARNESS_CMDS/$KOAD_IO_HARNESS_NAME/PREAMBLE.md"
+  if [ -f "$_harness_pre" ]; then
+    _subst < "$_harness_pre"
+    printf '\n\n---\n\n'
+    echo "[startup] harness preamble: $_harness_pre ($(wc -c < "$_harness_pre") bytes)" >&2
+  else
+    echo "[startup] harness preamble: $_harness_pre not found, skipped" >&2
+  fi
+else
+  echo "[startup] harness preamble: KOAD_IO_HARNESS_NAME not set, skipped" >&2
+fi
+
 # --- Layer 2: Entity ---
 if [ -f "$ENTITY_DIR/ENTITY.md" ]; then
   _subst < "$ENTITY_DIR/ENTITY.md"

@@ -14,8 +14,8 @@ children:
     blurb: Empty placeholder directory — not a functional package; do not confuse with core/
     status: stub
   - path: harness/
-    blurb: koad:io-harness (v1.1.0) — entity conversation endpoints over HTTP/SSE; multi-provider; VESTA-SPEC-134 memory
-    status: documented
+    blurb: harness tools/ directory — not a Meteor package (no package.js). Former harness package moved to ~/.koad-io/harness/bridge-server.js
+    status: stub
   - path: accounts/
     blurb: koad:io-accounts (v3.6.9) — RBAC, invitations, OAuth, sovereign auth, session management
     status: documented
@@ -112,7 +112,7 @@ METEOR_PACKAGE_DIRS=$KOAD_IO_PACKAGE_DIRS  # Meteor compat shim
 |-----------|-------------|---------|---------|
 | `logger/` | `koad:io-event-logger` | 0.3.0 | Client error capture → ClientErrors collection |
 | `workers/` | `koad:io-worker-processes` | 0.0.1 | `koad.workers.start()` background workers |
-| `harness/` | `koad:io-harness` | 1.1.0 | Entity conversation HTTP/SSE + VESTA-SPEC-134 memory |
+| `harness/` | _(not a package)_ | — | Tools directory only. Bridge protocol → `~/.koad-io/harness/bridge-server.js`. Conversation harness → `~/.forge/packages/harness/`. |
 
 ### Daemon packages (extracted from kindergarten daemon)
 
@@ -151,7 +151,6 @@ koad:io                      ← start here for new apps
 
 Optional, add on top:
 koad:io-accounts             ← full auth system
-koad:io-harness              ← entity conversation endpoints
 koad:io-event-logger         ← client error capture
 koad:io-search               ← search UI
 koad:io-worker-processes     ← background workers

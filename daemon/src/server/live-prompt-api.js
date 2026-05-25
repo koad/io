@@ -24,7 +24,7 @@ const app = WebApp.connectHandlers;
 // In-memory store
 // ---------------------------------------------------------------------------
 const _livePrompts = new Map(); // entity → { entity, session_id, text, at }
-const TTL_MS = 10000; // 10 seconds
+const TTL_MS = 60000; // 60 seconds
 
 // ---------------------------------------------------------------------------
 // Meteor collection + DDP publication
