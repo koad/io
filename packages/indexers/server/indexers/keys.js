@@ -65,7 +65,9 @@ Meteor.startup(async () => {
         }
       });
     } else {
-      console.warn('[KEYS] koad.workers unavailable (koad:io-worker-processes not resolved) — falling back to one-shot scan');
+      if (process.env.KOAD_IO_WORKERS_ENABLED !== 'false') {
+        console.warn('[KEYS] koad.workers unavailable (koad:io-worker-processes not resolved) — falling back to one-shot scan');
+      }
       scanAll();
       console.log(`[KEYS] Initial scan complete: ${KeysIndex.find().count()} entities with keys`);
       if (!globalThis.indexerReady) globalThis.indexerReady = {};

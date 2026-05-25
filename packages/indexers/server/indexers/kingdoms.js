@@ -211,7 +211,9 @@ Meteor.startup(async () => {
         }
       });
     } else {
-      console.warn('[KINGDOMS] koad.workers unavailable — falling back to one-shot scan');
+      if (process.env.KOAD_IO_WORKERS_ENABLED !== 'false') {
+        console.warn('[KINGDOMS] koad.workers unavailable — falling back to one-shot scan');
+      }
       scanAll();
       if (!globalThis.indexerReady) globalThis.indexerReady = {};
       globalThis.indexerReady.kingdoms = new Date().toISOString();

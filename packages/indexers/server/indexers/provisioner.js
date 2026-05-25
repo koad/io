@@ -407,6 +407,16 @@ Meteor.startup(async () => {
   // Delay until EntityScanner is ready (it runs first alphabetically,
   // but give it a tick to complete the initial scan)
   Meteor.setTimeout(async () => {
+    // Gated on KOAD_IO_WORKERS_ENABLED — daemon runs one-shot only
+    const workersEnabled = process.env.KOAD_IO_WORKERS_ENABLED !== 'false';
+    if (!workersEnabled) {
+      // Workers disabled — run one-shot provision sweep and signal ready
+      try { await provisionOnce(); } catch (e) { console.error('[PROVISIONER] one-shot error:', e.message); }
+      if (!globalThis.indexerReady) globalThis.indexerReady = {};
+      globalThis.indexerReady.provisioner = new Date().toISOString();
+      koad.ready.signal('provisioner');
+      return;
+    }
     try {
       await koad.workers.start({
         service: 'primitives-provision',

@@ -409,7 +409,9 @@ Meteor.startup(async () => {
         }
       });
     } else {
-      console.warn('[BONDS] koad.workers unavailable (koad:io-worker-processes not resolved) — falling back to one-shot scan');
+      if (process.env.KOAD_IO_WORKERS_ENABLED !== 'false') {
+        console.warn('[BONDS] koad.workers unavailable (koad:io-worker-processes not resolved) — falling back to one-shot scan');
+      }
       scanAll();
       console.log(`[BONDS] Initial scan complete: ${BondsIndex.find().count()} entities with bonds, ${CrossKingdomBonds.find().count()} cross-kingdom`);
       if (!globalThis.indexerReady) globalThis.indexerReady = {};
