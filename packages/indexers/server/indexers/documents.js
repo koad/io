@@ -12,8 +12,26 @@
 const fs   = Npm.require('fs');
 const path = Npm.require('path');
 const os   = Npm.require('os');
+const fsp  = fs.promises;
 
 const HOME = process.env.HOME || os.homedir();
+const STARTUP_SCAN_BATCH_SIZE = 10;
+const STARTUP_SCAN_DELAY_MS = 15000;
+const REF_BATCH_SIZE = 100;
+const WALK_YIELD_EVERY = 25;
+
+function yieldToEventLoop() {
+  return new Promise(resolve => Meteor.setTimeout(resolve, 0));
+}
+
+async function pathExists(targetPath) {
+  try {
+    await fsp.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Corpus classification — same order and shape as walker.js
@@ -122,37 +140,50 @@ function parseFrontmatter(text) {
 // ---------------------------------------------------------------------------
 // Walk a directory for .md files, honoring EXCLUDE_DIRS
 // ---------------------------------------------------------------------------
-function walkMd(dir) {
+async function walkMd(dir) {
   const out = [];
-  function walk(d) {
+  const queue = [dir];
+  let walked = 0;
+
+  while (queue.length) {
+    const current = queue.shift();
     let ents;
-    try { ents = fs.readdirSync(d, { withFileTypes: true }); }
-    catch { return; }
+    try {
+      ents = await fsp.readdir(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
     for (const e of ents) {
-      const p = path.join(d, e.name);
+      const p = path.join(current, e.name);
       if (e.isDirectory()) {
         if (EXCLUDE_DIRS.has(e.name)) continue;
-        walk(p);
+        queue.push(p);
       } else if (e.isFile() && e.name.endsWith('.md')) {
         out.push(p);
       }
     }
+
+    walked++;
+    if (walked % WALK_YIELD_EVERY === 0) {
+      await yieldToEventLoop();
+    }
   }
-  walk(dir);
+
   return out;
 }
 
 // ---------------------------------------------------------------------------
 // Build a Document record from a file path
 // ---------------------------------------------------------------------------
-function buildDoc(entity, entityDir, kind, fullPath) {
+async function buildDoc(entity, entityDir, kind, fullPath) {
   let text;
-  try { text = fs.readFileSync(fullPath, 'utf8'); }
+  try { text = await fsp.readFile(fullPath, 'utf8'); }
   catch { return null; }
 
   const { fm, body }   = parseFrontmatter(text);
   let stat;
-  try { stat = fs.statSync(fullPath); }
+  try { stat = await fsp.stat(fullPath); }
   catch { return null; }
 
   return {
@@ -186,8 +217,8 @@ function upsertDoc(doc) {
 // ---------------------------------------------------------------------------
 // Index a single file (called on file-change events)
 // ---------------------------------------------------------------------------
-function indexFile(entity, entityDir, kind, fullPath) {
-  const doc = buildDoc(entity, entityDir, kind, fullPath);
+async function indexFile(entity, entityDir, kind, fullPath) {
+  const doc = await buildDoc(entity, entityDir, kind, fullPath);
   if (doc) {
     upsertDoc(doc);
     // Re-extract refs for this source
@@ -265,125 +296,162 @@ function rebuildRefsForSource(sourcePath, fm) {
 // ---------------------------------------------------------------------------
 // 4-pass resolution — same logic as walker.js SQL passes, in JS
 // ---------------------------------------------------------------------------
-function resolveAllRefs() {
+async function resolveAllRefs() {
   const unresolved = DocumentRefs.find({ resolved: false }).fetch();
   if (!unresolved.length) return;
 
-  for (const ref of unresolved) {
-    const t = ref.target_raw;
-    if (!t || SENTINELS.has(t)) continue;
+  for (let i = 0; i < unresolved.length; i += REF_BATCH_SIZE) {
+    const batch = unresolved.slice(i, i + REF_BATCH_SIZE);
 
-    let found = null;
+    for (const ref of batch) {
+      const t = ref.target_raw;
+      if (!t || SENTINELS.has(t)) continue;
 
-    // Pass 1: exact path match (handles ~/ prefix too)
-    const expanded = t.replace(/^~\//, HOME + '/');
-    found = Documents.findOne({
-      $or: [
-        { _id: t },
-        { _id: expanded },
-        { _id: t + '.md' },
-        { _id: expanded + '.md' },
-      ],
-    });
+      let found = null;
 
-    // Pass 2: filename / slug match
-    if (!found) {
+      // Pass 1: exact path match (handles ~/ prefix too)
+      const expanded = t.replace(/^~\//, HOME + '/');
       found = Documents.findOne({
         $or: [
-          { filename: t + '.md' },
-          { filename: t },
+          { _id: t },
+          { _id: expanded },
+          { _id: t + '.md' },
+          { _id: expanded + '.md' },
         ],
       });
-      // ilike fallback: check if any filename starts with t (case-insensitive)
+
+      // Pass 2: filename / slug match
       if (!found) {
-        const tl = t.toLowerCase();
         found = Documents.findOne({
-          filename: { $regex: new RegExp('^' + tl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+          $or: [
+            { filename: t + '.md' },
+            { filename: t },
+          ],
         });
-      }
-    }
-
-    // Pass 3: SPEC-NNN pattern
-    if (!found) {
-      const specMatch = t.match(/^(VESTA|ROOTY|CACULA|LIVY|JUNO)-SPEC-([0-9]+)/i);
-      if (specMatch) {
-        const prefix = specMatch[0].toUpperCase();
-        found = Documents.findOne({
-          kind: 'spec',
-          filename: { $regex: new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
-        });
-      }
-    }
-
-    // Pass 4: path-fragment match (loose)
-    if (!found && t.length > 10) {
-      const fragment = t.replace(/^~\//, '');
-      // Search in _id (which is the full path)
-      const all = Documents.find({}).fetch();
-      for (const d of all) {
-        if (d._id.includes(fragment)) {
-          found = d;
-          break;
+        // ilike fallback: check if any filename starts with t (case-insensitive)
+        if (!found) {
+          const tl = t.toLowerCase();
+          found = Documents.findOne({
+            filename: { $regex: new RegExp('^' + tl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+          });
         }
       }
+
+      // Pass 3: SPEC-NNN pattern
+      if (!found) {
+        const specMatch = t.match(/^(VESTA|ROOTY|CACULA|LIVY|JUNO)-SPEC-([0-9]+)/i);
+        if (specMatch) {
+          const prefix = specMatch[0].toUpperCase();
+          found = Documents.findOne({
+            kind: 'spec',
+            filename: { $regex: new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+          });
+        }
+      }
+
+      // Pass 4: path-fragment match (loose)
+      if (!found && t.length > 10) {
+        const fragment = t.replace(/^~\//, '');
+        // Search in _id (which is the full path)
+        const all = Documents.find({}).fetch();
+        for (const d of all) {
+          if (d._id.includes(fragment)) {
+            found = d;
+            break;
+          }
+        }
+      }
+
+      if (found) {
+        DocumentRefs.update(ref._id, {
+          $set: {
+            target_path: found._id,
+            target_kind: found.kind,
+            resolved:    true,
+            asof:        new Date(),
+          },
+        });
+      }
     }
 
-    if (found) {
-      DocumentRefs.update(ref._id, {
-        $set: {
-          target_path: found._id,
-          target_kind: found.kind,
-          resolved:    true,
-          asof:        new Date(),
-        },
-      });
-    }
+    await yieldToEventLoop();
   }
 }
 
 // ---------------------------------------------------------------------------
 // Full scan of all entities
 // ---------------------------------------------------------------------------
-function fullScan() {
+async function fullScan() {
   const t0 = Date.now();
   console.log('[DOCUMENTS] Starting full scan...');
 
   const entities = EntityScanner.Entities.find().fetch();
-  let docCount = 0;
+  const scanTargets = [];
 
   for (const entity of entities) {
-    const eDir = entity.path;
+    const entityDir = entity.path;
 
     // Top-level identity files
     for (const tl of TOPLEVEL) {
-      const f = path.join(eDir, tl.file);
-      if (fs.existsSync(f)) {
-        const doc = buildDoc(entity.handle, eDir, tl.kind, f);
-        if (doc) { upsertDoc(doc); docCount++; }
+      const fullPath = path.join(entityDir, tl.file);
+      if (await pathExists(fullPath)) {
+        scanTargets.push({
+          entity: entity.handle,
+          entityDir,
+          kind: tl.kind,
+          fullPath,
+        });
       }
     }
 
     // Corpus dirs
     for (const c of CORPUS) {
-      const cd = path.join(eDir, c.dir);
-      if (!fs.existsSync(cd)) continue;
-      const files = walkMd(cd);
-      for (const f of files) {
-        const doc = buildDoc(entity.handle, eDir, c.kind, f);
-        if (doc) { upsertDoc(doc); docCount++; }
+      const corpusDir = path.join(entityDir, c.dir);
+      if (!await pathExists(corpusDir)) continue;
+      const files = await walkMd(corpusDir);
+      for (const fullPath of files) {
+        scanTargets.push({
+          entity: entity.handle,
+          entityDir,
+          kind: c.kind,
+          fullPath,
+        });
       }
+      await yieldToEventLoop();
     }
+  }
+
+  console.log(`[DOCUMENTS] Discovered ${scanTargets.length} markdown files — indexing in background...`);
+
+  let docCount = 0;
+  for (let i = 0; i < scanTargets.length; i += STARTUP_SCAN_BATCH_SIZE) {
+    const batch = scanTargets.slice(i, i + STARTUP_SCAN_BATCH_SIZE);
+    const docs = await Promise.all(batch.map(target =>
+      buildDoc(target.entity, target.entityDir, target.kind, target.fullPath)
+    ));
+
+    for (const doc of docs) {
+      if (!doc) continue;
+      upsertDoc(doc);
+      docCount++;
+    }
+
+    await yieldToEventLoop();
   }
 
   // Re-extract all refs from fresh Documents
   DocumentRefs.remove({});
   const allDocs = Documents.find({}).fetch();
-  for (const doc of allDocs) {
-    rebuildRefsForSource(doc._id, doc.frontmatter);
+  for (let i = 0; i < allDocs.length; i += REF_BATCH_SIZE) {
+    const batch = allDocs.slice(i, i + REF_BATCH_SIZE);
+    for (const doc of batch) {
+      rebuildRefsForSource(doc._id, doc.frontmatter);
+    }
+    await yieldToEventLoop();
   }
 
   // Resolve refs
-  resolveAllRefs();
+  await resolveAllRefs();
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
   const refCount = DocumentRefs.find({ resolved: true }).count();
@@ -411,7 +479,7 @@ function debounce(key, fn, delay) {
 
 // Given a changed file path, find its entity + kind and re-index it.
 // Iterates EntityScanner.Entities to resolve entity ownership.
-function reindexPath(changedPath) {
+async function reindexPath(changedPath) {
   if (!changedPath || !changedPath.endsWith('.md')) return;
 
   const entities = EntityScanner.Entities.find().fetch();
@@ -442,9 +510,13 @@ function reindexPath(changedPath) {
     }
 
     if (kind) {
-      indexFile(entity.handle, eDir, kind, changedPath);
+      await indexFile(entity.handle, eDir, kind, changedPath);
       // Re-resolve all unresolved refs after a file change
-      Meteor.setTimeout(resolveAllRefs, 200);
+      Meteor.setTimeout(() => {
+        resolveAllRefs().catch(e => {
+          console.error('[DOCUMENTS] Ref resolution failed:', e && e.stack ? e.stack : e);
+        });
+      }, 200);
     }
     return;
   }
@@ -462,7 +534,11 @@ function watchEntityDir(entity) {
       const parts = filename.split(path.sep);
       if (parts.some(p => EXCLUDE_DIRS.has(p))) return;
 
-      debounce(fullPath, () => reindexPath(fullPath), 500);
+      debounce(fullPath, () => {
+        reindexPath(fullPath).catch(e => {
+          console.error('[DOCUMENTS] Incremental index failed:', e && e.stack ? e.stack : e);
+        });
+      }, 500);
     });
     _watchers.set(eDir, watcher);
   } catch (e) {
@@ -481,11 +557,10 @@ Meteor.startup(() => {
     return;
   }
 
-  // Run scan after 2s to let EntityScanner populate
+  // Delay the startup backfill long enough for Meteor to finish bringing the
+  // HTTP surface up cleanly. Watchers come up first so fresh edits still index
+  // immediately while the bulk backfill waits its turn.
   Meteor.setTimeout(() => {
-    fullScan();
-
-    // Set up file watchers for all known entity dirs
     const entities = EntityScanner.Entities.find().fetch();
     for (const entity of entities) {
       watchEntityDir(entity);
@@ -498,7 +573,12 @@ Meteor.startup(() => {
         watchEntityDir({ handle: fields.handle, path: eDir });
       },
     });
-  }, 2000);
+
+    fullScan().catch(e => {
+      console.error('[DOCUMENTS] Full scan failed:', e && e.stack ? e.stack : e);
+      koad.ready.signal('documents');
+    });
+  }, STARTUP_SCAN_DELAY_MS);
 });
 
 // ---------------------------------------------------------------------------
