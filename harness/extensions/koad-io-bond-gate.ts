@@ -1,20 +1,22 @@
-// koad-io bond-gate extension for the Pi harness.
+// koad:io bond-gate extension for the Pi harness.
 //
-// Gates every tool call against the entity's trust bonds.
-// Loads bonds from ~/.<entity>/trust/bonds/*.md.asc at session_start.
-// Blocks reads/writes/exec outside authorized scope.
+// Gates every tool call against the entity's trust bonds or harness env vars.
+// Resolves scope at session_start with this precedence order:
+//   1. KOAD_IO_BOND_GATE_BYPASS=1           → disable the gate, allow everything
+//   2. ~/.<entity>/trust/bonds/*.md(.asc)   → derive scope from highest-authority bond
+//   3. KOAD_IO_ENTITY_SCOPE=<bond-type>     → reuse the built-in bond-type scope map
+//   4. KOAD_IO_HARNESS_{READ,WRITE,EXEC}_PATHS → custom colon-separated path prefixes
+//   5. Fallback                             → own entity dir write/exec + forge readonly
+//
+// Modes:
+//   - bonded   → current trust-bond behaviour
+//   - env-var  → easy-mode entry for learners and unbonded entities
+//   - bypass   → explicit debug/dev escape hatch; never default
 //
 // Architecture:
-//   - session_start: parse bonds, build permission bitmap
+//   - session_start: resolve scope + log active mode
 //   - tool_call: validate tool + args against permissions
 //   - Blocked calls get { block: true, reason } — tool never executes
-//   - Fallback: no bonds = restricted default scope (entity dir + forge readonly)
-//
-// Trust bond types → tool permissions:
-//   authorized-agent:   full koad:io scope (forge, all entity dirs, framework)
-//   authorized-builder: read/write forge + own entity dir, read other entity briefs/memories
-//   authorized-specialist: read/write own entity dir, read forge
-//   peer:               read own entity dir, read other entity briefs/memories
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
@@ -26,6 +28,7 @@ import * as os from "node:os";
 // ---------------------------------------------------------------------------
 
 type BondType = "authorized-agent" | "authorized-builder" | "authorized-specialist" | "peer" | "unknown";
+type ScopedBondType = Exclude<BondType, "unknown">;
 
 interface BondScope {
   read: string[];    // allowed read prefixes
@@ -34,7 +37,22 @@ interface BondScope {
   blocked: string[]; // explicitly blocked even within read/write scope
 }
 
+interface GateResolution {
+  mode: "bypass" | "bonded" | "env-var" | "default";
+  label: string;
+  scope: BondScope;
+  bonds: ParsedBond[];
+}
+
 const HOME = os.homedir();
+const FORGE_DIR = path.join(HOME, ".forge");
+const DEFAULT_BLOCKED = ["/.env", "/.credentials", "/id/", "/trust/"];
+const SCOPED_BOND_TYPES: ScopedBondType[] = [
+  "authorized-agent",
+  "authorized-builder",
+  "authorized-specialist",
+  "peer",
+];
 
 const SCOPE: Record<BondType, BondScope> = {
   "authorized-agent": {
@@ -45,15 +63,15 @@ const SCOPE: Record<BondType, BondScope> = {
   },
   "authorized-builder": {
     read: [
-      path.join(HOME, ".forge"),
+      FORGE_DIR,
       HOME, // for entity dirs (read briefs/memories)
     ],
     write: [
-      path.join(HOME, ".forge"),
+      FORGE_DIR,
       // own entity dir added dynamically
     ],
     exec: [
-      path.join(HOME, ".forge"),
+      FORGE_DIR,
       // own entity dir added dynamically
     ],
     blocked: [
@@ -63,7 +81,7 @@ const SCOPE: Record<BondType, BondScope> = {
   },
   "authorized-specialist": {
     read: [
-      path.join(HOME, ".forge"),
+      FORGE_DIR,
       HOME, // for entity dirs
     ],
     write: [
@@ -72,13 +90,11 @@ const SCOPE: Record<BondType, BondScope> = {
     exec: [
       // own entity dir added dynamically
     ],
-    blocked: [
-      "/.env", "/.credentials", "/id/", "/trust/",
-    ],
+    blocked: [...DEFAULT_BLOCKED],
   },
   "peer": {
     read: [
-      // own entity dir + shared briefs/memories added dynamically
+      // own entity dir added dynamically
     ],
     write: [
       // own entity dir added dynamically
@@ -86,9 +102,7 @@ const SCOPE: Record<BondType, BondScope> = {
     exec: [
       // own entity dir added dynamically
     ],
-    blocked: [
-      "/.env", "/.credentials", "/id/", "/trust/",
-    ],
+    blocked: [...DEFAULT_BLOCKED],
   },
   "unknown": {
     read: [],
@@ -97,6 +111,67 @@ const SCOPE: Record<BondType, BondScope> = {
     blocked: [],
   },
 };
+
+function cloneScope(scope: BondScope): BondScope {
+  return {
+    read: [...scope.read],
+    write: [...scope.write],
+    exec: [...scope.exec],
+    blocked: [...scope.blocked],
+  };
+}
+
+function defaultScope(entity: string): BondScope {
+  const ownDir = path.join(HOME, `.${entity}`);
+  return {
+    read: [ownDir, FORGE_DIR],
+    write: [ownDir],
+    exec: [ownDir],
+    blocked: [...DEFAULT_BLOCKED],
+  };
+}
+
+function withOwnEntityAccess(entity: string, baseScope: BondScope): BondScope {
+  const ownDir = path.join(HOME, `.${entity}`);
+  const scope = cloneScope(baseScope);
+
+  if (!isUnder(ownDir, scope.read)) {
+    scope.read.push(ownDir);
+  }
+  if (!isUnder(ownDir, scope.write)) {
+    scope.write.push(ownDir);
+  }
+  if (!isUnder(ownDir, scope.exec)) {
+    scope.exec.push(ownDir);
+  }
+
+  return scope;
+}
+
+function scopeForBondType(entity: string, type: ScopedBondType): BondScope {
+  return withOwnEntityAccess(entity, SCOPE[type]);
+}
+
+function parseBondType(raw: string | undefined): ScopedBondType | undefined {
+  if (!raw) return undefined;
+  const normalized = raw.trim().toLowerCase().replace(/[^a-z-]/g, "-");
+  return SCOPED_BOND_TYPES.find(type => type === normalized);
+}
+
+function expandConfiguredPath(rawPath: string): string {
+  if (rawPath === "~") return HOME;
+  if (rawPath.startsWith("~/")) return path.join(HOME, rawPath.slice(2));
+  return path.resolve(rawPath);
+}
+
+function parsePathList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(":")
+    .map(segment => segment.trim())
+    .filter(Boolean)
+    .map(expandConfiguredPath);
+}
 
 // ---------------------------------------------------------------------------
 // Parse bonds from ~/.<entity>/trust/bonds/
@@ -139,8 +214,8 @@ function parseBonds(entity: string): ParsedBond[] {
           const toMatch = fm.match(/^to:\s*(.+)$/m);
 
           if (typeMatch) {
-            const raw = typeMatch[1].trim().toLowerCase().replace(/[^a-z-]/g, "-");
-            if (raw in SCOPE) type = raw as BondType;
+            const parsedType = parseBondType(typeMatch[1]);
+            if (parsedType) type = parsedType;
           }
           if (fromMatch) from = fromMatch[1].trim();
           if (toMatch) to = toMatch[1].trim();
@@ -159,42 +234,95 @@ function parseBonds(entity: string): ParsedBond[] {
 }
 
 // ---------------------------------------------------------------------------
-// Derive effective scope from bonds
+// Derive effective scope from bonds / env vars
 // ---------------------------------------------------------------------------
 
 function effectiveScope(entity: string, bonds: ParsedBond[]): BondScope {
   if (bonds.length === 0) {
-    // No bonds — apply a minimal safe default
-    const ownDir = path.join(HOME, `.${entity}`);
-    return {
-      read: [ownDir],
-      write: [ownDir],
-      exec: [ownDir],
-      blocked: ["/.env", "/.credentials", "/id/", "/trust/"],
-    };
+    return defaultScope(entity);
   }
 
   // Take the highest-authority bond type
-  const order: BondType[] = ["authorized-agent", "authorized-builder", "authorized-specialist", "peer"];
-  let highest: BondType = "unknown";
+  const order: ScopedBondType[] = ["authorized-agent", "authorized-builder", "authorized-specialist", "peer"];
+  let highest: ScopedBondType = "peer";
+  let found = false;
+
   for (const b of bonds) {
-    const bi = order.indexOf(b.type);
-    const hi = order.indexOf(highest);
-    if (bi !== -1 && (hi === -1 || bi < hi)) highest = b.type;
+    const parsedType = parseBondType(b.type);
+    if (!parsedType) continue;
+    if (!found || order.indexOf(parsedType) < order.indexOf(highest)) {
+      highest = parsedType;
+      found = true;
+    }
   }
 
-  const scope = { ...SCOPE[highest] };
-  const ownDir = path.join(HOME, `.${entity}`);
+  return found ? scopeForBondType(entity, highest) : defaultScope(entity);
+}
 
-  // Dynamically add own entity dir to write/exec if not already covered
-  if (!scope.write.some(p => ownDir.startsWith(p))) {
-    scope.write = [...scope.write, ownDir];
-  }
-  if (!scope.exec.some(p => ownDir.startsWith(p))) {
-    scope.exec = [...scope.exec, ownDir];
+function customScopeFromEnv(): BondScope | undefined {
+  const read = parsePathList(process.env.KOAD_IO_HARNESS_READ_PATHS);
+  const write = parsePathList(process.env.KOAD_IO_HARNESS_WRITE_PATHS);
+  const exec = parsePathList(process.env.KOAD_IO_HARNESS_EXEC_PATHS);
+
+  if (read.length === 0 && write.length === 0 && exec.length === 0) {
+    return undefined;
   }
 
-  return scope;
+  return {
+    read,
+    write,
+    exec,
+    blocked: [...DEFAULT_BLOCKED],
+  };
+}
+
+function resolveGate(entity: string): GateResolution {
+  const bypass = process.env.KOAD_IO_BOND_GATE_BYPASS === "1" || process.env.KOAD_IO_PI_BOND_GATE_BYPASS === "1";
+  if (bypass) {
+    return {
+      mode: "bypass",
+      label: "mode=bypass — ALL ACCESS GRANTED",
+      scope: { read: ["/"], write: ["/"], exec: ["/"], blocked: [] },
+      bonds: [],
+    };
+  }
+
+  const bonds = parseBonds(entity);
+  if (bonds.length > 0) {
+    return {
+      mode: "bonded",
+      label: `mode=bonded bonds=${bonds.length}`,
+      scope: effectiveScope(entity, bonds),
+      bonds,
+    };
+  }
+
+  const envScope = parseBondType(process.env.KOAD_IO_ENTITY_SCOPE);
+  if (envScope) {
+    return {
+      mode: "env-var",
+      label: `mode=env-var scope=${envScope}`,
+      scope: scopeForBondType(entity, envScope),
+      bonds,
+    };
+  }
+
+  const customScope = customScopeFromEnv();
+  if (customScope) {
+    return {
+      mode: "env-var",
+      label: "mode=env-var custom",
+      scope: customScope,
+      bonds,
+    };
+  }
+
+  return {
+    mode: "default",
+    label: "mode=default fallback",
+    scope: defaultScope(entity),
+    bonds,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -202,21 +330,25 @@ function effectiveScope(entity: string, bonds: ParsedBond[]): BondScope {
 // ---------------------------------------------------------------------------
 
 function isUnder(absolutePath: string, prefixes: string[]): boolean {
-  return prefixes.some(p => absolutePath.startsWith(p));
+  return prefixes.some(prefix => {
+    const resolvedPrefix = path.resolve(prefix);
+    const relative = path.relative(resolvedPrefix, absolutePath);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  });
 }
 
 function isBlocked(absolutePath: string, blocked: string[]): boolean {
   // blocked patterns match anywhere in the path (e.g. "/id/" anywhere)
   // Normalize to always check with trailing slash for directory patterns
   const normalized = absolutePath + "/";
-  return blocked.some(b => normalized.includes(b));
+  return blocked.some(pattern => normalized.includes(pattern));
 }
 
 // ---------------------------------------------------------------------------
 // Daemon audit emission (fire-and-forget)
 // ---------------------------------------------------------------------------
 
-function bondBlockReason(toolName: string, detail: string, scope?: BondScope): string {
+function bondBlockReason(entity: string, toolName: string, detail: string, scope?: BondScope): string {
   const now = new Date().toISOString();
   const lines = [
     `koad:io bond gate — blocked`,
@@ -226,8 +358,8 @@ function bondBlockReason(toolName: string, detail: string, scope?: BondScope): s
     `  reason:  ${detail}`,
   ];
   if (scope) {
-    const readDirs = scope.read.map(d => d.replace(HOME, "~")).join(", ");
-    const writeDirs = scope.write.map(d => d.replace(HOME, "~")).join(", ");
+    const readDirs = scope.read.map(dir => dir.replace(HOME, "~")).join(", ");
+    const writeDirs = scope.write.map(dir => dir.replace(HOME, "~")).join(", ");
     lines.push(`  scope:`);
     lines.push(`    read:  ${readDirs || "(none)"}`);
     lines.push(`    write: ${writeDirs || "(none)"}`);
@@ -256,45 +388,44 @@ function auditBlock(entity: string, toolName: string, pathArg: string, reason: s
   }).catch(() => {});
 }
 
+function logMode(ctx: any, message: string, level: "info" | "warning" = "info"): void {
+  const line = `[bond-gate] ${message}`;
+  if (level === "warning") {
+    console.warn(line);
+  } else {
+    console.log(line);
+  }
+  if (ctx.hasUI) {
+    ctx.ui.notify(line, level);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
-  const experimental = process.env.KOAD_IO_EXPERIMENTAL === "1";
-  if (!experimental) return;
-
-
-	return; // this is too hard right now,. need evolution to take place first.	
-
-
   const entity = process.env.ENTITY ?? "";
-  const bypass = process.env.KOAD_IO_PI_BOND_GATE_BYPASS === "1" || process.env.KOAD_IO_SPIRIT === "koad";
-  let scope: BondScope = SCOPE.unknown;
+  if (!entity) {
+    console.warn("[bond-gate] ENTITY unset — gate disabled");
+    return;
+  }
+
+  let gate = resolveGate(entity);
 
   // -----------------------------------------------------------------------
-  // session_start: load bonds and build scope
+  // session_start: load bonds/env and build scope
   // -----------------------------------------------------------------------
 
   pi.on("session_start", (_event, ctx) => {
-    if (bypass) {
-      scope = { read: [HOME], write: [HOME], exec: [HOME], blocked: [] };
-      if (ctx.hasUI) ctx.ui.notify(`bond-gate: BYPASS active for ${entity}`, "warning");
-      return;
+    gate = resolveGate(entity);
+
+    const requestedScope = process.env.KOAD_IO_ENTITY_SCOPE;
+    if (requestedScope && !parseBondType(requestedScope) && gate.mode !== "bonded") {
+      logMode(ctx, `invalid KOAD_IO_ENTITY_SCOPE=${requestedScope} — ignoring`, "warning");
     }
 
-    const bonds = parseBonds(entity);
-    scope = effectiveScope(entity, bonds);
-
-    if (bonds.length === 0 && ctx.hasUI) {
-      ctx.ui.notify(
-        `bond-gate: no bonds found for ${entity} — restricted to own directory`,
-        "warning",
-      );
-    } else if (bonds.length > 0 && ctx.hasUI) {
-      const types = [...new Set(bonds.map(b => b.type))].join(", ");
-      ctx.ui.notify(`bond-gate: loaded ${bonds.length} bond(s) [${types}]`, "info");
-    }
+    logMode(ctx, gate.label, gate.mode === "bypass" ? "warning" : "info");
   });
 
   // -----------------------------------------------------------------------
@@ -303,10 +434,14 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_call", async (event, ctx) => {
     const { toolName, input } = event;
+    const scope = gate.scope;
+
+    if (gate.mode === "bypass") {
+      return undefined;
+    }
 
     // Resolve the path argument for file-oriented tools
-    const rawPath: string | undefined =
-      (input as Record<string, unknown>)?.path as string;
+    const rawPath = (input as Record<string, unknown>)?.path as string | undefined;
 
     let absolutePath: string | undefined;
     if (rawPath) {
@@ -317,7 +452,7 @@ export default function (pi: ExtensionAPI) {
     if (toolName === "read") {
       if (absolutePath && !isUnder(absolutePath, scope.read)) {
         auditBlock(entity, "read", rawPath!, "outside read scope");
-        return { block: true, reason: bondBlockReason("read", `${rawPath} is outside bond scope`) };
+        return { block: true, reason: bondBlockReason(entity, "read", `${rawPath} is outside bond scope`) };
       }
       return undefined;
     }
@@ -328,12 +463,12 @@ export default function (pi: ExtensionAPI) {
         if (isBlocked(absolutePath, scope.blocked)) {
           auditBlock(entity, toolName, rawPath!, "blocked path pattern");
           if (ctx.hasUI) ctx.ui.notify(`Blocked ${toolName}: ${rawPath}`, "warning");
-          return { block: true, reason: bondBlockReason(toolName, `${rawPath} is a protected path`) };
+          return { block: true, reason: bondBlockReason(entity, toolName, `${rawPath} is a protected path`) };
         }
         if (!isUnder(absolutePath, scope.write)) {
           auditBlock(entity, toolName, rawPath!, "outside write scope");
           if (ctx.hasUI) ctx.ui.notify(`koad:io bond gate — ${toolName} blocked: ${rawPath}`, "warning");
-          return { block: true, reason: bondBlockReason(toolName, `${rawPath} is outside bond scope`, scope) };
+          return { block: true, reason: bondBlockReason(entity, toolName, `${rawPath} is outside bond scope`, scope) };
         }
       }
       return undefined;
@@ -341,7 +476,7 @@ export default function (pi: ExtensionAPI) {
 
     // --- bash ---
     if (toolName === "bash") {
-      const command = (input as Record<string, unknown>)?.command as string ?? "";
+      const command = ((input as Record<string, unknown>)?.command as string | undefined) ?? "";
 
       // Always block: sudo, chmod 777, recursive rm on root-ish paths
       const dangerous = [
@@ -357,14 +492,14 @@ export default function (pi: ExtensionAPI) {
         if (pattern.test(command)) {
           auditBlock(entity, "bash", command.slice(0, 80), "dangerous command pattern");
           if (ctx.hasUI) ctx.ui.notify(`Blocked dangerous command: ${command.slice(0, 60)}`, "error");
-          return { block: true, reason: bondBlockReason("bash", `dangerous command pattern detected`) };
+          return { block: true, reason: bondBlockReason(entity, "bash", `dangerous command pattern detected`) };
         }
       }
 
       // Validate cwd is within exec scope
       if (!isUnder(ctx.cwd, scope.exec)) {
         auditBlock(entity, "bash", ctx.cwd, "cwd outside exec scope");
-        return { block: true, reason: bondBlockReason("bash", `working directory outside bond scope`) };
+        return { block: true, reason: bondBlockReason(entity, "bash", `working directory outside bond scope`) };
       }
 
       return undefined;
@@ -373,7 +508,7 @@ export default function (pi: ExtensionAPI) {
     // --- find / grep / ls — allow if within read scope ---
     if (toolName === "find" || toolName === "grep" || toolName === "ls") {
       if (absolutePath && !isUnder(absolutePath, scope.read)) {
-        return { block: true, reason: bondBlockReason(toolName, `${rawPath} is outside bond scope`, scope) };
+        return { block: true, reason: bondBlockReason(entity, toolName, `${rawPath} is outside bond scope`, scope) };
       }
       return undefined;
     }
@@ -387,12 +522,10 @@ export default function (pi: ExtensionAPI) {
   // -----------------------------------------------------------------------
 
   pi.on("before_agent_start", (_event, ctx) => {
-    if (!entity) return;
-    // Publish the working directories so the agent knows its bounds.
-    // This avoids the agent attempting operations it can't complete.
-    const dirs = [...new Set([...scope.write, ...scope.read])];
+    gate = resolveGate(entity);
+    const dirs = [...new Set([...gate.scope.write, ...gate.scope.read])];
     ctx.ui.setWorkingMessage(
-      `bond-gate · ${entity} · write: ${dirs.map(d => d.replace(HOME, "~")).join(", ")}`,
+      `bond-gate · ${entity} · ${gate.label} · paths: ${dirs.map(dir => dir.replace(HOME, "~")).join(", ")}`,
     );
   });
 }
