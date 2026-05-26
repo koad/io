@@ -212,7 +212,7 @@ async function findOrCreatePortalUser(handle) {
 
 async function insertPortalLoginToken(userId, meta = {}) {
   const stampedToken = Accounts._generateStampedLoginToken();
-  await Accounts._insertLoginTokenAsync(userId, stampedToken);
+  await Accounts._insertLoginToken(userId, stampedToken);
 
   const hashedToken = Accounts._hashLoginToken(stampedToken.token);
   const user = await Meteor.users.findOneAsync({ _id: userId }, { fields: { 'services.resume.loginTokens': 1 } });
