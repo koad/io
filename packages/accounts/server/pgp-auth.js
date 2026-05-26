@@ -21,6 +21,8 @@
 
 const kbpgp = Npm.require('kbpgp');
 const crypto = Npm.require('crypto');
+const fs = Npm.require('fs');
+const path = Npm.require('path');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -145,6 +147,116 @@ async function fetchFromKeyserver(fingerprint) {
   }
 }
 
+async function resolvePublicKeyForFingerprint(fp, explicitPublicKey = null) {
+  let armoredKey = explicitPublicKey || null;
+
+  if (!armoredKey) {
+    armoredKey = _knownKeys.get(fp) || null;
+  }
+
+  if (!armoredKey && typeof WellKnownKeys !== 'undefined') {
+    const knownEntry = WellKnownKeys.findOne({ fingerprint: fp });
+    if (knownEntry && knownEntry.armoredKey) {
+      armoredKey = knownEntry.armoredKey;
+    }
+  }
+
+  if (!armoredKey) {
+    armoredKey = await fetchFromKeyserver(fp);
+  }
+
+  return armoredKey || null;
+}
+
+function derivePortalCreator() {
+  const entity = (globalThis.koad && globalThis.koad.entity) || 'portal';
+  const internals = (globalThis.koad && globalThis.koad.internals) || 'auth.entityLogin';
+  return `${entity}://${internals}`;
+}
+
+async function findOrCreatePortalUser(handle) {
+  const username = String(handle || '').trim().toLowerCase();
+  if (!username) {
+    throw new Meteor.Error('invalid-handle', 'Resolved handle is empty');
+  }
+
+  let user = await Meteor.users.findOneAsync({ username }, { fields: { _id: 1, username: 1, services: 1 } });
+  if (user) return user;
+
+  const userId = (globalThis.koad && globalThis.koad.generate && typeof globalThis.koad.generate.cid === 'function')
+    ? globalThis.koad.generate.cid(username)
+    : Random.id();
+
+  try {
+    await Meteor.users.insertAsync({
+      _id: userId,
+      username,
+      creator: derivePortalCreator(),
+      created: new Date(),
+      services: { resume: { loginTokens: [] } },
+      counters: { login: 0, pageviews: 0 },
+      invitations: { quota: 9, spent: 0 },
+    });
+  } catch (err) {
+    const dup = await Meteor.users.findOneAsync({ username }, { fields: { _id: 1, username: 1, services: 1 } });
+    if (dup) return dup;
+    throw err;
+  }
+
+  user = await Meteor.users.findOneAsync({ _id: userId }, { fields: { _id: 1, username: 1, services: 1 } });
+  if (!user) {
+    throw new Meteor.Error('user-create-failed', `Failed to create portal user for ${username}`);
+  }
+  return user;
+}
+
+async function insertPortalLoginToken(userId, meta = {}) {
+  const stampedToken = Accounts._generateStampedLoginToken();
+  await Accounts._insertLoginTokenAsync(userId, stampedToken);
+
+  const hashedToken = Accounts._hashLoginToken(stampedToken.token);
+  const user = await Meteor.users.findOneAsync({ _id: userId }, { fields: { 'services.resume.loginTokens': 1 } });
+  const loginTokens = user?.services?.resume?.loginTokens || [];
+  const tokenIndex = loginTokens.findIndex((tokenEntry) => tokenEntry.hashedToken === hashedToken);
+
+  if (tokenIndex !== -1) {
+    const setObj = {
+      [`services.resume.loginTokens.${tokenIndex}.portalHandle`]: meta.handle || '',
+      [`services.resume.loginTokens.${tokenIndex}.portalKind`]: meta.kind || '',
+      [`services.resume.loginTokens.${tokenIndex}.portalFingerprint`]: meta.signerFingerprint || '',
+      [`services.resume.loginTokens.${tokenIndex}.portalCanonicalFingerprint`]: meta.canonicalFingerprint || '',
+      [`services.resume.loginTokens.${tokenIndex}.portalBondType`]: meta.bondType || '',
+      [`services.resume.loginTokens.${tokenIndex}.memo`]: meta.memo || `portal:${meta.handle || userId}`,
+    };
+
+    await Meteor.users.updateAsync({ _id: userId }, { $set: setObj });
+  }
+
+  return {
+    token: stampedToken.token,
+    tokenExpires: Accounts._tokenExpiration(stampedToken.when),
+  };
+}
+
+function extractBondTypeFromPath(bondPath) {
+  if (typeof bondPath !== 'string' || !bondPath.trim()) return null;
+  const trimmed = bondPath.trim();
+
+  try {
+    if (path.isAbsolute(trimmed) && fs.existsSync(trimmed)) {
+      const content = fs.readFileSync(trimmed, 'utf8');
+      const match = content.match(/^(?:bond_type|bondType|type):\s*["']?([^"'\n]+)["']?/m);
+      if (match && match[1]) return match[1].trim();
+    }
+  } catch (_) {
+    // fall through to basename heuristics
+  }
+
+  const base = path.basename(trimmed).replace(/\.md(?:\.asc)?$/i, '');
+  const known = base.match(/(authorized-agent|authorized-builder|authorized-specialist|peer|family|friend|employee|member|vendor|customer)/i);
+  return known ? known[1].toLowerCase() : null;
+}
+
 // ---------------------------------------------------------------------------
 // Meteor Methods
 // ---------------------------------------------------------------------------
@@ -246,24 +358,7 @@ Meteor.methods({
     const expectedChallenge = `${CHALLENGE_PREFIX}${nonce}`;
 
     // Resolve public key (priority: body → knownKeys → WellKnownKeys → keyserver)
-    let armoredKey = publicKey || null;
-
-    if (!armoredKey) {
-      armoredKey = _knownKeys.get(fp) || null;
-    }
-
-    if (!armoredKey) {
-      if (typeof WellKnownKeys !== 'undefined') {
-        const knownEntry = WellKnownKeys.findOne({ fingerprint: fp });
-        if (knownEntry && knownEntry.armoredKey) {
-          armoredKey = knownEntry.armoredKey;
-        }
-      }
-    }
-
-    if (!armoredKey) {
-      armoredKey = await fetchFromKeyserver(fp);
-    }
+    const armoredKey = await resolvePublicKeyForFingerprint(fp, publicKey || null);
 
     if (!armoredKey) {
       throw new Meteor.Error(
@@ -338,6 +433,122 @@ Meteor.methods({
     _tokens.set(token, { fingerprint: fp, expires: Date.now() + TOKEN_TTL_MS });
 
     return { fingerprint: fp, token };
+  },
+
+  /**
+   * auth.entityLogin — Verify a clearsigned challenge and mint a Meteor login token.
+   *
+   * Input: { fingerprint, clearsigned, publicKey?, bond_path? }
+   * Returns: { id, token, tokenExpires }
+   */
+  'auth.entityLogin': async function ({ fingerprint, clearsigned, publicKey, bond_path } = {}) {
+    const fp = normalizeFingerprint(fingerprint);
+    if (!fp) {
+      throw new Meteor.Error('invalid-fingerprint', 'fingerprint must be 40 hex characters');
+    }
+    if (typeof clearsigned !== 'string' || !clearsigned.includes('BEGIN PGP SIGNED MESSAGE')) {
+      throw new Meteor.Error('invalid-clearsign', 'clearsigned must be a PGP clearsigned message');
+    }
+
+    const armoredKey = await resolvePublicKeyForFingerprint(fp, publicKey || null);
+    if (!armoredKey) {
+      throw new Meteor.Error(
+        'public-key-not-found',
+        'public key not found — include publicKey field or upload to keys.openpgp.org'
+      );
+    }
+
+    let km;
+    try {
+      km = await importPublicKey(armoredKey);
+    } catch (err) {
+      throw new Meteor.Error('key-import-failed', 'Failed to import public key: ' + err.message);
+    }
+
+    const keyFp = kmFingerprint(km);
+    if (!keyFp || keyFp !== fp) {
+      throw new Meteor.Error(
+        'fingerprint-mismatch',
+        `key fingerprint (${keyFp}) does not match claimed fingerprint (${fp})`
+      );
+    }
+
+    const result = await verifyClearsign(clearsigned, km);
+    if (!result.verified) {
+      throw new Meteor.Error('signature-invalid', result.error || 'signature verification failed');
+    }
+    if (result.fingerprint !== fp) {
+      throw new Meteor.Error('signer-mismatch', 'signer fingerprint does not match claimed fingerprint');
+    }
+
+    const signedBody = (result.body || '').trim();
+    if (!signedBody.startsWith(CHALLENGE_PREFIX)) {
+      throw new Meteor.Error('challenge-mismatch', 'signed body is not a koad-io auth challenge');
+    }
+
+    const nonce = signedBody.slice(CHALLENGE_PREFIX.length).trim();
+    if (!/^[0-9a-f]{64}$/i.test(nonce)) {
+      throw new Meteor.Error('invalid-nonce', 'signed challenge nonce is malformed');
+    }
+
+    const storeKey = `${fp}:${nonce}`;
+    const expires = _nonces.get(storeKey);
+    if (expires === undefined) {
+      throw new Meteor.Error('nonce-not-found', 'nonce not found or already used');
+    }
+    if (Date.now() > expires) {
+      _nonces.delete(storeKey);
+      throw new Meteor.Error('nonce-expired', 'nonce expired — request a new challenge');
+    }
+
+    _nonces.delete(storeKey);
+    if (!_knownKeys.has(fp)) {
+      _knownKeys.set(fp, armoredKey);
+    }
+
+    const principal = globalThis.FingerprintEntityIndex && typeof globalThis.FingerprintEntityIndex.lookup === 'function'
+      ? globalThis.FingerprintEntityIndex.lookup(fp)
+      : null;
+
+    if (!principal || !principal.handle) {
+      throw new Meteor.Error('unknown-fingerprint', `No kingdom identity is indexed for fingerprint ${fp}`);
+    }
+
+    const handle = String(principal.handle).trim().toLowerCase();
+    const canonicalFingerprint = principal.canonicalFingerprint || fp;
+    const bondType = extractBondTypeFromPath(bond_path);
+    const sessionId = this.connection && this.connection.id;
+
+    if (sessionId) {
+      await ApplicationSessions.updateAsync(
+        { _id: sessionId },
+        {
+          $set: {
+            fingerprint: canonicalFingerprint,
+            identifiedAt: new Date(),
+            fingerprintSource: principal.kind || 'portal',
+            portalHandle: handle,
+            portalKind: principal.kind || null,
+            portalSignerFingerprint: fp,
+            portalCanonicalFingerprint: canonicalFingerprint,
+            portalBondType: bondType || null,
+          },
+        }
+      );
+    }
+
+    const user = await findOrCreatePortalUser(handle);
+    const login = await insertPortalLoginToken(user._id, {
+      handle,
+      kind: principal.kind || null,
+      signerFingerprint: fp,
+      canonicalFingerprint,
+      bondType,
+      memo: `portal:${handle}`,
+    });
+
+    log.system(`[auth.entityLogin] minted portal token for ${handle} via ${fp.slice(0, 8)}...`);
+    return { id: user._id, token: login.token, tokenExpires: login.tokenExpires };
   },
 
   /**

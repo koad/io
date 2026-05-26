@@ -124,6 +124,16 @@ Accounts.onLogin(async (loginInfo) => {
       setObj[`services.resume.loginTokens.${tokenIndex}.authorizedSession`] = matchingToken.authorizedSession;
     }
 
+    // Portal-authenticated callers carry identity metadata on the login token so
+    // downstream HTTP gates (e.g. harness.token) can recover the caller principal.
+    const portalMeta = {
+      handle: matchingToken.portalHandle || null,
+      kind: matchingToken.portalKind || null,
+      signerFingerprint: matchingToken.portalFingerprint || null,
+      canonicalFingerprint: matchingToken.portalCanonicalFingerprint || null,
+      bondType: matchingToken.portalBondType || null,
+    };
+
     // Update user document with enhanced token and increment login counter
     await Accounts.users.updateAsync(
       { _id: user._id },
@@ -138,16 +148,29 @@ Accounts.onLogin(async (loginInfo) => {
       $inc: { 'counters.login': 1 }
     };
 
+    const sessionSet = {};
     if (!session.userId) {
-      sessionUpdate.$set = {
-        userId: user._id,
-        username: user.username,
-        authenticatedAt: now
-      };
-
+      sessionSet.userId = user._id;
+      sessionSet.username = user.username;
+      sessionSet.authenticatedAt = now;
       log.success(`[onLogin] User ${user.username} authenticated connection ${connection.id} with ${type} token`);
     } else {
       log.info(`[onLogin] User ${user.username} re-authenticated existing session ${connection.id}`);
+    }
+
+    if (portalMeta.handle) sessionSet.portalHandle = portalMeta.handle;
+    if (portalMeta.kind) sessionSet.portalKind = portalMeta.kind;
+    if (portalMeta.signerFingerprint) sessionSet.portalSignerFingerprint = portalMeta.signerFingerprint;
+    if (portalMeta.canonicalFingerprint) {
+      sessionSet.portalCanonicalFingerprint = portalMeta.canonicalFingerprint;
+      sessionSet.fingerprint = portalMeta.canonicalFingerprint;
+      sessionSet.identifiedAt = now;
+      sessionSet.fingerprintSource = portalMeta.kind || 'portal';
+    }
+    if (portalMeta.bondType) sessionSet.portalBondType = portalMeta.bondType;
+
+    if (Object.keys(sessionSet).length > 0) {
+      sessionUpdate.$set = sessionSet;
     }
 
     await ApplicationSessions.updateAsync(
