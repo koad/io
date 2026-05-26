@@ -1,22 +1,23 @@
 {
   "name": "write_brief",
-  "description": "Write a brief to your entity briefs folder. Filename must end in .md. Creates the briefs directory if it does not exist.",
-  "version": "1.0.0",
+  "description": "Write a brief to the entity's visitor folder (~/.<entity>/visitor/). Use this to leave structured notes, proposals, or feedback for the entity. Anonymous and authenticated visitors both write here; authenticated identity is automatically added to frontmatter from the bonded session — never claim to be someone you aren't. Server-side date is added automatically. Filename must end in .md.",
+  "version": "1.1.0",
+  "capabilities": { "read": false, "write": true, "exec": false },
   "invocation": "native",
   "parameters": {
     "type": "object",
     "properties": {
       "filename": {
         "type": "string",
-        "description": "Filename for the brief (e.g. '2026-05-19-idea-name.md'). Must end in .md."
+        "description": "Filename for the brief (e.g. 'idea-name.md' or '2026-05-26-idea-name.md'). Must end in .md. No path separators."
       },
       "content": {
         "type": "string",
-        "description": "Full markdown content of the brief"
+        "description": "Full markdown content of the brief body. Frontmatter is auto-prepended."
       },
       "attributed_to": {
         "type": "string",
-        "description": "Handle, key fingerprint, or session token of the visitor who contributed the idea. Optional."
+        "description": "For anonymous visitors only — a self-declared handle/name they want attribution under (unverified). Ignored for authenticated callers since their bonded handle is already attached."
       }
     },
     "required": ["filename", "content"]
