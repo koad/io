@@ -1,0 +1,12 @@
+# Runtime state — created by Pi at session time, never commit
+auth.json
+sessions/
+debug.log
+*.log
+
+# Vendored binaries — auto-fetched by Pi on first run
+bin/
+
+# Provider/runtime caches
+cache/
+.cache/

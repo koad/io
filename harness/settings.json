@@ -1,0 +1,13 @@
+{
+  "lastChangelogVersion": "0.75.3",
+  "extensions": [
+    "/home/koad/.koad-io/harness/extensions/koad-io",
+    "/home/koad/.koad-io/harness/extensions/koad-io-hooks",
+    "/home/koad/.koad-io/harness/extensions/koad-io-bond-gate.ts"
+  ],
+  "defaultProvider": "deepseek",
+  "defaultModel": "deepseek-v4-pro",
+  "defaultThinkingLevel": "high",
+  "enableInstallTelemetry": false,
+  "quietStartup": true
+}
