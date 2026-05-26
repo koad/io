@@ -258,6 +258,7 @@ for _d in "${_KOAD_IO_CMD_DIRS[@]}"; do [[ -d $_d ]] && _ANY_FRAMEWORK_CMD_DIR=1
 # "treat $1 as a local script if it exists" semantics worth not touching.
 
 COMMAND_DEPTH=0
+unset EXEC_FILE
 
 # find deepest globally available command, iterating KOAD_IO_COMMANDS_DIRS.
 # List is PATH-style (first = highest priority); we iterate in reverse so that
