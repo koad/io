@@ -16,6 +16,24 @@
 
 import { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed, pgp } from './deps.js';
 import { createIdentityShape } from './identity.js';
+import { entropyToMnemonic } from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english.js';
+import { randomBytes } from 'crypto';
+
+// ── Bit manipulation for mnemonic word pinning ───────────────────────────────
+
+function _setBits(buf, startBit, value, numBits) {
+  for (let i = 0; i < numBits; i++) {
+    const bitPos = startBit + i;
+    const byteIndex = bitPos >>> 3;
+    const bitIndex = 7 - (bitPos & 7);
+    if ((value >>> (numBits - 1 - i)) & 1) {
+      buf[byteIndex] |= (1 << bitIndex);
+    } else {
+      buf[byteIndex] &= ~(1 << bitIndex);
+    }
+  }
+}
 
 // ── Core koad object ─────────────────────────────────────────────────────────
 
@@ -47,6 +65,37 @@ const koad = {
   seeders: [],
   emitters: [],
   trackers: [],
+  // ── Generators ───────────────────────────────────────────────────────────
+  generate: {
+    /**
+     * Generate a valid BIP39 mnemonic.
+     *
+     * @param {number} [wordCount=24]    12 or 24
+     * @param {string} [firstWord]       Pin the first word (must be in BIP39 english wordlist)
+     * @param {string} [secondWord]      Pin the second word (must be in BIP39 english wordlist)
+     * @returns {string} Space-separated mnemonic
+     */
+    mnemonic(wordCount = 24, firstWord, secondWord) {
+      if (wordCount !== 12 && wordCount !== 24) {
+        throw new Error('[koad/generate] mnemonic: wordCount must be 12 or 24');
+      }
+      const entropyBytes = wordCount === 12 ? 16 : 32;
+      const entropy = randomBytes(entropyBytes);
+
+      if (firstWord !== undefined) {
+        const idx = wordlist.indexOf(firstWord);
+        if (idx === -1) throw new Error(`[koad/generate] mnemonic: "${firstWord}" is not in the BIP39 wordlist`);
+        _setBits(entropy, 0, idx, 11);
+      }
+      if (secondWord !== undefined) {
+        const idx = wordlist.indexOf(secondWord);
+        if (idx === -1) throw new Error(`[koad/generate] mnemonic: "${secondWord}" is not in the BIP39 wordlist`);
+        _setBits(entropy, 11, idx, 11);
+      }
+
+      return entropyToMnemonic(entropy, wordlist);
+    },
+  },
   // ── Shared crypto/IPFS deps ──────────────────────────────────────────────
   // Mirrors the koad.deps shape from packages/core/client/deps.js.
   // Consumers can use koad.deps.* or import named symbols from ./deps.js.

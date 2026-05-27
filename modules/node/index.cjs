@@ -8,6 +8,32 @@
 // Meteor's client/deps.js (a mainModule in ESM context) imports them directly.
 
 const { createIdentityShape } = require('./identity.cjs');
+const { randomBytes } = require('crypto');
+
+function _setBits(buf, startBit, value, numBits) {
+  for (let i = 0; i < numBits; i++) {
+    const bitPos = startBit + i;
+    const byteIndex = bitPos >>> 3;
+    const bitIndex = 7 - (bitPos & 7);
+    if ((value >>> (numBits - 1 - i)) & 1) {
+      buf[byteIndex] |= (1 << bitIndex);
+    } else {
+      buf[byteIndex] &= ~(1 << bitIndex);
+    }
+  }
+}
+
+// BIP39 wordlist + entropyToMnemonic are ESM-only; lazy-load once
+let _bip39 = null;
+function _loadBip39() {
+  if (!_bip39) {
+    _bip39 = Promise.all([
+      import('@scure/bip39'),
+      import('@scure/bip39/wordlists/english.js'),
+    ]).then(([bip39, wl]) => ({ entropyToMnemonic: bip39.entropyToMnemonic, wordlist: wl.wordlist }));
+  }
+  return _bip39;
+}
 
 const koad = {
   maintenance: true,
@@ -37,6 +63,29 @@ const koad = {
   seeders: [],
   emitters: [],
   trackers: [],
+  generate: {
+    async mnemonic(wordCount = 24, firstWord, secondWord) {
+      if (wordCount !== 12 && wordCount !== 24) {
+        throw new Error('[koad/generate] mnemonic: wordCount must be 12 or 24');
+      }
+      const { entropyToMnemonic, wordlist } = await _loadBip39();
+      const entropyBytes = wordCount === 12 ? 16 : 32;
+      const entropy = randomBytes(entropyBytes);
+
+      if (firstWord !== undefined) {
+        const idx = wordlist.indexOf(firstWord);
+        if (idx === -1) throw new Error(`[koad/generate] mnemonic: "${firstWord}" is not in the BIP39 wordlist`);
+        _setBits(entropy, 0, idx, 11);
+      }
+      if (secondWord !== undefined) {
+        const idx = wordlist.indexOf(secondWord);
+        if (idx === -1) throw new Error(`[koad/generate] mnemonic: "${secondWord}" is not in the BIP39 wordlist`);
+        _setBits(entropy, 11, idx, 11);
+      }
+
+      return entropyToMnemonic(entropy, wordlist);
+    },
+  },
   deps: {},
 };
 
