@@ -269,4 +269,47 @@ app.use('/api/keys/derive-address-from-xpub', async (req, res, next) => {
   }
 });
 
+// ============================================================================
+// POST /api/keys/validate-address — verify an address against a chainpack
+// ============================================================================
+
+app.use('/api/keys/validate-address', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  try {
+    const body = req.body || {};
+    const { address, ticker, chainpack } = body;
+    if (!address) return jsonErr(res, 400, 'address is required');
+
+    const cp = await resolveChainpack({ chainpack, ticker });
+    const { validateAddress } = await loadKeys();
+    const result = validateAddress(address, cp);
+
+    jsonOk(res, { status: 'ok', ...result });
+  } catch (err) {
+    console.error('[API/keys/validate-address] error:', err.message);
+    jsonErr(res, 400, err.message);
+  }
+});
+
+// ============================================================================
+// POST /api/keys/inspect-mnemonic — diagnostic BIP39 inspection (NO derivation)
+// ============================================================================
+
+app.use('/api/keys/inspect-mnemonic', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  try {
+    const body = req.body || {};
+    const { mnemonic } = body;
+    if (typeof mnemonic !== 'string') return jsonErr(res, 400, 'mnemonic field (string) required');
+
+    const { inspectMnemonic } = await loadKeys();
+    const result = inspectMnemonic(mnemonic);
+
+    jsonOk(res, { status: 'ok', ...result });
+  } catch (err) {
+    console.error('[API/keys/inspect-mnemonic] error:', err.message);
+    jsonErr(res, 400, err.message);
+  }
+});
+
 console.log('[daemon] keys-api: mounted /api/keys/* endpoints (chainpack via', CACHEBOX_URL + ')');
