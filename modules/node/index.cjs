@@ -8,7 +8,15 @@
 // Meteor's client/deps.js (a mainModule in ESM context) imports them directly.
 
 const { createIdentityShape } = require('./identity.cjs');
-const { randomBytes } = require('crypto');
+const { randomBytes, createHash } = require('crypto');
+
+const EASILY_RECOGNIZABLE = '23456789ABCDEFGHJKLMNPQRSTWXYZabcdefghijkmnopqrstuvwxyz';
+
+function _cidFromDigest(digest) {
+  let c = '';
+  for (let i = 0; i < 17; i++) c += EASILY_RECOGNIZABLE[digest[i] % EASILY_RECOGNIZABLE.length];
+  return c;
+}
 
 function _setBits(buf, startBit, value, numBits) {
   for (let i = 0; i < numBits; i++) {
@@ -64,6 +72,15 @@ const koad = {
   emitters: [],
   trackers: [],
   generate: {
+    handle(str) {
+      return str.toLowerCase().replace(/[^a-z0-9]/g, '');
+    },
+    cid(input) {
+      const h = koad.generate.handle(input);
+      if (!h) throw new Error('[koad/generate] cid: input normalizes to empty string');
+      const digest = createHash('sha256').update(h).digest();
+      return _cidFromDigest(digest);
+    },
     async mnemonic(wordCount = 24, firstWord, secondWord) {
       if (wordCount !== 12 && wordCount !== 24) {
         throw new Error('[koad/generate] mnemonic: wordCount must be 12 or 24');
@@ -103,5 +120,10 @@ const _loadDeps = import('./deps.js').then(function(m) {
   });
   _depsLoaded = true;
 });
+
+koad.generate.cid.fromBytes = function(bytes) {
+  const digest = createHash('sha256').update(bytes).digest();
+  return _cidFromDigest(digest);
+};
 
 module.exports = { koad, createIdentityShape, depsReady: _loadDeps };

@@ -18,9 +18,17 @@ import { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed, pgp } from './de
 import { createIdentityShape } from './identity.js';
 import { entropyToMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
 
 // ── Bit manipulation for mnemonic word pinning ───────────────────────────────
+
+const EASILY_RECOGNIZABLE = '23456789ABCDEFGHJKLMNPQRSTWXYZabcdefghijkmnopqrstuvwxyz';
+
+function _cidFromDigest(digest) {
+  let c = '';
+  for (let i = 0; i < 17; i++) c += EASILY_RECOGNIZABLE[digest[i] % EASILY_RECOGNIZABLE.length];
+  return c;
+}
 
 function _setBits(buf, startBit, value, numBits) {
   for (let i = 0; i < numBits; i++) {
@@ -67,14 +75,15 @@ const koad = {
   trackers: [],
   // ── Generators ───────────────────────────────────────────────────────────
   generate: {
-    /**
-     * Generate a valid BIP39 mnemonic.
-     *
-     * @param {number} [wordCount=24]    12 or 24
-     * @param {string} [firstWord]       Pin the first word (must be in BIP39 english wordlist)
-     * @param {string} [secondWord]      Pin the second word (must be in BIP39 english wordlist)
-     * @returns {string} Space-separated mnemonic
-     */
+    handle(str) {
+      return str.toLowerCase().replace(/[^a-z0-9]/g, '');
+    },
+    cid(input) {
+      const h = koad.generate.handle(input);
+      if (!h) throw new Error('[koad/generate] cid: input normalizes to empty string');
+      const digest = createHash('sha256').update(h).digest();
+      return _cidFromDigest(digest);
+    },
     mnemonic(wordCount = 24, firstWord, secondWord) {
       if (wordCount !== 12 && wordCount !== 24) {
         throw new Error('[koad/generate] mnemonic: wordCount must be 12 or 24');
@@ -108,6 +117,11 @@ const koad = {
     ed,
     pgp,
   },
+};
+
+koad.generate.cid.fromBytes = function(bytes) {
+  const digest = createHash('sha256').update(bytes).digest();
+  return _cidFromDigest(digest);
 };
 
 export { koad };

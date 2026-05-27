@@ -42,31 +42,18 @@ else
   usage; exit 1
 fi
 
-# Delegate to node to guarantee byte-identical output to the Meteor function.
-# Pure-bash sha256sum → alphabet mapping has numeric drift risk; node avoids that.
-node - "$INPUT" <<'NODE'
-const EASILY_RECOGNIZABLE = "23456789ABCDEFGHJKLMNPQRSTWXYZabcdefghijkmnopqrstuvwxyz";
+# Delegate to @koad-io/node — canonical, byte-identical to the Meteor function.
+KOAD_IO_DIR="${KOAD_IO_DIR:-$HOME/.koad-io}"
 
-function handle(str) {
-  return str.toLowerCase().replace(/[^a-z0-9]/g, "");
+node --input-type=module -e "
+import { koad } from '${KOAD_IO_DIR}/modules/node/index.js';
+try {
+  process.stdout.write(koad.generate.cid(process.argv[1]) + '\n');
+} catch(e) {
+  process.stderr.write('generate cid: ' + e.message + '\n');
+  process.exit(1);
 }
-
-function cid(e) {
-  const h = handle(e);
-  if (!h) {
-    process.stderr.write("generate cid: input normalizes to empty string — nothing to hash\n");
-    process.exit(1);
-  }
-  const crypto = require("crypto");
-  const digest = crypto.createHash("sha256").update(h).digest();
-  let c = "";
-  for (let i = 0; i < 17; i++) c += EASILY_RECOGNIZABLE[digest[i] % EASILY_RECOGNIZABLE.length];
-  return c;
-}
-
-const input = process.argv[2] || "";
-process.stdout.write(cid(input) + "\n");
-NODE
+" "$INPUT"
 
 # SANITY CHECK (commented out — run manually to verify byte-identical parity with Meteor)
 # Expected output pairs (verified 2026-04-15 against koad.generate.cid in Meteor harness):
