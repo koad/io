@@ -157,17 +157,24 @@ app.use('/api/keys/derive-xpub', async (req, res, next) => {
 
   try {
     const body = req.body || {};
-    const { mnemonic, passphrase = '', ticker, chainpack, account = 0 } = body;
+    const { mnemonic, passphrase = '', ticker, chainpack, account = 0, purpose = 44 } = body;
     if (!mnemonic) return jsonErr(res, 400, 'mnemonic is required');
 
     const cp = await resolveChainpack({ chainpack, ticker });
     const { deriveAccountXpub } = await loadKeys();
-    const result = deriveAccountXpub({ mnemonic, passphrase, chainpack: cp, account: parseInt(account, 10) || 0 });
+    const result = deriveAccountXpub({
+      mnemonic, passphrase, chainpack: cp,
+      account: parseInt(account, 10) || 0,
+      purpose: parseInt(purpose, 10) || 44,
+    });
 
     jsonOk(res, {
       status: 'ok',
       ticker: result.ticker,
       coin_type: result.coinType,
+      purpose: result.purpose,
+      account: result.account,
+      defaultScript: result.defaultScript,
       path: result.path,
       xpub: result.xpub,
       fingerprint: result.fingerprint,
@@ -194,27 +201,43 @@ app.use('/api/keys/derive-address', async (req, res, next) => {
       mnemonic, passphrase = '',
       ticker, chainpack,
       account = 0, chain = 0, index = 0,
-      type = 'p2pkh',
+      type, purpose,
     } = body;
     if (!mnemonic) return jsonErr(res, 400, 'mnemonic is required');
 
     const cp = await resolveChainpack({ chainpack, ticker });
-    const { deriveAccountXpub, deriveAddress } = await loadKeys();
+    const { deriveAccountXpub, deriveAddress, purposeForScriptType, scriptTypeForPurpose } = await loadKeys();
+
+    // Resolve purpose + type from whichever was provided
+    let resolvedPurpose, resolvedType;
+    if (purpose != null) {
+      resolvedPurpose = parseInt(purpose, 10);
+      resolvedType = type || scriptTypeForPurpose(resolvedPurpose);
+    } else if (type) {
+      resolvedType = type;
+      resolvedPurpose = purposeForScriptType(type);
+    } else {
+      resolvedPurpose = 44;
+      resolvedType = 'p2pkh';
+    }
 
     const acct = deriveAccountXpub({
-      mnemonic, passphrase, chainpack: cp, account: parseInt(account, 10) || 0,
+      mnemonic, passphrase, chainpack: cp,
+      account: parseInt(account, 10) || 0,
+      purpose: resolvedPurpose,
     });
     const addr = deriveAddress({
       xpub: acct.xpub, chainpack: cp,
       chain: parseInt(chain, 10) || 0,
       index: parseInt(index, 10) || 0,
-      type,
+      type: resolvedType,
     });
 
     jsonOk(res, {
       status: 'ok',
       ticker: acct.ticker,
       path: `${acct.path}/${chain}/${index}`,
+      purpose: resolvedPurpose,
       account: parseInt(account, 10) || 0,
       chain: parseInt(chain, 10) || 0,
       index: parseInt(index, 10) || 0,
