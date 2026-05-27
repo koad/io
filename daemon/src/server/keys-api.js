@@ -335,4 +335,100 @@ app.use('/api/keys/inspect-mnemonic', async (req, res, next) => {
   }
 });
 
+// ============================================================================
+// PSBT endpoints (BIP174) — delegates to @ecoincore/node/psbt
+// ============================================================================
+
+let _psbtMod = null;
+async function loadPsbt() {
+  if (!_psbtMod) _psbtMod = await import('@ecoincore/node/psbt');
+  return _psbtMod;
+}
+
+function coerceValues(arr, key) {
+  if (!Array.isArray(arr)) return arr;
+  return arr.map(x => ({ ...x, [key]: BigInt(x[key]) }));
+}
+
+// POST /api/keys/psbt/create  { ticker | chainpack, inputs, outputs, version?, locktime? }
+app.use('/api/keys/psbt/create', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  try {
+    const body = req.body || {};
+    const { ticker, chainpack, inputs, outputs, version, locktime } = body;
+    if (!Array.isArray(inputs) || !Array.isArray(outputs)) {
+      return jsonErr(res, 400, 'inputs and outputs arrays required');
+    }
+    const cp = await resolveChainpack({ chainpack, ticker });
+    const { createPsbt } = await loadPsbt();
+    const psbt = createPsbt({
+      chainpack: cp,
+      inputs: coerceValues(inputs, 'value'),
+      outputs: coerceValues(outputs, 'value'),
+      version, locktime,
+    });
+    jsonOk(res, { status: 'ok', psbt });
+  } catch (err) {
+    console.error('[API/keys/psbt/create] error:', err.message);
+    jsonErr(res, 400, err.message);
+  }
+});
+
+// POST /api/keys/psbt/sign  { psbt, mnemonic, passphrase?, paths[] }
+app.use('/api/keys/psbt/sign', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  try {
+    const body = req.body || {};
+    const { psbt, mnemonic, passphrase = '', paths } = body;
+    if (!psbt) return jsonErr(res, 400, 'psbt required');
+    if (!mnemonic) return jsonErr(res, 400, 'mnemonic required');
+    if (!Array.isArray(paths)) return jsonErr(res, 400, 'paths array required');
+    const { signPsbt } = await loadPsbt();
+    const result = signPsbt({ psbt, mnemonic, passphrase, paths });
+    jsonOk(res, { status: 'ok', psbt: result.psbt, signedInputs: result.signedInputs });
+  } catch (err) {
+    console.error('[API/keys/psbt/sign] error:', err.message);
+    jsonErr(res, 400, err.message);
+  }
+});
+
+// POST /api/keys/psbt/finalize  { psbt }
+app.use('/api/keys/psbt/finalize', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  try {
+    const body = req.body || {};
+    const { psbt } = body;
+    if (!psbt) return jsonErr(res, 400, 'psbt required');
+    const { finalizeAndExtract } = await loadPsbt();
+    const result = finalizeAndExtract(psbt);
+    jsonOk(res, {
+      status: 'ok',
+      hex: result.hex,
+      txid: result.txid,
+      vsize: result.vsize,
+      weight: result.weight,
+      fee: result.fee != null ? result.fee.toString() : null,
+    });
+  } catch (err) {
+    console.error('[API/keys/psbt/finalize] error:', err.message);
+    jsonErr(res, 400, err.message);
+  }
+});
+
+// POST /api/keys/psbt/inspect  { psbt }
+app.use('/api/keys/psbt/inspect', async (req, res, next) => {
+  if (req.method !== 'POST') return next();
+  try {
+    const body = req.body || {};
+    const { psbt } = body;
+    if (!psbt) return jsonErr(res, 400, 'psbt required');
+    const { inspectPsbt } = await loadPsbt();
+    const result = inspectPsbt(psbt);
+    jsonOk(res, { status: 'ok', ...result });
+  } catch (err) {
+    console.error('[API/keys/psbt/inspect] error:', err.message);
+    jsonErr(res, 400, err.message);
+  }
+});
+
 console.log('[daemon] keys-api: mounted /api/keys/* endpoints (chainpack via', CACHEBOX_URL + ')');
