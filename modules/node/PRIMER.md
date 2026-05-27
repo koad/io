@@ -47,6 +47,9 @@ features:
   - name: kbpgp-browser-bundle
     blurb: Browserify entry + pre-built bundles exposing kbpgp with ceremony internals (keywrapper, UserID, ECDH) for browser ceremony support
     location: ~/.koad-io/modules/node/browser/
+  - name: koad-generate-namespace
+    blurb: koad.generate.mnemonic(wordCount, firstWord, secondWord) — BIP39 with optional first-two-word pinning via bit-level entropy injection; koad.generate.cid(name) / koad.generate.cid.fromBytes(b) — 17-char EASILY_RECOGNIZABLE Content ID; koad.generate.handle(str) — normalize to lowercase alphanumeric
+    location: ~/.koad-io/modules/node/index.js
 relates-to:
   - ~/.koad-io/KOAD_IO.md
   - ~/.vesta/specs/VESTA-SPEC-149-identity-stack.md
@@ -63,8 +66,8 @@ entities:
   - koad
   - juno
   - livy
-last-walked: 2026-05-10
-as-of: a176654204bedb918d3342206b9ae5e226687616
+last-walked: 2026-05-27
+as-of: HEAD
 ---
 
 # ~/.koad-io/modules/node/ — @koad-io/node
