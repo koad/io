@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.23.2",
+    "@ecoincore/node": "file:../../../.ecoincore/modules/node",
     "@ipld/dag-json": "10.2.7",
     "@koad-io/node": "file:../../modules/node",
     "@noble/ed25519": "2.1.0",
