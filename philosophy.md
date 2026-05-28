@@ -28,11 +28,9 @@ Folders are project-workspaces with standardized structure:
 
 ```
 project/
-├── commands/     ← How to interact with this thing
+├── commands/    ← How to interact with this thing
 ├── README.md    ← What it is
-├── .env         ← Configuration
-├── memories/    ← Context & history
-└── skills/      ← Capabilities
+└──.env          ← Configuration
 ```
 
 The structure itself speaks. Any AI or human can drop into any folder and immediately understand:
@@ -149,5 +147,5 @@ You are the author. The tools follow. The structure thinks.
 
 ## Further Reading
 
-- [koad:io Book](https://book.koad.sh/)
+- [koad's Book](https://book.koad.sh/)
 - [koad:io GitHub](https://github.com/koad/io/)
