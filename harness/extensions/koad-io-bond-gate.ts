@@ -1,12 +1,14 @@
 // koad:io bond-gate extension for the Pi harness.
 //
 // Gates every tool call against the entity's trust bonds or harness env vars.
-// Resolves scope at session_start with this precedence order:
-//   1. KOAD_IO_BOND_GATE_BYPASS=1           → disable the gate, allow everything
-//   2. ~/.<entity>/trust/bonds/*.md(.asc)   → derive scope from highest-authority bond
+// No bond = no permissions. Scope derives from bond capabilities on disk.
+//
+// Resolution order:
+//   1. KOAD_IO_BOND_GATE_BYPASS=1           → disable the gate (explicit dev escape hatch)
+//   2. ~/.<entity>/trust/bonds/*.md(.asc)   → derive scope from bond capabilities frontmatter
 //   3. KOAD_IO_ENTITY_SCOPE=<bond-type>     → reuse the built-in bond-type scope map
 //   4. KOAD_IO_HARNESS_{READ,WRITE,EXEC}_PATHS → custom colon-separated path prefixes
-//   5. Fallback                             → own entity dir write/exec + forge readonly
+//   5. No match                             → empty scope, everything blocked
 //
 // Modes:
 //   - bonded   → current trust-bond behaviour
@@ -121,14 +123,8 @@ function cloneScope(scope: BondScope): BondScope {
   };
 }
 
-function defaultScope(entity: string): BondScope {
-  const ownDir = path.join(HOME, `.${entity}`);
-  return {
-    read: [ownDir, FORGE_DIR],
-    write: [ownDir],
-    exec: [ownDir],
-    blocked: [...DEFAULT_BLOCKED],
-  };
+function emptyScope(): BondScope {
+  return { read: [], write: [], exec: [], blocked: [...DEFAULT_BLOCKED] };
 }
 
 function withOwnEntityAccess(entity: string, baseScope: BondScope): BondScope {
@@ -177,11 +173,77 @@ function parsePathList(raw: string | undefined): string[] {
 // Parse bonds from ~/.<entity>/trust/bonds/
 // ---------------------------------------------------------------------------
 
+interface BondCapabilities {
+  read: string[];
+  write: string[];
+  exec: string[];
+  blocked: string[];
+}
+
 interface ParsedBond {
-  type: BondType;
+  type: string;
   from: string;
   to: string;
   path: string;
+  capabilities?: BondCapabilities;
+}
+
+function parseYamlList(block: string, key: string): string[] {
+  const keyPattern = new RegExp(`^\\s*${key}:\\s*(.*)$`, "m");
+  const match = block.match(keyPattern);
+  if (!match) return [];
+
+  const inlineValue = match[1].trim();
+  // inline empty: `exec: []`
+  if (inlineValue === "[]") return [];
+  // inline single value: `exec: [/home/koad]`
+  if (inlineValue.startsWith("[")) {
+    return inlineValue.slice(1, -1).split(",").map(s => s.trim()).filter(Boolean);
+  }
+  // inline single string: `exec: /home/koad`
+  if (inlineValue) return [inlineValue];
+
+  // multi-line list: indented `- value` lines following the key
+  const lines = block.split("\n");
+  const keyLineIdx = lines.findIndex(l => keyPattern.test(l));
+  if (keyLineIdx === -1) return [];
+
+  const items: string[] = [];
+  for (let i = keyLineIdx + 1; i < lines.length; i++) {
+    const itemMatch = lines[i].match(/^\s+-\s+(.+)$/);
+    if (itemMatch) {
+      items.push(itemMatch[1].trim());
+    } else if (lines[i].match(/^\s+\S+:/)) {
+      break; // next key at same or higher level
+    } else if (lines[i].trim() === "") {
+      continue;
+    } else {
+      break;
+    }
+  }
+  return items;
+}
+
+function parseCapabilitiesFromFrontmatter(fm: string): BondCapabilities | undefined {
+  if (!fm.includes("capabilities:")) return undefined;
+
+  // extract the capabilities block (from `capabilities:` to next top-level key or end)
+  const capStart = fm.indexOf("capabilities:");
+  const afterCap = fm.slice(capStart);
+  const lines = afterCap.split("\n");
+  let capBlock = lines[0] + "\n";
+  for (let i = 1; i < lines.length; i++) {
+    // stop at next top-level key (no leading whitespace)
+    if (lines[i].match(/^\S/) && lines[i].includes(":")) break;
+    capBlock += lines[i] + "\n";
+  }
+
+  const read = parseYamlList(capBlock, "read").map(expandConfiguredPath);
+  const write = parseYamlList(capBlock, "write").map(expandConfiguredPath);
+  const exec = parseYamlList(capBlock, "exec").map(expandConfiguredPath);
+  const blocked = parseYamlList(capBlock, "blocked");
+
+  return { read, write, exec, blocked };
 }
 
 function parseBonds(entity: string): ParsedBond[] {
@@ -203,9 +265,10 @@ function parseBonds(entity: string): ParsedBond[] {
 
         // Extract frontmatter if present
         const fmMatch = body.match(/^---\s*\n([\s\S]*?)\n---/);
-        let type: BondType = "unknown";
+        let type: string = "unknown";
         let from = "";
         let to = entity;
+        let capabilities: BondCapabilities | undefined;
 
         if (fmMatch) {
           const fm = fmMatch[1];
@@ -214,14 +277,15 @@ function parseBonds(entity: string): ParsedBond[] {
           const toMatch = fm.match(/^to:\s*(.+)$/m);
 
           if (typeMatch) {
-            const parsedType = parseBondType(typeMatch[1]);
-            if (parsedType) type = parsedType;
+            type = typeMatch[1].trim();
           }
           if (fromMatch) from = fromMatch[1].trim();
           if (toMatch) to = toMatch[1].trim();
+
+          capabilities = parseCapabilitiesFromFrontmatter(fm);
         }
 
-        bonds.push({ type, from, to, path: path.join(bondsDir, entry) });
+        bonds.push({ type, from, to, path: path.join(bondsDir, entry), capabilities });
       } catch (_) {
         // skip unreadable bonds
       }
@@ -239,24 +303,43 @@ function parseBonds(entity: string): ParsedBond[] {
 
 function effectiveScope(entity: string, bonds: ParsedBond[]): BondScope {
   if (bonds.length === 0) {
-    return defaultScope(entity);
+    return emptyScope();
   }
 
-  // Take the highest-authority bond type
-  const order: ScopedBondType[] = ["authorized-agent", "authorized-builder", "authorized-specialist", "peer"];
-  let highest: ScopedBondType = "peer";
-  let found = false;
+  // Merge scope across all bonds: union of all grants, union of all blocks.
+  // If a bond declares capabilities in its frontmatter, use those directly.
+  // If a bond only has a recognized type (no capabilities), use the static map.
+  // Bonds with unrecognized types and no capabilities contribute nothing.
+  const merged: BondScope = { read: [], write: [], exec: [], blocked: [] };
+  let anyContributed = false;
 
   for (const b of bonds) {
-    const parsedType = parseBondType(b.type);
-    if (!parsedType) continue;
-    if (!found || order.indexOf(parsedType) < order.indexOf(highest)) {
-      highest = parsedType;
-      found = true;
+    let scope: BondScope | undefined;
+
+    if (b.capabilities) {
+      scope = {
+        read: [...b.capabilities.read],
+        write: [...b.capabilities.write],
+        exec: [...b.capabilities.exec],
+        blocked: [...b.capabilities.blocked],
+      };
+    } else {
+      const knownType = parseBondType(b.type);
+      if (knownType) {
+        scope = scopeForBondType(entity, knownType);
+      }
+    }
+
+    if (scope) {
+      anyContributed = true;
+      for (const p of scope.read) if (!merged.read.includes(p)) merged.read.push(p);
+      for (const p of scope.write) if (!merged.write.includes(p)) merged.write.push(p);
+      for (const p of scope.exec) if (!merged.exec.includes(p)) merged.exec.push(p);
+      for (const p of scope.blocked) if (!merged.blocked.includes(p)) merged.blocked.push(p);
     }
   }
 
-  return found ? scopeForBondType(entity, highest) : defaultScope(entity);
+  return anyContributed ? merged : emptyScope();
 }
 
 function customScopeFromEnv(): BondScope | undefined {
@@ -319,9 +402,9 @@ function resolveGate(entity: string): GateResolution {
 
   return {
     mode: "default",
-    label: "mode=default fallback",
-    scope: defaultScope(entity),
-    bonds,
+    label: "mode=default — no bonds, no permissions",
+    scope: emptyScope(),
+    bonds: [],
   };
 }
 
@@ -450,6 +533,10 @@ export default function (pi: ExtensionAPI) {
 
     // --- read ---
     if (toolName === "read") {
+      if (scope.read.length === 0) {
+        auditBlock(entity, "read", rawPath ?? "", "no read permissions granted by bond");
+        return { block: true, reason: bondBlockReason(entity, "read", "no bond grants read permissions", scope) };
+      }
       if (absolutePath && !isUnder(absolutePath, scope.read)) {
         auditBlock(entity, "read", rawPath!, "outside read scope");
         return { block: true, reason: bondBlockReason(entity, "read", `${rawPath} is outside bond scope`) };
@@ -459,6 +546,10 @@ export default function (pi: ExtensionAPI) {
 
     // --- write / edit ---
     if (toolName === "write" || toolName === "edit") {
+      if (scope.write.length === 0) {
+        auditBlock(entity, toolName, rawPath ?? "", "no write permissions granted by bond");
+        return { block: true, reason: bondBlockReason(entity, toolName, "no bond grants write permissions", scope) };
+      }
       if (absolutePath) {
         if (isBlocked(absolutePath, scope.blocked)) {
           auditBlock(entity, toolName, rawPath!, "blocked path pattern");
@@ -478,7 +569,13 @@ export default function (pi: ExtensionAPI) {
     if (toolName === "bash") {
       const command = ((input as Record<string, unknown>)?.command as string | undefined) ?? "";
 
-      // Always block: sudo, chmod 777, recursive rm on root-ish paths
+      // No exec paths granted → bash is not available
+      if (scope.exec.length === 0) {
+        auditBlock(entity, "bash", command.slice(0, 80), "no exec permissions granted by bond");
+        return { block: true, reason: bondBlockReason(entity, "bash", "no bond grants exec permissions", scope) };
+      }
+
+      // Always block dangerous patterns regardless of bond
       const dangerous = [
         /\bsudo\b/,
         /\bchmod\b.*777/,
@@ -507,14 +604,19 @@ export default function (pi: ExtensionAPI) {
 
     // --- find / grep / ls — allow if within read scope ---
     if (toolName === "find" || toolName === "grep" || toolName === "ls") {
+      if (scope.read.length === 0) {
+        auditBlock(entity, toolName, rawPath ?? "", "no read permissions granted by bond");
+        return { block: true, reason: bondBlockReason(entity, toolName, "no bond grants read permissions", scope) };
+      }
       if (absolutePath && !isUnder(absolutePath, scope.read)) {
         return { block: true, reason: bondBlockReason(entity, toolName, `${rawPath} is outside bond scope`, scope) };
       }
       return undefined;
     }
 
-    // Unknown tools — allow through (extensions own them)
-    return undefined;
+    // Default deny — if the bond doesn't grant it, it's blocked
+    auditBlock(entity, toolName, "", "tool not granted by any bond");
+    return { block: true, reason: bondBlockReason(entity, toolName, "no bond grants access to this tool", scope) };
   });
 
   // -----------------------------------------------------------------------
