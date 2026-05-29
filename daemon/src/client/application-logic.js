@@ -1,26 +1,9 @@
 import { Meteor } from 'meteor/meteor';
-
 import { Template } from 'meteor/templating';
-import './merkle.js';
-import './indexers.js';
 
 Passengers = new Mongo.Collection('Passengers');
 Alerts = new Mongo.Collection('Alerts');
 
-// Global helper: route /overview to the KingdomOverview template
-Template.registerHelper('isOverview', function () {
-  return window.location.pathname === '/overview';
-});
-
-// Global helper: route /merkle to the MerkleView template
-Template.registerHelper('isMerkle', function () {
-  return window.location.pathname === '/merkle';
-});
-
-// Global helper: route /indexers to the IndexersAdmin template
-Template.registerHelper('isIndexers', function () {
-  return window.location.pathname === '/indexers';
-});
 Template.WidgetQuickLaunch.onCreated(function() {
   // Subscribe to the 'current' publication
   this.subscribe('current');
@@ -139,9 +122,8 @@ Template.WidgetQuickLaunch.events({
   'click .main-diamond'(event, instance) {
     event.preventDefault();
 
-    const navElement = instance.$('.nav');
+    const navElement = instance.$('#navMenu');
     const mainDiamondElement = instance.$('.main-diamond');
-
     if (event.shiftKey) {
       // Shift click: toggle expansion
       if (navElement.hasClass('small')) {
@@ -185,7 +167,6 @@ Template.WidgetQuickLaunch.events({
 
   'click .btn-nav'(event, instance) {
     event.preventDefault();
-    console.log('btn-nav: action:', this.action, "target:", this.target);
     
     // Collapse the diamond when a button is clicked
     const navElement = instance.$('.nav');

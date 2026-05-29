@@ -21,7 +21,7 @@ function hookPath(name: string): string {
   return path.join(FORGE_HOOKS, name);
 }
 
-export default function (pi: ExtensionAPI): void {
+export function registerHooks(pi: ExtensionAPI): void {
   // ── session_start ─────────────────────────────────────────────────────────
   pi.on("session_start", (_event, ctx) => {
     // Write kingdom lifecycle IDs as a CustomEntry so the Pi session jsonl is
@@ -56,11 +56,8 @@ export default function (pi: ExtensionAPI): void {
     } catch (_) {}
   });
 
-  // ── input (UserPromptSubmit equivalent) ───────────────────────────────────
-  pi.on("input", (event, _ctx): InputEventResult | void => {
-    // Only fire on user-originated and rpc input, not on extension re-submissions
-    if (event.source === "extension") return { action: "continue" };
-
+  // ── before_agent_start: inject awareness as a separate message ─────────
+  pi.on("before_agent_start", (_event, _ctx) => {
     let awareness = "";
     try {
       awareness = execSync(hookPath("prompt-awareness.sh"), {
@@ -71,11 +68,14 @@ export default function (pi: ExtensionAPI): void {
       }).trim();
     } catch (_) {}
 
-    if (!awareness) return { action: "continue" };
+    if (!awareness) return;
 
     return {
-      action: "transform",
-      text: `<system-reminder>\n${awareness}\n</system-reminder>\n\n${event.text}`,
+      message: {
+        customType: "koad-io-awareness",
+        content: awareness,
+        display: true,
+      },
     };
   });
 }

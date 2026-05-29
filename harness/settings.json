@@ -1,9 +1,10 @@
 {
   "lastChangelogVersion": "0.75.3",
   "extensions": [
-    "/home/koad/.koad-io/harness/extensions/koad-io",
-    "/home/koad/.koad-io/harness/extensions/koad-io-hooks",
-    "/home/koad/.koad-io/harness/extensions/koad-io-bond-gate.ts"
+    "/home/koad/.koad-io/harness/extensions/koad-io"
+  ],
+  "prompts": [
+    "/home/koad/.koad-io/harness/prompts"
   ],
   "defaultProvider": "deepseek",
   "defaultModel": "deepseek-v4-pro",

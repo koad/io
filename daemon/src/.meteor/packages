@@ -1,7 +1,3 @@
 koad:io-core
 koad:io-merkle-tree
-koad:io-daemon-indexers
-koad:io-daemon-api
-koad:io-declarations
-koad:io-emission-types
-koad:io-session-history
+check

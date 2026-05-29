@@ -31,3 +31,9 @@ daemon/archive/
 # Sovereign operator identity — its own repo, not part of the framework
 # (VESTA-SPEC-174 §2.4: a user who clones koad:io gets structure, not someone's keys)
 me/
+
+# Runtime cache (status probes, etc.)
+cache/
+
+# Workspace skeletons — separate repo
+skeletons/

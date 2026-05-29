@@ -82,7 +82,7 @@ fi
 #   $KOAD_IO_HARNESS               — business-layer override (e.g. ~/.forge/commands/harness)
 #   $HOME/.koad-io/harness         — framework default (minimal, opencode-only kindergarten)
 
-HARNESS_ROOT="${KOAD_IO_HARNESS:-$HOME/.koad-io/harness}"
+HARNESS_ROOT="${KOAD_IO_HARNESS:-$HOME/.koad-io/commands/harness}"
 HARNESS_CMD="$HARNESS_ROOT/default/command.sh"
 if [ ! -f "$HARNESS_CMD" ]; then
   echo "[error] harness default not found: $HARNESS_CMD" >&2

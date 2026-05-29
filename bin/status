@@ -18,7 +18,16 @@
 
 set -euo pipefail
 
-_DEFAULT_TARGETS="daemon=http://10.10.10.10:28282 control-tower=http://10.10.10.10:28283 kingofalldata.com=http://10.10.10.10:20522 ecoincore=http://10.10.10.10:20758 daemon-interface=http://10.10.10.10:21221"
+_DEFAULT_TARGETS="
+    flight-deck=http://10.10.10.10:21221
+    daemon=http://10.10.10.10:28282 
+    ecoincore-daemon=http://10.10.10.10:20758 
+    control-tower=http://10.10.10.10:28283 
+    control-tower-interface=http://10.10.10.10:21221
+    kingofalldata.com=http://10.10.10.10:20522 
+    churchofhappy.com=http://10.10.10.10:20720 
+    ecoincore.com=http://nursery:55555 
+"
 _TARGETS="${KOAD_IO_STATUS_TARGETS:-$_DEFAULT_TARGETS}"
 _LOG_FILE="${KOAD_IO_STATUS_LOG:-$HOME/.koad-io/cache/status-probes.jsonl}"
 _TIMEOUT=5

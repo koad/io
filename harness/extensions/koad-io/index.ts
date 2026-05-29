@@ -49,6 +49,8 @@ import { registerSearchTool } from "./search";
 import { registerStatusTool } from "./status";
 import { registerMusicTool } from "./music";
 import { registerKingdomCommand } from "./kingdom/command";
+import { registerBondGate } from "./bond-gate";
+import { registerHooks } from "./hooks";
 
 const CONTROL_WS = (process.env.KOAD_IO_CONTROL_URL ?? "http://10.10.10.10:28283")
   .replace(/^http/, "ws") + "/websocket";
@@ -95,4 +97,10 @@ export default function (pi: ExtensionAPI) {
 
   // ── /kingdom command ──────────────────────────────────────────
   registerKingdomCommand(pi, ddp, telemetry.kingdom);
+
+  // ── Bond gate (permission enforcement) ────────────────────────
+  registerBondGate(pi);
+
+  // ── Lifecycle hooks (watchers, harvest, awareness) ────────────
+  registerHooks(pi);
 }

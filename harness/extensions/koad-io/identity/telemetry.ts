@@ -193,6 +193,15 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
 
   function refresh(): void {
     if (!cachedCtx) return;
+
+    // Read bond gate scope from bond-gate extension
+    try {
+      const bs = (pi as any).__bondScope;
+      if (bs) {
+        kingdom.bondCount = bs.bondCount;
+        kingdom.bondMode = bs.mode;
+      }
+    } catch (_) {}
     try {
       const usage = cachedCtx.getContextUsage();
       if (usage?.tokens !== undefined && usage?.limit > 0) {
