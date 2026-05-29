@@ -603,6 +603,23 @@ function mergeBondScope(entity: string, bonds: ParsedBond[], errors: string[], i
   }
 
 
+  // ── Dispatch working directory grant ────────────────────
+  // When an entity is dispatched into a specific directory, that directory
+  // becomes readable and executable for the flight. Write access depends on
+  // the bond type — builders get write, others get read+exec only.
+  const dispatchDir = process.env.HARNESS_WORK_DIR;
+  if (dispatchDir) {
+    const expanded = expandPath(dispatchDir);
+    if (!file.read.includes(expanded)) file.read.push(expanded);
+    if (!file.exec.includes(expanded)) file.exec.push(expanded);
+    // Builders get write access to dispatch dir
+    const hasBuilderBond = bonds.some(b => b.type === "authorized-builder" || b.type === "authorized-agent");
+    if (hasBuilderBond && !file.write.includes(expanded)) {
+      file.write.push(expanded);
+    }
+    log(`  dispatch dir: ${expanded} (r+e${hasBuilderBond ? "+w" : ""})`);
+  }
+
   log(`  scope: r${file.read.length} w${file.write.length} e${file.exec.length} b${file.blocked.length} bash=${tools.bash} dispatch=${tools.dispatch} →${entity_caps.dispatch_targets.join(",")}`);
 
   return {
