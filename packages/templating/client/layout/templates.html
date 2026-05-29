@@ -1,0 +1,166 @@
+<!--
+  PRIMER: ApplicationLayout — three-zone workspace
+
+  The templating package's main contribution. A fixed-position window
+  manager for cockpit-style apps (dashboards, admin panels, anything
+  with rich drill-downs). Think Finder columns / VS Code layout.
+
+  THREE SIBLING ZONES inside .application-containment:
+    1. <main class="content-containment">  — route renders here via {{> yield}}
+    2. {{#each leftPanels}}  — reactive array of left-side panels
+    3. {{#each rightPanels}} — reactive array of right-side panels
+
+  EACH PANEL IS { id, title, template, data, open, state } and renders:
+    - header with title + per-panel back/forward + close
+    - {{> Template.dynamic template=template data=data}} — content by name
+    - back-to-top scroll button
+
+  PER-PANEL HISTORY
+  Each panel has its own stack. canBack / canForward helpers read from
+  ApplicationLayout.canGoBack/canGoForward. Back/forward buttons
+  navigate WITHIN the panel without touching the center route.
+
+  REACTIVE SPACE RESERVATION
+  contentState helper returns CSS classes ('left-open', 'right-open')
+  applied to .content-containment. CSS rules shrink/shift the center
+  when panels are open. Reversible, composable.
+
+  EVENT DELEGATION (in logic.js — see that file's primer)
+  Any child template can open/close panels via data-attrs:
+    <button data-open-panel data-side="right" data-id="bond-detail">
+
+  BUGS IN THE WILD:
+    - Template.dynamic silently renders nothing if template name doesn't
+      exist (no console warning)
+    - No panel deduplication — open('left',{id:'foo'}) twice may stack
+    - Keyboard Escape closes ALL panels (anyOpen check), not just
+      focused one — ambiguous with multi-panel state
+    - Empty-title panels render a header containing only the close
+      button — should render without header
+
+  OPEN QUESTIONS:
+    - Named yields (Iron Router's {to:'name'}) vs reactive panel
+      arrays — two mental models not yet unified
+    - Panel persistence across route changes (follow user or close?)
+    - Mobile fold-down behavior (tabs? stack? accordion?)
+    - ApplicationLayout.get() storage substrate — Session? reactive-var?
+      own store? Worth naming.
+
+  See also:
+    - logic.js (helpers + events + panel API delegation)
+    - engine.js (ApplicationLayout.open/close/toggle/back/forward)
+    - history.js (per-panel history stack)
+    - gestures.js (touch/swipe handling — not yet primered)
+    - styles.css (CSS rules responding to contentState classes)
+    - Companion: ~/.forge/packages/navigation/client/top-bar/templates.html
+      (the nav that sits above this workspace; its CSS injection sets
+       .application-containment padding-top to clear the nav)
+    - ./application-layout.md (draft full-length lesson, if present)
+-->
+<template name="ApplicationLayout">
+  {{#with outfit}}
+    <div class="background-shadow" style="background-color: {{this.color}}22; position: fixed; inset: 0; transition: background-color 9s ease; z-index: 0;"></div>
+  {{/with}}
+
+  <a href="#" class="back-to-top" aria-label="Scroll back to top">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M18 15l-6-6-6 6"/>
+    </svg>
+    <span>Top</span>
+  </a>
+  <div class="application-containment" role="application" aria-label="Application layout">
+
+    <!-- CENTER CONTAINER -->
+    <main class="content-containment {{contentState.left}} {{contentState.right}}"
+          role="main">
+      {{> yield}}
+    </main>
+
+    <!-- LEFT STACK -->
+    {{#each leftPanels}}
+      <aside class="panel-containment left {{state}}"
+             data-id="{{id}}"
+             role="complementary"
+             aria-label="{{title}}">
+        {{#if title}}
+          <header class="panel-header">
+            <h2>{{title}}</h2>
+            <div class="panel-nav">
+              {{#if canBack}}
+                <button type="button" data-back-history aria-label="Go back">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M15 18l-6-6 6-6"/>
+                  </svg>
+                </button>
+              {{/if}}
+              {{#if canForward}}
+                <button type="button" data-forward-history aria-label="Go forward">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18l6-6-6-6"/>
+                  </svg>
+                </button>
+              {{/if}}
+            </div>
+            <button type="button" class="panel-close" data-close-panel aria-label="Close panel">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </header>
+        {{/if}}
+        <div class="panel-handle left" aria-hidden="true"></div>
+        {{> Template.dynamic template=template data=data}}
+        <a href="#" class="back-to-top" aria-label="Scroll panel back to top">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 15l-6-6-6 6"/>
+          </svg>
+          <span>Top</span>
+        </a>
+      </aside>
+    {{/each}}
+
+    <!-- RIGHT STACK -->
+    {{#each rightPanels}}
+      <aside class="panel-containment right {{state}}"
+             data-id="{{id}}"
+             role="complementary"
+             aria-label="{{title}}">
+        {{#if title}}
+          <header class="panel-header">
+            <h2>{{title}}</h2>
+            <div class="panel-nav">
+              {{#if canBack}}
+                <button type="button" data-back-history aria-label="Go back">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M15 18l-6-6 6-6"/>
+                  </svg>
+                </button>
+              {{/if}}
+              {{#if canForward}}
+                <button type="button" data-forward-history aria-label="Go forward">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18l6-6-6-6"/>
+                  </svg>
+                </button>
+              {{/if}}
+            </div>
+            <button type="button" class="panel-close" data-close-panel aria-label="Close panel">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </header>
+        {{/if}}
+        <div class="panel-handle right" aria-hidden="true"></div>
+        {{> Template.dynamic template=template data=data}}
+        <a href="#" class="back-to-top" aria-label="Scroll panel back to top">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 15l-6-6-6 6"/>
+          </svg>
+          <span>Top</span>
+        </a>
+      </aside>
+    {{/each}}
+
+  </div>
+</template>

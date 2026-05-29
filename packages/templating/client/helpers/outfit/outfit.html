@@ -1,0 +1,55 @@
+<!--
+  Outfit HTML fallback — standalone fragments for non-Meteor contexts.
+  (Static sites, browser extension, OBS overlays, email templates.)
+  No Blaze, no Meteor, no JavaScript required.
+
+  Usage:
+    1. Copy the <style> block or link outfit.css
+    2. Inject entity-specific CSS vars at :root or a wrapper element
+    3. Use the markup patterns below
+
+  Inject vars via a <style> tag (emitted by your server or script):
+    <style>
+      :root {
+        --entity-hue: 199;
+        --entity-saturation: 35%;
+        --entity-font-heading: 'Playfair Display', serif;
+        --entity-font-body: 'Inter', sans-serif;
+        --entity-easing: ease-out;
+        --entity-duration: 300ms;
+      }
+    </style>
+-->
+
+<!-- L0: Palette swatch -->
+<div class="outfit-swatch" title="Entity palette"></div>
+
+<!-- L1: Chip — name badge with entity color -->
+<span class="entity-chip">Juno</span>
+
+<!-- L2: Card — name + color + role + greeting -->
+<div class="entity-card">
+  <span class="entity-card__name">Juno</span>
+  <span class="entity-card__role">orchestrator, koad:io</span>
+  <span class="entity-card__greeting">Ready when you are.</span>
+</div>
+
+<!-- L3 visual: Avatar with entity color border -->
+<div class="entity-avatar">
+  <img src="identity/avatar.png" alt="Juno">
+</div>
+
+<!--
+  Multi-entity list — each entity gets its own scoped vars via inline style.
+  hsl() values must be pre-computed by the server since CSS can't read
+  passenger.json directly. Example for a server-rendered list:
+
+  <ul class="entity-list">
+    <li style="--entity-hue:199;--entity-saturation:35%;">
+      <span class="entity-chip">Juno</span>
+    </li>
+    <li style="--entity-hue:31;--entity-saturation:34%;">
+      <span class="entity-chip">Vulcan</span>
+    </li>
+  </ul>
+-->
