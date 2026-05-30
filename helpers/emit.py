@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-emit — lifecycle telemetry to the koad:io daemon.
+emit — lifecycle telemetry to the koad:io control-tower.
 
 Single source of truth for the emission wire protocol. Both bash (via emit.sh
 wrapping this CLI) and Python hooks (via direct import) call this module.
@@ -23,7 +23,7 @@ Gate:
     KOAD_IO_EMIT=1     opt-in per entity or per command (default: disabled)
 
 Env:
-    KOAD_IO_DAEMON_URL  default http://10.10.10.10:28282
+    KOAD_IO_CONTROL_URL default http://{KOAD_IO_BIND_IP}:{KOAD_IO_CONTROL_PORT}
     ENTITY              entity handle (derived from ENTITY_DIR if unset)
     ENTITY_DIR          fallback for entity derivation
     HARNESS_SESSION_ID  when set, auto-injected as meta.session_id on every emission
@@ -54,7 +54,13 @@ import os
 import sys
 import urllib.request
 
-DAEMON_URL = os.environ.get('KOAD_IO_DAEMON_URL', 'http://10.10.10.10:28282')
+def _build_default_url(port_var, default_port):
+    ip = os.environ.get('KOAD_IO_BIND_IP', '10.10.10.10')
+    port = os.environ.get(port_var, default_port)
+    return f'http://{ip}:{port}'
+
+CONTROL_URL = os.environ.get('KOAD_IO_CONTROL_URL', _build_default_url('KOAD_IO_CONTROL_PORT', '28283'))
+DAEMON_URL = CONTROL_URL
 TIMEOUT = 2
 HEALTH_TIMEOUT = 1
 
