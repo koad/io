@@ -42,7 +42,7 @@ Meteor.startup(async () => {
 	}).fetchAsync();
 
 	if (orphanedSessions.length > 0) {
-		log.warning(`[startup] Found ${orphanedSessions.length} orphaned sessions from previous server instance`);
+		log.debug(`[startup] Found ${orphanedSessions.length} orphaned sessions from previous server instance`);
 		
 		for (const session of orphanedSessions) {
 			await ApplicationSessions.updateAsync(

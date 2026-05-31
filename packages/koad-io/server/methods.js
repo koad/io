@@ -65,19 +65,19 @@ Meteor.methods({
 		let _carriedIdentifiedAt = null;
 
 		if (data.lastSession == null) {
-			log.system('[enable.connection] New client connection established', { ip });
+			log.debug('[enable.connection] New client connection established', { ip });
 		} else {
 			const earlierVisit = await ApplicationSessions.findOneAsync({ _id: data.lastSession });
 
 			if (earlierVisit === undefined) {
 				// Normal after server restart — previous session lived in a different process.
-				log.system('[enable.connection] Previous session not found (server restart)', {
+				log.debug('[enable.connection] Previous session not found (server restart)', {
 					reportedSession: data.lastSession,
 					currentSession: this.connection.id,
 					ip
 				});
 			} else {
-				log.system('[enable.connection] Returning client connection established', { ip });
+				log.debug('[enable.connection] Returning client connection established', { ip });
 
 				// Link previous session to this one
 				await ApplicationSessions.updateAsync(

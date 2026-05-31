@@ -208,13 +208,13 @@ elif [[ -f ./src/.meteor/release ]]; then
     if [[ "$KOAD_IO_NO_SCREEN" == "true" ]]; then
       # --no-screen: run directly in the foreground, no screen, no tee
       koad_io_emit_update "started dev (foreground) on :$KOAD_IO_PORT"
-      exec meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings "$SETTINGS_FILE"
+      exec env ENTITY=${ENTITY:-} meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings "$SETTINGS_FILE"
     elif [[ "$LOCAL_BUILD" == "true" ]]; then
       # --local: run directly in the foreground, no screen
       koad_io_emit_update "started dev (foreground) on :$KOAD_IO_PORT"
-      exec meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings "$SETTINGS_FILE" 2>&1 | tee "$LOGFILE"
+      exec env ENTITY=${ENTITY:-} meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings "$SETTINGS_FILE" 2>&1 | tee "$LOGFILE"
     else
-      $SCREEN_CMD "$SCREEN_NAME" bash -c "ENTITY=${ENTITY:-} cd \"$PWD\" && meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
+      $SCREEN_CMD "$SCREEN_NAME" bash -c "export ENTITY=${ENTITY:-} && cd \"$PWD\" && meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
       [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME" && echo "Tail log: tail -f $LOGFILE"
       koad_io_emit_update "started dev on :$KOAD_IO_PORT (screen $SCREEN_NAME)"
     fi
