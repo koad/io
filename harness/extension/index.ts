@@ -9,6 +9,7 @@
  *     channel_cue_deliver, channel_broadcast, channel_wait_for_next_turn,
  *     channel_wait_for_state_change, channel_event_fire)
  *   - Conversation stream (DDP events → system messages mid-session)
+ *   - Tool inspection (`list_tools`, `/tools`)
  *   - /kingdom command (interactive dashboard overlay)
  *
  * Directory structure:
@@ -45,9 +46,11 @@ import { registerChannelTools } from "./channels/tools";
 import { startConversationStream } from "./stream";
 import { startLivePrompt } from "./live-prompt";
 import { registerKoadioTool } from "./koad-io-tool";
+import { registerToolsInspect } from "./tools-inspect";
 import { registerSearchTool } from "./search";
 import { registerStatusTool } from "./status";
 import { registerMusicTool } from "./music";
+import { registerSinTool } from "./sin";
 import { registerKingdomCommand } from "./kingdom/command";
 import { registerBondGate } from "./bond-gate";
 import { registerHooks } from "./hooks";
@@ -58,15 +61,27 @@ const CONTROL_WS = (process.env.KOAD_IO_CONTROL_URL ?? `http://${_BIND_IP}:${pro
 const DAEMON_WS = (process.env.KOAD_IO_DAEMON_URL ?? `http://${_BIND_IP}:${process.env.KOAD_IO_PORT ?? "28282"}`)
   .replace(/^http/, "ws") + "/websocket";
 
+function toolName(tool: any): string {
+  return typeof tool === "string" ? tool : String(tool?.name ?? "");
+}
+
+function sdkMode(): boolean {
+  return process.env.KOAD_IO_HARNESS_SDK === "1" || !process.stdout.isTTY;
+}
+
+function enforceHarnessToolPolicy(pi: ExtensionAPI): void {
+  const available = new Set(pi.getAllTools().map((tool: any) => toolName(tool)));
+  const active = new Set(pi.getActiveTools().map((tool: any) => toolName(tool)));
+
+  if (available.has("ls")) active.add("ls");
+  active.delete("grep");
+  active.delete("find");
+
+  pi.setActiveTools([...active]);
+}
+
 export default function (pi: ExtensionAPI) {
-  // ── DDP to control-tower (flights, bonds, sessions, health) ────
-  const ddp = createDDPClient(CONTROL_WS);
-
-  // ── DDP to daemon (raw emissions, channel cues, questions) ─────
-  const daemonDDP = createDDPClient(DAEMON_WS);
-
-  // ── Identity + telemetry (footer, token stats, kingdom state) ─
-  const telemetry = createTelemetrySession(pi, ddp);
+  const inSdkMode = sdkMode();
 
   // ── Dispatch tools ────────────────────────────────────────────
   registerDispatchTools(pi);
@@ -77,15 +92,12 @@ export default function (pi: ExtensionAPI) {
   // ── Channel tools (SPEC-154/156 — daemon backend live) ─────────
   registerChannelTools(pi);
 
-  // ── Conversation stream (DDP events → system messages) ─────────
-  startConversationStream(pi, ddp);
-  startConversationStream(pi, daemonDDP);
-
-  // ── Live prompt (stream typing to daemon → storefront) ─────────
-  startLivePrompt(pi);
-
   // ── koad-io tool (typed gateway to command cascade) ────────────
   registerKoadioTool(pi);
+
+  // ── Harness default tool policy ────────────────────────────────
+  pi.on("session_start", async () => { enforceHarnessToolPolicy(pi); });
+  pi.on("session_tree", async () => { enforceHarnessToolPolicy(pi); });
 
   // ── Kingdom search (waterfall grep / frontmatter / atlas) ───────
   registerSearchTool(pi);
@@ -93,14 +105,38 @@ export default function (pi: ExtensionAPI) {
   // ── Kingdom status (daemon pulse — flights, sessions, emissions) ─
   registerStatusTool(pi);
 
-  // ── Music control (Groove Basin @ disco.koad.sh:16242) ──────────
-  registerMusicTool(pi);
+  if (!inSdkMode) {
+    // ── DDP to control-tower (flights, bonds, sessions, health) ────
+    const ddp = createDDPClient(CONTROL_WS);
 
-  // ── /kingdom command ──────────────────────────────────────────
-  registerKingdomCommand(pi, ddp, telemetry.kingdom);
+    // ── DDP to daemon (raw emissions, channel cues, questions) ─────
+    const daemonDDP = createDDPClient(DAEMON_WS);
 
-  // ── Bond gate (permission enforcement) ────────────────────────
-  registerBondGate(pi);
+    // ── Identity + telemetry (footer, token stats, kingdom state) ─
+    const telemetry = createTelemetrySession(pi, ddp);
+
+    // ── Conversation stream (DDP events → system messages) ─────────
+    startConversationStream(pi, ddp);
+    startConversationStream(pi, daemonDDP);
+
+    // ── Live prompt (stream typing to daemon → storefront) ─────────
+    startLivePrompt(pi);
+
+    // ── Tool inspection (`list_tools`, `/tools`) ───────────────────
+    registerToolsInspect(pi);
+
+    // ── Music control (Groove Basin @ disco.koad.sh:16242) ──────────
+    registerMusicTool(pi);
+
+    // ── Sin search (recursive grep in one explicit directory) ──────
+    registerSinTool(pi);
+
+    // ── /kingdom command ──────────────────────────────────────────
+    registerKingdomCommand(pi, ddp, telemetry.kingdom);
+
+    // ── Bond gate (interactive/CLI permission enforcement) ───────
+    registerBondGate(pi);
+  }
 
   // ── Lifecycle hooks (watchers, harvest, awareness) ────────────
   registerHooks(pi);
