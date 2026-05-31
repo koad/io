@@ -15,10 +15,12 @@ source "$HOME/.koad-io/commands/assert/datadir/command.sh"
 cd $DATADIR
 
 # Parse positional and flag arguments.
-# Positional: build type (e.g. "local"). Flags: --local, --attach, --tail.
+# Positional: build type (e.g. "local"). Flags: --local, --attach,
+# --no-screen, --tail.
 # The dispatcher exports KOAD_IO_FLAGS with any --flag args stripped from $@,
 # but commands can also receive flags directly for backwards compatibility.
 #
+# --no-screen  Run in the foreground instead of inside screen.
 # --tail       After starting, wait 5s then tail -f the log in the foreground.
 # --tail=N     Wait N seconds (or 30s / 2m / 1h) before tailing.
 #              Ctrl-C stops the tail — the daemon keeps running in its screen.
@@ -31,9 +33,10 @@ KOAD_IO_TAIL=""
 KOAD_IO_TAIL_WAIT="5"
 for _arg in "$@" $KOAD_IO_FLAGS; do
   case "$_arg" in
-    --local)   LOCAL_BUILD=true ;;
-    --attach)  KOAD_IO_ATTACH=true ;;
-    --tail)    KOAD_IO_TAIL=true ;;
+    --local)      LOCAL_BUILD=true ;;
+    --attach)     KOAD_IO_ATTACH=true ;;
+    --no-screen)  KOAD_IO_NO_SCREEN=true ;;
+    --tail)       KOAD_IO_TAIL=true ;;
     --tail=*)
       KOAD_IO_TAIL=true
       _t="${_arg#--tail=}"
@@ -124,8 +127,8 @@ else
     LOGDIR="$DATADIR/builds/latest"
 fi
 
-# Check if already running — screen first (skip for --local), then port
-if [[ "$LOCAL_BUILD" != "true" ]] && screen -list | grep -q "$SCREEN_NAME"; then
+# Check if already running — screen first (skip for --local / --no-screen), then port
+if [[ "$LOCAL_BUILD" != "true" ]] && [[ "$KOAD_IO_NO_SCREEN" != "true" ]] && screen -list | grep -q "$SCREEN_NAME"; then
     echo "Already running: screen -r $SCREEN_NAME"
     echo "Tail log: tail -f $LOGDIR/*.log"
     koad_io_emit_close "start: already running (screen $SCREEN_NAME)"
@@ -145,14 +148,23 @@ echo -ne "\033]0;$ENTITY $KOAD_IO_APP_NAME on $HOSTNAME\007"
 # Create the log directory now that we've confirmed we're starting.
 mkdir -p "$LOGDIR"
 LOGFILE="$LOGDIR/$CURRENTDATETIME.log"
-echo "Screen: $SCREEN_NAME"
-echo "Log: $LOGFILE"
+if [[ "$KOAD_IO_NO_SCREEN" == "true" ]]; then
+    echo "Mode: foreground (--no-screen)"
+    echo "Log: disabled in --no-screen mode"
+else
+    echo "Screen: $SCREEN_NAME"
+    echo "Log: $LOGFILE"
+fi
 
 # Decide screen mode: detached by default, attached with --attach
 if [[ "$KOAD_IO_ATTACH" == "true" ]]; then
     SCREEN_CMD="screen -S"
 else
     SCREEN_CMD="screen -dmS"
+fi
+
+if [[ "$KOAD_IO_NO_SCREEN" == "true" ]] && [[ "$KOAD_IO_TAIL" == "true" ]]; then
+    echo "Ignoring --tail because --no-screen already streams logs in the foreground"
 fi
 
 # If KOAD_IO_DOMAIN is set, fix ROOT_URL to the canonical HTTPS domain so
@@ -173,9 +185,14 @@ if [[ -f ./builds/latest/bundle/main.js ]] && [[ "$LOCAL_BUILD" != "true" ]]; th
     # Start the service
     echo "Starting service $KOAD_IO_DOMAIN"
     cd builds/latest/bundle
-    $SCREEN_CMD "$SCREEN_NAME" bash -c "BIND_IP=$KOAD_IO_BIND_IP PORT=$KOAD_IO_PORT node main.js 2>&1 | tee \"$LOGFILE\""
-    [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME"
-    koad_io_emit_update "started $KOAD_IO_DOMAIN on :$KOAD_IO_PORT (screen $SCREEN_NAME)"
+    if [[ "$KOAD_IO_NO_SCREEN" == "true" ]]; then
+      koad_io_emit_update "started $KOAD_IO_DOMAIN on :$KOAD_IO_PORT (foreground)"
+      exec env ENTITY=${ENTITY:-} BIND_IP=$KOAD_IO_BIND_IP PORT=$KOAD_IO_PORT node main.js
+    else
+      $SCREEN_CMD "$SCREEN_NAME" bash -c "ENTITY=${ENTITY:-} BIND_IP=$KOAD_IO_BIND_IP PORT=$KOAD_IO_PORT node main.js 2>&1 | tee \"$LOGFILE\""
+      [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME"
+      koad_io_emit_update "started $KOAD_IO_DOMAIN on :$KOAD_IO_PORT (screen $SCREEN_NAME)"
+    fi
 
 elif [[ -f ./src/.meteor/release ]]; then
 
@@ -188,12 +205,16 @@ elif [[ -f ./src/.meteor/release ]]; then
     cd $PWD/src
     meteor npm install
 
-    if [[ "$LOCAL_BUILD" == "true" ]]; then
+    if [[ "$KOAD_IO_NO_SCREEN" == "true" ]]; then
+      # --no-screen: run directly in the foreground, no screen, no tee
+      koad_io_emit_update "started dev (foreground) on :$KOAD_IO_PORT"
+      exec meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings "$SETTINGS_FILE"
+    elif [[ "$LOCAL_BUILD" == "true" ]]; then
       # --local: run directly in the foreground, no screen
       koad_io_emit_update "started dev (foreground) on :$KOAD_IO_PORT"
-      exec meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee "$LOGFILE"
+      exec meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings "$SETTINGS_FILE" 2>&1 | tee "$LOGFILE"
     else
-      $SCREEN_CMD "$SCREEN_NAME" bash -c "cd \"$PWD\" && meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
+      $SCREEN_CMD "$SCREEN_NAME" bash -c "ENTITY=${ENTITY:-} cd \"$PWD\" && meteor --port=$KOAD_IO_BIND_IP:$KOAD_IO_PORT --settings $SETTINGS_FILE 2>&1 | tee \"$LOGFILE\""
       [[ "$KOAD_IO_ATTACH" != "true" ]] && echo "Started in screen: $SCREEN_NAME" && echo "Tail log: tail -f $LOGFILE"
       koad_io_emit_update "started dev on :$KOAD_IO_PORT (screen $SCREEN_NAME)"
     fi
@@ -207,7 +228,7 @@ fi
 # --- Optional tail ------------------------------------------------------
 # With --tail, wait for the app to warm up then tail the log in the
 # foreground. The screen keeps running after Ctrl-C ends the tail.
-if [[ "$KOAD_IO_TAIL" == "true" ]] && [[ "$KOAD_IO_ATTACH" != "true" ]]; then
+if [[ "$KOAD_IO_TAIL" == "true" ]] && [[ "$KOAD_IO_ATTACH" != "true" ]] && [[ "$KOAD_IO_NO_SCREEN" != "true" ]]; then
   echo "Waiting ${KOAD_IO_TAIL_WAIT}s for startup, then tailing ($LOGFILE)..."
   echo "  (Ctrl-C to stop the tail — the daemon keeps running in screen $SCREEN_NAME)"
   sleep "$KOAD_IO_TAIL_WAIT"
