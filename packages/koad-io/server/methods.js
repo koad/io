@@ -70,7 +70,8 @@ Meteor.methods({
 			const earlierVisit = await ApplicationSessions.findOneAsync({ _id: data.lastSession });
 
 			if (earlierVisit === undefined) {
-				log.warning('[enable.connection] Previous session not found', {
+				// Normal after server restart — previous session lived in a different process.
+				log.system('[enable.connection] Previous session not found (server restart)', {
 					reportedSession: data.lastSession,
 					currentSession: this.connection.id,
 					ip

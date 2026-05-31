@@ -141,7 +141,7 @@ Meteor.onConnection(function(connection){
 	};
 
 	if (connection.clientAddress == null) {
-		log.warning('[onConnection] New connection without clientAddress', {
+		log.debug('[onConnection] New connection without clientAddress — expected behind proxy', {
 			host: connection.httpHeaders.host,
 			connectionId: connection.id
 		});
@@ -180,7 +180,7 @@ Meteor.onConnection(function(connection){
 		});
 
 		if (connection.clientAddress == null) {
-			log.warning('[onClose] Connection closed without clientAddress', {
+			log.debug('[onClose] Connection closed without clientAddress — expected behind proxy', {
 				connectionId: connection.id
 			});
 		}
