@@ -21,7 +21,8 @@
 //
 // Tool classification:
 //   - koad:io tools     → gated by bond koadio_tools list
-//   - read/find/grep/ls → gated by bond read scope, cwd always readable
+//   - read/find/grep/sin → gated by bond read scope, cwd always readable
+//   - ls                → globally allowed (no bond required)
 //   - write/edit        → gated by bond write scope + blocked patterns
 //   - bash              → gated by tool grant + exec scope
 //   - dispatch          → gated by tool grant + target in entity_capabilities
@@ -784,6 +785,12 @@ function logMode(ctx: any, message: string, level: "info" | "warning" = "info"):
 // Tool classification
 // ---------------------------------------------------------------------------
 
+// Hardcoded ecosystem tool set — fast path for known kingdom tools.
+// NOTE: When adding new tools to the koad:io extension, they no longer need
+// to be added here manually — the dynamic isEcosystemTool() check (see below)
+// will recognize any extension-registered tool via pi.getAllTools().
+// This set remains for backward compat and for tools that pre-date
+// the dynamic registry approach.
 const KOADIO_TOOLS = new Set([
   "ask_question", "wait_for_answer", "answer_question",
   "wait_for_cue", "raise_hand", "channel_leave",
@@ -794,10 +801,16 @@ const KOADIO_TOOLS = new Set([
   "mission",
 ]);
 
+// Pi built-in tools — these are NOT ecosystem tools, they have their own
+// classification paths (file read/write, shell, global). Excluded from the
+// dynamic ecosystem-tool check.
+const PI_BUILTIN_TOOLS = new Set(["read", "write", "edit", "bash", "ls", "grep", "find"]);
+
 // Tools gated by bond tool grants — require explicit permission
 const GATED_DISPATCH_TOOLS = new Set(["dispatch", "dispatch_followup", "dispatch_complete"]);
 
-const FILE_READ_TOOLS = new Set(["read", "find", "grep", "ls"]);
+const GLOBAL_ALLOWED_TOOLS = new Set(["ls"]);
+const FILE_READ_TOOLS = new Set(["read", "find", "grep", "sin"]);
 const FILE_WRITE_TOOLS = new Set(["write", "edit"]);
 const SHELL_TOOLS = new Set(["bash"]);
 
@@ -813,6 +826,30 @@ export function registerBondGate(pi: ExtensionAPI) {
   }
 
   let scope = resolveGate(entity, false);
+
+  // ── Dynamic ecosystem tool recognition ──────────────────────────
+  // Instead of relying solely on the hardcoded KOADIO_TOOLS Set (which
+  // must be manually updated whenever a new tool is registered), consult
+  // Pi's own runtime registry. Any tool that Pi knows about — and that
+  // isn't a Pi built-in with its own classification path — is a koad:io
+  // ecosystem tool subject to koadio_tools bond grants.
+  //
+  // NOTE: This is a transitional approach. The better follow-up is full
+  // dynamic registry-based classification using sourceInfo metadata to
+  // distinguish extension tools from built-ins without a hardcoded
+  // exclusion list.
+  const isEcosystemTool = (toolName: string): boolean => {
+    if (KOADIO_TOOLS.has(toolName)) return true;
+    if (PI_BUILTIN_TOOLS.has(toolName)) return false;
+    // Check Pi's runtime tool registry. getAllTools() reflects all
+    // registered tools — including those registered after the bond-gate
+    // extension itself loaded (body tools, query tools, etc.).
+    const allTools = pi.getAllTools();
+    for (const t of allTools) {
+      if (t.name === toolName) return true;
+    }
+    return false;
+  };
 
   // -----------------------------------------------------------------------
   // session_start
@@ -842,12 +879,18 @@ export function registerBondGate(pi: ExtensionAPI) {
 
     // Re-resolve on every call — live reloadable
     scope = resolveGate(entity, ctx.hasUI);
+    pi.events.emit("koad-io:bond-scope", scope);
     const mode = scope.mode;
 
     if (mode === "bypass") return undefined;
 
+    // ── Globally allowed tools — no bond required ─────────────
+    if (GLOBAL_ALLOWED_TOOLS.has(toolName)) {
+      return undefined;
+    }
+
     // ── koad:io ecosystem tools — bond-gated ──────────────────
-    if (KOADIO_TOOLS.has(toolName)) {
+    if (isEcosystemTool(toolName)) {
       if (!scope.tools.koadio_tools.includes(toolName) && !scope.tools.koadio_tools.includes("*")) {
         log(`BLOCK koadio tool ${toolName}: not in koadio_tools grant (mode=${mode})`);
         auditBlock(entity, toolName, "", "koadio tool not granted by bond");
@@ -987,6 +1030,6 @@ export function registerBondGate(pi: ExtensionAPI) {
     ctx.ui.setWorkingMessage(`${entity} · ${label}`);
   });
 
-  // Expose scope so other extensions can inspect it
-  (pi as any).__bondScope = scope;
+  // Expose scope via event bus — telemetry listens for this
+  pi.events.emit("koad-io:bond-scope", scope);
 }
