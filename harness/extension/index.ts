@@ -54,6 +54,9 @@ import { registerSinTool } from "./sin";
 import { registerKingdomCommand } from "./kingdom/command";
 import { registerBondGate } from "./bond-gate";
 import { registerHooks } from "./hooks";
+import { registerContextBudget } from "./context-budget";
+import { registerProviderCircuitBreaker } from "./provider-circuit-breaker";
+import { registerBodyTools } from "./body-tools";
 
 const _BIND_IP = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
 const CONTROL_WS = (process.env.KOAD_IO_CONTROL_URL ?? `http://${_BIND_IP}:${process.env.KOAD_IO_CONTROL_PORT ?? "28283"}`)
@@ -138,6 +141,15 @@ export default function (pi: ExtensionAPI) {
     registerBondGate(pi);
   }
 
-  // ── Lifecycle hooks (watchers, harvest, awareness) ────────────
+  // ── Lifecycle hooks (watchers, harvest, awareness, telemetry) ─
   registerHooks(pi);
+
+  // ── Context budget manager (warn/compact/switch on pressure) ───
+  registerContextBudget(pi);
+
+  // ── Provider circuit breaker (detect + recover from failures) ──
+  registerProviderCircuitBreaker(pi);
+
+  // ── Body tools (surface, inbox, obligation, brief — kingdom motions) ──
+  registerBodyTools(pi);
 }
