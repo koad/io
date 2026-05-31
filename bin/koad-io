@@ -224,9 +224,10 @@ set +a
 
 echo "-" >&2
 # Framework commands — PATH-style search path, first entry = highest priority.
-# Falls back to ~/.koad-io/commands if KOAD_IO_COMMANDS_DIRS is unset.
+# Default: forge commands (kingdom business layer) searched before framework.
+# Override via KOAD_IO_COMMANDS_DIRS in ~/.koad-io/.env to add more dirs.
 # Kept KOAD_IO_COMMANDS_DIR pointing at the framework dir for any legacy consumer.
-KOAD_IO_COMMANDS_DIRS="${KOAD_IO_COMMANDS_DIRS:-$HOME/.koad-io/commands}"
+KOAD_IO_COMMANDS_DIRS="${KOAD_IO_COMMANDS_DIRS:-$HOME/.forge/commands:$HOME/.koad-io/commands}"
 KOAD_IO_COMMANDS_DIR="$HOME/.koad-io/commands"
 [[ $DEBUG ]] && echo "KOAD_IO_COMMANDS_DIRS=$KOAD_IO_COMMANDS_DIRS" >&2;
 
@@ -306,6 +307,33 @@ done
 # finally, find a command from current working directory of the same name
 [[ -f $CWD/$1.sh ]] && echo "$1.sh is found in $CWD" >&2 &&  EXEC_ARGS="$2 $3 $4 $5 $6 $7 $8"&& export EXEC_FILE="$CWD/$1.sh" && COMMAND_LOCATION=$CWD;
 
+# Harness safety net: a higher-priority command tree may intentionally carry
+# docs/assets under `commands/harness/<name>/` without shipping a `command.sh`.
+# When that happens, normal depth resolution picks the override path but leaves
+# EXEC_FILE empty, even though the framework harness implementation exists.
+# Fall back to the framework harness family for `harness`, `harness default`,
+# and `harness <name>` so overrides can omit executable shims safely.
+if [[ ! -n $EXEC_FILE ]] && [[ "$1" == "harness" ]]; then
+    if [[ -n "$2" ]]; then
+        _framework_harness_cmd="$HOME/.koad-io/commands/harness/$2/command.sh"
+        if [[ -f "$_framework_harness_cmd" ]]; then
+            COMMAND_LOCATION="$HOME/.koad-io/commands/harness/$2"
+            EXEC_FILE="$_framework_harness_cmd"
+            EXEC_ARGS="$3 $4 $5 $6 $7 $8"
+            echo "framework harness/$2 fallback engaged: $EXEC_FILE" >&2
+        fi
+    else
+        _framework_harness_cmd="$HOME/.koad-io/commands/harness/command.sh"
+        if [[ -f "$_framework_harness_cmd" ]]; then
+            COMMAND_LOCATION="$HOME/.koad-io/commands/harness"
+            EXEC_FILE="$_framework_harness_cmd"
+            EXEC_ARGS="$2 $3 $4 $5 $6 $7 $8"
+            echo "framework harness fallback engaged: $EXEC_FILE" >&2
+        fi
+    fi
+    unset _framework_harness_cmd
+fi
+
 # Make sure we have a valid command file to run, else crash 66
 [[ ! -n $EXEC_FILE ]] && echo "Could not find command file to execute, sorry." >&2 && echo "EXEC_FILE: $EXEC_FILE" >&2 && exit 66;
 
@@ -323,22 +351,21 @@ export COMMAND_LOCATION=$COMMAND_LOCATION
 [[ $DEBUG ]] && echo "EXEC_ARGS=$EXEC_ARGS" >&2;
 [[ $DEBUG ]] && echo >&2
 
-# Check if the --dry-run flag is set (now in KOAD_IO_FLAGS, not $@)
+# Check if the --dry-run flag is set (now in KOAD_IO_FLAGS, not $@).
+# Set DRY_RUN env so individual commands can do previews when they support it.
+# The flag is passed through to the command via _flag_args so commands
+# that parse --dry-run themselves (e.g. inbox resolve, obligation advance)
+# can offer per-action dry-run behavior without the binary blocking execution.
 if [[ "$KOAD_IO_FLAGS" == *"--dry-run"* ]]; then
   export DRY_RUN=true
 fi
 
 echo "--exec $EXEC_FILE $EXEC_ARGS $KOAD_IO_FLAGS" >&2
 
-
-if [ "$DRY_RUN" = true ]; then
-	echo "Dry run, stopped..." >&2
-else
-	# All is well, lets go!
-	# EXEC_ARGS is a space-separated string built from positional $N vars — word-split
-	# intentionally (these are sub-command names, never contain spaces).
-	# _flag_args is the bash array from the separation loop above; quoted expansion
-	# preserves whitespace inside flag values (Fix B).
-	# shellcheck disable=SC2086
-	exec $EXEC_FILE $EXEC_ARGS "${_flag_args[@]}"
-fi
+# All is well, lets go!
+# EXEC_ARGS is a space-separated string built from positional $N vars — word-split
+# intentionally (these are sub-command names, never contain spaces).
+# _flag_args is the bash array from the separation loop above; quoted expansion
+# preserves whitespace inside flag values (Fix B).
+# shellcheck disable=SC2086
+exec $EXEC_FILE $EXEC_ARGS "${_flag_args[@]}"
