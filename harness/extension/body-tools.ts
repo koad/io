@@ -182,12 +182,20 @@ export function registerBodyTools(pi: ExtensionAPI): void {
 
     renderResult(result: any, { expanded }: any, theme: any) {
       const details = (result?.details ?? {}) as Record<string, any>;
+      const exitCode = details.exitCode;
+      const isError = exitCode !== undefined && exitCode !== 0;
+      const lines: string[] = [];
+
+      if (isError) {
+        lines.push(theme.fg("warning", `⚠ intake_digest failed (exit ${exitCode})`));
+        if (expanded && details.stderr) lines.push(`  ${theme.fg("dim", clip(details.stderr, 200))}`);
+        return new Text(lines.join("\n"), 0, 0);
+      }
+
       const total = details.summary?.total ?? 0;
       const buckets = details.buckets ?? {};
-      const lines: string[] = [
-        theme.fg("success", `✓ ${details.entity || "?"} inbox: ${total} items`),
-        `  ${theme.fg("dim", `⚡ actionable: ${buckets.actionable?.count ?? 0} · 🧠 decisions: ${buckets.decision_bearing?.count ?? 0} · 📦 stale: ${buckets.stale?.count ?? 0}`)}`,
-      ];
+      lines.push(theme.fg("success", `✓ ${details.entity || "?"} inbox: ${total} items`));
+      lines.push(`  ${theme.fg("dim", `⚡ actionable: ${buckets.actionable?.count ?? 0} · 🧠 decisions: ${buckets.decision_bearing?.count ?? 0} · 📦 stale: ${buckets.stale?.count ?? 0}`)}`);
       if (expanded && buckets.actionable?.items?.length) {
         for (const item of buckets.actionable.items.slice(0, 5)) {
           lines.push(`  ${theme.fg("accent", `[${item.class}]`)} ${theme.fg("dim", clip(item.summary, 60))}`);
@@ -207,7 +215,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
       if (result.exitCode !== 0 || !parsed) {
         return {
           content: [{ type: "text", text: result.stdout || result.stderr || "intake_digest failed" }],
-          details: { exitCode: result.exitCode, stderr: result.stderr.slice(0, 500) },
+          details: { exitCode: result.exitCode, stderr: result.stderr.slice(0, 500), entity: params.entity || undefined },
         };
       }
       const total = parsed.summary?.total ?? 0;
@@ -326,12 +334,20 @@ export function registerBodyTools(pi: ExtensionAPI): void {
 
     renderResult(result: any, { expanded }: any, theme: any) {
       const details = (result?.details ?? {}) as Record<string, any>;
+      const exitCode = details.exitCode;
+      const isError = exitCode !== undefined && exitCode !== 0;
+      const lines: string[] = [];
+
+      if (isError) {
+        lines.push(theme.fg("warning", `⚠ obligation_digest failed (exit ${exitCode})`));
+        if (expanded && details.stderr) lines.push(`  ${theme.fg("dim", clip(details.stderr, 200))}`);
+        return new Text(lines.join("\n"), 0, 0);
+      }
+
       const total = details.total ?? 0;
       const buckets = details.buckets ?? {};
-      const lines: string[] = [
-        theme.fg("success", `✓ ${details.entity || "?"} obligations: ${total} total`),
-        `  ${theme.fg("error", `🔴 overdue: ${buckets.overdue?.count ?? 0}`)} ${theme.fg("warning", `🟡 today: ${buckets.today?.count ?? 0}`)} ${theme.fg("dim", `📦 stale: ${buckets.stale?.count ?? 0}`)}`,
-      ];
+      lines.push(theme.fg("success", `✓ ${details.entity || "?"} obligations: ${total} total`));
+      lines.push(`  ${theme.fg("error", `🔴 overdue: ${buckets.overdue?.count ?? 0}`)} ${theme.fg("warning", `🟡 today: ${buckets.today?.count ?? 0}`)} ${theme.fg("dim", `📦 stale: ${buckets.stale?.count ?? 0}`)}`);
       if (expanded && buckets.overdue?.items?.length) {
         for (const item of buckets.overdue.items.slice(0, 5)) {
           lines.push(`  ${theme.fg("error", `[${item.source}]`)} ${theme.fg("dim", clip(item.title || item.id, 60))}`);
@@ -349,7 +365,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
       if (result.exitCode !== 0 || !parsed) {
         return {
           content: [{ type: "text", text: result.stdout || result.stderr || "obligation_digest failed" }],
-          details: { exitCode: result.exitCode, stderr: result.stderr.slice(0, 500) },
+          details: { exitCode: result.exitCode, stderr: result.stderr.slice(0, 500), entity: params.entity || undefined },
         };
       }
       const total = parsed.total ?? 0;
