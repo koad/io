@@ -59,6 +59,7 @@ Package.onUse(function(api) {
 	api.use("random");
 	api.use("mongo");
 	api.use("ecmascript");
+	api.use("webapp");
 
 	// api.use("mizzao:timesync");
 	// api.use("matb33:collection-hooks", "server", {weak: true});
