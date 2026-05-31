@@ -152,11 +152,13 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   // -----------------------------------------------------------------
 
   get health()         { return { ...this._health }; }
-  get flightCount()    { return this.flights.size; }
+  get flightCount()    { return this.emissions.size; }  // dashboard compat — was always emissions count
+  get missionCount()   { return this.flights.size; }   // actual Flights collection count
   get bondCount()      { return this.bonds.size; }
   get sessionCount()   { return this.sessions.size; }
   get entityCount()    { return this.entities.size; }
-  get flightsList()    { return Array.from(this.flights.values()); }
+  get flights()        { return Array.from(this.emissions.values()); }  // dashboard compat — was emissions
+  get flightsList()    { return Array.from(this.flights.values()); }    // actual Flights records
   get sessionsList()   { return Array.from(this.sessions.values()); }
   get entitiesList()   { return Array.from(this.entities.values()); }
   get emissionsList()  { return Array.from(this.emissions.values()); }
