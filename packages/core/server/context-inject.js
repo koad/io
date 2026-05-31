@@ -19,6 +19,8 @@
  * SPEC-196 §6, mission: dark-passenger-api-context-inject-endpoint-read-
  */
 
+import { WebApp } from 'meteor/webapp';
+
 const Emissions = globalThis.EmissionsCollection;
 
 Meteor.startup(() => {

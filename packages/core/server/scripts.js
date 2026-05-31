@@ -10,6 +10,7 @@
  * SPEC-196 §9, mission: dark-passenger-api-scripts-endpoint-read-context
  */
 
+import { WebApp } from 'meteor/webapp';
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');

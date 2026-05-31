@@ -9,6 +9,8 @@
  * SPEC-196 §4.2, VESTA-SPEC-140 (fallback bearer token path).
  */
 
+import { WebApp } from 'meteor/webapp';
+
 let SessionTokens = null;
 
 Meteor.startup(() => {

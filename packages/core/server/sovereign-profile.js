@@ -10,6 +10,7 @@
  * SPEC-196 §5, mission: dark-passenger-daemon-endpoint-api-sovereign-pro
  */
 
+import { WebApp } from 'meteor/webapp';
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');

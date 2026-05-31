@@ -17,6 +17,7 @@
 const fs = require('fs');
 const { utils: { parseKey } } = require('ssh2');
 const crypto = require('crypto');
+import { WebApp } from 'meteor/webapp';
 
 /**
  * Load Entity RSA Identity

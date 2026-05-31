@@ -9,6 +9,7 @@
  *
  * SPEC-196 §8.2, mission: dark-passenger-corpus-url-projector-indexer-api-
  */
+import { WebApp } from 'meteor/webapp';
 const { URL } = require('url');
 
 // Access the same in-memory collection the corpus-url-projector populates
