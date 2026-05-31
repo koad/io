@@ -30,6 +30,7 @@ export interface EmissionRecord {
   status?:    string;
   startedAt?: string;
   updatedAt?: string;
+  missionId?: string;
 }
 
 export interface BondRecord {
@@ -124,10 +125,16 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   private ws:         WebSocket | null = null;
   private session:    string | null = null;
   private nextId      = 1;
-  private pendingSubs = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
+  private pendingSubs = new Map<string, { name: string; resolve: () => void; reject: (e: Error) => void }>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer:      ReturnType<typeof setInterval>  | null = null;
   private _running        = false;
+
+  // Subscription readiness — tracks which subs have received their 'ready' message.
+  // An empty map means we haven't subscribed yet (not connected).
+  // Keys = sub name, value = true when ready.
+  private _subsReady = new Map<string, boolean>();
+  private _subsTotal = 0;
 
   // Local reactive collections
   private emissions = new Map<string, EmissionRecord>();
@@ -164,6 +171,19 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   get emissionsList()  { return Array.from(this.emissions.values()); }
   get bondsList()      { return Array.from(this.bonds.values()); }
   get isConnected()    { return this.ws?.readyState === WebSocket.OPEN; }
+
+  /** True when all expected subscriptions have received their 'ready' message. */
+  get isWarm(): boolean {
+    if (this._subsTotal === 0) return false;
+    return this._subsReady.size === this._subsTotal &&
+      [...this._subsReady.values()].every(v => v === true);
+  }
+
+  /** Number of subscriptions that have received 'ready' out of total expected. */
+  get warmProgress(): { ready: number; total: number } {
+    const ready = [...this._subsReady.values()].filter(v => v).length;
+    return { ready, total: this._subsTotal };
+  }
 
   connect(): this {
     if (this._running) return this;
@@ -279,7 +299,11 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
       case "ready":
         for (const subId of msg.subs) {
           const pending = this.pendingSubs.get(subId);
-          if (pending) { pending.resolve(); this.pendingSubs.delete(subId); }
+          if (pending) {
+            this._subsReady.set(pending.name, true);
+            pending.resolve();
+            this.pendingSubs.delete(subId);
+          }
         }
         break;
 
@@ -313,9 +337,11 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   }
 
   private sub(name: string): Promise<void> {
+    this._subsReady.set(name, false);
+    this._subsTotal = this._subsReady.size;
     return new Promise((resolve, reject) => {
       const id = this.nextId();
-      this.pendingSubs.set(id, { resolve, reject });
+      this.pendingSubs.set(id, { name, resolve, reject });
       this.send({ msg: "sub", id, name, params: [] });
     });
   }

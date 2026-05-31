@@ -136,6 +136,12 @@ export async function missionQuery(
       stats: f.stats || undefined,
     }));
 
+    // Honest degraded: DDP connected but subs haven't warmed yet
+    if (!ddp.isWarm) {
+      const { ready, total } = ddp.warmProgress;
+      return { results, count: results.length, backend, degraded: true, degraded_reason: `warming up — ${ready}/${total} subscriptions ready` };
+    }
+
     return { results, count: results.length, backend, degraded: false };
   }
 
@@ -168,7 +174,12 @@ export async function missionQuery(
       stats: f.stats || undefined,
     }));
 
-    return { results, count: results.length, backend, degraded: flights.length === 0 };
+    if (!ddp.isWarm) {
+      const { ready, total } = ddp.warmProgress;
+      return { results, count: results.length, backend, degraded: true, degraded_reason: `warming up — ${ready}/${total} subscriptions ready` };
+    }
+
+    return { results, count: results.length, backend, degraded: false };
   }
 
   // ── No backend ─────────────────────────────────────────────
@@ -229,7 +240,12 @@ export async function sessionQuery(
       ended: s.endedAt || undefined,
     }));
 
-    return { results, count: results.length, backend, degraded: sessions.length === 0 };
+    if (!ddp.isWarm) {
+      const { ready, total } = ddp.warmProgress;
+      return { results, count: results.length, backend, degraded: true, degraded_reason: `warming up — ${ready}/${total} subscriptions ready` };
+    }
+
+    return { results, count: results.length, backend, degraded: false };
   }
 
   return { results: [], count: 0, backend, degraded: true, degraded_reason: "no DDP connection" };
@@ -247,6 +263,7 @@ export interface EmissionResult {
   status?: string;
   started?: string;
   updated?: string;
+  mission_id?: string;
 }
 
 export interface EmissionFilters {
@@ -275,6 +292,7 @@ export async function emissionQuery(
     if (filters.entity) emissions = emissions.filter(e => e.entity === filters.entity);
     if (filters.type) emissions = emissions.filter(e => e.type === filters.type);
     if (filters.status) emissions = emissions.filter(e => e.status === filters.status);
+    if (filters.mission_id) emissions = emissions.filter(e => (e as any).missionId === filters.mission_id || (e as any).mission_id === filters.mission_id);
     if (filters.active_only) emissions = emissions.filter(e => e.status === "open" || e.status === "active");
     if (filters.since) emissions = emissions.filter(e => (e.startedAt || "") >= filters.since);
 
@@ -289,9 +307,15 @@ export async function emissionQuery(
       status: e.status || undefined,
       started: e.startedAt || undefined,
       updated: e.updatedAt || undefined,
+      mission_id: (e as any).missionId || (e as any).mission_id || undefined,
     }));
 
-    return { results, count: results.length, backend, degraded: emissions.length === 0 };
+    if (!ddp.isWarm) {
+      const { ready, total } = ddp.warmProgress;
+      return { results, count: results.length, backend, degraded: true, degraded_reason: `warming up — ${ready}/${total} subscriptions ready` };
+    }
+
+    return { results, count: results.length, backend, degraded: false };
   }
 
   return { results: [], count: 0, backend, degraded: true, degraded_reason: "no DDP connection" };
@@ -391,7 +415,12 @@ export async function bondQuery(
       created: b.createdAt || undefined,
     }));
 
-    return { results, count: results.length, backend, degraded: bonds.length === 0 };
+    if (!ddp.isWarm) {
+      const { ready, total } = ddp.warmProgress;
+      return { results, count: results.length, backend, degraded: true, degraded_reason: `warming up — ${ready}/${total} subscriptions ready` };
+    }
+
+    return { results, count: results.length, backend, degraded: false };
   }
 
   return { results: [], count: 0, backend, degraded: true, degraded_reason: "no backend available" };
@@ -470,8 +499,44 @@ export async function questionQuery(
     return { results: [], count: 0, backend, degraded: true, degraded_reason: data?.error || "control-tower unreachable" };
   }
 
-  // ── Remote/DDP — not yet wired ────────────────────────────
-  return { results: [], count: 0, backend, degraded: true, degraded_reason: "question_query requires embedded mode (control-tower REST)" };
+  // ── Remote/DDP — attempt REST anyway (may be reachable) ──
+  // Soft-degrade: try the control-tower REST with a shorter timeout.
+  // If it fails, degrade honestly rather than returning a hollow placeholder.
+  {
+    const params = new URLSearchParams();
+    if (filters.from) params.set("from", filters.from);
+    if (filters.to) params.set("to", filters.to);
+    if (filters.status) params.set("status", filters.status);
+    params.set("limit", String(limit));
+
+    const url = `${CONTROL_URL}/api/questions?${params.toString()}`;
+    const { ok, data } = await safeRestGet(url);
+
+    if (ok && data && Array.isArray(data.questions)) {
+      const results: QuestionResult[] = data.questions.map((q: any) => ({
+        id: q._id || "unknown",
+        from: q.from || "unknown",
+        to: q.to || "unknown",
+        question: q.question || "",
+        status: q.status || "unknown",
+        answer: q.answer || undefined,
+        answered_by: q.answered_by || undefined,
+        answered_at: q.answered_at || undefined,
+        filed: q.filed || undefined,
+        workdir: q.workdir || undefined,
+        context_ref: q.context_ref || undefined,
+        options: q.options || undefined,
+      }));
+
+      let filtered = results;
+      if (filters.id) filtered = results.filter(r => r.id === filters.id);
+
+      return { results: filtered, count: filtered.length, backend, degraded: false };
+    }
+
+    // REST unreachable in remote mode — honest degradation
+    return { results: [], count: 0, backend, degraded: true, degraded_reason: data?.error || "control-tower unreachable from remote" };
+  }
 }
 
 // ===================================================================
@@ -519,7 +584,12 @@ export async function entityQuery(
       status: e.status || undefined,
     }));
 
-    return { results, count: results.length, backend, degraded: entities.length === 0 };
+    if (!ddp.isWarm) {
+      const { ready, total } = ddp.warmProgress;
+      return { results, count: results.length, backend, degraded: true, degraded_reason: `warming up — ${ready}/${total} subscriptions ready` };
+    }
+
+    return { results, count: results.length, backend, degraded: false };
   }
 
   return { results: [], count: 0, backend, degraded: true, degraded_reason: "no DDP connection" };
