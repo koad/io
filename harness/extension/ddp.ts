@@ -41,6 +41,43 @@ export interface BondRecord {
   createdAt?: string;
 }
 
+export interface FlightRecord {
+  _id:               string;
+  entity?:           string;
+  briefSlug?:        string;
+  briefSummary?:     string;
+  status?:           string;
+  host?:             string;
+  model?:            string;
+  started?:          string;
+  ended?:            string;
+  elapsed?:          number;
+  completionSummary?:string;
+  stats?:            Record<string, unknown>;
+}
+
+export interface SessionRecord {
+  _id:        string;
+  entity?:    string;
+  sessionId?: string;
+  status?:    string;
+  host?:      string;
+  model?:     string;
+  lastSeen?:  string;
+  startedAt?: string;
+  endedAt?:   string;
+}
+
+export interface EntityRecord {
+  _id:        string;
+  handle?:    string;
+  name?:      string;
+  role?:      string;
+  host?:      string;
+  status?:    string;
+  createdAt?: string;
+}
+
 export interface HealthSnapshot {
   daemon:       "ok" | "degraded" | "down";
   daemonReady:  boolean;
@@ -55,6 +92,9 @@ export type DDPEvent = "added" | "changed" | "removed";
 export interface DDPClientEvents {
   emission:    [event: DDPEvent, record: EmissionRecord];
   bond:        [event: DDPEvent, record: BondRecord];
+  flight:      [event: DDPEvent, record: FlightRecord];
+  session:     [event: DDPEvent, record: SessionRecord];
+  entity:      [event: DDPEvent, record: EntityRecord];
   health:      [health: HealthSnapshot];
   connected:   [];
   disconnected:[];
@@ -92,6 +132,9 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   // Local reactive collections
   private emissions = new Map<string, EmissionRecord>();
   private bonds     = new Map<string, BondRecord>();
+  private flights   = new Map<string, FlightRecord>();
+  private sessions  = new Map<string, SessionRecord>();
+  private entities  = new Map<string, EntityRecord>();
   private _health:  HealthSnapshot = {
     daemon: "down", daemonReady: false, daemonUptime: 0,
     control: "down", controlReady: false, controlUptime: 0,
@@ -108,12 +151,17 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   // Public API
   // -----------------------------------------------------------------
 
-  get health()       { return { ...this._health }; }
-  get flightCount()  { return this.emissions.size; }
-  get bondCount()    { return this.bonds.size; }
-  get flights()      { return Array.from(this.emissions.values()); }
-  get bondsList()    { return Array.from(this.bonds.values()); }
-  get isConnected()  { return this.ws?.readyState === WebSocket.OPEN; }
+  get health()         { return { ...this._health }; }
+  get flightCount()    { return this.flights.size; }
+  get bondCount()      { return this.bonds.size; }
+  get sessionCount()   { return this.sessions.size; }
+  get entityCount()    { return this.entities.size; }
+  get flightsList()    { return Array.from(this.flights.values()); }
+  get sessionsList()   { return Array.from(this.sessions.values()); }
+  get entitiesList()   { return Array.from(this.entities.values()); }
+  get emissionsList()  { return Array.from(this.emissions.values()); }
+  get bondsList()      { return Array.from(this.bonds.values()); }
+  get isConnected()    { return this.ws?.readyState === WebSocket.OPEN; }
 
   connect(): this {
     if (this._running) return this;
@@ -203,18 +251,27 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
       case "added":
         if (msg.collection === "emissions") this.onEmissionAdded(msg);
         else if (msg.collection === "bonds") this.onBondAdded(msg);
+        else if (msg.collection === "Flights") this.onFlightAdded(msg);
+        else if (msg.collection === "HarnessSessions") this.onSessionAdded(msg);
+        else if (msg.collection === "Entities") this.onEntityAdded(msg);
         else if (msg.collection === "health") this.onHealthUpdate(msg.fields as any);
         break;
 
       case "changed":
         if (msg.collection === "emissions") this.onEmissionChanged(msg);
         else if (msg.collection === "bonds") this.onBondChanged(msg);
+        else if (msg.collection === "Flights") this.onFlightChanged(msg);
+        else if (msg.collection === "HarnessSessions") this.onSessionChanged(msg);
+        else if (msg.collection === "Entities") this.onEntityChanged(msg);
         else if (msg.collection === "health") this.onHealthUpdate(msg.fields as any);
         break;
 
       case "removed":
         if (msg.collection === "emissions") this.onEmissionRemoved(msg);
         else if (msg.collection === "bonds") this.onBondRemoved(msg);
+        else if (msg.collection === "Flights") this.onFlightRemoved(msg);
+        else if (msg.collection === "HarnessSessions") this.onSessionRemoved(msg);
+        else if (msg.collection === "Entities") this.onEntityRemoved(msg);
         break;
 
       case "ready":
@@ -244,6 +301,11 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
         this.sub("emissions"),
         this.sub("bonds"),
         this.sub("health"),
+        this.sub("flights.active"),
+        this.sub("flights.recent"),
+        this.sub("harnesses.active"),
+        this.sub("harnesses.recent"),
+        this.sub("entities"),
       ]);
     } catch (_) {}
   }
@@ -301,6 +363,77 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
     this.bonds.delete(msg.id);
     if (record) this.emit("bond", "removed", record);
   }
+
+  // ── Flight handlers ──────────────────────────────────────
+
+  private onFlightAdded(msg: { id: string; fields?: Record<string, unknown> }): void {
+    const record = (msg.fields ?? {}) as FlightRecord;
+    record._id = msg.id;
+    this.flights.set(msg.id, record);
+    this.emit("flight", "added", record);
+  }
+
+  private onFlightChanged(msg: { id: string; fields?: Record<string, unknown>; cleared?: string[] }): void {
+    const existing = this.flights.get(msg.id);
+    if (!existing) return;
+    if (msg.fields) Object.assign(existing, msg.fields);
+    if (msg.cleared) for (const key of msg.cleared) delete (existing as any)[key];
+    this.emit("flight", "changed", existing);
+  }
+
+  private onFlightRemoved(msg: { id: string }): void {
+    const record = this.flights.get(msg.id);
+    this.flights.delete(msg.id);
+    if (record) this.emit("flight", "removed", record);
+  }
+
+  // ── Session handlers ──────────────────────────────────────
+
+  private onSessionAdded(msg: { id: string; fields?: Record<string, unknown> }): void {
+    const record = (msg.fields ?? {}) as SessionRecord;
+    record._id = msg.id;
+    this.sessions.set(msg.id, record);
+    this.emit("session", "added", record);
+  }
+
+  private onSessionChanged(msg: { id: string; fields?: Record<string, unknown>; cleared?: string[] }): void {
+    const existing = this.sessions.get(msg.id);
+    if (!existing) return;
+    if (msg.fields) Object.assign(existing, msg.fields);
+    if (msg.cleared) for (const key of msg.cleared) delete (existing as any)[key];
+    this.emit("session", "changed", existing);
+  }
+
+  private onSessionRemoved(msg: { id: string }): void {
+    const record = this.sessions.get(msg.id);
+    this.sessions.delete(msg.id);
+    if (record) this.emit("session", "removed", record);
+  }
+
+  // ── Entity handlers ───────────────────────────────────────
+
+  private onEntityAdded(msg: { id: string; fields?: Record<string, unknown> }): void {
+    const record = (msg.fields ?? {}) as EntityRecord;
+    record._id = msg.id;
+    this.entities.set(msg.id, record);
+    this.emit("entity", "added", record);
+  }
+
+  private onEntityChanged(msg: { id: string; fields?: Record<string, unknown>; cleared?: string[] }): void {
+    const existing = this.entities.get(msg.id);
+    if (!existing) return;
+    if (msg.fields) Object.assign(existing, msg.fields);
+    if (msg.cleared) for (const key of msg.cleared) delete (existing as any)[key];
+    this.emit("entity", "changed", existing);
+  }
+
+  private onEntityRemoved(msg: { id: string }): void {
+    const record = this.entities.get(msg.id);
+    this.entities.delete(msg.id);
+    if (record) this.emit("entity", "removed", record);
+  }
+
+  // ── Health handler ────────────────────────────────────────
 
   private onHealthUpdate(fields: Record<string, unknown> | undefined): void {
     if (!fields) return;

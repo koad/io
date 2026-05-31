@@ -39,6 +39,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createDDPClient } from "./ddp";
+import type { DDPClient } from "./ddp";
 import { createTelemetrySession } from "./identity/telemetry";
 import { registerDispatchTools } from "./dispatch/tools";
 import { registerQuestionTools } from "./questions";
@@ -57,6 +58,7 @@ import { registerHooks } from "./hooks";
 import { registerContextBudget } from "./context-budget";
 import { registerProviderCircuitBreaker } from "./provider-circuit-breaker";
 import { registerBodyTools } from "./body-tools";
+import { registerKingdomQueryTools } from "./kingdom-tools";
 
 const _BIND_IP = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
 const CONTROL_WS = (process.env.KOAD_IO_CONTROL_URL ?? `http://${_BIND_IP}:${process.env.KOAD_IO_CONTROL_PORT ?? "28283"}`)
@@ -108,12 +110,16 @@ export default function (pi: ExtensionAPI) {
   // ── Kingdom status (daemon pulse — flights, sessions, emissions) ─
   registerStatusTool(pi);
 
+  // DDP clients — hoisted so kingdom query tools can reference them
+  let ddp: DDPClient | null = null;
+  let daemonDDP: DDPClient | null = null;
+
   if (!inSdkMode) {
     // ── DDP to control-tower (flights, bonds, sessions, health) ────
-    const ddp = createDDPClient(CONTROL_WS);
+    ddp = createDDPClient(CONTROL_WS);
 
     // ── DDP to daemon (raw emissions, channel cues, questions) ─────
-    const daemonDDP = createDDPClient(DAEMON_WS);
+    daemonDDP = createDDPClient(DAEMON_WS);
 
     // ── Identity + telemetry (footer, token stats, kingdom state) ─
     const telemetry = createTelemetrySession(pi, ddp);
@@ -152,4 +158,8 @@ export default function (pi: ExtensionAPI) {
 
   // ── Body tools (surface, inbox, obligation, brief — kingdom motions) ──
   registerBodyTools(pi);
+
+  // ── Kingdom query tools (mission, session, emission, bond, question, entity) ──
+  // Uses the daemon DDP client when available; falls back to REST for bonds/questions.
+  registerKingdomQueryTools(pi, daemonDDP ?? ddp);
 }
