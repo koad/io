@@ -170,7 +170,14 @@ function readEntityMd(entityPath) {
 }
 
 // Active ENTITY.md watchers
-const entityMdWatchers = new Map();
+const entityMdWatchers = new Map(); // handle -> { path, watcher }
+
+function closeEntityMdWatcher(handle) {
+  const record = entityMdWatchers.get(handle);
+  if (!record) return;
+  try { record.watcher.close(); } catch (e) {}
+  entityMdWatchers.delete(handle);
+}
 
 // Scan home directory for entity folders
 function scanEntities() {
@@ -273,8 +280,12 @@ function syncEntities() {
     }
 
     // Watch ENTITY.md for live edits
+    const mdPath = path.join(entityPath, 'ENTITY.md');
+    const existingWatcher = entityMdWatchers.get(handle);
+    if (existingWatcher && existingWatcher.path !== mdPath) {
+      closeEntityMdWatcher(handle);
+    }
     if (!entityMdWatchers.has(handle)) {
-      const mdPath = path.join(entityPath, 'ENTITY.md');
       try {
         const watcher = fs.watch(mdPath, { persistent: false }, () => {
           Meteor.setTimeout(() => {
@@ -282,7 +293,8 @@ function syncEntities() {
             Entities.update({ handle }, { $set: { tagline: updated.tagline, entityMd: updated.entityMd } });
           }, 300);
         });
-        entityMdWatchers.set(handle, watcher);
+        watcher.on('error', () => closeEntityMdWatcher(handle));
+        entityMdWatchers.set(handle, { path: mdPath, watcher });
       } catch (e) { /* ENTITY.md might not exist */ }
     }
   }
@@ -290,6 +302,7 @@ function syncEntities() {
   // Remove entities that disappeared from disk
   Entities.find().fetch().forEach(entity => {
     if (!foundHandles.has(entity.handle)) {
+      closeEntityMdWatcher(entity.handle);
       Entities.remove(entity._id);
       console.log(`[ENTITIES] - ${entity.handle}`);
     }
