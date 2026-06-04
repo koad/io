@@ -13,6 +13,7 @@ const fs   = Npm.require('fs');
 const path = Npm.require('path');
 const os   = Npm.require('os');
 const fsp  = fs.promises;
+const { WebApp } = require('meteor/webapp');
 
 const HOME = process.env.HOME || os.homedir();
 const STARTUP_SCAN_BATCH_SIZE = 10;
@@ -41,6 +42,7 @@ const CORPUS = [
   { dir: 'memories',     kind: 'memory' },
   { dir: 'tickler',      kind: 'tickle' },
   { dir: 'posts',        kind: 'post' },
+  { dir: 'offerings',    kind: 'offering' },
   { dir: 'assessments',  kind: 'assessment' },
   { dir: 'reviews',      kind: 'review' },
   { dir: 'reports',      kind: 'report' },
@@ -193,6 +195,7 @@ async function buildDoc(entity, entityDir, kind, fullPath) {
     filename:     path.basename(fullPath),
     rel_path:     path.relative(entityDir, fullPath),
     frontmatter:  fm,
+    body:         kind === 'offering' ? body : undefined,
     body_excerpt: body.slice(0, 500),
     word_count:   body.split(/\s+/).filter(Boolean).length,
     size_bytes:   stat.size,
@@ -770,6 +773,129 @@ Meteor.publish('documents.atlas', async function () {
 Meteor.publish('documents.refs', async function () {
   await koad.ready.await('documents');
   return DocumentRefs.find();
+});
+
+function normalizeOfferingStatus(status) {
+  if (typeof status !== 'string' || !status.trim()) return 'active';
+  return status.trim().toLowerCase();
+}
+
+function projectOffering(doc) {
+  if (!doc || doc.kind !== 'offering') return null;
+  const fm = doc.frontmatter || {};
+  const slug = (doc.filename || '').replace(/\.md$/i, '') || path.basename(doc._id || '', '.md');
+  const priceRaw = fm.price;
+  const priceNum = typeof priceRaw === 'number' ? priceRaw : Number(priceRaw);
+  const price = Number.isFinite(priceNum) ? priceNum : priceRaw;
+  return {
+    _id: doc._id,
+    entity: doc.entity,
+    slug,
+    path: doc._id,
+    rel_path: doc.rel_path,
+    title: fm.title || slug || '(untitled offering)',
+    description: fm.description || doc.body_excerpt || '',
+    price,
+    currency: fm.currency || 'USD',
+    duration: fm.duration || '',
+    category: fm.category || '',
+    status: normalizeOfferingStatus(fm.status),
+    tags: Array.isArray(fm.tags) ? fm.tags : (fm.tags ? [fm.tags] : []),
+    body: doc.body || '',
+    mtime: doc.mtime,
+    asof: doc.asof,
+  };
+}
+
+function omitId(doc) {
+  const shaped = { ...(doc || {}) };
+  delete shaped._id;
+  return shaped;
+}
+
+function publishProjectedCursor(sub, collectionName, cursor, projector) {
+  return cursor.observe({
+    added(doc) {
+      const shaped = projector(doc);
+      if (!shaped || !shaped._id) return;
+      sub.added(collectionName, shaped._id, omitId(shaped));
+    },
+    changed(newDoc) {
+      const shaped = projector(newDoc);
+      if (!shaped || !shaped._id) return;
+      sub.changed(collectionName, shaped._id, omitId(shaped));
+    },
+    removed(oldDoc) {
+      if (!oldDoc || !oldDoc._id) return;
+      sub.removed(collectionName, oldDoc._id);
+    },
+  });
+}
+
+Meteor.publish('offerings.all', async function () {
+  await koad.ready.await('documents');
+  const sub = this;
+  const handle = publishProjectedCursor(sub, 'Offerings', Documents.find({ kind: 'offering' }), projectOffering);
+  sub.ready();
+  sub.onStop(() => handle.stop());
+});
+
+Meteor.publish('offerings.entity', async function (entity, statusArg) {
+  check(entity, String);
+  check(statusArg, Match.Optional(String));
+  await koad.ready.await('documents');
+  const selector = {
+    kind: 'offering',
+    entity: entity.toLowerCase(),
+  };
+  if (statusArg) {
+    const normalizedStatus = normalizeOfferingStatus(statusArg);
+    if (normalizedStatus === 'active') {
+      selector.$or = [
+        { 'frontmatter.status': 'active' },
+        { 'frontmatter.status': { $exists: false } },
+        { 'frontmatter.status': '' },
+      ];
+    } else {
+      selector['frontmatter.status'] = normalizedStatus;
+    }
+  }
+  const sub = this;
+  const handle = publishProjectedCursor(sub, 'Offerings', Documents.find(selector), projectOffering);
+  sub.ready();
+  sub.onStop(() => handle.stop());
+});
+
+const offeringsApi = WebApp.connectHandlers;
+
+offeringsApi.use('/api/offerings', async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  try {
+    await koad.ready.await('documents');
+    const url = new URL(req.url, 'http://localhost');
+    const parts = url.pathname.split('/').filter(Boolean);
+    const entity = parts.length > 0 ? parts[0].toLowerCase() : (url.searchParams.get('entity') || '').toLowerCase();
+    const status = normalizeOfferingStatus(url.searchParams.get('status') || 'active');
+    const selector = { kind: 'offering' };
+    if (entity) selector.entity = entity;
+    if (status === 'active') {
+      selector.$or = [
+        { 'frontmatter.status': 'active' },
+        { 'frontmatter.status': { $exists: false } },
+        { 'frontmatter.status': '' },
+      ];
+    } else if (status) {
+      selector['frontmatter.status'] = status;
+    }
+    const docs = Documents.find(selector, { sort: { mtime: -1 } }).fetch()
+      .map(projectOffering)
+      .filter(Boolean);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, count: docs.length, offerings: docs }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: err && err.message ? err.message : String(err) }));
+  }
 });
 
 // ---------------------------------------------------------------------------
