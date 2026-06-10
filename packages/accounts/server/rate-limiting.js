@@ -13,7 +13,6 @@
  *     enabled: true,
  *     loginAttempts: 5,        // Max login attempts per 5 minutes
  *     methodCalls: 20,         // Max method calls per 10 seconds
- *     invitationCreation: 3,   // Max invitations per hour
  *     sponsorVerification: 10  // Max verifications per hour
  *   }
  */
@@ -24,7 +23,6 @@ const config = Meteor.settings.rateLimiting || {
 	enabled: true,
 	loginAttempts: 5,
 	methodCalls: 20,
-	invitationCreation: 3,
 	sponsorVerification: 10
 };
 
@@ -60,31 +58,6 @@ if (!config.enabled) {
 		name: 'login',
 		connectionId() { return true; }
 	}, 10, 60 * 1000); // 1 minute
-
-	// =========================================================================
-	// Invitation Rate Limiting
-	// =========================================================================
-	
-	/**
-	 * Limit invitation creation
-	 * 
-	 * Prevents invitation spam.
-	 * Limit: 3 invitations per hour per user
-	 */
-	DDPRateLimiter.addRule({
-		type: 'method',
-		name: 'invitation.create',
-		userId(userId) { return !!userId; }
-	}, config.invitationCreation, 60 * 60 * 1000); // 1 hour
-
-	/**
-	 * Legacy method name
-	 */
-	DDPRateLimiter.addRule({
-		type: 'method',
-		name: 'GenerateInviteCode',
-		userId(userId) { return !!userId; }
-	}, config.invitationCreation, 60 * 60 * 1000); // 1 hour
 
 	// =========================================================================
 	// Sponsor Verification Rate Limiting
@@ -125,6 +98,16 @@ if (!config.enabled) {
 		name: 'sponsor.refresh',
 		userId(userId) { return !!userId; }
 	}, config.sponsorVerification, 60 * 60 * 1000); // 1 hour
+
+	// =========================================================================
+	// Invitation Consumable Rate Limiting
+	// =========================================================================
+
+	DDPRateLimiter.addRule({
+		type: 'method',
+		name: 'invite.consume',
+		connectionId() { return true; }
+	}, 10, 10 * 60 * 1000); // 10 attempts per 10 minutes per connection
 
 	// =========================================================================
 	// OAuth Rate Limiting

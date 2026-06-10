@@ -1,7 +1,7 @@
 Package.describe({
   name: 'koad:io-accounts',
-  version: '3.6.9',
-  summary: 'Account management with roles, invitations, and authentication for koad:io applications',
+  version: '3.7.0',
+  summary: 'Account management with roles and authentication for koad:io applications',
   documentation: 'README.md'
 });
 
@@ -25,6 +25,7 @@ Package.onUse(function(api) {
 
 	api.addFiles([
 		'server/auth.js',
+		'server/sovereign-auth.js',          // sovereign.auth.* — device authorization (uses globalThis.SovereignAuth from auth.js)
 		'server/roles.js',
 		'server/methods.js',
 		'server/new-user-shaper.js',
@@ -36,6 +37,7 @@ Package.onUse(function(api) {
 		'server/pgp-auth.js',
 		'server/sign-required.js',
 		'server/identity-session-methods.js',
+		'server/user-profile-publication.js', // user.profile pub — ProfileShell user profiles
 	], 'server');
 
   // api.export('Accounts');
@@ -43,7 +45,6 @@ Package.onUse(function(api) {
 
   api.export('Login', 'client');
   api.export('Logout', 'client');
-	api.export('ApplicationInvitations', 'server');
 	api.export('ApplicationSponsors', 'server');
 	api.export('SovereignAuth', 'server');
 
