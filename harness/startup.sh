@@ -472,8 +472,8 @@ fi
 # --- Layer 2b: Role primer ---
 # An entity declares its role via KOAD_IO_ENTITY_ROLE in ~/.<entity>/.env.
 # The framework maintains one role primer at ~/.koad-io/harness/primers/<role>/PRIMER.md.
-# Only PRIMER.md is loaded. This keeps role context tight and prevents
-# auxiliary docs from silently inflating or contaminating startup context.
+# Only PRIMER.md is loaded by default. The sole exception is orchestrator,
+# which may also load an optional tooling.md for role-specific coordination tools.
 # No role declared = no primer loaded. Missing role dir/file = logged, not fatal.
 PRIMERS_BASE="$KOAD_IO_DIR/harness/primers"
 if [ -n "${KOAD_IO_ENTITY_ROLE:-}" ]; then
@@ -483,7 +483,14 @@ if [ -n "${KOAD_IO_ENTITY_ROLE:-}" ]; then
     printf '\n---\n\n# Role Primer\n\n'
     _subst < "$_role_primer"
     echo "[startup] role primer: $KOAD_IO_ENTITY_ROLE/PRIMER ($(wc -c < "$_role_primer") bytes)" >&2
-    echo "[startup] role primer: $KOAD_IO_ENTITY_ROLE — 1 loaded" >&2
+    _role_loaded=1
+    if [ "$KOAD_IO_ENTITY_ROLE" = "orchestrator" ] && [ -f "$_role_dir/tooling.md" ]; then
+      printf '\n---\n\n# Role Tooling\n\n'
+      _subst < "$_role_dir/tooling.md"
+      echo "[startup] role tooling: $KOAD_IO_ENTITY_ROLE/tooling ($(wc -c < "$_role_dir/tooling.md") bytes)" >&2
+      _role_loaded=2
+    fi
+    echo "[startup] role primer: $KOAD_IO_ENTITY_ROLE — ${_role_loaded} file(s) loaded" >&2
   elif [ -d "$_role_dir" ]; then
     echo "[startup] role primer: PRIMER.md missing for role '$KOAD_IO_ENTITY_ROLE', skipped" >&2
   else

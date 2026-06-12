@@ -209,7 +209,7 @@ The harness directory has two jobs: assemble a SYSTEM_PROMPT from layered source
 | `extensions/koad-io/` | Pi extension — tools/, bond-gate/, identity/, kingdom/, streams/, dispatch/, channels/, lifecycle.ts, context-budget.ts, circuit-breaker.ts |
 | `extensions/koad-io/lifecycle.ts` | Pi lifecycle hooks — was koad-io-hooks; standing-watchers, session-harvest, prompt-awareness |
 | `extensions/koad-io/bond-gate/` | Tool permission gate — trust bond resolution, scoped read/write/exec paths (was koad-io-bond-gate.ts) |
-| `primers/<role>/` | Thirteen role-specific context directories with one role-only `PRIMER.md` each |
+| `primers/<role>/` | Thirteen role-specific context directories with one role-only `PRIMER.md` each; orchestrator may also include `tooling.md` |
 | `plugins/` | Harness extension shelf — plugins that render into harness chrome |
 | `patches/` | Third-party tool patches (opencode) |
 | `config/` | Framework-level tooling config (opencode.jsonc, model-prices.json) |
@@ -380,7 +380,7 @@ Blocked calls return a custom message telling the entity which kingdom tool or s
 
 ## Role primer system
 
-Thirteen role directories under `primers/`, each containing a single `PRIMER.md`. These files are intentionally narrow: role guidance only, with no harness walkthroughs, tool catalogs, or substrate claims.
+Thirteen role directories under `primers/`, each containing a single `PRIMER.md`. The sole exception is `orchestrator/tooling.md`, which may exist for role-specific coordination tools. These files are intentionally narrow: role guidance only, with no harness walkthroughs, tool catalogs, or substrate claims beyond that orchestrator tooling surface.
 
 | Role | Typical entities | Description |
 |------|-----------------|-------------|
@@ -398,7 +398,7 @@ Thirteen role directories under `primers/`, each containing a single `PRIMER.md`
 | `researcher` | — | Investigation, deep-dive analysis |
 | `teacher` | — | Instruction, explanation, mentoring |
 
-Role primers load automatically when `KOAD_IO_ENTITY_ROLE` matches a directory name. Startup loads only `PRIMER.md` from that role directory.
+Role primers load automatically when `KOAD_IO_ENTITY_ROLE` matches a directory name. Startup loads only `PRIMER.md` from that role directory, except for orchestrator where optional `tooling.md` also loads if present.
 
 ## Plugin shelf
 
@@ -416,9 +416,10 @@ Currently: `opencode/shell-git` (git-state ribbon in prompt-right slots). `claud
 
 1. Create `~/.koad-io/harness/primers/<role>/PRIMER.md`
 2. Keep it role-specific: purpose, work loop, boundaries, success, drift
-3. Set `KOAD_IO_ENTITY_ROLE=<role>` in the entity's `.env`
-4. No changes to `startup.sh` needed — it loads that single file automatically
-5. Test: launch the entity and inspect the assembled system prompt on stderr via `--light` mode
+3. If the role is orchestrator, `tooling.md` may also exist for coordination tools only
+4. Set `KOAD_IO_ENTITY_ROLE=<role>` in the entity's `.env`
+5. No changes to `startup.sh` needed — it loads that file automatically, plus orchestrator tooling when present
+6. Test: launch the entity and inspect the assembled system prompt on stderr via `--light` mode
 
 ## How to add a new pi extension
 
