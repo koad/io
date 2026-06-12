@@ -36,9 +36,6 @@ koad_io_cd_register() {
     return 1
   fi
   KOAD_IO_CD_HOOKS+=("$fn")
-  if [ "${KOAD_IO_QUIET:-0}" != "1" ]; then
-    echo "koad:io cd-reflex: registered $fn"
-  fi
 }
 
 koad_io_cd_reflex() {
