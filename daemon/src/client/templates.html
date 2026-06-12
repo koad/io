@@ -7,53 +7,42 @@
       background: transparent;
     }
   </style>
-	<script src="/assets/font-awsome.js"></script>
+	<script src="/assets/font-awesome.js"></script>
 </head>
 
 <body>
-	{{#if isOverview}}
-		{{> brandKingdomOverview}}
-	{{else if isMerkle}}
-		{{> MerkleView}}
-	{{else if isIndexers}}
-		{{> IndexersAdmin}}
-	{{else}}
 		{{> WidgetQuickLaunch}}
-	{{/if}}
 </body>
 
 <template name="WidgetQuickLaunch">
 	<div id="drag-container">
-
-			{{#with outfit}}
-				<style type="text/css">
-					:root{
-						--shadow-hue: {{hue}};
-						--shadow-saturation: {{saturation}};
-						--shadow-brightness: {{brightness}};
-					}
-				</style>
-			{{/with}}
-
-			<div class="container">
-				<div id="navMenu" class="diamond main-diamond small {{alertClass}}">
-					<div id="mainRotCorrect" class="rotCorrect draggable">
-						<img title="Hold shift while clicking to expand the menu" class="entity-icon" src="{{image}}" style="opacity: {{avatarOpacity}}">
-						{{#if hasAlerts}}
-						<div class="alert-overlay">
-							{{#with firstAlert}}
-							<span class="alert-text">{{body}}</span>
-							{{/with}}
+			{{#with SelectedPassenger}}
+				{{#with outfit}}
+					<style type="text/css">
+						:root{
+							--shadow-hue: {{hue}};
+							--shadow-saturation: {{saturation}};
+						}
+					</style>
+				{{/with}}
+				<div class="container">
+					<div id="navMenu" class="diamond main-diamond small {{alertClass}}">
+						<div id="mainRotCorrect" class="rotCorrect draggable">
+							<img title="Hold shift while clicking to expand the menu" class="entity-icon" src="/{{handle}}.png" style="opacity: {{avatarOpacity}}">
+							{{#if hasAlerts}}
+							<div class="alert-overlay">
+								{{#with firstAlert}}
+								<span class="alert-text">{{body}}</span>
+								{{/with}}
+							</div>
+							{{/if}}
 						</div>
-						{{/if}}
 					</div>
+					{{#each buttons}}
+						<a href="{{target}}"><div id="nav{{@index}}" class="nav nav{{@index}} diamond btn-nav small"><div class="rotCorrect"><i class="fa fa-{{key}} fa-2x" aria-hidden="true"></i></div></div></a>
+					{{/each}}
 				</div>
-				{{#each buttons}}
-
-					<a href="{{target}}"><div id="nav{{@index}}" class="nav nav{{@index}} diamond btn-nav small"><div class="rotCorrect"><i class="fa fa-{{key}} fa-2x" aria-hidden="true"></i></div></div></a>
-
-				{{/each}}
-			</div>
+			{{/with}}
 
 			<div class="notification-stack">
 				{{#each allNotificationItems}}

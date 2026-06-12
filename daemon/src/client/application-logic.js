@@ -19,7 +19,7 @@ function getEntityAlerts() {
 }
 
 Template.WidgetQuickLaunch.helpers({
-  Entity() {
+  SelectedPassenger() {
     return Passengers.findOne({selected: {$exists: true}});
   },
   fullIconClass() {
@@ -122,7 +122,7 @@ Template.WidgetQuickLaunch.events({
   'click .main-diamond'(event, instance) {
     event.preventDefault();
 
-    const navElement = instance.$('#navMenu');
+    const navElement = instance.$('.nav');
     const mainDiamondElement = instance.$('.main-diamond');
     if (event.shiftKey) {
       // Shift click: toggle expansion

@@ -6,7 +6,7 @@
 const fs = Npm.require('fs');
 const path = Npm.require('path');
 
-const Passengers = new Mongo.Collection('Passengers', { connection: null });
+globalThis.Passengers = new Mongo.Collection('Passengers', { connection: null });
 
 const watchers = new Map();
 
@@ -59,13 +59,13 @@ function indexEntity(handle, entityPath) {
       Passengers.update(existing._id, { $set: doc, $unset: { avatar: '' } });
     } else {
       Passengers.insert(doc);
-      console.log(`[PASSENGERS] + ${doc.name || handle}`);
+      log.debug(`[PASSENGERS] + ${doc.name || handle}`);
     }
   } else {
     const removed = Passengers.findOne({ handle });
     if (removed) {
       Passengers.remove({ handle });
-      console.log(`[PASSENGERS] - ${handle}`);
+      log.debug(`[PASSENGERS] - ${handle}`);
     }
   }
 }
@@ -87,12 +87,12 @@ function watchEntity(handle, entityPath) {
 
 // Full scan
 function scanAll() {
-  const entities = EntityScanner.Entities.find().fetch();
+  const entities = koad.library.entities.find().fetch();
   for (const entity of entities) {
     indexEntity(entity.handle, entity.path);
     watchEntity(entity.handle, entity.path);
   }
-  console.log(`[PASSENGERS] Indexed. Total: ${Passengers.find().count()}`);
+  log.debug(`[PASSENGERS] Indexed. Total: ${Passengers.find().count()}`);
   if (!globalThis.indexerReady) globalThis.indexerReady = {};
   globalThis.indexerReady.passengers = new Date().toISOString();
   koad.ready.signal('passengers');
@@ -111,7 +111,7 @@ Meteor.startup(() => {
     scanAll();
 
     if (mode === 'true') {
-      EntityScanner.Entities.find().observeChanges({
+      koad.library.entities.find().observeChanges({
         added: (id, fields) => {
           const entityPath = path.join(process.env.HOME, fields.folder);
           indexEntity(fields.handle, entityPath);
@@ -150,7 +150,7 @@ Meteor.methods({
     const passenger = Passengers.findOne({ selected: { $exists: 1 } });
     if (!passenger) return { success: false, reason: 'No passenger selected' };
 
-    console.log(`[INGEST] ${passenger.name} received URL: ${data.url}`);
+    log.debug(`[INGEST] ${passenger.name} received URL: ${data.url}`);
     return { success: true, passenger: passenger.name };
   },
 
@@ -194,10 +194,4 @@ Meteor.publish('passengers', async function () {
 Meteor.publish('current', async function () {
   await koad.ready.await('passengers');
   return Passengers.find({ selected: { $exists: 1 } }, { sort: { selected: 1 } });
-});
-
-// Keep legacy 'all' publication for backward compat
-Meteor.publish('all', async function () {
-  await koad.ready.await('passengers');
-  return Passengers.find();
 });
