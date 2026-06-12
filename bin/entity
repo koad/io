@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
 
 export ENTITY='alice'
 export KOAD_IO_VIA_LAUNCHER=1
-koad-io "$@";
+"$HOME/.koad-io/bin/koad-io" "$@";

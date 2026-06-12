@@ -199,10 +199,10 @@ set -a
 [ -f $HOME/.koad-io/.credentials ] && echo "absorbing $HOME/.koad-io/.credentials" >&2 && set -a && source $HOME/.koad-io/.credentials 
 [ -f $HOME/.koad-io/.aliases ] && echo "absorbing $HOME/.koad-io/.aliases" >&2 && set -a && source $HOME/.koad-io/.aliases 
 
-# Convert ENTITY to lowercase for directory naming.
-# Guard against empty ENTITY — otherwise ENTITY_DIR falls back to "$HOME/."
+# ENTITY_DIR is always $HOME/.$ENTITY, lowercased.
+# Guard against empty ENTITY — otherwise resolves to "$HOME/."
 # which sources $HOME/.env on every no-entity invocation (latent bug 2026-04-21).
-[[ -z "$ENTITY_DIR" ]] && [[ -n "$ENTITY" ]] && ENTITY_DIR="$HOME/.$(echo "$ENTITY" | tr '[:upper:]' '[:lower:]')"
+[[ -n "$ENTITY" ]] && ENTITY_DIR="$HOME/.$(echo "$ENTITY" | tr '[:upper:]' '[:lower:]')"
 
 # Check and load any environment details from the entity's folder.
 if [ -d "$ENTITY_DIR" ]; then
