@@ -25,6 +25,8 @@
 #     OpenAI API-key provider (openai).
 #   - KOAD_IO_ROOTED honored for cwd selection
 #   - interactive when no prompt; --mode rpc for one-shot dispatch
+#   - bond-gate narrow lanes may be supplied via env without enabling the full
+#     bypass (bash, dispatch, read/write tools, path scopes, bash deny files)
 
 set -e
 
@@ -111,10 +113,10 @@ done
 set -- "${POSITIONAL[@]}"
 unset POSITIONAL _prompt_flag
 
-PROVIDER="${1:-${ENTITY_PI_PROVIDER:-${KOAD_IO_PI_PROVIDER:-${PI_PROVIDER:-openai-codex}}}}"
+PROVIDER="${1:-${ENTITY_PI_PROVIDER:-${KOAD_IO_PI_PROVIDER:-${PI_PROVIDER:-deepseek}}}}"
 [ $# -gt 0 ] && shift
 
-MODEL="${1:-${ENTITY_PI_MODEL:-${KOAD_IO_PI_MODEL:-${PI_MODEL:-gpt-5.4}}}}"
+MODEL="${1:-${ENTITY_PI_MODEL:-${KOAD_IO_PI_MODEL:-${PI_MODEL:-deepseek-v4-pro}}}}"
 [ $# -gt 0 ] && shift
 
 if [ -z "$PROMPT" ] && [ ! -t 0 ]; then
@@ -151,14 +153,16 @@ fi
 
 # --- Rooted vs roaming cwd ------------------------------------------------
 
+HARNESS_WORK_DIR="${CWD:-$PWD}"
+export HARNESS_WORK_DIR
+
 if [ "${KOAD_IO_ROOTED:-false}" = "true" ]; then
   WORK_DIR="$ENTITY_DIR"
 else
-  WORK_DIR="${CWD:-$PWD}"
+  WORK_DIR="$HARNESS_WORK_DIR"
 fi
 
 cd "$WORK_DIR"
-
 # --- Working folder guard -------------------------------------------------
 # Refuse to start in home dir or any entity/dotfolder dir.
 # These harnesses must run in an explicit project working folder.
@@ -233,7 +237,7 @@ _sessions_dir="$_harness_pid_dir/sessions"
 mkdir -p "$_sessions_dir" 2>/dev/null
 export KOAD_IO_HARNESS_SESSIONS_DIR="$_sessions_dir"
 
-_emit_meta="{\"harness\":\"pi\",\"model\":\"$PROVIDER/$MODEL\",\"pid\":$$,\"spirit\":\"$KOAD_IO_SPIRIT\",\"host\":\"$(hostname -s)\",\"cwd\":\"$WORK_DIR\",\"sessionDir\":\"$_sessions_dir\"${HARNESS_PARENT_EMISSION_ID:+,\"parentId\":\"$HARNESS_PARENT_EMISSION_ID\"}}"
+_emit_meta="{\"harness\":\"pi\",\"model\":\"$PROVIDER/$MODEL\",\"pid\":$$,\"spirit\":\"$KOAD_IO_SPIRIT\",\"host\":\"$(hostname -s)\",\"cwd\":\"$WORK_DIR\",\"sessionDir\":\"$_sessions_dir\"${HARNESS_CONTROL_FLIGHT_ID:+,\"flightId\":\"$HARNESS_CONTROL_FLIGHT_ID\"}${HARNESS_PARENT_EMISSION_ID:+,\"parentId\":\"$HARNESS_PARENT_EMISSION_ID\"}}"
 
 if [ -f "$HARNESS_EMISSION_ID_FILE" ] && [ -n "$CONTINUE_FLAG" ]; then
   koad_io_emit_resume "resumed: pi $PROVIDER/$MODEL ($_mode)" "$_emit_meta"
@@ -252,17 +256,98 @@ _harness_stamp_flight() {
   [ -f "$flight_file" ] || return
   local new_status="landed"
   [ "$rc" -ne 0 ] && [ "$rc" -ne 130 ] && new_status="error"
-  # Only stamp if status is still "flying" (control-tower may have already closed it)
-  local cur_status
-  cur_status=$(jq -r '.status // ""' "$flight_file" 2>/dev/null || echo "")
-  if [ "$cur_status" != "flying" ]; then
-    return
-  fi
-  jq --arg status "$new_status" \
-     --arg ended "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
-     --arg note "harness exit rc=$rc (control-tower fallback)" \
-     '.status = $status | .ended = $ended | .closingNote = (.closingNote // $note)' \
-     "$flight_file" > "${flight_file}.tmp.$$" && mv "${flight_file}.tmp.$$" "$flight_file"
+  python3 - "$flight_file" "$new_status" "$rc" <<'PYSTAMP' 2>/dev/null || true
+import json, os, sys, time
+from datetime import datetime
+
+flight_path, new_status, rc_str = sys.argv[1:4]
+
+try:
+    with open(flight_path) as f:
+        flight = json.load(f)
+except Exception:
+    sys.exit(0)
+
+if flight.get("status") != "flying":
+    sys.exit(0)
+
+ended = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+note = flight.get("closingNote") or f"harness exit rc={rc_str} (control-tower fallback)"
+flight["status"] = new_status
+flight["ended"] = ended
+flight["closingNote"] = note
+flight_tmp = flight_path + ".tmp." + str(os.getpid())
+with open(flight_tmp, "w") as f:
+    json.dump(flight, f, indent=2)
+    f.write("\n")
+os.replace(flight_tmp, flight_path)
+
+run_id = flight.get("run_record_id") or ""
+if not run_id:
+    sys.exit(0)
+
+runs_dir = os.path.join(os.path.expanduser("~/.juno"), "control", "runs")
+run_path = os.path.join(runs_dir, f"{run_id}.json")
+if not os.path.exists(run_path):
+    sys.exit(0)
+
+try:
+    with open(run_path) as f:
+        run = json.load(f)
+except Exception:
+    sys.exit(0)
+
+if run.get("close_verified") is True and run.get("status") in ("complete", "failed"):
+    sys.exit(0)
+
+stats = flight.get("stats") or run.get("stats") or {}
+outputs = dict(run.get("outputs") or {})
+outputs["summary"] = outputs.get("summary") or note
+results = dict(run.get("results") or {})
+results["success"] = (new_status == "landed")
+if stats.get("cost") is not None:
+    results["cost"] = stats.get("cost")
+model = flight.get("model") or run.get("model") or (stats.get("model") if isinstance(stats, dict) else None)
+
+elapsed = run.get("elapsed_s") or run.get("elapsed") or 0
+started = run.get("started") or run.get("started_at") or flight.get("started")
+if not elapsed and started:
+    try:
+        started_dt = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+        ended_dt = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+        elapsed = max(0, round((ended_dt - started_dt).total_seconds()))
+    except Exception:
+        elapsed = 0
+
+run["status"] = "complete" if new_status == "landed" else "failed"
+run["ended"] = ended
+run["completed_at"] = ended
+run["close_reason"] = "harness-fallback"
+run["close_verified"] = True
+run["outputs"] = outputs
+run["results"] = results
+run["stats"] = stats
+if model:
+    run["model"] = model
+if elapsed:
+    run["elapsed"] = elapsed
+    run["elapsed_s"] = elapsed
+
+run_tmp = run_path + ".tmp." + str(os.getpid())
+with open(run_tmp, "w") as f:
+    json.dump(run, f, indent=2)
+    f.write("\n")
+os.replace(run_tmp, run_path)
+
+run_log_path = run.get("run_log_path") or ""
+if run_log_path:
+    try:
+        os.makedirs(os.path.dirname(run_log_path), exist_ok=True)
+        with open(run_log_path, "a") as f:
+            f.write(json.dumps(run) + "\n")
+    except Exception:
+        pass
+PYSTAMP
 }
 
 _pi_on_exit() {
@@ -395,5 +480,55 @@ koad_io_emit_update "rpc dispatch started"
 export PROMPT
 
 python3 "$SCRIPT_DIR/pi_rpc_dispatch.py" "$PI_BIN" "${BASE_FLAGS[@]}"
+_dispatch_rc=$?
 
-exit $?
+# --- Followup polling loop (control-tower dispatched flights) ---------------
+# When dispatched via control-tower, the dispatcher may send follow-up prompts
+# after the initial task completes. Poll the followup file and re-dispatch
+# until the dispatcher signals complete or timeout elapses.
+if [ -n "${HARNESS_CONTROL_FLIGHT_ID:-}" ]; then
+  _followup_file="${HOME}/.juno/control/flights/${HARNESS_CONTROL_FLIGHT_ID}.followup.jsonl"
+  _followup_timeout=300  # 5 minutes total for followups
+  _followup_start=$(date +%s)
+  _followup_pos=0
+
+  # Record current file position so we only read new entries
+  [ -f "$_followup_file" ] && _followup_pos=$(wc -c < "$_followup_file")
+
+  koad_io_emit_update "followup polling started (timeout=${_followup_timeout}s)"
+
+  while true; do
+    _now=$(date +%s)
+    _elapsed=$((_now - _followup_start))
+    [ "$_elapsed" -ge "$_followup_timeout" ] && break
+
+    if [ -f "$_followup_file" ]; then
+      _current_size=$(wc -c < "$_followup_file")
+      if [ "$_current_size" -gt "$_followup_pos" ]; then
+        _new_bytes=$(tail -c +$((_followup_pos + 1)) "$_followup_file" 2>/dev/null || true)
+        _followup_pos=$_current_size
+
+        _first_line=$(echo "$_new_bytes" | head -1)
+        _action=$(echo "$_first_line" | jq -r '.action // "prompt"' 2>/dev/null || echo "prompt")
+
+        if [ "$_action" = "complete" ]; then
+          koad_io_emit_update "followup: dispatcher signaled mission complete"
+          break
+        fi
+
+        _followup_prompt=$(echo "$_first_line" | jq -r '.prompt // .message // ""' 2>/dev/null || echo "")
+        if [ -n "$_followup_prompt" ]; then
+          koad_io_emit_update "followup received, re-dispatching"
+          PROMPT="$_followup_prompt" python3 "$SCRIPT_DIR/pi_rpc_dispatch.py" "$PI_BIN" "${BASE_FLAGS[@]}"
+          _dispatch_rc=$?
+          # Reset timeout on each received followup so the dispatcher can
+          # chain multiple follow-ups without racing the clock
+          _followup_start=$(date +%s)
+        fi
+      fi
+    fi
+    sleep 4
+  done
+fi
+
+exit $_dispatch_rc
