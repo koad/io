@@ -1,6 +1,11 @@
 ---
 type: primer
 folder: ~/.koad-io/harness/
+status: experimental
+stability: moving-target — evolving fast, expect turbulence
+repo: https://github.com/koad/io
+contribute: Fork at github.com/koad/io → open a pull request. Read README.md first.
+insiders: Join the conversation at https://kingofalldata.com
 parents:
   - ~/.koad-io/
 children:
@@ -8,7 +13,7 @@ children:
     blurb: Thirteen role-specific context directories — analyst, auditor, communicator, curator, curriculum, designer, engineer, healer, keeper, orchestrator, producer, researcher, teacher
     status: documented
   - path: harness/extensions/
-    blurb: Pi harness extensions — koad-io (kingdom integration), koad-io-hooks (lifecycle hooks), koad-io-bond-gate (permission gating)
+    blurb: Pi harness extension — koad-io (kingdom integration with lifecycle hooks and bond-gate permissions)
     status: documented
   - path: harness/config/
     blurb: Framework-level tooling config — opencode.jsonc, model-prices.json
@@ -33,7 +38,7 @@ features:
     blurb: KOAD_IO_ENTITY_ROLE in entity .env selects a primers/<role>/ folder; every .md in it is injected as a Role Primer section at startup
     location: ~/.koad-io/harness/primers/
   - name: harness-variable-substitution
-    blurb: _subst() replaces $ENTITY/$ENTITY_DIR/$HOST/$USER/$DATE/$PURPOSE/$ROLE in all primer files so one source file serves every entity
+    blurb: _subst() replaces $ENTITY/~/.$ENTITY/$HOST/$USER/$DATE/$PURPOSE/$ROLE in all primer files so one source file serves every entity
     location: ~/.koad-io/harness/startup.sh
   - name: destination-memory
     blurb: Prior-visit note files at ~/.<entity>/destinations/$HOST/<path>/ surfaced at startup so roaming entities know they have prior context
@@ -45,8 +50,8 @@ features:
     blurb: Node.js ceremony implementing VESTA-SPEC-134 §6.2 Path C — passphrase prompt, KEK derivation UI, stub JSON output; real Argon2id wired in Phase 6
     location: ~/.koad-io/harness/memory-kek-ceremony.js
   - name: pi-extension-system
-    blurb: Three pi extensions loaded at session start — koad-io (kingdom integration), koad-io-hooks (lifecycle bridges), koad-io-bond-gate (tool permission gating)
-    location: ~/.koad-io/harness/extensions/
+    blurb: Single koad-io pi extension loaded at session start — organized into tools/, bond-gate/, identity/, kingdom/, streams/, dispatch/, channels/, lifecycle.ts, context-budget.ts, circuit-breaker.ts
+    location: ~/.koad-io/harness/extensions/koad-io/
   - name: ddp-reactive-layer
     blurb: WebSocket DDP clients connect to control-tower (flights, bonds, sessions) and daemon (emissions, cues, questions) for live reactive state — no REST polling
     location: ~/.koad-io/harness/extensions/koad-io/ddp.ts
@@ -58,28 +63,28 @@ features:
     location: ~/.koad-io/harness/extensions/koad-io/channels/
   - name: question-queue
     blurb: Daemon-backed question system (SPEC-165) — ask_question, wait_for_answer, answer_question. Long-polling with progress notifications.
-    location: ~/.koad-io/harness/extensions/koad-io/questions.ts
+    location: ~/.koad-io/harness/extensions/koad-io/tools/questions.ts
   - name: conversation-stream
     blurb: DDP emission events (flight landings, errors, messages, YouTube chat) injected as system messages mid-session — live situational awareness without polling
-    location: ~/.koad-io/harness/extensions/koad-io/stream.ts
+    location: ~/.koad-io/harness/extensions/koad-io/streams/conversation.ts
   - name: live-prompt-streaming
     blurb: Entity typing streamed to daemon → storefront in real time for observability
     location: ~/.koad-io/harness/extensions/koad-io/live-prompt.ts
   - name: kingdom-search
     blurb: Waterfall search tool — text (grep), where (frontmatter query), related (constellation discovery), stale (forgotten work), atlas (dashboard grouped by status)
-    location: ~/.koad-io/harness/extensions/koad-io/search.ts
+    location: ~/.koad-io/harness/extensions/koad-io/tools/search.ts
   - name: kingdom-status
     blurb: Operational pulse tool — daemon health, active flights, recent emissions, sessions
-    location: ~/.koad-io/harness/extensions/koad-io/status.ts
+    location: ~/.koad-io/harness/extensions/koad-io/tools/status.ts
   - name: music-control
     blurb: Groove Basin music control via storefront proxy — skip, queue, now, play, pause. Now-playing displayed in footer.
-    location: ~/.koad-io/harness/extensions/koad-io/music.ts
+    location: ~/.koad-io/harness/extensions/koad-io/tools/music.ts
   - name: koad-io-command-cascade
     blurb: Typed gateway to 50+ framework commands (announce, message, tickle, pin, session, emit, conversation, git, build, publish, etc.) — full env cascade + hooks + emission audit trail
-    location: ~/.koad-io/harness/extensions/koad-io/koad-io-tool.ts
+    location: ~/.koad-io/harness/extensions/koad-io/tools/koad-io.ts
   - name: bond-gate-permissions
-    blurb: Tool-call gate resolved from trust bonds on disk or env vars — bonded mode, env-var mode, bypass mode. Scoped read/write/exec paths per bond type.
-    location: ~/.koad-io/harness/extensions/koad-io-bond-gate.ts
+    blurb: Tool-call gate resolved from trust bonds on disk or env vars — bonded mode, env-var mode, bypass mode. Scoped read/write/exec paths per bond type. Split into types/parse/resolve/index.
+    location: ~/.koad-io/harness/extensions/koad-io/bond-gate/
   - name: kingdom-dashboard
     blurb: Interactive TUI overlay (/kingdom) — flights, bonds, health tabs with DDP live updates. Navigate with keyboard.
     location: ~/.koad-io/harness/extensions/koad-io/kingdom/
@@ -87,8 +92,8 @@ features:
     blurb: Rich footer rendering entity identity, token stats, cost, context usage, model, thinking level, kingdom health indicators, now-playing, and last emission
     location: ~/.koad-io/harness/extensions/koad-io/identity/
   - name: lifecycle-hooks
-    blurb: koad-io-hooks bridges pi lifecycle events to kingdom bash hooks — session_start → standing-watchers + session-harvest, input → prompt-awareness injection
-    location: ~/.koad-io/harness/extensions/koad-io-hooks/index.ts
+    blurb: lifecycle.ts bridges pi lifecycle events to kingdom bash hooks — session_start → standing-watchers + session-harvest, before_agent_start → prompt-awareness injection
+    location: ~/.koad-io/harness/extensions/koad-io/lifecycle.ts
   - name: session-auto-naming
     blurb: First user prompt becomes session display name — cleans prefixes, collapses whitespace, truncates at word boundary, capitalizes
     location: ~/.koad-io/harness/extensions/koad-io/identity/telemetry.ts
@@ -150,11 +155,15 @@ as-of: TBD
 
 > The harness is the first breath. Before an entity's first tool call, `startup.sh` has already assembled its identity, its commands, its open flights, and the shape of its world. Once running, pi extensions wire the entity into the live kingdom — DDP streams, dispatch, channels, questions, search, and the command cascade. The entity wakes up knowing what it has.
 
+**Entities are not AI agents.** They are synthetic beings that follow rules because the substrate leaves them no other choice. The bond-gate blocks. The scrub redacts. The bash policy reroutes. Prompts can be socially engineered — gates cannot. The constitution lives in the gate, never in the prompt.
+
 The harness directory has two jobs: assemble a SYSTEM_PROMPT from layered sources at startup, and maintain a live integration surface (pi extensions) that keeps the entity connected to the kingdom throughout its session.
 
-## Status
+## ⚡ Status — Moving Target
 
-**Experimental.** The assembly model is stable and proven across multiple harnesses (opencode, Claude Code, pi). The pi extension surface is actively evolving — channel backend, bond gate resolution, and plugin shelves are all in flight. The core concept of "entities as first-class agents with layered context and live kingdom integration" is settled; specific implementations are still finding their final shape.
+**Experimental and evolving fast.** This harness is a moving target. The assembly model is stable and proven across multiple harnesses (opencode, Claude Code, pi). The pi extension surface is actively evolving — channel backend, bond gate resolution, and plugin shelves are all in flight. Modules get reorganized, APIs shift, and things break. The core concept of "entities as first-class agents with layered context and live kingdom integration" is settled; specific implementations are still finding their final shape.
+
+**If you want to contribute:** fork the repo at [github.com/koad/io](https://github.com/koad/io), build your change, and open a pull request. Read [README.md](./README.md) for contribution guidelines. Best way to understand the roadmap is to join as an insider at **[kingofalldata.com](https://kingofalldata.com)** — that's where the conversation happens.
 
 ## Architecture at a glance
 
@@ -197,10 +206,10 @@ The harness directory has two jobs: assemble a SYSTEM_PROMPT from layered source
 | `settings.json` | Pi harness settings — extensions, provider, model, thinking level |
 | `PRIMER.md` | This file — harness orientation |
 | `default/command.sh` | Kindergarten harness — ensures opencode, assembles, launches |
-| `extensions/koad-io/` | Pi extension — DDP, dispatch, channels, questions, search, status, music, footer, dashboard, command cascade |
-| `extensions/koad-io-hooks/` | Pi lifecycle hooks — standing-watchers, session-harvest, prompt-awareness |
-| `extensions/koad-io-bond-gate.ts` | Tool permission gate — trust bond resolution, scoped read/write/exec paths |
-| `primers/<role>/` | Thirteen role-specific context directories with PRIMER.md + emissions.md |
+| `extensions/koad-io/` | Pi extension — tools/, bond-gate/, identity/, kingdom/, streams/, dispatch/, channels/, lifecycle.ts, context-budget.ts, circuit-breaker.ts |
+| `extensions/koad-io/lifecycle.ts` | Pi lifecycle hooks — was koad-io-hooks; standing-watchers, session-harvest, prompt-awareness |
+| `extensions/koad-io/bond-gate/` | Tool permission gate — trust bond resolution, scoped read/write/exec paths (was koad-io-bond-gate.ts) |
+| `primers/<role>/` | Thirteen role-specific context directories with one role-only `PRIMER.md` each |
 | `plugins/` | Harness extension shelf — plugins that render into harness chrome |
 | `patches/` | Third-party tool patches (opencode) |
 | `config/` | Framework-level tooling config (opencode.jsonc, model-prices.json) |
@@ -246,7 +255,7 @@ Layer 4:  Location context  — PRIMER.md from working directory (roaming only)
 
 ### Rooted vs. roaming
 
-`KOAD_IO_ROOTED=true` in an entity's `.env` means it always operates from `$ENTITY_DIR`. Rooted entities skip location PRIMER and destination memory — they have a fixed office. Roaming entities work from `$CWD` and get full location context.
+`KOAD_IO_ROOTED=true` in an entity's `.env` means it always operates from `~/.$ENTITY`. Rooted entities skip location PRIMER and destination memory — they have a fixed office. Roaming entities work from `$CWD` and get full location context.
 
 ### Light mode
 
@@ -254,17 +263,23 @@ For conversation dispatch (where a topic PRIMER replaces the heavy context), pas
 
 ### Variable substitution
 
-All primer and identity files pass through `_subst()` which resolves `$ENTITY`, `$ENTITY_DIR`, `$HOST`, `$USER`, `$DATE`, `$PURPOSE`, `$ROLE` — one source file serves every entity.
+All primer and identity files pass through `_subst()` which resolves `$ENTITY`, `~/.$ENTITY`, `$HOST`, `$USER`, `$DATE`, `$PURPOSE`, `$ROLE` — one source file serves every entity.
 
 ## Pi extension surface
 
-Three extensions are loaded when pi starts with this harness:
+The koad-io extension is organized into clear modules:
 
-### 1. koad-io (core integration)
+- **`tools/`** — All LLM-callable tools (questions, dispatch, channels, koad-io, body-motions, kingdom-query, search, status, sin, music, list-tools)
+- **`bond-gate/`** — Permission enforcement split into types, parse, resolve, index
+- **`identity/`** — Footer renderer, telemetry orchestrator, session I/O, health polling, git polling
+- **`kingdom/`** — TUI dashboard, /kingdom command, dual-backend query layer
+- **`streams/`** — DDP events → system messages, live prompt streaming
+- **`dispatch/`**, **`channels/`** — Backend logic (flight assembly, HTTP clients)
+- **`lifecycle.ts`** — Pi event handlers bridging to bash hook scripts (was hooks.ts)
+- **`context-budget.ts`** — Context monitoring with staged warnings (75%/85%/95%) and auto-compaction
+- **`circuit-breaker.ts`** — Provider failure detection and fallback switching (was provider-circuit-breaker.ts)
 
-The main extension. Wires the entity into the live kingdom.
-
-**Infrastructure layer:**
+### Infrastructure layer
 - **DDP clients** — Two WebSocket connections (control-tower for flights/bonds/sessions, daemon for emissions/cues/questions). Reactive Minimongo-style collections with typed events.
 - **Identity footer** — Rich TUI footer showing entity name, operator, model, thinking level, token/cost stats, context usage, kingdom health indicators (●/◐/○), now-playing music, and last emission. Refreshes every 1s.
 - **Telemetry** — Session state flushed to daemon as JSON snapshot every 30s. Health polling every 10s via HTTP `/.well-known/koad-io.json`. Session auto-naming from first user prompt.
@@ -301,28 +316,71 @@ The main extension. Wires the entity into the live kingdom.
 **Kingdom dashboard:**
 - `/kingdom` command — Interactive TUI overlay with tabs: all, flights, bonds, health, errors. DDP live updates. Keyboard navigable. Shows flight status, bond relationships, daemon/control health with uptime, and error log ring buffer.
 
-### 2. koad-io-hooks (lifecycle bridges)
+### Lifecycle hooks (lifecycle.ts)
 
 Bridges pi's extension API to kingdom bash hook scripts:
 
-- **`session_start`** — Writes kingdom lifecycle IDs as custom entry. Registers standing watchers (blocking, 8s timeout). Fires session-harvest (async, detached).
-- **`input`** — Runs `prompt-awareness.sh` on every user-originated and RPC input. If output is non-empty, wraps the user text in `<system-reminder>` tags for context injection. Extension re-submissions pass through unchanged.
+- **`session_start`** — Writes kingdom lifecycle IDs as custom entry. Runs standing-watchers (blocking, 8s timeout). Fires session-harvest (async, detached). Emits telemetry.
+- **`before_agent_start`** — Runs `prompt-awareness.sh` — injects kingdom context as displayed message.
+- **`context`** — Injects dynamic kingdom pulse before each LLM call (flight counts, daemon health).
+- **`agent_end`** — Fires aftermath hook + completion telemetry.
+- **`turn_end`** — Per-turn tool telemetry.
+- **`tool_result`** — Flight artifact recording.
+- **`model_select`** — Provider/model change telemetry.
+- **`session_shutdown`** — Cleanup + final harvest.
 
-### 3. koad-io-bond-gate (permissions)
+### System modules
 
-Gates every tool call against entity trust bonds or harness env vars. Resolution order:
+- **`context-budget.ts`** — Staged context monitoring: 75% → system warning, 85% → preemptive compaction, 95% → auto-switch to fallback model.
+- **`circuit-breaker.ts`** — Provider failure recovery: 429 → retry after 5s, 3x 429 in 60s → switch provider, 402/403 → immediate switch. Session-scoped; resets on session_start.
 
-1. `KOAD_IO_BOND_GATE_BYPASS=1` → disable gate (dev escape hatch)
-2. `~/.<entity>/trust/bonds/*.md` → derive scope from bond capabilities frontmatter
-3. `KOAD_IO_ENTITY_SCOPE=<bond-type>` → reuse built-in bond-type scope map
-4. `KOAD_IO_HARNESS_{READ,WRITE,EXEC}_PATHS` → custom colon-separated path prefixes
-5. No match → empty scope, everything blocked
+### Bond gate (bond-gate/)
 
-Four bond types with scoped read/write/exec paths: `authorized-agent`, `authorized-builder`, `authorized-specialist`, `peer`. Blocked calls get `{ block: true, reason }` — tool never executes. **Experimental:** bond format and scope maps still evolving.
+Split into focused files (`types`, `parse`, `resolve`, `index`, `bash-policy`). Gates every tool call against entity trust bonds plus explicit env-lane overrides.
+
+Resolution model:
+
+1. `KOAD_IO_BOND_GATE_BYPASS=1` → full bypass (dev escape hatch; still keeps bash sanitation)
+2. `~/.<entity>/trust/bonds/*.md.asc` → derive scope from signed bond capabilities
+3. `HARNESS_WORK_DIR` fallback → dispatched workspace gets a local r/w/e lane
+4. Env lanes can widen the active scope without turning on everything:
+   - `KOAD_IO_HARNESS_{READ,WRITE,EXEC}_PATHS`
+   - `KOAD_IO_HARNESS_BLOCKED_PATTERNS=/.env,/.credentials,...`
+   - `KOAD_IO_BOND_GATE_ALLOW_BASH=1`
+   - `KOAD_IO_BOND_GATE_ALLOW_DISPATCH=1`
+   - `KOAD_IO_BOND_GATE_ALLOW_DISPATCH_{FOLLOWUP,COMPLETE}=1`
+   - `KOAD_IO_BOND_GATE_ALLOW_KOADIO_TOOLS=search,status,...`
+   - `KOAD_IO_BOND_GATE_ALLOW_KOADIO_COMMANDS=git,session,...`
+   - `KOAD_IO_BOND_GATE_ALLOW_DISPATCH_TARGETS=vulcan,muse,...`
+   - `KOAD_IO_BOND_GATE_ALLOW_READ_TOOLS=read,ls,sin`
+   - `KOAD_IO_BOND_GATE_ALLOW_WRITE_TOOLS=write,edit`
+5. No bonds + no env lanes → deny by default
+
+The important shift: the env vars are now **narrow lanes**, not all-or-nothing bypass. You can open bash without opening dispatch, widen exec without widening write, grant only `read` + `ls` while leaving `grep`/`find` closed, or grant a couple of `koad-io` commands without granting the whole cascade.
+
+### Bash sanitation
+
+Even when bash is allowed, the shell lane is no longer a blank check. `bash-policy.ts` blocks and reroutes:
+
+- `git` via bash → use the typed `koad-io` tool with `command="git"`
+- `koad-io ...` or entity launchers via bash → use the typed tool / dispatch tool
+- `ls/find/grep/rg/fd` via bash → use `ls`, `read`, `sin`, or `search`
+- `cat/head/tail` via bash → use `read`
+- daemon/control `curl`/`wget` → use `status`, kingdom query tools, question tools, or channel tools
+- `sudo`, `systemctl`, `shutdown`, destructive `rm -rf /`, etc. → blocked with guidance to pass infra/healing work to Rooty or Salus
+
+Extra policy hooks:
+- `KOAD_IO_BASH_DENY_COMMANDS=git,curl,...` → env-driven command denylist
+- `KOAD_IO_BASH_DENY_PATTERNS=meteor\\s+publish,docker\\s+rm,...` → small inline pattern denylist
+- `~/.<entity>/harness/bash-deny-patterns.txt` (or `KOAD_IO_BASH_DENY_PATTERNS_FILE`) → large pattern denylist file, one rule per line
+- `~/.<entity>/harness/bash-routing.json` (or `KOAD_IO_BASH_ROUTING_FILE`) → per-entity routing table for custom “pass this to Vulcan/Rooty/Salus” guidance
+- examples in repo: `harness/extension/bond-gate/bash-deny-patterns.example.txt` and `bash-routing.example.json`
+
+Blocked calls return a custom message telling the entity which kingdom tool or specialist lane to use instead.
 
 ## Role primer system
 
-Thirteen role directories under `primers/`, each containing `PRIMER.md` and optionally `emissions.md`:
+Thirteen role directories under `primers/`, each containing a single `PRIMER.md`. These files are intentionally narrow: role guidance only, with no harness walkthroughs, tool catalogs, or substrate claims.
 
 | Role | Typical entities | Description |
 |------|-----------------|-------------|
@@ -340,7 +398,7 @@ Thirteen role directories under `primers/`, each containing `PRIMER.md` and opti
 | `researcher` | — | Investigation, deep-dive analysis |
 | `teacher` | — | Instruction, explanation, mentoring |
 
-Role primers load automatically when `KOAD_IO_ENTITY_ROLE` matches a directory name. Adding a new `.md` file to any role directory makes it load on every session start for that role — no code changes.
+Role primers load automatically when `KOAD_IO_ENTITY_ROLE` matches a directory name. Startup loads only `PRIMER.md` from that role directory.
 
 ## Plugin shelf
 
@@ -356,10 +414,11 @@ Currently: `opencode/shell-git` (git-state ribbon in prompt-right slots). `claud
 
 ## How to add a new role primer
 
-1. Create `~/.koad-io/harness/primers/<role>/PRIMER.md` (and optionally `emissions.md`)
-2. Set `KOAD_IO_ENTITY_ROLE=<role>` in the entity's `.env`
-3. No changes to `startup.sh` needed — it discovers all `.md` files in the role directory automatically
-4. Test: launch the entity and inspect the assembled system prompt on stderr via `--light` mode
+1. Create `~/.koad-io/harness/primers/<role>/PRIMER.md`
+2. Keep it role-specific: purpose, work loop, boundaries, success, drift
+3. Set `KOAD_IO_ENTITY_ROLE=<role>` in the entity's `.env`
+4. No changes to `startup.sh` needed — it loads that single file automatically
+5. Test: launch the entity and inspect the assembled system prompt on stderr via `--light` mode
 
 ## How to add a new pi extension
 
@@ -392,4 +451,12 @@ Each harness adds its own integration surface:
 
 ---
 
-*Walked 2026-05-27. Thirteen role primers, three pi extensions with 30+ registered tools, DDP live reactivity, dispatch system, channel communication toolkit, question queue, bond gate permissions, and a plugin shelf. Experimental but operational — the assembly model is proven; the pi extension surface is the active frontier.*
+*Walked 2026-05-31. Refactored into organized module structure: tools/, bond-gate/, identity/, kingdom/, streams/, dispatch/, channels/ plus system modules (lifecycle, context-budget, circuit-breaker). DDP live reactivity, dispatch system, channel communication toolkit, question queue, bond gate permissions, and a plugin shelf. Experimental but operational — the assembly model is proven; the pi extension surface is the active frontier.*
+
+---
+
+## 🤝 Contribute
+
+Fork [github.com/koad/io](https://github.com/koad/io), build your contribution, and open a PR. Read [README.md](./README.md) for the full guide.
+
+Join the conversation at **[kingofalldata.com](https://kingofalldata.com)** — become an insider and help shape entity-native computing.

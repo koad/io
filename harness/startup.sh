@@ -17,15 +17,15 @@
 #   CWD          — caller's working directory (set by koad-io bin)
 #
 # Env optional:
-#   ENTITY_DIR   — entity directory (default: ~/.$ENTITY)
+#   ENTITY_DIR   — shell var for entity home, expanded from ~/.$ENTITY
 #   KOAD_IO_DIR  — framework directory (default: ~/.koad-io)
-#   KOAD_IO_ROOTED — if true, entity works from $ENTITY_DIR (has an office)
+#   KOAD_IO_ROOTED — if true, entity works from ~/.$ENTITY (has an office)
 #                    if unset, entity works from $CWD (out on the town)
 #
 # Outputs:
 #   stdout       — assembled system prompt
 #   stderr       — diagnostic log (for auditing)
-#   .context     — same content written to $ENTITY_DIR/.context (for static harnesses)
+#   .context     — same content written to ~/.$ENTITY/.context (for static harnesses)
 #
 set -euo pipefail
 
@@ -41,7 +41,7 @@ done
 [ "${KOAD_IO_STARTUP_LIGHT:-0}" = "1" ] && _LIGHT_MODE=1
 
 ENTITY="${ENTITY:?ENTITY not set}"
-ENTITY_DIR="${ENTITY_DIR:-$HOME/.$ENTITY}"
+ENTITY_DIR="$HOME/.$ENTITY"
 KOAD_IO_DIR="${KOAD_IO_DIR:-$HOME/.koad-io}"
 CALL_DIR="${CWD:-$PWD}"
 
@@ -67,7 +67,7 @@ _ls() {
 }
 
 # --- Helper: variable substitution on context files ---
-# Resolves $ENTITY, $ENTITY_DIR, $HOST, $USER, $DATE, $DATE_HUMAN
+# Resolves $ENTITY, $ENTITY_DIR, ~/.$ENTITY, $HOST, $USER, $DATE, $DATE_HUMAN
 # in primer/identity files as they're assembled. One source file,
 # every entity sees their own name.
 _subst() {
@@ -85,7 +85,7 @@ _subst() {
 
 # --- Diagnostic log (stderr) ---
 echo "[startup] entity=$ENTITY host=$_HOST user=$_USER" >&2
-echo "[startup] entity_dir=$ENTITY_DIR call_dir=$CALL_DIR" >&2
+echo "[startup] home=~/.$ENTITY call_dir=$CALL_DIR" >&2
 echo "[startup] rooted=${KOAD_IO_ROOTED:-false} → work_dir=$HARNESS_WORK_DIR" >&2
 
 # --- Assemble prompt (stdout) ---
@@ -98,7 +98,7 @@ cat <<EOF
 - **entity:** $ENTITY
 - **host:** $_HOST
 - **user:** $_USER
-- **entity_dir:** $ENTITY_DIR
+- **home:** ~/.$ENTITY
 - **work_dir:** $HARNESS_WORK_DIR
 - **call_dir:** $CALL_DIR
 - **today:** $_DATE_HUMAN
@@ -114,7 +114,7 @@ if [ -d "$ENTITY_DIR/.git" ]; then
   _status="$(git -C "$ENTITY_DIR" status --porcelain 2>/dev/null)"
   _ahead="$(git -C "$ENTITY_DIR" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 0)"
   _last_commit="$(git -C "$ENTITY_DIR" log --oneline -1 2>/dev/null || echo 'no commits')"
-  echo "**Entity repo** (\`$ENTITY_DIR\`):"
+  echo "**Entity repo** (\`~/.$ENTITY\`):"
   echo "- branch: \`$_branch\`"
   if [ -z "$_status" ]; then
     echo "- working tree: clean"
@@ -213,7 +213,7 @@ _ls "$ENTITY_DIR/memories" | { grep '\.md$' || true; } | sed 's/\.md$//' | sed '
 # left notes for itself at ~/.<entity>/destinations/$HOSTNAME/<path>/. Surface
 # those files so the entity knows it has prior context for this location.
 # The entity decides whether to read them — the harness just discloses.
-# Rooted entities always open in $ENTITY_DIR — that's home, not a destination.
+# Rooted entities always open in ~/.$ENTITY — that's home, not a destination.
 _dest_dir="$ENTITY_DIR/destinations/$_HOST$HARNESS_WORK_DIR"
 if [ "${KOAD_IO_ROOTED:-}" = "true" ]; then
   echo "[startup] destinations: skipped (rooted entity)" >&2
@@ -469,31 +469,28 @@ else
   echo "[startup] layer2: ENTITY.md not found, skipped" >&2
 fi
 
-# --- Layer 2b: Role primers ---
+# --- Layer 2b: Role primer ---
 # An entity declares its role via KOAD_IO_ENTITY_ROLE in ~/.<entity>/.env.
-# The framework maintains a library at ~/.koad-io/harness/primers/<role>/.
-# Every .md in the role directory is loaded — drop a primer in the folder,
-# every entity with that role gets it on next session start.
-# No role declared = no primers loaded. Missing role dir = logged, not fatal.
+# The framework maintains one role primer at ~/.koad-io/harness/primers/<role>/PRIMER.md.
+# Only PRIMER.md is loaded. This keeps role context tight and prevents
+# auxiliary docs from silently inflating or contaminating startup context.
+# No role declared = no primer loaded. Missing role dir/file = logged, not fatal.
 PRIMERS_BASE="$KOAD_IO_DIR/harness/primers"
 if [ -n "${KOAD_IO_ENTITY_ROLE:-}" ]; then
   _role_dir="$PRIMERS_BASE/$KOAD_IO_ENTITY_ROLE"
-  if [ -d "$_role_dir" ]; then
-    _primer_count=0
-    for _primer_file in "$_role_dir"/*.md; do
-      [ -f "$_primer_file" ] || continue
-      _primer_name="$(basename "$_primer_file" .md)"
-      printf '\n---\n\n# Role Primer: %s\n\n' "$_primer_name"
-      _subst < "$_primer_file"
-      echo "[startup] role primer: $KOAD_IO_ENTITY_ROLE/$_primer_name ($(wc -c < "$_primer_file") bytes)" >&2
-      _primer_count=$((_primer_count + 1))
-    done
-    echo "[startup] role primers: $KOAD_IO_ENTITY_ROLE — $_primer_count loaded" >&2
+  _role_primer="$_role_dir/PRIMER.md"
+  if [ -f "$_role_primer" ]; then
+    printf '\n---\n\n# Role Primer\n\n'
+    _subst < "$_role_primer"
+    echo "[startup] role primer: $KOAD_IO_ENTITY_ROLE/PRIMER ($(wc -c < "$_role_primer") bytes)" >&2
+    echo "[startup] role primer: $KOAD_IO_ENTITY_ROLE — 1 loaded" >&2
+  elif [ -d "$_role_dir" ]; then
+    echo "[startup] role primer: PRIMER.md missing for role '$KOAD_IO_ENTITY_ROLE', skipped" >&2
   else
-    echo "[startup] role primers: dir not found for role '$KOAD_IO_ENTITY_ROLE', skipped" >&2
+    echo "[startup] role primer: dir not found for role '$KOAD_IO_ENTITY_ROLE', skipped" >&2
   fi
 else
-  echo "[startup] role primers: no KOAD_IO_ENTITY_ROLE declared" >&2
+  echo "[startup] role primer: no KOAD_IO_ENTITY_ROLE declared" >&2
 fi
 
 # --- Layer 4: Location — PRIMER.md (roaming entities only) ----------------
