@@ -446,12 +446,10 @@ fi
 # --- Layer 1b: Harness PREAMBLE ---
 # Each harness can ship a PREAMBLE.md alongside its command.sh describing
 # the native tool surface, DDP stream, bond gate, footer, live typing, etc.
-# — the operational reality that replaces bash-centric KOAD_IO.md patterns.
-# Location: $KOAD_IO_HARNESS/$KOAD_IO_HARNESS_NAME/PREAMBLE.md
-# (typically ~/.forge/commands/harness/<name>/PREAMBLE.md)
-HARNESS_CMDS="${KOAD_IO_HARNESS:-$HOME/.forge/commands/harness}"
-if [ -n "${KOAD_IO_HARNESS_NAME:-}" ]; then
-  _harness_pre="$HARNESS_CMDS/$KOAD_IO_HARNESS_NAME/PREAMBLE.md"
+# Resolved via COMMAND_LOCATION (set by the launcher's cascade), not a
+# hardcoded path — so entity/forge/framework priority works naturally.
+if [ -n "${COMMAND_LOCATION:-}" ]; then
+  _harness_pre="$COMMAND_LOCATION/PREAMBLE.md"
   if [ -f "$_harness_pre" ]; then
     _subst < "$_harness_pre"
     printf '\n\n---\n\n'
@@ -460,7 +458,7 @@ if [ -n "${KOAD_IO_HARNESS_NAME:-}" ]; then
     echo "[startup] harness preamble: $_harness_pre not found, skipped" >&2
   fi
 else
-  echo "[startup] harness preamble: KOAD_IO_HARNESS_NAME not set, skipped" >&2
+  echo "[startup] harness preamble: COMMAND_LOCATION not set, skipped" >&2
 fi
 
 # --- Layer 2: Entity ---
