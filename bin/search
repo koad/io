@@ -24,6 +24,11 @@ MODE_ARG=""
 STALE_DAYS=7
 KOAD_IO_DIR="${KOAD_IO_DIR:-$HOME/.koad-io}"
 declare -a WHERE_CLAUSES=()
+declare -a SEARCH_ROOTS=()
+
+if [[ -n "${KOAD_IO_SEARCH_ROOTS:-}" ]]; then
+  IFS=':' read -ra SEARCH_ROOTS <<< "$KOAD_IO_SEARCH_ROOTS"
+fi
 
 _DONE_STATUSES="landed|shipped|archived|canonical|complete|completed|delivered|closed|merged|resolved"
 
@@ -102,6 +107,31 @@ fi
 # --- Search engine ---
 _NOISE_DIRS=(.git node_modules .npm .meteor packages .claude .opencode .local .trash trash .archive archive builds isopacks dist id .vscode-oss)
 _NOISE_FILES=(.context '*.asc' '*.gpg' '*.pub' '*.pem')
+
+_scope_enabled() {
+  [[ ${#SEARCH_ROOTS[@]} -gt 0 ]]
+}
+
+_scope_allows() {
+  local _target="$1"
+  if ! _scope_enabled; then
+    return 0
+  fi
+
+  local _target_real
+  _target_real="$(realpath -m "$_target" 2>/dev/null || echo "$_target")"
+
+  for _root in "${SEARCH_ROOTS[@]}"; do
+    [[ -n "$_root" ]] || continue
+    local _root_real
+    _root_real="$(realpath -m "$_root" 2>/dev/null || echo "$_root")"
+    case "$_target_real/" in
+      "$_root_real/"*) return 0 ;;
+    esac
+  done
+
+  return 1
+}
 
 if command -v rg &>/dev/null; then
   _search_raw() {
@@ -342,6 +372,7 @@ _search_framework() {
   for _rel in "${_fw_dirs[@]}"; do
     local _dir="$KOAD_IO_DIR/$_rel"
     [[ -d "$_dir" ]] || continue
+    _scope_allows "$_dir" || continue
     local _result
     if [[ -n "$PATTERN" ]]; then
       _result="$(_search "$_dir")"
@@ -361,6 +392,7 @@ _search_framework() {
     for _file in KOAD_IO.md; do
       local _path="$KOAD_IO_DIR/$_file"
       [[ -f "$_path" ]] || continue
+      _scope_allows "$_path" || continue
       local _result
       _result="$(_search "$_path")"
       if [[ -n "$_result" ]]; then
@@ -388,6 +420,7 @@ _list_entities() {
     [[ "$_name" == "playwright-cli" ]] && continue
     local _dir="$HOME/.$_name"
     [[ -d "$_dir" ]] || continue
+    _scope_allows "$_dir" || continue
     echo "$_name"
   done
 }
@@ -488,6 +521,10 @@ _mode_related() {
   local _file="$1"
   if [[ ! -f "$_file" ]]; then
     echo "error: file not found: $_file" >&2
+    exit 1
+  fi
+  if ! _scope_allows "$_file"; then
+    echo "error: related file is outside search scope: $_file" >&2
     exit 1
   fi
 
@@ -881,6 +918,10 @@ if [[ -n "$ONLY_ENTITY" ]]; then
   _dir="$HOME/.$ONLY_ENTITY"
   if [[ ! -d "$_dir" ]]; then
     echo "error: entity dir not found: $_dir" >&2
+    exit 1
+  fi
+  if ! _scope_allows "$_dir"; then
+    echo "error: entity is outside search scope: $ONLY_ENTITY" >&2
     exit 1
   fi
   _search_entity "$ONLY_ENTITY" "$_dir" && _total_found=1

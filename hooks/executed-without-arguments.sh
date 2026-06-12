@@ -16,13 +16,13 @@ set -euo pipefail
 #   ENTITY_DEFAULT_PROVIDER      anthropic | opencode | ollama | ...
 #   ENTITY_DEFAULT_MODEL         opus-4-6 | big-pickle | ...
 #   ENTITY_SKIP_PERMISSIONS      true (Juno-only) — --dangerously-skip-permissions
-#   KOAD_IO_ROOTED               true → works from $ENTITY_DIR, unset → from $CWD
+#   KOAD_IO_ROOTED               true → works from ~/.$ENTITY, unset → from $CWD
 #   ENTITY_HOST                  rooted entity's home host (ssh'd into by framework)
 #
 # Entity .env values win over framework ~/.koad-io/.env defaults. Hardcoded
 # fallbacks live inside the leaf harness scripts (commands/harness/<name>/).
 
-ENTITY_DIR="${ENTITY_DIR:-$HOME/.$ENTITY}"
+ENTITY_DIR="$HOME/.$ENTITY"
 export CALL_DIR="${CWD:-$PWD}"
 
 # Rooted = has an office (works from entity dir). Default = roaming (works from CWD).
@@ -34,7 +34,7 @@ fi
 
 # Verify entity directory exists
 if [ ! -d "$ENTITY_DIR" ]; then
-  echo "[error] entity directory does not exist: $ENTITY_DIR" >&2
+  echo "[error] entity directory does not exist: ~/.$ENTITY" >&2
   exit 1
 fi
 

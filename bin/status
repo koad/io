@@ -8,28 +8,33 @@
 #   koad-io status --timeout=N      Per-probe timeout (default 5s)
 #   koad-io status --history [N]    Last N probe records (default 20)
 #
-# Targets: space-separated label=url pairs. Label=url falls back to url as label.
-# Defaults (override via KOAD_IO_STATUS_TARGETS):
-#   daemon=http://10.10.10.10:28282
-#   control-tower=http://10.10.10.10:28283
-#   kingofalldata.com=http://10.10.10.10:20553
-#   ecoincore=http://10.10.10.10:20758
-#   daemon-interface=http://10.10.10.10:21221
+# Targets: read from $_INDEX_FILE (JSONL, one {"label":"...","url":"..."} per line).
+# Override path with KOAD_IO_STATUS_INDEX.
 
 set -euo pipefail
 
-_DEFAULT_TARGETS="
-    flight-deck=http://10.10.10.10:21221
-    daemon=http://10.10.10.10:28282 
-    ecoincore-daemon=http://10.10.10.10:20758 
-    control-tower=http://10.10.10.10:28283 
-    control-tower-interface=http://10.10.10.10:21221
-    kingofalldata.com=http://10.10.10.10:20522 
-    churchofhappy.com=http://10.10.10.10:20720 
-    ecoincore.com=http://nursery:55555 
-"
-_TARGETS="${KOAD_IO_STATUS_TARGETS:-$_DEFAULT_TARGETS}"
-_LOG_FILE="${KOAD_IO_STATUS_LOG:-$HOME/.koad-io/cache/status-probes.jsonl}"
+_INDEX_FILE="${KOAD_IO_STATUS_INDEX:-$HOME/.local/share/koad-io/services/index.jsonl}"
+if [ ! -f "$_INDEX_FILE" ]; then
+  cat >&2 <<EOF
+status: no service index found at $_INDEX_FILE
+
+Create it as a JSONL file with one object per line:
+
+  mkdir -p "$(dirname "$_INDEX_FILE")"
+  echo '{"label":"my-service","url":"http://1.2.3.4:8080"}' >> "$_INDEX_FILE"
+
+Each line needs "label" and "url" fields.
+EOF
+  exit 69
+fi
+
+_TARGETS=""
+while IFS= read -r line; do
+  label=$(echo "$line" | jq -r '.label // empty' 2>/dev/null)
+  url=$(echo "$line" | jq -r '.url // empty' 2>/dev/null)
+  [ -n "$label" ] && [ -n "$url" ] && _TARGETS="$_TARGETS $label=$url"
+done < "$_INDEX_FILE"
+_LOG_FILE="${KOAD_IO_STATUS_LOG:-$HOME/.local/share/koad-io/sensors/status.jsonl}"
 _TIMEOUT=5
 _JSON=""
 _QUIET=""
@@ -52,9 +57,9 @@ done
 
 if [ -t 1 ]; then
   R=$'\033[0m'; B=$'\033[1m'; D=$'\033[2m'
-  G=$'\033[0;32m'; Y=$'\033[0;33m'; RED=$'\033[0;31m'
+  GREEN=$'\033[0;32m'; Y=$'\033[0;33m'; RED=$'\033[0;31m'
 else
-  R="" B="" D="" G="" Y="" RED=""
+  R="" B="" D="" GREEN="" Y="" RED=""
 fi
 
 mkdir -p "$(dirname "$_LOG_FILE")"
@@ -70,7 +75,12 @@ fi
 probe_one() {
   local base="$1" label="$2"
   local url="${base%/}/.well-known/koad-io.json"
-  local code body entity ms
+  local code body entity ms host_port
+
+  # extract host:port from URL for display
+  host_port="${base#http://}"
+  host_port="${host_port#https://}"
+  host_port="${host_port%%/*}"
 
   ms=$(date +%s%3N 2>/dev/null || echo 0)
   if body=$(curl -s --max-time "$_TIMEOUT" -w '\n%{http_code}' "$url" 2>/dev/null); then
@@ -85,11 +95,11 @@ probe_one() {
   [ "$ms" -lt 0 ] && ms=0
 
   if [ "$code" != "000" ]; then
-    printf '{"label":"%s","url":"%s","status":%s,"ms":%s,"alive":true,"entity":"%s"}' \
-      "$label" "$url" "$code" "$ms" "$entity"
+    printf '{"label":"%s","url":"%s","host_port":"%s","status":%s,"ms":%s,"alive":true,"entity":"%s"}' \
+      "$label" "$url" "$host_port" "$code" "$ms" "$entity"
   else
-    printf '{"label":"%s","url":"%s","status":0,"ms":%s,"alive":false,"error":"unreachable"}' \
-      "$label" "$url" "$ms"
+    printf '{"label":"%s","url":"%s","host_port":"%s","status":0,"ms":%s,"alive":false,"error":"unreachable"}' \
+      "$label" "$url" "$host_port" "$ms"
   fi
 }
 
@@ -137,21 +147,19 @@ fi
 printf '%s── koad:io status (%s%sms%s) ──%s\n' "$D" "$B" "$_total_ms" "$D" "$R"
 
 echo "$_rec" | jq -r '.targets[] |
-  if .alive then
-    "\(.label)\(if .entity != "" and .entity != .label then " (" + .entity + ")" else "" end)|\(.status)|\(.ms)"
+  "\(.host_port // .label)|\(.label)|\(if .alive then .status else 0 end)|\(.ms)|\(.alive)|\(if .entity != "" and .entity != .label then .entity else "" end)|\(.error // "unreachable")"' | while IFS='|' read -r host_port label status ms alive entity err; do
+  if [ "$alive" == "true" ]; then
+    _info="$label"
+    [ -n "$entity" ] && _info="$_info ($entity)"
+    printf '  %s●%s %s%s%s  %s%s%s  %sHTTP %s %4sms%s\n' "$GREEN" "$R" "$B" "$host_port" "$R" "$D" "$_info" "$R" "$GREEN" "$status" "$ms" "$R"
   else
-    "\(.label)|0|\(.ms)|\(.error // "unreachable")"
-  end' | while IFS='|' read -r label status ms err; do
-  if [ "$status" != "0" ]; then
-    printf '  %s●%s %s%s%s  %sHTTP %s %sms%s\n' "$G" "$R" "$B" "$label" "$R" "$G" "$status" "$ms" "$R"
-  else
-    printf '  %s○%s %s%s%s  %s%s (%sms)%s\n' "$RED" "$R" "$B" "$label" "$R" "$RED" "$err" "$ms" "$R"
+    printf '  %s○%s %s%s%s  %s%s%s  %s%s (%sms)%s\n' "$RED" "$R" "$B" "$host_port" "$R" "$D" "$label" "$R" "$RED" "$err" "$ms" "$R"
   fi
 done
 
 # ── summary ──
 if [ "$_dead" -eq 0 ]; then
-  printf '  %sall %s alive%s\n' "$G" "$_alive" "$R"
+  printf '  %sall %s alive%s\n' "$GREEN" "$_alive" "$R"
 elif [ "$_alive" -eq 0 ]; then
   printf '  %sall %s dead%s\n' "$RED" "$_dead" "$R"
 else

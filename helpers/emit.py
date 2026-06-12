@@ -24,8 +24,7 @@ Gate:
 
 Env:
     KOAD_IO_CONTROL_URL default http://{KOAD_IO_BIND_IP}:{KOAD_IO_CONTROL_PORT}
-    ENTITY              entity handle (derived from ENTITY_DIR if unset)
-    ENTITY_DIR          fallback for entity derivation
+    ENTITY              entity handle (falls back to USER if unset)
     HARNESS_SESSION_ID  when set, auto-injected as meta.session_id on every emission
                         so session-watcher self-suppression works correctly
 
@@ -90,15 +89,7 @@ def _enabled():
 
 
 def _entity():
-    e = os.environ.get('ENTITY', '')
-    if not e:
-        d = os.environ.get('ENTITY_DIR', '')
-        if d:
-            e = os.path.basename(d).lstrip('.')
-    if not e:
-        # No entity context — fall back to OS username (the human sovereign)
-        e = os.environ.get('USER', '')
-    return e or 'unknown'
+    return os.environ.get('ENTITY', '')
 
 
 def _check_health():
