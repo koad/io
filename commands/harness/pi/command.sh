@@ -29,6 +29,7 @@
 #     bypass (bash, dispatch, read/write tools, path scopes, bash deny files)
 
 set -e
+ENTITY_DIR="$HOME/.$ENTITY"
 
 # --- Emission helpers --------------------------------------------------------
 #
@@ -52,7 +53,7 @@ if [ -z "$ENTITY" ]; then
 fi
 
 if [ -z "$ENTITY_DIR" ] || [ ! -d "$ENTITY_DIR" ]; then
-  echo "Error: \$ENTITY_DIR not set or not a directory: '$ENTITY_DIR'" >&2
+  echo "Error: ~/.$ENTITY not set or not a directory" >&2
   exit 64
 fi
 
@@ -141,7 +142,7 @@ esac
 # --- pi data dir ----------------------------------------------------------
 #
 # Keep this experimental harness isolated from the user's normal pi instance.
-# ~/.koad-io/.env may export PI_CODING_AGENT_DIR="$ENTITY_DIR/.pi"; scrub that
+# ~/.koad-io/.env may export PI_CODING_AGENT_DIR="~/.$ENTITY/.pi"; scrub that
 # cascade and use this harness-local data dir by default. If a caller really
 # wants to pin it elsewhere, set KOAD_IO_PI_AGENT_DIR.
 
@@ -413,6 +414,14 @@ _pi_on_exit() {
     koad_io_emit_close "harness closed: pi $PROVIDER/$MODEL ($_mode, exit $rc)"
   fi
   _harness_stamp_flight "$rc"
+  # Notify control-tower so the dashboard / wait flight see the landing.
+  # Fire-and-forget — same POST /flight that control.js flight close uses.
+  if [ -n "${HARNESS_CONTROL_FLIGHT_ID:-}" ]; then
+    _ct_url="${KOAD_IO_CONTROL_URL:-http://10.10.10.10:28283}"
+    curl -sSf --max-time 3 -X POST "$_ct_url/flight" \
+      -H 'Content-Type: application/json' \
+      -d "{\"action\":\"close\",\"_id\":\"$HARNESS_CONTROL_FLIGHT_ID\",\"ended\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"completionSummary\":\"harness exit rc=$rc\",\"stats\":{}}" >/dev/null 2>&1 || true
+  fi
   [ -n "$_mcp_session_file" ] && rm -f "$_mcp_session_file" 2>/dev/null
 }
 # trap already set above — redefining _pi_on_exit is sufficient
@@ -422,7 +431,7 @@ _pi_on_exit() {
 echo
 echo "harness       : pi (@earendil-works/pi-coding-agent)"
 echo "entity        : $ENTITY"
-echo "entity_dir    : $ENTITY_DIR"
+echo "home          : ~/.$ENTITY"
 if [ -n "${KOAD_IO_PI_AGENT_DIR:-}" ]; then
   echo "pi_agent_dir  : $PI_CODING_AGENT_DIR  (caller-provided)"
 else

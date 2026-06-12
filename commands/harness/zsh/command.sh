@@ -19,7 +19,7 @@
 #   PROMPT="git status" juno harness zsh          # one-shot via env
 #
 # Invariants:
-#   - $ENTITY, $ENTITY_DIR, $ENTITY_HOST, $ENTITY_HOME remain set
+#   - $ENTITY, ~/.$ENTITY, $ENTITY_HOST, $ENTITY_HOME remain set
 #   - KOAD_IO_ROOTED honored for cwd selection
 #   - $KOAD_IO_HARNESS=zsh is exported so rc files can tag the shell
 #   - interactive shell uses a per-entity ZDOTDIR with a .zshrc that
@@ -27,6 +27,7 @@
 #   - one-shot mode runs `zsh -c "$PROMPT"` and exits
 
 set -e
+ENTITY_DIR="$HOME/.$ENTITY"
 
 # --- Flag filter ----------------------------------------------------------
 #
@@ -52,7 +53,7 @@ if [ -z "$ENTITY" ]; then
 fi
 
 if [ -z "$ENTITY_DIR" ] || [ ! -d "$ENTITY_DIR" ]; then
-  echo "Error: \$ENTITY_DIR not set or not a directory: '$ENTITY_DIR'" >&2
+  echo "Error: ~/.$ENTITY not set or not a directory" >&2
   exit 64
 fi
 
@@ -87,7 +88,7 @@ export KOAD_IO_HARNESS=zsh
 echo
 echo "harness       : zsh (human harness)"
 echo "entity        : $ENTITY"
-echo "entity_dir    : $ENTITY_DIR"
+echo "home          : ~/.$ENTITY"
 echo "work_dir      : $WORK_DIR"
 if [ -n "$PROMPT" ]; then
   echo "mode          : one-shot"

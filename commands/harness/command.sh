@@ -47,7 +47,7 @@ else
 fi
 echo
 echo "Each harness sub-command is responsible for:"
-echo "  1. setting <HARNESS>_CONFIG_DIR=\$ENTITY_DIR     (SPEC-072)"
+echo "  1. setting <HARNESS>_CONFIG_DIR=~/.\$ENTITY     (SPEC-072)"
 echo "  2. resolving credentials for the provider"
 echo "  3. normalizing the model name for the harness CLI"
 echo "  4. honoring KOAD_IO_ROOTED for cwd selection"

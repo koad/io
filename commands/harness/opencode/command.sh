@@ -12,14 +12,15 @@
 #   alice harness opencode openai     gpt-5                  "hi"
 #
 # Invariants (per VESTA-SPEC-072):
-#   - XDG_CONFIG_HOME = $ENTITY_DIR  (opencode reads global config from
-#     $ENTITY_DIR/opencode/ — coexists with entity files at the same root)
-#   - workspace config: opencode.jsonc at $ENTITY_DIR (or $CWD for roaming)
+#   - XDG_CONFIG_HOME = ~/.$ENTITY  (opencode reads global config from
+#     ~/.$ENTITY/opencode/ — coexists with entity files at the same root)
+#   - workspace config: opencode.jsonc at ~/.$ENTITY (or $CWD for roaming)
 #   - credentials cascade via koad-io loader: entity > kingdom
 #   - KOAD_IO_ROOTED honored for cwd selection
 #   - interactive TUI when no prompt; 'opencode run' one-shot when given
 
 set -e
+ENTITY_DIR="$HOME/.$ENTITY"
 
 # --- Flag filter ----------------------------------------------------------
 #
@@ -46,7 +47,7 @@ if [ -z "$ENTITY" ]; then
 fi
 
 if [ -z "$ENTITY_DIR" ] || [ ! -d "$ENTITY_DIR" ]; then
-  echo "Error: \$ENTITY_DIR not set or not a directory: '$ENTITY_DIR'" >&2
+  echo "Error: ~/.$ENTITY not set or not a directory" >&2
   exit 64
 fi
 
@@ -173,7 +174,7 @@ esac
 #
 #   2. Entity dir          — default for both rooted and roaming entities.
 #      Every entity carries its own opencode config (tui.json, opencode.jsonc,
-#      etc.) in $ENTITY_DIR/opencode/. The entity's identity config follows
+#      etc.) in ~/.$ENTITY/opencode/. The entity's identity config follows
 #      them regardless of where they're invoked from.
 
 if [ -n "$KOAD_IO_ROOM" ] && [ -d "$KOAD_IO_ROOM" ]; then
@@ -231,7 +232,7 @@ fi
 echo
 echo "harness       : opencode"
 echo "entity        : $ENTITY"
-echo "entity_dir    : $ENTITY_DIR"
+echo "home          : ~/.$ENTITY"
 echo "work_dir      : $WORK_DIR"
 echo "provider      : $PROVIDER"
 echo "model         : $MODEL_RESOLVED"
@@ -473,12 +474,12 @@ if [ -n "$SYSTEM_PROMPT" ] && [ -z "$OPENCODE_CONFIG_CONTENT" ]; then
   done
 
   if [ -n "$OPENCODE_TEMPLATE" ]; then
-    # Shell-expand $ENTITY, $ENTITY_DIR, $PURPOSE in the template
+    # Shell-expand $ENTITY, ~/.$ENTITY, $PURPOSE in the template
     # Strip jsonc line comments (only leading // not inside strings)
     # Then jq injects the assembled prompt safely (handles escaping)
     OPENCODE_CONFIG_CONTENT=$(
       sed '/^[[:space:]]*\/\//d' "$OPENCODE_TEMPLATE" \
-      | sed "s|\\\$ENTITY_DIR|$ENTITY_DIR|g" \
+      | sed 's|~/\.\$ENTITY|'"$ENTITY_DIR"'|g' \
       | sed "s|\\\$ENTITY|$ENTITY|g" \
       | sed "s|\\\$PURPOSE|${PURPOSE:-$ENTITY entity}|g" \
       | jq --arg prompt "$SYSTEM_PROMPT" \
@@ -528,7 +529,7 @@ fi
 # --- Exec -----------------------------------------------------------------
 #
 # opencode 'run' is the one-shot. Both 'run' and the interactive TUI accept
-# -c/--continue. For rooted entities cwd is always $ENTITY_DIR, so there is
+# -c/--continue. For rooted entities cwd is always ~/.$ENTITY, so there is
 # exactly one persistent session per entity; for roaming entities, one per
 # (entity × project-dir) pair.
 #

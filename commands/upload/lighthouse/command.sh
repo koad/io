@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: 0BSD
+ENTITY_DIR="$HOME/.$ENTITY"
 start=`date +%s`
 
 echo $1 $2 $3 $4 $5 $6

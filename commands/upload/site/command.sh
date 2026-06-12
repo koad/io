@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: 0BSD
+ENTITY_DIR="$HOME/.$ENTITY"
 
 KOAD_IO_PROD_DOMAIN=$1
 DATADIR="$ENTITY_DIR/sites/$KOAD_IO_PROD_DOMAIN"
@@ -19,7 +20,7 @@ if [ -n "$KOAD_IO_PROD_ENTITY" ]; then
     ENTITY_DIR="$HOME/.$KOAD_IO_PROD_ENTITY"
 fi
 echo "KOAD_IO_PROD_ENTITY:$KOAD_IO_PROD_ENTITY"
-echo "ENTITY_DIR:$ENTITY_DIR"
+echo "home: ~/.$ENTITY"
 
 
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: 0BSD
+ENTITY_DIR="$HOME/.$ENTITY"
 echo $1 $2
 
 KOAD_IO_DOMAIN=$1
@@ -21,7 +22,7 @@ if [ -f "$ENTITY_DIR/id/ed25519" ]; then
 elif [ -f "$ENTITY_DIR/id/rsa" ]; then
     SSH_KEY_PATH="$ENTITY_DIR/id/rsa"
 else
-    echo "No valid SSH key found in $ENTITY_DIR/id"
+    echo "No valid SSH key found in ~/.$ENTITY/id"
     exit 1
 fi
 

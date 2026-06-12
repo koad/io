@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: 0BSD
+ENTITY_DIR="$HOME/.$ENTITY"
 # ---------------------------------------------------------------------------
 # statusline.sh — Claude Code statusline hook
 # ---------------------------------------------------------------------------
@@ -94,7 +95,7 @@ ctx_bg() {
 }
 
 # --- Entity outfit → glyph color -----------------------------------------
-# Outfit lives in $ENTITY_DIR/passenger.json under .outfit.{h,s} (VESTA-063).
+# Outfit lives in ~/.$ENTITY/passenger.json under .outfit.{h,s} (VESTA-063).
 # Convert hue/sat (+ fixed brightness) to 24-bit truecolor so the ◊ brand
 # glyph IS the entity's outfit color. Falls back to bright cyan if no
 # outfit is set or jq/passenger is unavailable.
@@ -139,7 +140,7 @@ fi
 # entity's sessions in any locational sense — recording their payloads
 # would pollute state with unrelated sessions koad happens to run in other
 # directories. Rooted entities (KOAD_IO_ROOTED=true in their .env) always
-# open claude in $ENTITY_DIR, so a statusline firing there is definitively
+# open claude in ~/.$ENTITY, so a statusline firing there is definitively
 # the entity's own session, and the sensor captures meaningful self-
 # awareness data (context%, spend, 5h+7d rate limits, cost breakdown).
 #

@@ -25,7 +25,7 @@ juno upload --mkdir ./assets/ prod-server:/var/www/html/assets/
 ## What it expects
 
 - `scp` and `stat` — available on PATH
-- `$ENTITY_DIR/id/ed25519` or `$ENTITY_DIR/id/rsa` — entity SSH key must exist
+- `~/.$ENTITY/id/ed25519` or `~/.$ENTITY/id/rsa` — entity SSH key must exist
 - The remote host must accept connections from the entity's SSH key
 
 ## Sub-commands

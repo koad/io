@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: 0BSD
+ENTITY_DIR="$HOME/.$ENTITY"
 #
 # statusline-probe — koad:io statusline for Claude Code (discovery phase)
 #
@@ -33,7 +34,7 @@
 # Constraints:
 #   - Must be FAST (runs every turn; >200ms visibly lags the TUI)
 #   - Must NOT crash (exit 0 on any error; emit *something* to stdout)
-#   - Must be defensive about env (works with or without $ENTITY/$ENTITY_DIR)
+#   - Must be defensive about env (works with or without $ENTITY/~/.$ENTITY)
 #   - Must work on wonderland (Linux) and fourty4/flowbie (macOS)
 #
 # Once the payload shape is known from the probe dumps, a sibling
@@ -73,7 +74,7 @@ if [ "$_entity" = "unscoped" ] && [ -n "$CLAUDE_CONFIG_DIR" ]; then
 fi
 
 # --- Resolve state dir ----------------------------------------------------
-# If $ENTITY_DIR is set and writable, use it. Otherwise fall back to
+# If ~/.$ENTITY is set and writable, use it. Otherwise fall back to
 # CLAUDE_CONFIG_DIR (rooted entities) or /tmp (unscoped).
 
 if [ -n "$ENTITY_DIR" ] && [ -d "$ENTITY_DIR" ] && [ -w "$ENTITY_DIR" ]; then

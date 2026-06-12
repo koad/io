@@ -118,7 +118,7 @@ Minimum contract for a `command.sh`:
 
 - `#!/usr/bin/env bash` + `set -euo pipefail` (or `set -e` if you have bash-array edge cases)
 - `-h` / `--help` / `help` prints a usage block to stderr and exits 0
-- Reads `$ENTITY`, `$ENTITY_DIR`, `$CWD` from the env the dispatcher sets
+- Reads `$ENTITY`, `~/.$ENTITY`, `$CWD` from the env the dispatcher sets
 - Honors `KOAD_IO_ROOTED` if the behavior depends on rooted-vs-roaming cwd
 - Exits with conventional codes: `64` usage error, `66` missing input file, `69` missing dependency
 

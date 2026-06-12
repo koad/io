@@ -103,7 +103,7 @@ vesta harness claude --resume <session-id>
 
 When `-c` is used without a prompt and without `--resume`, the claude harness prints a session picker that lists recent sessions with previews, then exits. This lets you inspect what's available before committing to `--resume <id>`.
 
-**Rooted entities get exactly one persistent session per entity.** Because `$CWD` is always `$ENTITY_DIR` for a rooted entity (Juno, Vesta), `-c` always resumes the same session — stable memory across invocations, from any caller location.
+**Rooted entities get exactly one persistent session per entity.** Because `$CWD` is always `~/.$ENTITY` for a rooted entity (Juno, Vesta), `-c` always resumes the same session — stable memory across invocations, from any caller location.
 
 **Roaming entities get one session per `(entity x project-dir)` pair.** A roaming entity (Vulcan, Mercury) invoked inside `~/code/foo` will resume its `foo` session; invoked inside `~/code/bar` will resume its `bar` session.
 
@@ -139,8 +139,8 @@ When `-c` is used without a prompt and without `--resume`, the claude harness pr
 | Harness | Status | Config-dir mechanic | Notes |
 |---------|--------|---------------------|-------|
 | `default` | shipped | (delegates) | Meta-harness. Resolves `$ENTITY_DEFAULT_HARNESS` and execs the chosen sub-command with `$PROMPT` exported. |
-| `claude` | shipped | `CLAUDE_CONFIG_DIR=$ENTITY_DIR` | Claude Code. Verified with real CLI. Provider: anthropic only. |
-| `opencode` | shipped | `XDG_CONFIG_HOME=$ENTITY_DIR` | opencode TUI + `opencode run`. Providers: anthropic, openai, ollama, openrouter, google/gemini, opencode-zen. |
+| `claude` | shipped | `CLAUDE_CONFIG_DIR=~/.$ENTITY` | Claude Code. Verified with real CLI. Provider: anthropic only. |
+| `opencode` | shipped | `XDG_CONFIG_HOME=~/.$ENTITY` | opencode TUI + `opencode run`. Providers: anthropic, openai, ollama, openrouter, google/gemini, opencode-zen. |
 | `bash` | shipped | (none — human harness) | Entity shell. No LLM. Loads entity env, cd to rooted/roaming cwd, entity-tagged PS1. |
 | `zsh` | shipped | (none — human harness) | Mirror of bash for Mac hosts (fourty4). Uses per-entity ZDOTDIR. Untested on wonderland (Linux). |
 | `pi` | draft | `PI_CONFIG_DIR` + `XDG_CONFIG_HOME` | pi-mono harness. **UNVERIFIED** — drafted from SPEC-072 rules, needs validation on fourty4. |
@@ -184,10 +184,10 @@ ENTITY_DEFAULT_MODEL=sonnet-4-6
 
 Each `harness/<harness>/command.sh` is responsible for five things:
 
-1. **Config-dir invariant.** Export `<HARNESS>_CONFIG_DIR=$ENTITY_DIR`. For claude, that is `CLAUDE_CONFIG_DIR`. For opencode, `XDG_CONFIG_HOME`. This is the structural rule from SPEC-072.
+1. **Config-dir invariant.** Export `<HARNESS>_CONFIG_DIR=~/.$ENTITY`. For claude, that is `CLAUDE_CONFIG_DIR`. For opencode, `XDG_CONFIG_HOME`. This is the structural rule from SPEC-072.
 2. **Credentials resolution.** The koad-io loader cascades `~/.koad-io/.credentials` -> `~/.<entity>/.credentials` into the environment before this script runs. Sub-commands validate that the required keys for the requested provider are present and warn if not.
 3. **Model normalization.** Accept both short names (`opus-4-6`) and full IDs (`claude-opus-4-6`); resolve to whatever the underlying CLI expects.
-4. **Rooted vs roaming cwd.** Read `KOAD_IO_ROOTED` from the entity `.env`. If `true`, cd to `$ENTITY_DIR`. If unset or `false`, stay in `$CWD` (so roaming entities operate on the project they were invoked inside).
+4. **Rooted vs roaming cwd.** Read `KOAD_IO_ROOTED` from the entity `.env`. If `true`, cd to `~/.$ENTITY`. If unset or `false`, stay in `$CWD` (so roaming entities operate on the project they were invoked inside).
 5. **Interactive vs one-shot.** No prompt -> interactive session. Prompt given -> one-shot with the harness's equivalent of `-p`.
 
 ## Lifecycle environment variables
@@ -204,7 +204,7 @@ These variables are set by the harness wrapper process and are available to all 
 | `KOAD_IO_SESSION_KEK` | claude | Session key encryption key from the memory KEK ceremony (if `KOAD_IO_MEMORY_ENABLED=1`). Empty if ceremony aborted. |
 | `KOAD_IO_HARNESS` | bash, zsh | Set to the harness name so rc files can detect the context. |
 
-The PID file and emission ID file are written to `$ENTITY_DIR/.local/state/harness/`. The session-scanner and daemon use these to correlate running processes with emissions and detect orphaned sessions.
+The PID file and emission ID file are written to `~/.$ENTITY/.local/state/harness/`. The session-scanner and daemon use these to correlate running processes with emissions and detect orphaned sessions.
 
 ## Entity behavior flags
 
@@ -231,7 +231,7 @@ The emission ID is written to `HARNESS_EMISSION_ID_FILE` so hooks and session co
 
 ## Rooms
 
-The claude and opencode harnesses support `KOAD_IO_ROOM` — a caller-pinned directory used as the config root instead of `$ENTITY_DIR`. Rooms are sealed portable workspaces: their own session history lives in the room dir and travels with it. Multiple roaming entities visiting the same room via `--session-id` share the same conversation file naturally.
+The claude and opencode harnesses support `KOAD_IO_ROOM` — a caller-pinned directory used as the config root instead of `~/.$ENTITY`. Rooms are sealed portable workspaces: their own session history lives in the room dir and travels with it. Multiple roaming entities visiting the same room via `--session-id` share the same conversation file naturally.
 
 If `KOAD_IO_ROOM` is set and is a valid directory, it wins over all other config-dir modes.
 

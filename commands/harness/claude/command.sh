@@ -11,12 +11,13 @@
 #   alice harness claude anthropic haiku-4-5 "hi"
 #
 # Invariants (per VESTA-SPEC-072):
-#   - CLAUDE_CONFIG_DIR = $ENTITY_DIR (entity root IS the harness config dir)
+#   - CLAUDE_CONFIG_DIR = ~/.$ENTITY (entity root IS the harness config dir)
 #   - credentials cascade: entity .credentials > kingdom .credentials (handled by koad-io loader)
 #   - rooted vs roaming cwd honored via KOAD_IO_ROOTED
 #   - interactive when no prompt; -p one-shot when prompt present
 
 set -e
+ENTITY_DIR="$HOME/.$ENTITY"
 
 # --- Flag filter ----------------------------------------------------------
 #
@@ -54,7 +55,7 @@ if [ -z "$ENTITY" ]; then
 fi
 
 if [ -z "$ENTITY_DIR" ] || [ ! -d "$ENTITY_DIR" ]; then
-  echo "Error: \$ENTITY_DIR not set or not a directory: '$ENTITY_DIR'" >&2
+  echo "Error: ~/.$ENTITY not set or not a directory" >&2
   exit 64
 fi
 
@@ -103,7 +104,7 @@ case "$PROVIDER" in
   anthropic)
     if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
       echo "Warning: no ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in environment." >&2
-      echo "  (claude CLI may still work if it has cached credentials in \$ENTITY_DIR/.credentials.json)" >&2
+      echo "  (claude CLI may still work if it has cached credentials in ~/.$ENTITY/.credentials.json)" >&2
     fi
     ;;
   bedrock|vertex)
@@ -139,7 +140,7 @@ esac
 #      entities visiting the same room with the same --session-id share
 #      the same conversation file naturally.
 #
-#   2. Rooted entity       — if KOAD_IO_ROOTED=true, use $ENTITY_DIR. This
+#   2. Rooted entity       — if KOAD_IO_ROOTED=true, use ~/.$ENTITY. This
 #      is the original SPEC-072 axiom for protocol keepers (Juno, Vesta):
 #      sealed entity, portable, session log lives inside the entity tarball.
 #
@@ -159,7 +160,7 @@ fi
 
 # --- Rooted vs roaming cwd ------------------------------------------------
 #
-# Rooted entities (Juno, Vesta) always work from $ENTITY_DIR regardless of
+# Rooted entities (Juno, Vesta) always work from ~/.$ENTITY regardless of
 # where they were invoked. Roaming entities (Vulcan, Mercury) stay in $CWD
 # so they can operate on the project the user invoked them inside.
 
@@ -176,7 +177,7 @@ cd "$WORK_DIR"
 echo
 echo "harness       : claude"
 echo "entity        : $ENTITY"
-echo "entity_dir    : $ENTITY_DIR"
+echo "home          : ~/.$ENTITY"
 echo "work_dir      : $WORK_DIR"
 echo "provider      : $PROVIDER"
 echo "model         : $MODEL_RESOLVED"
@@ -409,7 +410,7 @@ fi
 
 # --- Entity-contributed Claude Code plugins --------------------------------
 #
-# Scan $ENTITY_DIR/plugins/*/ for dirs that are actual plugins (contain
+# Scan ~/.$ENTITY/plugins/*/ for dirs that are actual plugins (contain
 # .claude-plugin/plugin.json) and inject each as --plugin-dir. Lets an
 # entity bundle its own agents/skills/hooks as plugins without touching
 # the framework or the harness. Experimental (2026-04-21) — see
@@ -459,7 +460,7 @@ fi
 # if another one-shot is already running for this entity. Prevents
 # orchestrators from racing two dispatches into the same entity's
 # conversation. Stale locks (PID exited without cleanup) are auto-reclaimed.
-# Lock lives at $ENTITY_DIR/.lock/harness-claude.pid — a dot-dir inside the
+# Lock lives at ~/.$ENTITY/.lock/harness-claude.pid — a dot-dir inside the
 # entity so it travels with sealed-portable entities.
 #
 # Interactive mode is intentionally unguarded: terminal windows are already
@@ -546,21 +547,95 @@ _harness_stamp_flight() {
   [ "$rc" -ne 0 ] && [ "$rc" -ne 130 ] && new_status="error"
   python3 - "$flight_file" "$new_status" "$rc" <<'PYSTAMP' 2>/dev/null || true
 import json, os, sys, time
-path, new_status, rc_str = sys.argv[1:4]
+from datetime import datetime
+
+flight_path, new_status, rc_str = sys.argv[1:4]
+
 try:
-    with open(path) as f:
-        d = json.load(f)
+    with open(flight_path) as f:
+        flight = json.load(f)
 except Exception:
     sys.exit(0)
-if d.get("status") != "flying":
+
+if flight.get("status") != "flying":
     sys.exit(0)
-d["status"] = new_status
-d["ended"] = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
-d["closingNote"] = d.get("closingNote") or ("harness exit rc=" + rc_str + " (control-tower fallback)")
-tmp = path + ".tmp." + str(os.getpid())
-with open(tmp, "w") as f:
-    json.dump(d, f, indent=2)
-os.replace(tmp, path)
+
+ended = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+note = flight.get("closingNote") or f"harness exit rc={rc_str} (control-tower fallback)"
+flight["status"] = new_status
+flight["ended"] = ended
+flight["closingNote"] = note
+flight_tmp = flight_path + ".tmp." + str(os.getpid())
+with open(flight_tmp, "w") as f:
+    json.dump(flight, f, indent=2)
+    f.write("\n")
+os.replace(flight_tmp, flight_path)
+
+run_id = flight.get("run_record_id") or ""
+if not run_id:
+    sys.exit(0)
+
+runs_dir = os.path.join(os.path.expanduser("~/.juno"), "control", "runs")
+run_path = os.path.join(runs_dir, f"{run_id}.json")
+if not os.path.exists(run_path):
+    sys.exit(0)
+
+try:
+    with open(run_path) as f:
+        run = json.load(f)
+except Exception:
+    sys.exit(0)
+
+if run.get("close_verified") is True and run.get("status") in ("complete", "failed"):
+    sys.exit(0)
+
+stats = flight.get("stats") or run.get("stats") or {}
+outputs = dict(run.get("outputs") or {})
+outputs["summary"] = outputs.get("summary") or note
+results = dict(run.get("results") or {})
+results["success"] = (new_status == "landed")
+if stats.get("cost") is not None:
+    results["cost"] = stats.get("cost")
+model = flight.get("model") or run.get("model") or (stats.get("model") if isinstance(stats, dict) else None)
+
+elapsed = run.get("elapsed_s") or run.get("elapsed") or 0
+started = run.get("started") or run.get("started_at") or flight.get("started")
+if not elapsed and started:
+    try:
+        started_dt = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+        ended_dt = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+        elapsed = max(0, round((ended_dt - started_dt).total_seconds()))
+    except Exception:
+        elapsed = 0
+
+run["status"] = "complete" if new_status == "landed" else "failed"
+run["ended"] = ended
+run["completed_at"] = ended
+run["close_reason"] = "harness-fallback"
+run["close_verified"] = True
+run["outputs"] = outputs
+run["results"] = results
+run["stats"] = stats
+if model:
+    run["model"] = model
+if elapsed:
+    run["elapsed"] = elapsed
+    run["elapsed_s"] = elapsed
+
+run_tmp = run_path + ".tmp." + str(os.getpid())
+with open(run_tmp, "w") as f:
+    json.dump(run, f, indent=2)
+    f.write("\n")
+os.replace(run_tmp, run_path)
+
+run_log_path = run.get("run_log_path") or ""
+if run_log_path:
+    try:
+        os.makedirs(os.path.dirname(run_log_path), exist_ok=True)
+        with open(run_log_path, "a") as f:
+            f.write(json.dumps(run) + "\n")
+    except Exception:
+        pass
 PYSTAMP
 }
 

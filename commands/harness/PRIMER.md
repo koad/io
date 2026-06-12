@@ -12,14 +12,14 @@ The koad:io `harness` built-in lets any entity be launched through any harness w
 
 `<harness>` can be the literal string **`default`** — a meta-harness that resolves `$ENTITY_DEFAULT_HARNESS` (from `~/.<entity>/.env`) and delegates. `<provider>` and `<model>` are optional at every call site; each sub-command cascades positional → `$ENTITY_DEFAULT_*` → `$KOAD_IO_DEFAULT_*` → hardcoded. Pin your preferences in `.env` once and use `<entity> harness default [prompt]` thereafter.
 
-**Session continuity:** `--continue` / `-c` (or `CONTINUE=1` env var) resumes the most recent session for the current project directory. Rooted entities always run from `$ENTITY_DIR`, so they get exactly **one** persistent session per entity — stable memory across invocations. Roaming entities get one session per `(entity × project-dir)` pair, which is the right behavior when they're invoked inside user projects.
+**Session continuity:** `--continue` / `-c` (or `CONTINUE=1` env var) resumes the most recent session for the current project directory. Rooted entities always run from `~/.$ENTITY`, so they get exactly **one** persistent session per entity — stable memory across invocations. Roaming entities get one session per `(entity × project-dir)` pair, which is the right behavior when they're invoked inside user projects.
 
 Every sub-directory here is one harness. Every sub-command is responsible for the same five things:
 
-1. Export `<HARNESS>_CONFIG_DIR=$ENTITY_DIR` (the SPEC-072 structural rule — mechanically it may be `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `PI_CONFIG_DIR`, etc., depending on what the underlying CLI respects)
+1. Export `<HARNESS>_CONFIG_DIR=~/.$ENTITY` (the SPEC-072 structural rule — mechanically it may be `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `PI_CONFIG_DIR`, etc., depending on what the underlying CLI respects)
 2. Cascade-resolve credentials for the requested provider (koad-io loader has already sourced `~/.koad-io/.credentials` → `~/.<entity>/.credentials` into the environment before this script runs)
 3. Normalize the model name into whatever the harness CLI expects
-4. Honor `KOAD_IO_ROOTED` for cwd selection (`$ENTITY_DIR` if rooted, `$CWD` if roaming)
+4. Honor `KOAD_IO_ROOTED` for cwd selection (`~/.$ENTITY` if rooted, `$CWD` if roaming)
 5. Interactive mode when no prompt; one-shot with the harness's `-p` equivalent when a prompt is present
 
 ## What *is* a harness — the frame insight
@@ -94,8 +94,8 @@ And if you find yourself about to build a TUI from scratch: **don't.** Find a TU
 | default  | **shipped** | _(delegates)_                         | Meta-harness. Resolves `$ENTITY_DEFAULT_HARNESS` → `$KOAD_IO_DEFAULT_HARNESS` → `opencode`, then `exec`s the chosen sub-command with `$PROMPT` in env (no positional args) so the delegate's own env cascade owns provider/model selection. |
 | bash     | **shipped** | _(none — human harness)_              | The original way of using koad:io, pre-LLM. Loads the entity env, cds to rooted/roaming cwd, drops into an interactive bash with an entity-tagged PS1 (sources `~/.bashrc`, then prepends `[entity]` in magenta via a process-substituted rcfile). One-shot mode via `PROMPT` or positional. No provider/model. |
 | zsh      | **shipped** | _(none — human harness)_              | Mirror of `bash` for the **Mac hosts** (fourty4, flowbie) where zsh is the default shell. Uses a per-entity `ZDOTDIR` at `~/.cache/koad-io/harness/<entity>/zsh/` whose `.zshrc` sources the user's real `.zshrc` then tags `PROMPT`. Untested runtime on wonderland (Linux, no zsh), `bash -n` clean — validate on fourty4. |
-| claude   | **shipped** | `CLAUDE_CONFIG_DIR=$ENTITY_DIR`       | Verified with real `claude` CLI. Provider: anthropic. |
-| opencode | **shipped** | `XDG_CONFIG_HOME=$ENTITY_DIR`         | Verified with fake binary. Providers: anthropic/openai/ollama/openrouter/google + passthrough. |
+| claude   | **shipped** | `CLAUDE_CONFIG_DIR=~/.$ENTITY`       | Verified with real `claude` CLI. Provider: anthropic. |
+| opencode | **shipped** | `XDG_CONFIG_HOME=~/.$ENTITY`         | Verified with fake binary. Providers: anthropic/openai/ollama/openrouter/google + passthrough. |
 | pi       | **shipped** | native default (`~/.pi/agent/`) — opt-in pin via `KOAD_IO_PI_AGENT_DIR` | `@earendil-works/pi-coding-agent` (npm). Dispatcher actively unsets cascaded `PI_CODING_AGENT_DIR` so pi uses its own data dir. Per-entity isolation deferred until we learn the right shape. `--no-context-files` always set. `-p` for one-shot. Pi-specific cascade: `ENTITY_PI_PROVIDER` → `KOAD_IO_PI_PROVIDER`. |
 | codex    | **shipped** | native default (`~/.codex/`) — opt-in pin via `KOAD_IO_CODEX_HOME`      | `@openai/codex` (npm, Rust binary). Same opt-in pattern as pi. Context via `-c instructions=...`. Non-interactive: `codex exec`. Resume: `codex resume --last`. `--oss` for local/ollama. Codex-specific cascade: `ENTITY_CODEX_MODEL` → `KOAD_IO_CODEX_MODEL`. |
 | tui      | not started | —                                     | Planned. |
@@ -152,9 +152,9 @@ Every shipped sub-command filters `--continue` / `-c` out of the positional args
 
 Three things fall out of that simple mechanism for free:
 
-- **Rooted entities: one persistent session per entity.** `$CWD` is always `$ENTITY_DIR`, so `-c` always resumes the same session. Vesta remembers the last thing Juno said to her regardless of where Juno dispatched from.
+- **Rooted entities: one persistent session per entity.** `$CWD` is always `~/.$ENTITY`, so `-c` always resumes the same session. Vesta remembers the last thing Juno said to her regardless of where Juno dispatched from.
 - **Roaming entities: one persistent session per project.** `$CWD` is the caller's project dir, so `-c` resumes whichever session belongs to that project. Vulcan invoked inside `~/code/foo` resumes the `foo` session; invoked inside `~/code/bar` resumes the `bar` session.
-- **Cross-harness independence.** `claude -c` and `opencode -c` key sessions independently; switching harnesses means a fresh session. That's not a bug — it's the natural consequence of each harness owning its own session store at `$ENTITY_DIR/<harness>-state/`.
+- **Cross-harness independence.** `claude -c` and `opencode -c` key sessions independently; switching harnesses means a fresh session. That's not a bug — it's the natural consequence of each harness owning its own session store at `~/.$ENTITY/<harness>-state/`.
 
 Canonical shapes:
 

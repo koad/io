@@ -23,6 +23,7 @@
 #     = basename of the working directory (e.g. cwd=/home/koad/.juno → "juno")
 
 set -e
+ENTITY_DIR="$HOME/.$ENTITY"
 
 # --- Emission helpers --------------------------------------------------------
 
@@ -43,7 +44,7 @@ if [ -z "$ENTITY" ]; then
 fi
 
 if [ -z "$ENTITY_DIR" ] || [ ! -d "$ENTITY_DIR" ]; then
-  echo "Error: \$ENTITY_DIR not set or not a directory: '$ENTITY_DIR'" >&2
+  echo "Error: ~/.$ENTITY not set or not a directory" >&2
   exit 64
 fi
 
@@ -278,7 +279,7 @@ export MODEL
 echo
 echo "harness       : gemini (@google/gemini-cli)"
 echo "entity        : $ENTITY"
-echo "entity_dir    : $ENTITY_DIR"
+echo "home          : ~/.$ENTITY"
 echo "work_dir      : $WORK_DIR"
 echo "model         : $MODEL"
 echo "session_id    : $HARNESS_SESSION_ID"

@@ -18,8 +18,8 @@
 #   PROMPT="git status" juno harness bash         # one-shot via env
 #
 # Invariants:
-#   - $ENTITY, $ENTITY_DIR, $ENTITY_HOST, $ENTITY_HOME remain set
-#   - KOAD_IO_ROOTED honored for cwd selection (rooted → $ENTITY_DIR,
+#   - $ENTITY, ~/.$ENTITY, $ENTITY_HOST, $ENTITY_HOME remain set
+#   - KOAD_IO_ROOTED honored for cwd selection (rooted → ~/.$ENTITY,
 #     roaming → $CWD / $PWD)
 #   - $KOAD_IO_HARNESS=bash is exported so rc files can tag the shell
 #   - interactive shell uses a temp rcfile that sources ~/.bashrc first,
@@ -27,6 +27,7 @@
 #   - one-shot mode runs `bash -c "$PROMPT"` and exits
 
 set -e
+ENTITY_DIR="$HOME/.$ENTITY"
 
 # --- Flag filter ----------------------------------------------------------
 #
@@ -53,7 +54,7 @@ if [ -z "$ENTITY" ]; then
 fi
 
 if [ -z "$ENTITY_DIR" ] || [ ! -d "$ENTITY_DIR" ]; then
-  echo "Error: \$ENTITY_DIR not set or not a directory: '$ENTITY_DIR'" >&2
+  echo "Error: ~/.$ENTITY not set or not a directory" >&2
   exit 64
 fi
 
@@ -96,7 +97,7 @@ export KOAD_IO_HARNESS=bash
 echo
 echo "harness       : bash (human harness)"
 echo "entity        : $ENTITY"
-echo "entity_dir    : $ENTITY_DIR"
+echo "home          : ~/.$ENTITY"
 echo "work_dir      : $WORK_DIR"
 if [ -n "$PROMPT" ]; then
   echo "mode          : one-shot"
