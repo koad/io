@@ -65,17 +65,12 @@ Package.onUse(function(api) {
 
   api.export('ApplicationSessions');
   api.export('ApplicationInternals');
-  // api.export('ApplicationEvents');
 
-  api.export('Devices', 'server');
-  api.export('Services', 'server');
-  api.export('Secrets', 'server');
   api.export('Login', 'client');
   api.export('Logout', 'client');
+  
   api.export('tick1s', 'client');
   api.export('tick1m', 'client');
-
-  // api.export('relativeTime', 'client');
 
 });
 

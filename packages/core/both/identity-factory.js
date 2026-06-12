@@ -85,12 +85,13 @@ function _delegateVerifySync(armored, pubkey) {
 }
 
 // ---------------------------------------------------------------------------
-// Factory — createKoadIdentity
+// Factory — koad.generate.identity
 // ---------------------------------------------------------------------------
-// Attached to globalThis so server/identity.js and client/identity.js can
-// call it without require() or import.
+// Attached to the koad.generate namespace so server/identity.js and
+// client/identity.js can call koad.generate.identity() without require/import.
 
-createKoadIdentity = function createKoadIdentity() {
+koad.generate = koad.generate || {};
+koad.generate.identity = function createKoadIdentity() {
 	var _s = _makeIdentityState();
 
 	// ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 Package.describe({
 	"name": "koad:io-core",
-	"version": "3.6.9",
+	"version": "3.7.0",
 	"summary": "The core koad-io package that all koad-io meteor apps use.  This package sets up the koad global object which is expanded upon by other koad:io packages",
 	"documentation": "https://book.koad.sh/"
 });
@@ -30,7 +30,7 @@ Npm.depends({
 });
 
 Package.onUse(function(api) {
-	api.versionsFrom(["3.0", "3.3"])
+	api.versionsFrom(["3.0", "3.4"])
 
 	api.imply("meteor-base");
 	api.imply("mongo");
@@ -51,10 +51,7 @@ Package.onUse(function(api) {
 	api.imply("shell-server");
 	api.imply("ddp-rate-limiter");
 
-	// api.imply("hot-module-replacement@0.5.4");
-	// api.imply("blaze-hot");
-
-	// api.imply("check");
+	api.imply("check");
 
 	api.use("random");
 	api.use("mongo");
@@ -78,52 +75,32 @@ Package.onUse(function(api) {
 	// loads first, initializes the koad object.
 	api.addFiles("both/initial.js");
 
+	// koad.identity factory — defines createKoadIdentity() global (VESTA-SPEC-149).
+	// Must load after initial.js (koad global) and before server/client identity wiring.
+	api.addFiles("both/identity-factory.js");
+
 	// loads onto the initialized the koad object.
 	api.addFiles("server/logger.js", "server");
 	api.addFiles("server/upstart.js", "server");
 	api.addFiles("server/ready.js", "server");  // koad.ready() — indexer readiness gate; must load before any indexer
 	api.addFiles("client/upstart.js", "client");
+	api.addFiles("client/ready.js", "client");   // koad.ready() — reactive readiness gate (mirrors server API)
 	api.addFiles("client/search.js", "client");
 
 	api.addFiles([
 		"both/utils.js",
 		"both/time-constants.js",
 		"both/global-helpers.js",
-		"both/router.js",
-		"both/identity-factory.js",  // createKoadIdentity() — consumed by server/identity.js and client/identity.js
 	]);
 
 	api.addFiles([
 		"server/collections.js",
 		"server/discovery.js",
-		"server/sovereign-profile.js",
-		"server/corpus-by-url.js",
-		"server/context-inject.js",
-		"server/auth-token.js",
-		"server/scripts.js",
-		"server/identity.js",
-		"server/identity-init.js",
 		"server/system-health.js",
 		"server/sysinfo.js",
-		"server/avatar.js",
-		"server/keys.js",
-		"server/bonds.js",
-		"server/profile-json.js",
-		"server/profile-keys.js",
-		"server/profile-atom.js",
 		"server/counters.js",
 		"server/search.js",
-		"server/cron.js",
 	], "server");
-
-	api.addFiles([
-		"client/identity.js",
-	], "client");
-
-	// Eagerly load shared crypto/IPFS deps on the client.
-	// mainModule establishes the ESM import tree; addFiles above load as legacy scripts.
-	// profile-builder.js, ipfs-client.js, and stream.js all read from koad.deps.
-	api.mainModule("client/deps.js", "client");
 
 
 	api.export("GlobalSearch", "server");
@@ -137,7 +114,7 @@ Package.onUse(function(api) {
 	api.export("log", "server");
 
 	// Export the collections created within this package...
-	api.export("Counters", "server");
+	api.export("ApplicationCounters", "server");
 
 	api.export("ApplicationEvents", "server");
 	api.export("ApplicationErrors", "server");
@@ -151,13 +128,6 @@ Package.onUse(function(api) {
 
 	// Export the koad object created by this package...
 	api.export("koad");
-
-	// Export crypto symbols populated by client/deps.js.
-	// IPLD primitives (dagJson*, CID, sha256, base64) are server-only —
-	// they're not consumed by client code today; see client/deps.js note.
-	// koad.deps.pgp lazy-loads the kbpgp browser bundle on first call.
-	api.export(["ed"], "client");
-	api.export(["clearsign", "verify"], "client");
 
 });
 

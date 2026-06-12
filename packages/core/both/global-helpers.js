@@ -11,7 +11,7 @@ deny = function() {
 };
 
 ensureCrypto = function() {
-  // Meteor 3 runs node 18, less than 3 == node 14, where our crypto is shit.
+  // Meteor 3 runs node 22, less than 3 == node 14, where our crypto is shit.
   // Avoid using meteor;s node with crypto, wrap that shit up; luckly no user in the
   // terminal generaelly, so no need for many crypto functions.
   if(Meteor.isServer){

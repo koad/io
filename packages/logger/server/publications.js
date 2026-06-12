@@ -2,7 +2,7 @@ import { Meteor } from 'meteor/meteor';
 // Mongo import removed — unused (all collections come from koad:io-core via imply)
 import os from 'os';
 
-// NOTE: Counters is minimongo ({connection: null}) — cannot be published via DDP.
+// NOTE: ApplicationCounters is minimongo ({connection: null}) — cannot be published via DDP.
 // This publication was a no-op (would return a minimongo cursor, not a real collection).
 // Removed. If you need a counter view, publish from a real Mongo collection instead.
 // Meteor.publish('counters', ...) — removed 2026-04-24
@@ -51,11 +51,11 @@ const logEvent = {
     };
 
     const counterIndex = `el_${type}`;
-    const existingCounter = await Counters.findOneAsync({ _id: counterIndex });
+    const existingCounter = await ApplicationCounters.findOneAsync({ _id: counterIndex });
     if (!existingCounter) {
-      await Counters.insertAsync({ _id: counterIndex, created: new Date(), current: 1 });
+      await ApplicationCounters.insertAsync({ _id: counterIndex, created: new Date(), current: 1 });
     } else {
-      await Counters.updateAsync({ _id: counterIndex }, { $inc: { current: 1 } });
+      await ApplicationCounters.updateAsync({ _id: counterIndex }, { $inc: { current: 1 } });
     }
 
     await ClientErrors.insertAsync(event);
@@ -85,7 +85,7 @@ Meteor.methods({
       );
     }
     
-    await Counters.updateAsync(
+    await ApplicationCounters.updateAsync(
       { _id: 'Errors' },
       { $inc: { 'client.info': 1 } }
     );
@@ -108,7 +108,7 @@ Meteor.methods({
       );
     }
 
-    await Counters.updateAsync(
+    await ApplicationCounters.updateAsync(
       { _id: 'Errors' },
       { $inc: { 'client.uncaught': 1 } }
     );
@@ -131,7 +131,7 @@ Meteor.methods({
       );
     }
     
-    await Counters.updateAsync(
+    await ApplicationCounters.updateAsync(
       { _id: 'Errors' },
       { $inc: { 'client.caught': 1 } }
     );
@@ -198,16 +198,16 @@ Meteor.methods({
     event.nodeVer = process.version;
 
     const counterIndex = `el_${event.type}`;
-    const existingCounter = await Counters.findOneAsync({ _id: counterIndex });
+    const existingCounter = await ApplicationCounters.findOneAsync({ _id: counterIndex });
 
     if (!existingCounter) {
-      await Counters.insertAsync({
+      await ApplicationCounters.insertAsync({
         _id: counterIndex,
         created: new Date(),
         current: 1
       });
     } else {
-      await Counters.updateAsync(
+      await ApplicationCounters.updateAsync(
         { _id: counterIndex },
         { $inc: { current: 1 } }
       );

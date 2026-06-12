@@ -159,7 +159,7 @@ Meteor.methods({
         var earlierVisit = await ApplicationSessions.findOneAsync({ _id: this.connection.id});
         if(earlierVisit === undefined) {
             console.log('no earlier visit found,');
-            await Counters.updateAsync({_id: 'Errors'}, { $inc:{ noVisitRecordFound: 1 }});
+            await ApplicationCounters.updateAsync({_id: 'Errors'}, { $inc:{ noVisitRecordFound: 1 }});
             return null;
         };
 

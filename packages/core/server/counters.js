@@ -1,5 +1,5 @@
 /**
- * Counters Collection
+ * ApplicationCounters Collection
  * 
  * In-memory collection for tracking runtime statistics and metrics.
  * Does not persist to MongoDB (connection: null).
@@ -29,7 +29,7 @@
  * This would preserve metrics across restarts and enable historical analysis.
  */
 
-Counters = new Meteor.Collection("counters", {
+ApplicationCounters = new Meteor.Collection("counters", {
 	idGeneration: 'MONGO',
 	connection: null // In-memory only, no MongoDB persistence
 });
@@ -37,9 +37,9 @@ Counters = new Meteor.Collection("counters", {
 /**
  * Security: Deny all client-side operations
  * 
- * Counters are server-only and should never be modified by clients.
+ * ApplicationCounters are server-only and should never be modified by clients.
  */
-Counters.allow({
+ApplicationCounters.allow({
 	insert: function (userId, doc) {
 		return false;
 	},
@@ -63,7 +63,7 @@ Counters.allow({
  */
 koad.counters = {
 	increment: async (counterId, field = 'count', amount = 1) => {
-		const counter = await Counters.findOneAsync(counterId);
+		const counter = await ApplicationCounters.findOneAsync(counterId);
 		
 		if (!counter) {
 			const newCounter = {
@@ -71,12 +71,12 @@ koad.counters = {
 				created: new Date(),
 				[field]: amount
 			};
-			await Counters.insertAsync(newCounter);
+			await ApplicationCounters.insertAsync(newCounter);
 		} else {
 			const update = { $inc: {} };
 			update.$inc[field] = amount;
 			update.$set = { lastUpdated: new Date() };
-			await Counters.updateAsync(counterId, update);
+			await ApplicationCounters.updateAsync(counterId, update);
 		}
 	},
 	
@@ -88,7 +88,7 @@ koad.counters = {
 	 * @returns {Number} Counter value or 0 if not found
 	 */
 	get: async (counterId, field = 'count') => {
-		const counter = await Counters.findOneAsync(counterId);
+		const counter = await ApplicationCounters.findOneAsync(counterId);
 		return counter?.[field] || 0;
 	},
 	
@@ -98,13 +98,13 @@ koad.counters = {
 	 * @param {String} counterId - Counter document ID
 	 */
 	reset: async (counterId) => {
-		await Counters.removeAsync(counterId);
+		await ApplicationCounters.removeAsync(counterId);
 	}
 };
 
 // TODO: Implement periodic snapshots
 // Meteor.setInterval(() => {
-//   const counters = Counters.find().fetch();
+//   const counters = ApplicationCounters.find().fetch();
 //   ApplicationProcesses.update(
 //     { _id: koad.internals },
 //     { $set: { counters, countersSnapshot: new Date() } }

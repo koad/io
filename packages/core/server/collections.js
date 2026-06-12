@@ -132,17 +132,4 @@ Meteor.startup(async () => {
 	}
 });
 
-// Kingdoms collection — one record per kingdom the daemon participates in
-// Schema per VESTA-SPEC-115: kingdom as sovereign participation unit
-// _id is the kingdom slug (e.g. 'koad-io') — CID will be added when sigchains are established
-Kingdoms = new Mongo.Collection('Kingdoms', { connection: null });
-
-// CrossKingdomBonds collection — bonds that cross kingdom boundaries
-// Schema per VESTA-SPEC-115 §7.2: cross-kingdom trust relationships
-// Detection: bond's issuer and recipient belong to different kingdoms per kingdoms.json
-CrossKingdomBonds = new Mongo.Collection('CrossKingdomBonds', { connection: null });
-
-// Note: Kingdoms and CrossKingdomBonds use { connection: null } (always minimongo).
-// createIndexAsync on minimongo throws, so no startup index block for these collections.
-
 log.success('loaded koad-io-core/collections');
