@@ -33,7 +33,7 @@ No build step. opencode loads the `.tsx` file directly via its plugin runtime. T
 
 ## Wiring it into an entity
 
-Each entity's `tui.json` (inside its `$ENTITY_DIR`) declares its plugins. Add the framework path:
+Each entity's `tui.json` (inside `~/.$ENTITY`) declares its plugins. Add the framework path:
 
 ```jsonc
 {

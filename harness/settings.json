@@ -1,14 +1,18 @@
 {
-  "lastChangelogVersion": "0.75.3",
+  "lastChangelogVersion": "0.79.1",
   "extensions": [
-    "/home/koad/.koad-io/harness/extensions/koad-io"
+    "~/.koad-io/harness/extension"
   ],
   "prompts": [
-    "/home/koad/.koad-io/harness/prompts"
+    "~/.koad-io/harness/skills"
   ],
   "defaultProvider": "deepseek",
   "defaultModel": "deepseek-v4-pro",
   "defaultThinkingLevel": "high",
   "enableInstallTelemetry": false,
-  "quietStartup": true
+  "quietStartup": true,
+  "steeringMode": "all",
+  "followUpMode": "all",
+  "theme": "koad-io",
+  "hideThinkingBlock": true
 }

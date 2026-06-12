@@ -1,18 +1,12 @@
 /**
- * koad-io DDP client — shared reactive WebSocket layer for koad:io daemon.
+ * koad-io DDP client — shared reactive WebSocket layer for daemon/control-tower.
  *
- * Connects to the Meteor DDP endpoint, subscribes to publications, and
- * maintains local Minimongo-style collections. Emits typed events on every
- * added/changed/removed record so UI components can react immediately.
+ * The harness keeps two explicit DDP connections:
+ *   - daemon        → kingdom index / read-heavy publications (emissions, bonds, entities)
+ *   - control-tower → mission/session coordination publications (flights, harnesses)
  *
- * Usage from any extension in the same directory:
- *   import { createDDPClient } from "./koad-io-ddp";
- *
- *   const ddp = createDDPClient();
- *   ddp.on("emission", (event, record) => { ... });
- *   ddp.on("bond",    (event, record) => { ... });
- *   ddp.on("health",  (health)         => { ... });
- *   ddp.connect();
+ * This client knows which side it is connected to and subscribes only to the
+ * publications that belong to that backend.
  */
 
 import { EventEmitter } from "node:events";
@@ -88,7 +82,21 @@ export interface HealthSnapshot {
   controlUptime: number;
 }
 
+export type DDPBackend = "daemon" | "control";
 export type DDPEvent = "added" | "changed" | "removed";
+
+const SUBSCRIPTIONS_BY_BACKEND: Record<DDPBackend, string[]> = {
+  daemon: [
+    "passengers",
+    "current",
+  ],
+  control: [
+    "flights.active",
+    "flights.recent",
+    "harnesses.active",
+    "harnesses.recent",
+  ],
+};
 
 export interface DDPClientEvents {
   emission:    [event: DDPEvent, record: EmissionRecord];
@@ -122,6 +130,7 @@ type DDPMessage =
 
 export class DDPClient extends EventEmitter<DDPClientEvents> {
   private url:        string;
+  private backend:    DDPBackend;
   private ws:         WebSocket | null = null;
   private session:    string | null = null;
   private nextId      = 1;
@@ -147,9 +156,10 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
     control: "down", controlReady: false, controlUptime: 0,
   };
 
-  constructor(url?: string) {
+  constructor(url?: string, backend: DDPBackend = "daemon") {
     super();
     const _ip = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
+    this.backend = backend;
     this.url = url ?? (process.env.KOAD_IO_DAEMON_URL ?? `http://${_ip}:${process.env.KOAD_IO_PORT ?? "28282"}`)
       .replace(/^http/, "ws") + "/websocket";
   }
@@ -159,13 +169,14 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   // -----------------------------------------------------------------
 
   get health()         { return { ...this._health }; }
-  get flightCount()    { return this.emissions.size; }  // dashboard compat — was always emissions count
-  get missionCount()   { return this.flights.size; }   // actual Flights collection count
+  get role()           { return this.backend; }
+  get flightCount()    { return this.flights.size; }
+  get missionCount()   { return this.flights.size; }
   get bondCount()      { return this.bonds.size; }
   get sessionCount()   { return this.sessions.size; }
   get entityCount()    { return this.entities.size; }
-  get flights()        { return Array.from(this.emissions.values()); }  // dashboard compat — was emissions
-  get flightsList()    { return Array.from(this.flights.values()); }    // actual Flights records
+  get flights()        { return Array.from(this.flights.values()); }
+  get flightsList()    { return Array.from(this.flights.values()); }
   get sessionsList()   { return Array.from(this.sessions.values()); }
   get entitiesList()   { return Array.from(this.entities.values()); }
   get emissionsList()  { return Array.from(this.emissions.values()); }
@@ -183,6 +194,17 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   get warmProgress(): { ready: number; total: number } {
     const ready = [...this._subsReady.values()].filter(v => v).length;
     return { ready, total: this._subsTotal };
+  }
+
+  /** Wait for all expected subscriptions to receive their 'ready' message. */
+  async waitForWarm(timeoutMs = 5000): Promise<boolean> {
+    if (this.isWarm) return true;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.isWarm) return true;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return this.isWarm;
   }
 
   connect(): this {
@@ -307,10 +329,15 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
         }
         break;
 
-      case "nosub":
-        const err = this.pendingSubs.get(msg.id);
-        if (err) { err.reject(new Error(msg.error?.error ?? "subscription failed")); this.pendingSubs.delete(msg.id); }
+      case "nosub": {
+        const pending = this.pendingSubs.get(msg.id);
+        if (pending) {
+          const reason = msg.error?.error ?? "subscription failed";
+          pending.reject(new Error(`[${pending.name}] ${reason}`));
+          this.pendingSubs.delete(msg.id);
+        }
         break;
+      }
 
       case "pong":
         break; // keepalive ack
@@ -322,25 +349,30 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   // -----------------------------------------------------------------
 
   private async subscribeAll(): Promise<void> {
-    try {
-      await Promise.all([
-        this.sub("emissions"),
-        this.sub("bonds"),
-        this.sub("health"),
-        this.sub("flights.active"),
-        this.sub("flights.recent"),
-        this.sub("harnesses.active"),
-        this.sub("harnesses.recent"),
-        this.sub("entities"),
-      ]);
-    } catch (_) {}
+    this._subsReady.clear();
+    this._subsTotal = 0;
+
+    const subscriptions = SUBSCRIPTIONS_BY_BACKEND[this.backend] ?? [];
+    if (subscriptions.length === 0) return;
+
+    const results = await Promise.allSettled(subscriptions.map((name) => this.sub(name)));
+    for (const r of results) {
+      if (r.status === "rejected") {
+        const msg = r.reason?.message || String(r.reason);
+        if (this.listenerCount("error" as any) > 0) {
+          this.emit("error" as any, new Error(`sub ${msg}`));
+        } else {
+          console.error(`[ddp] sub failed (no listener): ${msg}`);
+        }
+      }
+    }
   }
 
   private sub(name: string): Promise<void> {
     this._subsReady.set(name, false);
     this._subsTotal = this._subsReady.size;
     return new Promise((resolve, reject) => {
-      const id = this.nextId();
+      const id = this.nextIdStr();
       this.pendingSubs.set(id, { name, resolve, reject });
       this.send({ msg: "sub", id, name, params: [] });
     });
@@ -505,8 +537,8 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
 
 let _shared: DDPClient | null = null;
 
-export function createDDPClient(url?: string): DDPClient {
-  const client = new DDPClient(url);
+export function createDDPClient(url?: string, backend: DDPBackend = "daemon"): DDPClient {
+  const client = new DDPClient(url, backend);
   if (!_shared) _shared = client;
   return client;
 }

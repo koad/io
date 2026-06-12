@@ -5,7 +5,7 @@ import {
   HOME, DEFAULT_BLOCKED,
   EMPTY_FILE_SCOPE, EMPTY_TOOL_GRANTS, EMPTY_ENTITY_CAPS, EMPTY_INTERACTIVE,
   currentDeviceId,
-  expandPath, parsePathList,
+  expandPath, parsePathList, parseNameList,
   log,
 } from "./types";
 import { parseBonds } from "./parse";
@@ -40,6 +40,143 @@ export function effectiveBonds(entity: string): { bonds: ParsedBond[]; errors: s
   });
 
   return { bonds: active, errors };
+}
+
+function envFlag(...names: string[]): boolean {
+  return names.some(name => /^(1|true|yes|on)$/i.test(process.env[name] ?? ""));
+}
+
+function envNames(...names: string[]): string[] {
+  const merged: string[] = [];
+  for (const name of names) {
+    for (const value of parseNameList(process.env[name])) {
+      if (!merged.includes(value)) merged.push(value);
+    }
+  }
+  return merged;
+}
+
+function pushUnique(target: string[], values: string[]): void {
+  for (const value of values) {
+    if (!target.includes(value)) target.push(value);
+  }
+}
+
+function applyEnvLanes(scope: BondScope): BondScope {
+  const envRead = parsePathList(process.env.KOAD_IO_HARNESS_READ_PATHS);
+  const envWrite = parsePathList(process.env.KOAD_IO_HARNESS_WRITE_PATHS);
+  const envExec = parsePathList(process.env.KOAD_IO_HARNESS_EXEC_PATHS);
+  const envBlocked = envNames("KOAD_IO_HARNESS_BLOCKED_PATTERNS");
+
+  const allowBash = envFlag("KOAD_IO_BOND_GATE_ALLOW_BASH", "KOAD_IO_PI_BOND_GATE_ALLOW_BASH");
+  const allowDispatch = envFlag("KOAD_IO_BOND_GATE_ALLOW_DISPATCH", "KOAD_IO_PI_BOND_GATE_ALLOW_DISPATCH");
+  const allowDispatchFollowup = envFlag("KOAD_IO_BOND_GATE_ALLOW_DISPATCH_FOLLOWUP", "KOAD_IO_PI_BOND_GATE_ALLOW_DISPATCH_FOLLOWUP");
+  const allowDispatchComplete = envFlag("KOAD_IO_BOND_GATE_ALLOW_DISPATCH_COMPLETE", "KOAD_IO_PI_BOND_GATE_ALLOW_DISPATCH_COMPLETE");
+  const envKoadioTools = envNames("KOAD_IO_BOND_GATE_ALLOW_KOADIO_TOOLS", "KOAD_IO_PI_BOND_GATE_ALLOW_KOADIO_TOOLS");
+  const envKoadioCommands = envNames("KOAD_IO_BOND_GATE_ALLOW_KOADIO_COMMANDS", "KOAD_IO_PI_BOND_GATE_ALLOW_KOADIO_COMMANDS");
+  const envChannelModerate = envNames("KOAD_IO_BOND_GATE_ALLOW_CHANNEL_MODERATE", "KOAD_IO_PI_BOND_GATE_ALLOW_CHANNEL_MODERATE");
+  const envChannelParticipate = envNames("KOAD_IO_BOND_GATE_ALLOW_CHANNEL_PARTICIPATE", "KOAD_IO_PI_BOND_GATE_ALLOW_CHANNEL_PARTICIPATE");
+  const envDispatchTargets = envNames("KOAD_IO_BOND_GATE_ALLOW_DISPATCH_TARGETS", "KOAD_IO_PI_BOND_GATE_ALLOW_DISPATCH_TARGETS");
+  const envReadTools = envNames("KOAD_IO_BOND_GATE_ALLOW_READ_TOOLS", "KOAD_IO_PI_BOND_GATE_ALLOW_READ_TOOLS");
+  const envWriteTools = envNames("KOAD_IO_BOND_GATE_ALLOW_WRITE_TOOLS", "KOAD_IO_PI_BOND_GATE_ALLOW_WRITE_TOOLS");
+
+  const lanes: string[] = [];
+  const next: BondScope = {
+    ...scope,
+    file: {
+      read: [...scope.file.read],
+      write: [...scope.file.write],
+      exec: [...scope.file.exec],
+      blocked: [...scope.file.blocked],
+    },
+    tools: {
+      ...scope.tools,
+      koadio_tools: [...scope.tools.koadio_tools],
+      koadio_commands: [...scope.tools.koadio_commands],
+      channels: {
+        moderate: [...scope.tools.channels.moderate],
+        participate: [...scope.tools.channels.participate],
+      },
+    },
+    entity_capabilities: {
+      ...scope.entity_capabilities,
+      dispatch_targets: [...scope.entity_capabilities.dispatch_targets],
+      message_targets: [...scope.entity_capabilities.message_targets],
+      channel_roles: { ...scope.entity_capabilities.channel_roles },
+    },
+    envLanes: [...scope.envLanes],
+    envReadTools: [...scope.envReadTools],
+    envWriteTools: [...scope.envWriteTools],
+  };
+
+  if (envRead.length > 0) {
+    pushUnique(next.file.read, envRead);
+    lanes.push(`read+${envRead.length}`);
+  }
+  if (envWrite.length > 0) {
+    pushUnique(next.file.write, envWrite);
+    lanes.push(`write+${envWrite.length}`);
+  }
+  if (envExec.length > 0) {
+    pushUnique(next.file.exec, envExec);
+    lanes.push(`exec+${envExec.length}`);
+  }
+  if (envBlocked.length > 0) {
+    pushUnique(next.file.blocked, envBlocked);
+    lanes.push(`blocked+${envBlocked.length}`);
+  }
+
+  if (allowBash) {
+    next.tools.bash = true;
+    lanes.push("bash");
+  }
+  if (allowDispatch) {
+    next.tools.dispatch = true;
+    lanes.push("dispatch");
+  }
+  if (allowDispatchFollowup) {
+    next.tools.dispatch_followup = true;
+    lanes.push("dispatch-followup");
+  }
+  if (allowDispatchComplete) {
+    next.tools.dispatch_complete = true;
+    lanes.push("dispatch-complete");
+  }
+  if (envKoadioTools.length > 0) {
+    pushUnique(next.tools.koadio_tools, envKoadioTools);
+    lanes.push(`tools+${envKoadioTools.length}`);
+  }
+  if (envKoadioCommands.length > 0) {
+    pushUnique(next.tools.koadio_commands, envKoadioCommands);
+    lanes.push(`commands+${envKoadioCommands.length}`);
+  }
+  if (envChannelModerate.length > 0) {
+    pushUnique(next.tools.channels.moderate, envChannelModerate);
+    lanes.push(`channel-mod+${envChannelModerate.length}`);
+  }
+  if (envChannelParticipate.length > 0) {
+    pushUnique(next.tools.channels.participate, envChannelParticipate);
+    lanes.push(`channel-part+${envChannelParticipate.length}`);
+  }
+  if (envDispatchTargets.length > 0) {
+    pushUnique(next.entity_capabilities.dispatch_targets, envDispatchTargets);
+    lanes.push(`dispatch-targets+${envDispatchTargets.length}`);
+  }
+  if (envReadTools.length > 0) {
+    pushUnique(next.envReadTools, envReadTools);
+    lanes.push(`read-tools+${envReadTools.length}`);
+  }
+  if (envWriteTools.length > 0) {
+    pushUnique(next.envWriteTools, envWriteTools);
+    lanes.push(`write-tools+${envWriteTools.length}`);
+  }
+
+  if (lanes.length === 0) return scope;
+
+  next.envLanes = [...scope.envLanes, ...lanes];
+  next.label = `${scope.label} + env(${lanes.join(", ")})`;
+  if (next.mode === "default") next.mode = "env-var";
+  return next;
 }
 
 export function mergeBondScope(entity: string, bonds: ParsedBond[], errors: string[], interactive: boolean): BondScope {
@@ -96,6 +233,9 @@ export function mergeBondScope(entity: string, bonds: ParsedBond[], errors: stri
   }
 
   if (interactive) {
+    if (intOverride.bash !== undefined) {
+      tools.bash = intOverride.bash;
+    }
     if (intOverride.exec) {
       for (const p of intOverride.exec)
         if (!file.exec.includes(p)) file.exec.push(p);
@@ -127,6 +267,9 @@ export function mergeBondScope(entity: string, bonds: ParsedBond[], errors: stri
     label: `mode=bonded device=${deviceId} bonds=${bonds.length}`,
     bondCount: bonds.length,
     deviceId,
+    envLanes: [],
+    envReadTools: [],
+    envWriteTools: [],
   };
 }
 
@@ -145,73 +288,70 @@ export function resolveGate(entity: string, interactive: boolean): BondScope {
       label: "mode=bypass — ALL ACCESS GRANTED",
       bondCount: 0,
       deviceId,
+      envLanes: [],
+      envReadTools: [],
+      envWriteTools: [],
     };
   }
 
   const { bonds, errors } = effectiveBonds(entity);
   log(`gate ${interactive ? "UI" : "headless"}: ${bonds.length} bonds, ${errors.length} errors, device=${deviceId}`);
+
+  let scope: BondScope;
   if (bonds.length > 0) {
-    return mergeBondScope(entity, bonds, errors, interactive);
+    scope = mergeBondScope(entity, bonds, errors, interactive);
+  } else {
+    const dispatchDir = process.env.HARNESS_WORK_DIR?.trim();
+    if (dispatchDir) {
+      const expanded = expandPath(dispatchDir);
+      scope = {
+        file: { read: [expanded], write: [expanded], exec: [expanded], blocked: [...DEFAULT_BLOCKED] },
+        tools: { ...EMPTY_TOOL_GRANTS },
+        entity_capabilities: { ...EMPTY_ENTITY_CAPS },
+        interactive: {},
+        errors,
+        mode: "env-var",
+        label: "mode=env-var dispatch dir r+w+e",
+        bondCount: 0,
+        deviceId,
+        envLanes: [],
+        envReadTools: [],
+        envWriteTools: [],
+      };
+    } else if (errors.length > 0) {
+      scope = {
+        file: { ...EMPTY_FILE_SCOPE },
+        tools: { ...EMPTY_TOOL_GRANTS },
+        entity_capabilities: { ...EMPTY_ENTITY_CAPS },
+        interactive: {},
+        errors,
+        mode: "default",
+        label: "mode=default — no valid bonds",
+        bondCount: 0,
+        deviceId,
+        envLanes: [],
+        envReadTools: [],
+        envWriteTools: [],
+      };
+    } else {
+      scope = {
+        file: { ...EMPTY_FILE_SCOPE },
+        tools: { ...EMPTY_TOOL_GRANTS },
+        entity_capabilities: { ...EMPTY_ENTITY_CAPS },
+        interactive: {},
+        errors: [],
+        mode: "default",
+        label: "mode=default — no bonds, no access",
+        bondCount: 0,
+        deviceId,
+        envLanes: [],
+        envReadTools: [],
+        envWriteTools: [],
+      };
+    }
   }
 
-  const dispatchDir = process.env.HARNESS_WORK_DIR?.trim();
-  if (dispatchDir) {
-    const expanded = expandPath(dispatchDir);
-    return {
-      file: { read: [expanded], write: [expanded], exec: [expanded], blocked: [...DEFAULT_BLOCKED] },
-      tools: { ...EMPTY_TOOL_GRANTS },
-      entity_capabilities: { ...EMPTY_ENTITY_CAPS },
-      interactive: {},
-      errors,
-      mode: "env-var",
-      label: "mode=env-var dispatch dir r+w+e",
-      bondCount: 0,
-      deviceId,
-    };
-  }
-
-  if (errors.length > 0) {
-    return {
-      file: { ...EMPTY_FILE_SCOPE },
-      tools: { ...EMPTY_TOOL_GRANTS },
-      entity_capabilities: { ...EMPTY_ENTITY_CAPS },
-      interactive: {},
-      errors,
-      mode: "default",
-      label: "mode=default — no valid bonds",
-      bondCount: 0,
-      deviceId,
-    };
-  }
-
-  const envScope = parsePathList(process.env.KOAD_IO_HARNESS_READ_PATHS);
-  const envWrite = parsePathList(process.env.KOAD_IO_HARNESS_WRITE_PATHS);
-  const envExec = parsePathList(process.env.KOAD_IO_HARNESS_EXEC_PATHS);
-  if (envScope.length > 0 || envWrite.length > 0 || envExec.length > 0) {
-    return {
-      file: { read: envScope, write: envWrite, exec: envExec, blocked: [...DEFAULT_BLOCKED] },
-      tools: { ...EMPTY_TOOL_GRANTS },
-      entity_capabilities: { ...EMPTY_ENTITY_CAPS },
-      interactive: {},
-      errors: [],
-      mode: "env-var",
-      label: "mode=env-var custom",
-      bondCount: 0,
-      deviceId,
-    };
-  }
-
-  return {
-    file: { ...EMPTY_FILE_SCOPE },
-    tools: { ...EMPTY_TOOL_GRANTS },
-    entity_capabilities: { ...EMPTY_ENTITY_CAPS },
-    interactive: {},
-    errors: [],
-    mode: "default",
-    label: "mode=default — no bonds, no access",
-    bondCount: 0,
-    deviceId,
-  };
+  return applyEnvLanes(scope);
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +377,9 @@ export function bondBlockReason(entity: string, toolName: string, detail: string
     lines.push(`    write: ${writeDirs || "(none)"}`);
     lines.push(`    exec:  ${execDirs || "(none)"}`);
     lines.push(`  tool grants: bash=${scope.tools.bash} dispatch=${scope.tools.dispatch}`);
+    if (scope.envLanes.length > 0) {
+      lines.push(`  env lanes: ${scope.envLanes.join(", ")}`);
+    }
   }
   lines.push(`  action: use koad-io tool or ask_question(to="koad") to request expanded permissions`);
   return lines.join("\n");

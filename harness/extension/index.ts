@@ -3,62 +3,72 @@
  *
  * Single entry point that wires:
  *   - Identity footer + telemetry (DDP-driven kingdom state)
- *   - Dispatch tools (dispatch, dispatch_followup, dispatch_complete, wait)
- *   - Question tools (ask_question, wait_for_answer, answer_question)
- *   - Channel tools (wait_for_cue, raise_hand, channel_leave, channel_state_read,
- *     channel_cue_deliver, channel_broadcast, channel_wait_for_next_turn,
- *     channel_wait_for_state_change, channel_event_fire)
+ *   - Tool suite (questions, dispatch, channels, koad-io, body, kingdom-query, search, status, sin, music)
  *   - Conversation stream (DDP events → system messages mid-session)
  *   - Tool inspection (`list_tools`, `/tools`)
  *   - /kingdom command (interactive dashboard overlay)
+ *   - System infra (bond-gate, hooks, context-budget, circuit-breaker)
  *
  * Directory structure:
- *   koad-io/
- *   ├── index.ts           # ← this file
+ *   extension/
+ *   ├── index.ts           # ← this file (entry point)
  *   ├── ddp.ts             # DDP WebSocket client
- *   ├── questions.ts       # Question queue tools (daemon /api/questions)
- *   ├── identity/
- *   │   ├── footer.ts      # Footer renderer
- *   │   ├── telemetry.ts   # Telemetry state + Pi event handlers
- *   │   └── git.ts         # Git polling helpers
- *   ├── dispatch/
- *   │   ├── tools.ts       # Tool registrations
- *   │   ├── flight.ts      # Flight assembly + launch logic
+ *   ├── lifecycle.ts       # Lifecycle events + telemetry dispatch (was hooks.ts)
+ *   ├── bond-gate.ts       # Permission enforcement
+ *   ├── context-budget.ts  # Context monitoring + auto-compaction
+ *   ├── circuit-breaker.ts # Provider failure recovery
+ *   ├── live-prompt.ts     # Stream typing to daemon
+ *   ├── tools/             # LLM-callable tools
+ *   │   ├── questions.ts   # ask_question, wait_for_answer, answer_question
+ *   │   ├── dispatch.ts    # dispatch, dispatch_followup, dispatch_complete, wait
+ *   │   ├── channels.ts    # wait_for_cue, raise_hand, channel_*, etc
+ *   │   ├── koad-io.ts     # koad-io passthrough
+ *   │   ├── body-motions.ts # surface_now, intake_digest, obligation_*, brief_issue
+ *   │   ├── kingdom-query.ts # mission_query, session_query, emission_query, etc
+ *   │   ├── search.ts      # Kingdom search (waterfall grep/frontmatter/atlas)
+ *   │   ├── status.ts      # Kingdom operational pulse
+ *   │   ├── sin.ts         # Recursive grep in explicit directory
+ *   │   ├── music.ts       # Groove Basin REST control
+ *   │   └── list-tools.ts  # list_tools tool + /tools command
+ *   ├── dispatch/          # Dispatch backend
+ *   │   ├── flight.ts      # Flight assembly + launch
  *   │   └── watcher.ts     # Background flight watcher
- *   ├── channels/
- *   │   ├── tools.ts       # Channel tool registrations
+ *   ├── channels/          # Channel backend
  *   │   └── client.ts      # HTTP client for channel service
- *   ├── kingdom/
- *   │   ├── dashboard.ts   # KingdomDashboard component
- *   │   └── command.ts     # /kingdom command
- *   └── utils/
- *       ├── ansi.ts        # ANSI color helpers
- *       ├── format.ts      # Formatting helpers
- *       └── outfit.ts      # Outfit/persona helpers
+ *   ├── identity/          # Footer + telemetry + git polling
+ *   │   ├── footer.ts, telemetry.ts, git.ts
+ *   ├── kingdom/           # Kingdom UI + query backend
+ *   │   ├── dashboard.ts, command.ts, queries.ts
+ *   ├── streams/           # Real-time event streams
+ *   │   └── conversation.ts # DDP events → system messages
+ *   └── utils/             # Shared utilities
+ *       ├── ansi.ts, format.ts, outfit.ts, tool-render.ts
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createDDPClient } from "./ddp";
 import type { DDPClient } from "./ddp";
 import { createTelemetrySession } from "./identity/telemetry";
-import { registerDispatchTools } from "./dispatch/tools";
-import { registerQuestionTools } from "./questions";
-import { registerChannelTools } from "./channels/tools";
-import { startConversationStream } from "./stream";
+import { registerDispatchTools } from "./tools/dispatch";
+import { registerQuestionTools } from "./tools/questions";
+import { registerChannelTools } from "./tools/channels";
+import { startConversationStream } from "./streams/conversation";
 import { startLivePrompt } from "./live-prompt";
-import { registerKoadioTool } from "./koad-io-tool";
-import { registerToolsInspect } from "./tools-inspect";
-import { registerSearchTool } from "./search";
-import { registerStatusTool } from "./status";
-import { registerMusicTool } from "./music";
-import { registerSinTool } from "./sin";
+import { registerKoadioTool } from "./tools/koad-io";
+import { registerToolsInspect } from "./tools/list-tools";
+import { registerSearchTool } from "./tools/search";
+import { registerStatusTool } from "./tools/status";
+import { registerMusicTool, registerMusicShortcuts } from "./tools/music";
+import { registerSinTool } from "./tools/sin";
 import { registerKingdomCommand } from "./kingdom/command";
 import { registerBondGate } from "./bond-gate";
-import { registerHooks } from "./hooks";
+import type { VisitorConfig } from "./bond-gate/types";
+import { registerHooks } from "./lifecycle";
 import { registerContextBudget } from "./context-budget";
-import { registerProviderCircuitBreaker } from "./provider-circuit-breaker";
-import { registerBodyTools } from "./body-tools";
-import { registerKingdomQueryTools } from "./kingdom-tools";
+import { registerProviderCircuitBreaker } from "./circuit-breaker";
+import { registerBodyTools } from "./tools/body-motions";
+import { registerKingdomQueryTools } from "./tools/kingdom-query";
+import { registerFileOpTools } from "./tools/file-ops";
 
 const _BIND_IP = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
 const CONTROL_WS = (process.env.KOAD_IO_CONTROL_URL ?? `http://${_BIND_IP}:${process.env.KOAD_IO_CONTROL_PORT ?? "28283"}`)
@@ -71,7 +81,40 @@ function toolName(tool: any): string {
 }
 
 function sdkMode(): boolean {
-  return process.env.KOAD_IO_HARNESS_SDK === "1" || !process.stdout.isTTY;
+  if (process.env.KOAD_IO_HARNESS_SDK === "1") return true;
+  return !!process.env.KOAD_IO_VISITOR_SCOPE?.trim() || !!process.env.KOAD_IO_VISITOR_CALLER?.trim();
+}
+
+function resolveVisitorConfig(): VisitorConfig | null {
+  const raw = process.env.KOAD_IO_VISITOR_SCOPE?.trim();
+  const callerRaw = process.env.KOAD_IO_VISITOR_CALLER?.trim();
+  if (!raw && !callerRaw && !sdkMode()) return null;
+
+  // Parse visitor scope from env var (JSON) or use empty scope
+  let accessScope = { read: [] as string[], write: [] as string[], exec: [] as string[], blocked: [] as string[] };
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      accessScope = {
+        read: Array.isArray(parsed.read) ? parsed.read : [],
+        write: Array.isArray(parsed.write) ? parsed.write : [],
+        exec: Array.isArray(parsed.exec) ? parsed.exec : [],
+        blocked: Array.isArray(parsed.blocked) ? parsed.blocked : [],
+      };
+    } catch {
+      // Invalid JSON — use empty scope
+    }
+  }
+
+  const entity = process.env.ENTITY ?? "entity";
+  const caller = callerRaw ? { handle: callerRaw } : null;
+
+  return {
+    entityHandle: entity,
+    accessScope,
+    caller,
+    noBondFiles: true,
+  };
 }
 
 function enforceHarnessToolPolicy(pi: ExtensionAPI): void {
@@ -87,6 +130,9 @@ function enforceHarnessToolPolicy(pi: ExtensionAPI): void {
 
 export default function (pi: ExtensionAPI) {
   const inSdkMode = sdkMode();
+
+  // ── File operation tools (mkdir, cp, mv, rm, chmod) ──────────
+  registerFileOpTools(pi);
 
   // ── Dispatch tools ────────────────────────────────────────────
   registerDispatchTools(pi);
@@ -110,22 +156,23 @@ export default function (pi: ExtensionAPI) {
   // ── Kingdom status (daemon pulse — flights, sessions, emissions) ─
   registerStatusTool(pi);
 
-  // DDP clients — hoisted so kingdom query tools can reference them
-  let ddp: DDPClient | null = null;
+  // DDP clients — explicit split:
+  //   control-tower → flights / harness sessions / mission coordination
+  //   daemon        → emissions / bonds / entities / kingdom index
+  let controlDDP: DDPClient | null = null;
   let daemonDDP: DDPClient | null = null;
 
   if (!inSdkMode) {
-    // ── DDP to control-tower (flights, bonds, sessions, health) ────
-    ddp = createDDPClient(CONTROL_WS);
+    // ── DDP to control-tower (flights, harnesses, mission coordination) ─
+    controlDDP = createDDPClient(CONTROL_WS, "control");
 
-    // ── DDP to daemon (raw emissions, channel cues, questions) ─────
-    daemonDDP = createDDPClient(DAEMON_WS);
+    // ── DDP to daemon (emissions, bonds, entities, kingdom index) ──────
+    daemonDDP = createDDPClient(DAEMON_WS, "daemon");
 
-    // ── Identity + telemetry (footer, token stats, kingdom state) ─
-    const telemetry = createTelemetrySession(pi, ddp);
+    // ── Identity + telemetry (footer, token stats, kingdom state) ──────
+    const telemetry = createTelemetrySession(pi, { control: controlDDP, daemon: daemonDDP });
 
-    // ── Conversation stream (DDP events → system messages) ─────────
-    startConversationStream(pi, ddp);
+    // ── Conversation stream (daemon emissions → system messages) ───────
     startConversationStream(pi, daemonDDP);
 
     // ── Live prompt (stream typing to daemon → storefront) ─────────
@@ -136,16 +183,18 @@ export default function (pi: ExtensionAPI) {
 
     // ── Music control (Groove Basin @ disco.koad.sh:16242) ──────────
     registerMusicTool(pi);
+    registerMusicShortcuts(pi);
 
     // ── Sin search (recursive grep in one explicit directory) ──────
     registerSinTool(pi);
 
     // ── /kingdom command ──────────────────────────────────────────
-    registerKingdomCommand(pi, ddp, telemetry.kingdom);
-
-    // ── Bond gate (interactive/CLI permission enforcement) ───────
-    registerBondGate(pi);
+    registerKingdomCommand(pi, { control: controlDDP, daemon: daemonDDP }, telemetry.kingdom);
   }
+
+  // ── Bond gate (runs in ALL modes — entity bonds or visitor scope) ─
+  const visitorConfig = resolveVisitorConfig();
+  registerBondGate(pi, daemonDDP ?? controlDDP, visitorConfig);
 
   // ── Lifecycle hooks (watchers, harvest, awareness, telemetry) ─
   registerHooks(pi);
@@ -160,6 +209,6 @@ export default function (pi: ExtensionAPI) {
   registerBodyTools(pi);
 
   // ── Kingdom query tools (mission, session, emission, bond, question, entity) ──
-  // Uses the daemon DDP client when available; falls back to REST for bonds/questions.
-  registerKingdomQueryTools(pi, daemonDDP ?? ddp);
+  // Explicit routing: control-tower for mission/session surfaces; daemon for index surfaces.
+  registerKingdomQueryTools(pi, { daemon: daemonDDP, control: controlDDP });
 }

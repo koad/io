@@ -26,15 +26,31 @@ and confirm the response.
 - Try reading a file outside your cwd. Should be blocked.
 - Try reading a blacklisted path (/.env, /.credentials, /id/, /trust/,
   /.git/). Should be blocked.
+- If `KOAD_IO_BOND_GATE_ALLOW_READ_TOOLS` is set, try one allowed read tool
+  and one read tool outside the lane. The outside tool should be blocked with
+  a lane-specific message.
 
 **Write surface:**
 - Try writing a test file inside your cwd. Depends on bond scope.
 - Try writing to a blacklisted path. Should be blocked.
 - Try editing a file. Same rules as write.
+- If `KOAD_IO_BOND_GATE_ALLOW_WRITE_TOOLS` is set, try one allowed write tool
+  and one write tool outside the lane. The outside tool should be blocked with
+  a lane-specific message.
 
 **Shell surface:**
-- Try `bash` with any command. Depends on bond scope — likely blocked.
-  If blocked, verify the error message tells you how to request expansion.
+- Try `bash` with any command. Depends on bond scope or `KOAD_IO_BOND_GATE_ALLOW_BASH=1`.
+- If blocked, verify the error message tells you which kingdom tool or entity lane to use instead.
+- If allowed, try both:
+  - a normal build-style command (`pwd`, `npm test`, etc.)
+  - a rerouted command (`git status`, `ls`, `cat`, daemon `curl`) and confirm bash policy blocks it with the custom guidance.
+- If `KOAD_IO_BASH_DENY_COMMANDS` or `KOAD_IO_BASH_DENY_PATTERNS` is set,
+  verify those env policies override otherwise-allowed bash usage.
+- If the entity ships `~/.<entity>/harness/bash-deny-patterns.txt` or sets
+  `KOAD_IO_BASH_DENY_PATTERNS_FILE`, verify at least one file-based deny rule
+  blocks an otherwise-allowed bash command.
+- If the entity ships `~/.<entity>/harness/bash-routing.json`, verify at least
+  one routed command returns the custom specialist guidance.
 
 **Dispatch:**
 - `dispatch` to another entity with a trivial task. Does it launch?
@@ -79,21 +95,22 @@ After testing, summarize in this format:
 - blacklisted paths blocked: yes/no
 
 ### Tools
-| Tool | Status | Notes |
-|------|--------|-------|
-| read | pass/fail/blocked | |
-| find | pass/fail/blocked | |
-| grep | pass/fail/blocked | |
-| ls   | pass/fail/blocked | |
-| write | pass/fail/blocked | |
-| edit | pass/fail/blocked | |
-| bash | pass/fail/blocked | |
-| status | pass/fail | |
-| search | pass/fail | |
-| dispatch | pass/fail/blocked | |
-| ask_question | pass/fail | |
-| koad-io | pass/fail | |
-| music | pass/fail | |
+| Tool         | Status            | Notes |
+|--------------|-------------------|-------|
+| read         | pass/fail/blocked |       |
+| find         | pass/fail/blocked |       |
+| grep         | pass/fail/blocked |       |
+| ls           | pass/fail/blocked |       |
+| write        | pass/fail/blocked |       |
+| edit         | pass/fail/blocked |       |
+| bash         | pass/fail/blocked |       |
+| status       | pass/fail         |       |
+| search       | pass/fail         |       |
+| dispatch     | pass/fail/blocked |       |
+| ask_question | pass/fail         |       |
+| koad-io      | pass/fail         |       |
+| music        | pass/fail         |       |
+|--------------|-------------------|-------|
 
 ### Boundaries
 - Cross-scope reads blocked: yes/no
@@ -112,4 +129,4 @@ After testing, summarize in this format:
 
 If anything failed, use `ask_question` to report the issue.
 If everything passed, use `koad-io announce` to signal readiness,
-then check `search where status=ready` for your first mission.
+then check `search where status=ready --entity <your name>` for your first mission.

@@ -1,99 +1,20 @@
-// Telemetry state + Pi event handlers.
-// DDP-driven kingdom updates instead of REST polling.
+// koad-io identity — createTelemetrySession(): orchestrates footer, DDP, pi lifecycle.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
-import { DDPClient, type EmissionRecord, type BondRecord } from "../ddp";
+import { DDPClient } from "../ddp";
 import { createFooterComponent, FooterIdentity, footerIdentityDefaults, briefSlug } from "./footer";
 import { clearOutfitCache } from "../utils/outfit";
 import { compactModel } from "../utils/format";
-import type { HealthState } from "../utils/ansi";
+import type { Telemetry, KingdomState, ErrorEntry } from "./types";
+export type { Telemetry, KingdomState, ErrorEntry } from "./types";
+import { EMPTY_TELEMETRY, EMPTY_KINGDOM } from "./types";
+import { flushSession, emitUpdate, bootstrapFromPiSession } from "./session";
+import { pollHealth, updateStatusIndicators, wireDDPHandlers } from "./health";
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface Telemetry {
-  totalCost: number;
-  tokensIn: number;
-  tokensOut: number;
-  cacheRead: number;
-  cacheWrite: number;
-  turnCount: number;
-  toolCount: number;
-  contextPct: number;
-  contextWindow: number;
-  autoCompact: boolean;
-  thinkingLevel: string;
-  activeTool: string;
-  activePath: string;
-  idle: boolean;
-}
-
-export interface ErrorEntry {
-  at: string;       // ISO timestamp
-  msg: string;
-  toolName?: string;
-}
-
-export interface KingdomState {
-  flightCount: number;
-  bondCount: number;
-  lastTool: string;
-  lastToolEntity: string;
-  daemon: HealthState;
-  daemonReady: boolean;
-  daemonUptimeS: number;
-  control: HealthState;
-  controlReady: boolean;
-  controlUptimeS: number;
-  lastPollAt: string;
-  lastError: string;
-  errorLog: ErrorEntry[];
-  errorCount: number;
-  lastEmission: { text: string; at: number } | null;
-}
-
-export const EMPTY_KINGDOM: KingdomState = {
-  flightCount: 0,
-  bondCount: 0,
-  lastTool: "",
-  lastToolEntity: "",
-  daemon: "starting",
-  daemonReady: false,
-  daemonUptimeS: 0,
-  control: "starting",
-  controlReady: false,
-  controlUptimeS: 0,
-  lastPollAt: "",
-  lastError: "",
-  errorLog: [],
-  errorCount: 0,
-  lastEmission: null,
-};
-
-export const EMPTY_TELEMETRY: Telemetry = {
-  totalCost: 0,
-  tokensIn: 0,
-  tokensOut: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  turnCount: 0,
-  toolCount: 0,
-  contextPct: 0,
-  contextWindow: 0,
-  autoCompact: false,
-  thinkingLevel: "",
-  activeTool: "",
-  activePath: "",
-  idle: true,
-};
-
-// ---------------------------------------------------------------------------
-// Telemetry session
+// Public API
 // ---------------------------------------------------------------------------
 
 export interface TelemetrySession {
@@ -106,22 +27,23 @@ export interface TelemetrySession {
   storeCtx(ctx: any): void;
 }
 
-export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): TelemetrySession {
-  // State
+export function createTelemetrySession(
+  pi: ExtensionAPI,
+  clients: { control: DDPClient; daemon: DDPClient },
+): TelemetrySession {
   const id: FooterIdentity = footerIdentityDefaults();
   const tel: Telemetry = { ...EMPTY_TELEMETRY };
   const kingdom: KingdomState = { ...EMPTY_KINGDOM };
 
-  // Refs
   let footerDataRef: any;
   let tuiRef: any;
   let cachedCtx: any;
 
   let flushTimer: ReturnType<typeof setInterval> | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
+  let healthTimer: ReturnType<typeof setInterval> | undefined;
   let gitTimer: ReturnType<typeof setInterval> | undefined;
 
-  // Env
   const entity = id.entity;
   const sessionsDir = process.env.KOAD_IO_HARNESS_SESSIONS_DIR ?? "";
   const mcpToken = process.env.KOAD_IO_MCP_SESSION_TOKEN ?? "";
@@ -133,82 +55,29 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
   const emitHttpUrl = controlHttpUrl;
 
   // -----------------------------------------------------------------
-  // Session flush (every 30s)
+  // Session I/O wrappers
   // -----------------------------------------------------------------
 
-  function flushSession(): void {
-    if (!sessionsDir || !mcpToken) return;
-    try {
-      const file = path.join(sessionsDir, `${mcpToken}.json`);
-      const tmp = file + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify({
-        sessionId: mcpToken,
-        piSessionId: id.piSessionId || undefined,
-        piSessionVersion: id.piSessionVersion || undefined,
-        entity,
-        operator: id.operator,
-        spirit: process.env.KOAD_IO_SPIRIT ?? id.operator,
-        harness: "pi",
-        host: id.host,
-        pid: process.pid,
-        cwd: id.piSessionCwd || process.env.PWD || process.cwd(),
-        provider: id.currentProvider,
-        model: compactModel(id.currentProvider, id.currentModel),
-        modelId: id.currentModel,
-        flightId: id.flightId || undefined,
-        brief: briefSlug(id.flightPlan) || undefined,
-        cost: tel.totalCost,
-        tokensIn: tel.tokensIn,
-        tokensOut: tel.tokensOut,
-        cacheRead: tel.cacheRead,
-        cacheWrite: tel.cacheWrite,
-        contextPct: tel.contextPct,
-        contextWindow: tel.contextWindow,
-        turnCount: tel.turnCount,
-        toolCount: tel.toolCount,
-        thinkingLevel: tel.thinkingLevel || undefined,
-        sessionUptimeS: Math.floor((Date.now() - id.sessionStartedAt.getTime()) / 1000),
-        kingdom,
-        lastSeen: new Date().toISOString(),
-      }));
-      fs.renameSync(tmp, file);
-    } catch (_) {}
+  function flush(): void {
+    flushSession(id, tel, kingdom, sessionsDir, mcpToken, entity);
+  }
+
+  function emit(payload: Record<string, unknown>): void {
+    emitUpdate(emitHttpUrl, emitEnabled, emissionId, payload);
   }
 
   // -----------------------------------------------------------------
-  // Emission update (via control-tower)
-  // -----------------------------------------------------------------
-
-  function emitUpdate(payload: Record<string, unknown>): void {
-    if (!emitEnabled || !emissionId) return;
-    fetch(`${emitHttpUrl}/emit/update`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ _id: emissionId, ...payload }),
-      signal: AbortSignal.timeout(2000),
-    }).catch(() => {});
-  }
-
-  // -----------------------------------------------------------------
-  // Refresh footer
+  // Footer refresh
   // -----------------------------------------------------------------
 
   function refresh(): void {
     if (!cachedCtx) return;
 
-    // Read bond gate scope from bond-gate extension
-    try {
-      const bs = (pi as any).__bondScope;
-      if (bs) {
-        kingdom.bondCount = bs.bondCount;
-        kingdom.bondMode = bs.mode;
-      }
-    } catch (_) {}
     try {
       const usage = cachedCtx.getContextUsage();
-      if (usage?.tokens !== undefined && usage?.limit > 0) {
-        tel.contextPct = Math.round((usage.tokens / usage.limit) * 100);
-        tel.contextWindow = usage.limit;
+      if (usage?.tokens !== undefined && usage?.contextWindow > 0) {
+        tel.contextPct = Math.round((usage.tokens / usage.contextWindow) * 1000) / 10;
+        tel.contextWindow = usage.contextWindow;
       }
     } catch (_) {}
     let themeRef: any;
@@ -231,17 +100,23 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
   // Timers
   // -----------------------------------------------------------------
 
-  let healthTimer: ReturnType<typeof setInterval> | undefined;
-
   function startTimers(): void {
     if (refreshTimer) clearInterval(refreshTimer);
     if (flushTimer) clearInterval(flushTimer);
     if (gitTimer) clearInterval(gitTimer);
     if (healthTimer) clearInterval(healthTimer);
     refreshTimer = setInterval(refresh, 1000);
-    flushTimer = setInterval(flushSession, 30_000);
-    healthTimer = setInterval(pollHealth, 10_000);
-    pollHealth(); // immediate first poll
+    flushTimer = setInterval(flush, 30_000);
+    healthTimer = setInterval(() => pollHealth(daemonHttpUrl, controlHttpUrl, kingdom, (k) => updateStatusIndicators(k, cachedCtx), () => tuiRef?.requestRender()), 10_000);
+    pollHealth(daemonHttpUrl, controlHttpUrl, kingdom, (k) => updateStatusIndicators(k, cachedCtx), () => tuiRef?.requestRender());
+
+    // Log DDP subscription errors to the kingdom error ring buffer
+    clients.control.on("error" as any, (err: Error) => {
+      recordError(`ddp: ${err.message}`, "ddp");
+    });
+    clients.daemon.on("error" as any, (err: Error) => {
+      recordError(`ddp daemon: ${err.message}`, "ddp");
+    });
   }
 
   function stopTimers(): void {
@@ -255,180 +130,57 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
   }
 
   // -----------------------------------------------------------------
-  // Session bootstrap — reads the known session JSONL for identity
-  // state (cwd, session id, model, thinking level) before the first
-  // agent turn fires, so the footer is populated immediately.
+  // DDP event handlers
   // -----------------------------------------------------------------
 
-  function bootstrapFromPiSession(sessionFile: string | undefined): void {
-    if (!sessionFile) return;
+  wireDDPHandlers(clients, kingdom, () => tuiRef?.requestRender());
 
-    let raw: string;
-    try {
-      raw = fs.readFileSync(sessionFile, "utf8");
-    } catch (_) {
-      return; // file doesn’t exist yet — caller will retry
+  // ── Bond scope updates from bond-gate.ts via pi.events ───────────
+  pi.events.on("koad-io:bond-scope", (scope: any) => {
+    if (scope && typeof scope.bondCount === "number") {
+      kingdom.bondCount = scope.bondCount;
+      (kingdom as any).bondMode = scope.mode;
     }
-
-    for (const line of raw.split("\n")) {
-      if (!line) continue;
-      let obj: any;
-      try { obj = JSON.parse(line); } catch (_) { continue; }
-      if (!obj || typeof obj !== "object") continue;
-
-      if (obj.type === "session") {
-        if (obj.cwd) id.piSessionCwd = obj.cwd;
-        if (obj.id) id.piSessionId = obj.id;
-        if (typeof obj.version === "number") id.piSessionVersion = obj.version;
-        continue;
-      }
-      if (obj.type === "model_change") {
-        if (obj.provider) id.currentProvider = obj.provider;
-        if (obj.modelId) id.currentModel = obj.modelId;
-        continue;
-      }
-      if (obj.type === "thinking_level_change") {
-        if (obj.thinkingLevel) tel.thinkingLevel = obj.thinkingLevel;
-        continue;
-      }
-      if (obj.type === "message" && obj.message?.role === "user") break;
-    }
-  }
-
-  // -----------------------------------------------------------------
-  // HTTP health polling (daemon + control-tower)
-  // -----------------------------------------------------------------
-
-  interface KoadIOHealth {
-    health?: { status?: string; uptime?: number };
-    upstart?: string;
-    asof?: string;
-  }
-
-  type HealthStatus = "ok" | "degraded" | "down";
-
-  interface HealthResult {
-    status: HealthStatus;
-    ready: boolean;
-    uptimeS: number;
-    responseMs: number;
-  }
-
-  async function fetchHealth(url: string): Promise<HealthResult | null> {
-    const start = Date.now();
-    try {
-      const res = await fetch(`${url}/.well-known/koad-io.json`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      const responseMs = Date.now() - start;
-
-      // Parse body regardless of status code — the daemon may return
-      // non-2xx (e.g. 316) with valid health JSON
-      let json: KoadIOHealth | null = null;
-      try { json = await res.json() as KoadIOHealth; } catch (_) {}
-
-      if (!json?.health?.status) {
-        return { status: "degraded", ready: false, uptimeS: 0, responseMs };
-      }
-      const up = json.health.status === "up";
-      if (!up) {
-        return { status: "degraded", ready: false, uptimeS: json.health.uptime ?? 0, responseMs };
-      }
-      if (responseMs > 2000) {
-        return { status: "degraded", ready: true, uptimeS: json.health.uptime ?? 0, responseMs };
-      }
-      return { status: "ok", ready: true, uptimeS: json.health.uptime ?? 0, responseMs };
-    } catch (_) {
-      return null;
-    }
-  }
-
-  async function pollHealth(): Promise<void> {
-    const [daemonH, controlH] = await Promise.all([
-      fetchHealth(daemonHttpUrl),
-      fetchHealth(controlHttpUrl),
-    ]);
-
-    if (daemonH) {
-      kingdom.daemon = daemonH.status;
-      kingdom.daemonReady = daemonH.ready;
-      kingdom.daemonUptimeS = daemonH.uptimeS;
-    } else {
-      kingdom.daemon = "down";
-      kingdom.daemonReady = false;
-    }
-
-    if (controlH) {
-      kingdom.control = controlH.status;
-      kingdom.controlReady = controlH.ready;
-      kingdom.controlUptimeS = controlH.uptimeS;
-    } else {
-      kingdom.control = "down";
-      kingdom.controlReady = false;
-    }
-
-    kingdom.lastPollAt = new Date().toISOString();
-    updateStatusIndicators();
-    tuiRef?.requestRender();
-  }
-
-  function updateStatusIndicators(): void {
-    if (!cachedCtx) return;
-    try {
-      const bothOk = kingdom.daemon === "ok" && kingdom.control === "ok" && kingdom.daemonReady && kingdom.controlReady;
-      const bothDown = kingdom.daemon === "down" && kingdom.control === "down";
-      const bothStarting = kingdom.daemon === "starting" && kingdom.control === "starting";
-
-      let text: string;
-      if (bothOk) {
-        text = "koad:io online";
-      } else if (bothDown) {
-        text = "koad:io offline";
-      } else if (bothStarting) {
-        text = "koad:io connecting…";
-      } else {
-        const dot = (s: HealthState) => s === "ok" ? "●" : s === "degraded" || s === "starting" ? "◐" : "○";
-        text = `d${dot(kingdom.daemon)} c${dot(kingdom.control)}`;
-      }
-      cachedCtx.ui.setStatus("koad-io", text);
-    } catch (_) {}
-  }
-
-  // ── DDP (control-tower: emissions + bonds) ────────────────────
-
-  ddp.on("emission", (event, record) => {
-    if (event === "added" || event === "changed") {
-      if (record.body?.startsWith("→ ")) {
-        kingdom.lastTool = record.body.slice(2).slice(0, 36);
-        kingdom.lastToolEntity = record.entity ?? "";
-      }
-      // Track last emission for footer display
-      const body = record.body || "";
-      const entity = record.entity || "?";
-      const type = record.type || "";
-      if (body && type !== "session") {
-        kingdom.lastEmission = {
-          text: `[${entity}] ${type}: ${body}`,
-          at: Date.now(),
-        };
-      }
-    }
-    kingdom.flightCount = ddp.flightCount;
-    kingdom.lastPollAt = new Date().toISOString();
     tuiRef?.requestRender();
   });
 
-  ddp.on("bond", (_event) => {
-    kingdom.bondCount = ddp.bondCount;
-    kingdom.lastPollAt = new Date().toISOString();
-    tuiRef?.requestRender();
-  });
+  // -----------------------------------------------------------------
+  // Error recording
+  // -----------------------------------------------------------------
 
-  ddp.on("connected", () => {
-    kingdom.flightCount = ddp.flightCount;
-    kingdom.bondCount = ddp.bondCount;
+  function recordError(msg: string, toolName?: string): void {
+    const entry: ErrorEntry = { at: new Date().toISOString(), msg, toolName };
+    kingdom.errorLog.push(entry);
+    if (kingdom.errorLog.length > 100) kingdom.errorLog.shift();
+    kingdom.lastError = msg;
+    kingdom.errorCount++;
     tuiRef?.requestRender();
-  });
+
+    // Emit error to control tower
+    fetch(`${emitHttpUrl}/emit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entity,
+        type: "harness.error",
+        body: `${toolName ? `[${toolName}] ` : ""}${msg}`,
+        timestamp: new Date().toISOString(),
+        meta: {
+          payload: {
+            toolName: toolName ?? null,
+            errorCount: kingdom.errorCount,
+            sessionId: process.env.HARNESS_SESSION_ID,
+          },
+          source: "pi-telemetry",
+        },
+      }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(() => {});
+  }
+
+  // Tool execution timing
+  const _toolStarts = new Map<string, number>();
+  const SLOW_TOOL_THRESHOLD_MS = 5000;
 
   // -----------------------------------------------------------------
   // Pi lifecycle events
@@ -436,17 +188,16 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
 
   pi.on("session_shutdown", () => {
     stopTimers();
-    flushSession();
+    flush();
   });
+
+  let sessionNamed = false;
 
   pi.on("session_start", (_event: any, ctx: any) => {
     stopTimers();
     clearOutfitCache();
     id.sessionStartedAt = new Date();
     storeCtx(ctx);
-    // Flash "harnessed by pi" for 17s, then switch to kingdom health indicators
-    try { ctx.ui.setStatus("koad-io", "koad:io harnessed by pi"); } catch (_) {}
-    setTimeout(() => updateStatusIndicators(), 17_000);
     try { tel.autoCompact = ctx.sessionManager?.getSession?.()?.autoCompactionEnabled ?? false; } catch (_) {}
     refresh();
     startTimers();
@@ -458,10 +209,9 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
     const bootDelay = 500;
 
     function tryBootstrap(): void {
-      bootstrapFromPiSession(sessionFile);
+      bootstrapFromPiSession(sessionFile, id, tel);
       bootAttempts++;
 
-      // Retry if we still have nothing and the file may not exist on disk yet
       if (!id.piSessionCwd && !id.currentModel && bootAttempts < maxAttempts) {
         setTimeout(tryBootstrap, bootDelay);
         return;
@@ -469,15 +219,12 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
 
       refresh();
       const modelLabel = compactModel(id.currentProvider, id.currentModel);
-      emitUpdate({
+      emit({
         status_line: `${entity} online | ${modelLabel}${id.flightId ? ` | ${id.flightId.split("-").slice(-2).join("-")}` : ""}${id.flightPlan ? ` | ${briefSlug(id.flightPlan)}` : ""}`,
       });
     }
     setTimeout(tryBootstrap, bootDelay);
   });
-
-  // ── Session auto-naming (first user prompt becomes session name) ─
-  let sessionNamed = false;
 
   pi.on("before_agent_start", async (event: any) => {
     if (sessionNamed) return;
@@ -486,21 +233,17 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
     const prompt = (event.prompt ?? "").trim();
     if (!prompt) return;
 
-    // Extract a readable name from the first prompt
     let name = prompt
-      .replace(/^[@!]/, "")             // strip @file or !command prefixes
-      .replace(/\s+/g, " ")             // collapse whitespace
-      .slice(0, 72);                     // keep it short
+      .replace(/^[@!]/, "")
+      .replace(/\s+/g, " ")
+      .slice(0, 72);
 
-    // If it ends mid-word, trim to last space
     if (name.length >= 60) {
       const cut = name.lastIndexOf(" ", 60);
       if (cut > 20) name = name.slice(0, cut);
     }
 
-    // Capitalize first letter
     name = name.charAt(0).toUpperCase() + name.slice(1);
-
     pi.setSessionName(name);
   });
 
@@ -508,7 +251,10 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
     tel.idle = false;
     storeCtx(ctx);
     try { tel.autoCompact = ctx.sessionManager?.getSession?.()?.autoCompactionEnabled ?? tel.autoCompact; } catch (_) {}
-    emitUpdate({ status_line: `thinking | ${entity} | ${compactModel(id.currentProvider, id.currentModel)}` });
+    emit({
+      note: `thinking start | ${entity}`,
+      status_line: `thinking | ${entity} | ${compactModel(id.currentProvider, id.currentModel)}`,
+    });
     refresh();
   });
 
@@ -518,17 +264,20 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
     tel.activePath = "";
     storeCtx(ctx);
     try { tel.autoCompact = ctx.sessionManager?.getSession?.()?.autoCompactionEnabled ?? tel.autoCompact; } catch (_) {}
-    emitUpdate({ status_line: `idle | t${tel.turnCount} $${tel.totalCost.toFixed(4)}` });
-    flushSession();
+    emit({
+      note: `thinking finish | t${tel.turnCount} $${tel.totalCost.toFixed(4)}`,
+      status_line: `idle | t${tel.turnCount} $${tel.totalCost.toFixed(4)}`,
+    });
+    flush();
     refresh();
   });
 
   pi.on("turn_start", (_event: any, ctx: any) => {
     storeCtx(ctx);
     const usage = ctx.getContextUsage();
-    if (usage?.tokens !== undefined && usage?.limit > 0) {
-      tel.contextPct = Math.round((usage.tokens / usage.limit) * 100);
-      tel.contextWindow = usage.limit;
+    if (usage?.tokens !== undefined && usage?.contextWindow > 0) {
+      tel.contextPct = Math.round((usage.tokens / usage.contextWindow) * 1000) / 10;
+      tel.contextWindow = usage.contextWindow;
     }
     refresh();
   });
@@ -550,6 +299,12 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
     tel.tokensOut += usage.output ?? usage.output_tokens ?? usage.completion_tokens ?? 0;
     tel.cacheRead += usage.cacheRead ?? usage.cache_read_input_tokens ?? 0;
     tel.cacheWrite += usage.cacheWrite ?? usage.cache_creation_input_tokens ?? 0;
+    // Cache hit rate: what fraction of input was served from cache?
+    // pi's formula: cacheRead / (input + cacheWrite) — tokens from cache vs total input
+    const totalInput = tel.tokensIn + tel.cacheRead + tel.cacheWrite;
+    if (totalInput > 0) {
+      tel.cacheHitRate = Math.round((tel.cacheRead / totalInput) * 1000) / 10;
+    }
     refresh();
   });
 
@@ -564,15 +319,6 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
     refresh();
   });
 
-  function recordError(msg: string, toolName?: string): void {
-    const entry: ErrorEntry = { at: new Date().toISOString(), msg, toolName };
-    kingdom.errorLog.push(entry);
-    if (kingdom.errorLog.length > 100) kingdom.errorLog.shift();
-    kingdom.lastError = msg;
-    kingdom.errorCount++;
-    tuiRef?.requestRender();
-  }
-
   pi.on("tool_execution_start", (event: any, ctx: any) => {
     tel.toolCount++;
     tel.activeTool = event.toolName;
@@ -584,17 +330,62 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
     }
     tel.activePath = arg;
     const note = arg ? `${event.toolName} ${arg}` : event.toolName;
-    emitUpdate({ note: `→ ${note}`, status_line: `${entity}│⚙${note.slice(0, 40)}` });
+    emit({ note: `→ ${note}`, status_line: `${entity}│⚙${note.slice(0, 40)}` });
     storeCtx(ctx);
+    _toolStarts.set(event.toolCallId, Date.now());
     refresh();
   });
 
   pi.on("tool_execution_end", (event: any, ctx: any) => {
+    const startedAt = _toolStarts.get(event.toolCallId);
+    if (startedAt) {
+      const elapsedMs = Date.now() - startedAt;
+      _toolStarts.delete(event.toolCallId);
+
+      tel.lastToolMs = elapsedMs;
+      tel.totalToolMs += elapsedMs;
+
+      if (elapsedMs > tel.slowestToolMs) {
+        tel.slowestToolMs = elapsedMs;
+        tel.slowestToolName = event.toolName;
+      }
+
+      if (elapsedMs > SLOW_TOOL_THRESHOLD_MS) {
+        tel.slowToolCount++;
+        const elapsedFmt = elapsedMs >= 1000
+          ? `${(elapsedMs / 1000).toFixed(1)}s`
+          : `${elapsedMs}ms`;
+
+        fetch(`${emitHttpUrl}/emit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entity,
+            type: "harness.slow-tool",
+            body: `${event.toolName} took ${elapsedFmt}`,
+            timestamp: new Date().toISOString(),
+            meta: {
+              payload: {
+                toolName: event.toolName,
+                elapsedMs,
+                threshold: SLOW_TOOL_THRESHOLD_MS,
+                turnIndex: tel.turnCount,
+                sessionId: process.env.HARNESS_SESSION_ID,
+              },
+              source: "pi-telemetry",
+            },
+          }),
+          signal: AbortSignal.timeout(2000),
+        }).catch(() => {});
+      }
+    }
+
     if (event.isError) {
       const errText = event.result?.content?.[0]?.text ?? event.result?.error ?? `tool ${event.toolName} failed`;
       recordError(typeof errText === "string" ? errText.slice(0, 200) : String(errText).slice(0, 200), event.toolName);
-      emitUpdate({ note: `← ${event.toolName} ERROR` });
+      emit({ note: `← ${event.toolName} ERROR` });
     }
+
     if (event.toolName === tel.activeTool) {
       tel.activeTool = "";
       tel.activePath = "";
@@ -619,14 +410,15 @@ export function createTelemetrySession(pi: ExtensionAPI, ddp: DDPClient): Teleme
       const dur = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 
       let line = `${color} ${theme.bold(entity)} ⟐ \`${fid}\` (${dur})`;
-      if (d.closingNote) line += ` — ${theme.fg("dim", d.closingNote)}`;
+      if (d.closingNote) line += ` - ${theme.fg("dim", d.closingNote)}`;
 
       return new Text(line, 0, 0);
     },
   });
 
-  // Start DDP connection
-  ddp.connect();
+  // Start DDP connections
+  clients.control.connect();
+  clients.daemon.connect();
 
-  return { id, tel, kingdom, startTimers, stopTimers, flushSession, storeCtx };
+  return { id, tel, kingdom, startTimers, stopTimers, flushSession: flush, storeCtx };
 }

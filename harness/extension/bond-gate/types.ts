@@ -73,6 +73,9 @@ export interface BondScope {
   label: string;
   bondCount: number;
   deviceId: string;
+  envLanes: string[];
+  envReadTools: string[];
+  envWriteTools: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +133,7 @@ export const GATED_DISPATCH_TOOLS = new Set(["dispatch", "dispatch_followup", "d
 export const GLOBAL_ALLOWED_TOOLS = new Set<string>();
 export const SCOPED_SEARCH_TOOLS = new Set(["search"]);
 export const FILE_READ_TOOLS = new Set(["read", "ls", "find", "grep", "sin"]);
-export const FILE_WRITE_TOOLS = new Set(["write", "edit"]);
+export const FILE_WRITE_TOOLS = new Set(["write", "edit", "mkdir", "cp", "mv", "rm", "chmod"]);
 export const SHELL_TOOLS = new Set(["bash"]);
 
 // ---------------------------------------------------------------------------
@@ -167,6 +170,14 @@ export function parsePathList(raw: string | undefined): string[] {
     .map(expandPath);
 }
 
+export function parseNameList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[\s,:]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 export function isUnder(absolutePath: string, prefixes: string[]): boolean {
   return prefixes.some(prefix => {
     const resolved = path.resolve(prefix);
@@ -178,6 +189,32 @@ export function isUnder(absolutePath: string, prefixes: string[]): boolean {
 export function isBlocked(absolutePath: string, blocked: string[]): boolean {
   const normalized = absolutePath + "/";
   return blocked.some(pattern => normalized.includes(pattern));
+}
+
+// ---------------------------------------------------------------------------
+// Visitor mode (used by SDK / RPC for public/bonded visitor access)
+// ---------------------------------------------------------------------------
+
+export interface VisitorAccessScope {
+  read: string[];
+  write: string[];
+  exec: string[];
+  blocked: string[];
+}
+
+export interface VisitorCaller {
+  handle: string;
+}
+
+export interface VisitorConfig {
+  /** Entity handle the visitor is accessing */
+  entityHandle: string;
+  /** File access scope for this visitor (from bond or default) */
+  accessScope: VisitorAccessScope;
+  /** Caller identity — null for public/anonymous visitors */
+  caller: VisitorCaller | null;
+  /** When true, skip bond file resolution entirely (use accessScope only) */
+  noBondFiles?: boolean;
 }
 
 // ---------------------------------------------------------------------------

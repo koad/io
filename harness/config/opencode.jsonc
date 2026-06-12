@@ -12,7 +12,7 @@
       "prompt": "$SYSTEM_PROMPT",
       "permission": {
         "external_directory": {
-          "$ENTITY_DIR/**": "allow",
+          "~/.$ENTITY/**": "allow",
           "~/.koad-io/**": "allow",
           "~/.ecoincore/packages/**": "allow",
           "~/.*/specs/**": "allow",
