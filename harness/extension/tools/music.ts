@@ -1,0 +1,141 @@
+/**
+ * Music controller — talks to kingofalldata.com/_music REST endpoints,
+ * which proxy to Groove Basin via the storefront's groove-basin-connector.
+ *
+ * Commands: skip, queue, now, play, pause.
+ * Now-playing also appears in the pi footer (getNowPlaying).
+ */
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+
+const _BIND_IP = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
+const MUSIC_URL = process.env.KOAD_IO_CONTROL_URL ?? `http://${_BIND_IP}:${process.env.KOAD_IO_CONTROL_PORT ?? "28283"}`;
+
+let nowPlaying: string | null = null;
+let _pollTimer: ReturnType<typeof setInterval> | null = null;
+
+export function getNowPlaying(): string | null { return nowPlaying; }
+
+async function musicFetch(path: string, method = "GET", body?: any) {
+  const opts: RequestInit = { method };
+  if (body) {
+    opts.headers = { "Content-Type": "application/json" };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(`${MUSIC_URL}${path}`, opts);
+  return res.json();
+}
+
+async function pollNowPlaying() {
+  try {
+    const data = await musicFetch("/_music/now");
+    if (data.title) {
+      const parts = [data.title];
+      if (data.artist) parts.push(data.artist);
+      nowPlaying = parts.join(" — ");
+    } else {
+      nowPlaying = null;
+    }
+  } catch (_) {
+    nowPlaying = null;
+  }
+}
+
+export function registerMusicTool(pi: ExtensionAPI): void {
+  // Poll every 5s for footer display
+  pollNowPlaying();
+  _pollTimer = setInterval(pollNowPlaying, 5000);
+
+  pi.registerTool({
+    name: "music",
+    label: "Music",
+    description: [
+      "Control the kingdom music stream via Groove Basin.",
+      "Commands: skip, queue <song>, now, play, pause.",
+      "Audience song requests from YouTube chat flow through this tool.",
+    ].join("\n"),
+    promptSnippet: "Control music (sub: skip|queue|now|play|pause)",
+    promptGuidelines: [
+      "Use music skip to skip the current track.",
+      "Use music queue <key> to play a specific track by library key.",
+      "Use music now to show what's currently playing.",
+    ],
+    parameters: Type.Object({
+      sub: Type.String({ description: "Command: skip, queue, now, play, pause." }),
+      query: Type.Optional(Type.String({ description: "Library key or search term for queue command." })),
+    }),
+
+    async execute(_toolCallId, params) {
+      const sub = params.sub as string;
+
+      switch (sub) {
+        case "skip":
+          await musicFetch("/_music/skip", "POST");
+          return { content: [{ type: "text", text: "⏭ skipped" }], details: { action: "skip" } };
+        case "queue": {
+          const key = params.query || "";
+          if (!key) throw new Error("music queue: key required");
+          await musicFetch("/_music/queue", "POST", { key });
+          return { content: [{ type: "text", text: `🎵 queued: ${key}` }], details: { action: "queue", key } };
+        }
+        case "now": {
+          const np = getNowPlaying();
+          return { content: [{ type: "text", text: np ? `🎵 ${np}` : "🎵 nothing playing" }], details: { nowPlaying: np } };
+        }
+        case "play":
+          await musicFetch("/_music/play", "POST");
+          return { content: [{ type: "text", text: "▶ playing" }], details: { action: "play" } };
+        case "pause":
+          await musicFetch("/_music/pause", "POST");
+          return { content: [{ type: "text", text: "⏸ paused" }], details: { action: "pause" } };
+        default:
+          throw new Error(`Unknown music command: ${sub}. Valid: skip, queue, now, play, pause.`);
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard shortcuts — direct music control without going through the LLM
+// ---------------------------------------------------------------------------
+
+export function registerMusicShortcuts(pi: ExtensionAPI): void {
+  pi.registerShortcut("ctrl+shift+right", {
+    description: "Skip track",
+    handler: async () => {
+      try {
+        await musicFetch("/_music/skip", "POST");
+        pi.sendMessage({
+          customType: "music",
+          content: "⏭ skipped",
+          display: true,
+        });
+      } catch (_) {}
+    },
+  });
+
+  pi.registerShortcut("ctrl+shift+space", {
+    description: "Play / pause",
+    handler: async () => {
+      try {
+        const np = getNowPlaying();
+        await musicFetch(np ? "/_music/pause" : "/_music/play", "POST");
+      } catch (_) {}
+    },
+  });
+
+  pi.registerShortcut("ctrl+shift+up", {
+    description: "Show now playing",
+    handler: async () => {
+      try {
+        await pollNowPlaying();
+        pi.sendMessage({
+          customType: "music",
+          content: nowPlaying ? `🎵 ${nowPlaying}` : "🎵 nothing playing",
+          display: true,
+        });
+      } catch (_) {}
+    },
+  });
+}

@@ -1,0 +1,26 @@
+{
+  "commands": {
+    "docker": "container/runtime ops are blocked — pass this to Rooty",
+    "terraform": "infrastructure change orchestration is blocked here — pass this to Rooty",
+    "ffmpeg": "media production work is blocked here — pass this to Rufus",
+    "npm": {
+      "detail": "package release or build orchestration should be routed through Vulcan or typed kingdom tools",
+      "auditReason": "example routing for npm"
+    }
+  },
+  "patterns": [
+    {
+      "regex": "npm\\s+publish",
+      "detail": "release publishing is blocked — pass this to Vulcan",
+      "auditReason": "example routing for npm publish"
+    },
+    {
+      "regex": "systemctl\\s+",
+      "detail": "service management is blocked — pass this to Rooty"
+    },
+    {
+      "regex": "ffmpeg\\s+",
+      "detail": "media transform work is blocked — pass this to Rufus"
+    }
+  ]
+}
