@@ -279,6 +279,35 @@ def _persist_dispatch_result(dispatch_control_file, final_text, streamed_assista
         except Exception:
             pass
 
+    # Immediately notify the control-tower so the dashboard updates in real time.
+    # POST /flight with action=close triggers closeControlFlight which updates
+    # the FlightsCollection (MongoDB) directly — no scanner interval needed.
+    try:
+        import urllib.request
+        ct_url = os.environ.get("KOAD_IO_CONTROL_URL", "http://10.10.10.10:28283")
+        payload = json.dumps({
+            "action": "close",
+            "_id": flight_id,
+            "ended": completed_at,
+            "completionSummary": summary or "agent completed",
+            "stats": {
+                "turns": stats.get("turns", 0),
+                "toolCalls": stats.get("toolCalls", 0),
+                "inputTokens": stats.get("inputTokens", 0),
+                "outputTokens": stats.get("outputTokens", 0),
+                "cost": stats.get("cost", 0),
+            },
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{ct_url}/flight",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=3)
+    except Exception:
+        pass
+
 
 def main():
     pi_bin = sys.argv[1]
