@@ -306,6 +306,27 @@ export function createTelemetrySession(
       tel.cacheHitRate = Math.round((tel.cacheRead / totalInput) * 1000) / 10;
     }
     refresh();
+
+    // Push live stats to the control-tower flight record
+    if (id.flightId && tel.turnCount > 0) {
+      fetch(`${controlHttpUrl}/flight`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "stats",
+          _id: id.flightId,
+          stats: {
+            turns: tel.turnCount,
+            toolCalls: tel.toolCount,
+            inputTokens: tel.tokensIn,
+            outputTokens: tel.tokensOut,
+            cost: tel.totalCost,
+          },
+          model: id.currentModel || undefined,
+        }),
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => {});
+    }
   });
 
   pi.on("model_select", (event: any) => {
