@@ -412,7 +412,7 @@ _pi_on_exit() {
   fi
   _harness_stamp_flight "$rc"
   # Notify control-tower so the dashboard / wait flight see the landing.
-  # Fire-and-forget — same POST /flight that control.js flight close uses.
+  # Fire-and-forget — hits control-tower's POST /flight endpoint.
   if [ -n "${HARNESS_CONTROL_FLIGHT_ID:-}" ]; then
     _ct_url="${KOAD_IO_CONTROL_URL:-http://10.10.10.10:28283}"
     _runtime_path="${KOAD_IO_RUNTIME_PATH:-$HOME/.local/share/koad-io/runtime}"
