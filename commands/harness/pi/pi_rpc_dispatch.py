@@ -94,30 +94,46 @@ def _usage_from_message(msg):
     }
 
 
+def _runtime_dispatches_dir():
+    return os.path.join(
+        os.environ.get("KOAD_IO_RUNTIME_PATH", os.path.expanduser("~/.local/share/koad-io/runtime")),
+        "dispatches",
+    )
+
+
+def _dispatch_json_path(flight_id):
+    return os.path.join(_runtime_dispatches_dir(), flight_id, "dispatch.json")
+
+
+def _run_jsonl_path(flight_id):
+    return os.path.join(_runtime_dispatches_dir(), flight_id, "run.jsonl")
+
+
 def _update_flight_stats(stats, model_id=None):
     flight_id = os.environ.get("HARNESS_CONTROL_FLIGHT_ID", "")
     if not flight_id:
         return
-    flight_file = os.path.expanduser(f"~/.juno/control/flights/{flight_id}.json")
-    if not os.path.exists(flight_file):
+    dispatch_file = _dispatch_json_path(flight_id)
+    if not os.path.exists(dispatch_file):
         return
     try:
-        with open(flight_file, "r") as f:
+        with open(dispatch_file, "r") as f:
             rec = json.load(f)
-        rec["stats"] = {
+        rec["stats"] = rec.get("stats") or {}
+        rec["stats"].update({
             "turns": stats.get("turns", 0),
             "toolCalls": stats.get("toolCalls", 0),
             "inputTokens": stats.get("inputTokens", 0) or None,
             "outputTokens": stats.get("outputTokens", 0) or None,
             "cost": stats.get("cost", 0),
-        }
+        })
         if model_id:
             rec["model"] = model_id
-        tmp = flight_file + ".tmp." + str(os.getpid())
+        tmp = dispatch_file + ".tmp." + str(os.getpid())
         with open(tmp, "w") as f:
             json.dump(rec, f, indent=2)
             f.write("\n")
-        os.replace(tmp, flight_file)
+        os.replace(tmp, dispatch_file)
     except Exception:
         pass
 
@@ -141,40 +157,7 @@ def _merge_dispatch_control(path, patch):
         pass
 
 
-def _read_control_run_record():
-    flight_id = os.environ.get("HARNESS_CONTROL_FLIGHT_ID", "")
-    if not flight_id:
-        return None, None
-    flight_file = os.path.expanduser(f"~/.juno/control/flights/{flight_id}.json")
-    if not os.path.exists(flight_file):
-        return None, None
-    try:
-        with open(flight_file, "r") as f:
-            flight = json.load(f)
-        run_path = flight.get("run_record_path")
-        if not run_path:
-            run_id = flight.get("run_record_id")
-            if not run_id:
-                return None, None
-            run_path = os.path.expanduser(f"~/.juno/control/runs/{run_id}.json")
-        if not os.path.exists(run_path):
-            return None, None
-        with open(run_path, "r") as f:
-            return json.load(f), run_path
-    except Exception:
-        return None, None
 
-
-def _append_run_snapshot(run_record):
-    run_log_path = run_record.get("run_log_path")
-    if not run_log_path:
-        return
-    try:
-        os.makedirs(os.path.dirname(run_log_path), exist_ok=True)
-        with open(run_log_path, "a") as f:
-            f.write(json.dumps(run_record) + "\n")
-    except OSError:
-        pass
 
 
 def _summary_from_text(text):
@@ -209,6 +192,7 @@ def _persist_dispatch_result(dispatch_control_file, final_text, streamed_assista
     summary = _summary_from_text(final_body)
     completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     touched = sorted(files_touched)
+    total_tokens = (stats.get("inputTokens", 0) or 0) + (stats.get("outputTokens", 0) or 0)
 
     _merge_dispatch_control(dispatch_control_file, {
         "completedAt": completed_at,
@@ -225,48 +209,50 @@ def _persist_dispatch_result(dispatch_control_file, final_text, streamed_assista
         },
     })
 
-    run_record, run_path = _read_control_run_record()
-    if not run_record or not run_path:
+    flight_id = os.environ.get("HARNESS_CONTROL_FLIGHT_ID", "")
+    if not flight_id:
         return
 
-    outputs = dict(run_record.get("outputs") or {})
-    if summary:
-        outputs["summary"] = summary
-        run_record["completion_summary"] = summary
-    if final_body:
-        outputs["final_text"] = final_body
-    if touched:
-        outputs["files_touched"] = touched
-    run_record["outputs"] = outputs
-
-    run_stats = dict(run_record.get("stats") or {})
-    run_stats.update({
-        "turns": stats.get("turns", 0),
-        "toolCalls": stats.get("toolCalls", 0),
-        "inputTokens": stats.get("inputTokens", 0),
-        "outputTokens": stats.get("outputTokens", 0),
-        "cost": stats.get("cost", 0),
-    })
-    run_record["stats"] = run_stats
-
-    results = dict(run_record.get("results") or {})
-    total_tokens = (stats.get("inputTokens", 0) or 0) + (stats.get("outputTokens", 0) or 0)
-    if total_tokens:
-        results["tokens_used"] = total_tokens
-    if stats.get("cost") is not None:
-        results["cost"] = stats.get("cost")
-    run_record["results"] = results
-
+    # Append a close snapshot to run.jsonl in the dispatch dir.
+    # The harness fallback and control-tower both read this file.
+    run_jsonl = _run_jsonl_path(flight_id)
+    close_snapshot = {
+        "run_id": os.environ.get("HARNESS_RUN_RECORD", ""),
+        "flight_id": flight_id,
+        "entity": os.environ.get("ENTITY", ""),
+        "status": "complete",
+        "ended": completed_at,
+        "completed_at": completed_at,
+        "close_reason": "pi-rpc-dispatch",
+        "close_verified": True,
+        "outputs": {
+            "summary": summary,
+            "final_text": final_body,
+            "files_touched": touched,
+        },
+        "results": {
+            "success": True,
+            "tokens_used": total_tokens,
+            "cost": stats.get("cost", 0),
+        },
+        "stats": {
+            "turns": stats.get("turns", 0),
+            "toolCalls": stats.get("toolCalls", 0),
+            "inputTokens": stats.get("inputTokens", 0),
+            "outputTokens": stats.get("outputTokens", 0),
+            "cost": stats.get("cost", 0),
+        },
+        "snapshot_at": completed_at,
+    }
     if latest_model:
-        run_record["model"] = latest_model
+        close_snapshot["model"] = latest_model
+    if total_tokens:
+        close_snapshot["elapsed_tokens"] = total_tokens
 
     try:
-        tmp = run_path + ".tmp." + str(os.getpid())
-        with open(tmp, "w") as f:
-            json.dump(run_record, f, indent=2)
-            f.write("\n")
-        os.replace(tmp, run_path)
-        _append_run_snapshot(run_record)
+        os.makedirs(os.path.dirname(run_jsonl), exist_ok=True)
+        with open(run_jsonl, "a") as f:
+            f.write(json.dumps(close_snapshot) + "\n")
     except OSError:
         pass
 
