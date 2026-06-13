@@ -251,17 +251,19 @@ fi
 # flight stays "flying" forever. We stamp directly so `wait flight` unblocks.
 # Idempotent: no-ops if control-tower already wrote the close.
 _harness_stamp_flight() {
-  local rc="$1" flight_id="${HARNESS_CONTROL_FLIGHT_ID:-}" flight_file
+  local rc="$1" flight_id="${HARNESS_CONTROL_FLIGHT_ID:-}" flight_file runtime_path dispatch_dir
   [ -z "$flight_id" ] && return
-  flight_file="${HOME}/.juno/control/flights/${flight_id}.json"
+  runtime_path="${KOAD_IO_RUNTIME_PATH:-$HOME/.local/share/koad-io/runtime}"
+  dispatch_dir="$runtime_path/dispatches/$flight_id"
+  flight_file="$dispatch_dir/dispatch.json"
   [ -f "$flight_file" ] || return
   local new_status="landed"
   [ "$rc" -ne 0 ] && [ "$rc" -ne 130 ] && new_status="error"
-  python3 - "$flight_file" "$new_status" "$rc" <<'PYSTAMP' 2>/dev/null || true
+  python3 - "$flight_file" "$new_status" "$rc" "$dispatch_dir" <<'PYSTAMP' 2>/dev/null || true
 import json, os, sys, time
 from datetime import datetime
 
-flight_path, new_status, rc_str = sys.argv[1:4]
+flight_path, new_status, rc_str, dispatch_dir = sys.argv[1:5]
 
 try:
     with open(flight_path) as f:
@@ -283,20 +285,19 @@ with open(flight_tmp, "w") as f:
     f.write("\n")
 os.replace(flight_tmp, flight_path)
 
+# Write close event to run.jsonl (append-only)
+run_jsonl = os.path.join(dispatch_dir, "run.jsonl")
 run_id = flight.get("run_record_id") or ""
-if not run_id:
-    sys.exit(0)
 
-runs_dir = os.path.join(os.path.expanduser("~/.juno"), "control", "runs")
-run_path = os.path.join(runs_dir, f"{run_id}.json")
-if not os.path.exists(run_path):
-    sys.exit(0)
-
-try:
-    with open(run_path) as f:
-        run = json.load(f)
-except Exception:
-    sys.exit(0)
+# Read last run snapshot from run.jsonl for merge base
+run = {}
+if os.path.exists(run_jsonl):
+    try:
+        lines = [l for l in open(run_jsonl).read().split("\n") if l.strip()]
+        if lines:
+            run = json.loads(lines[-1])
+    except Exception:
+        pass
 
 if run.get("close_verified") is True and run.get("status") in ("complete", "failed"):
     sys.exit(0)
@@ -320,34 +321,30 @@ if not elapsed and started:
     except Exception:
         elapsed = 0
 
-run["status"] = "complete" if new_status == "landed" else "failed"
-run["ended"] = ended
-run["completed_at"] = ended
-run["close_reason"] = "harness-fallback"
-run["close_verified"] = True
-run["outputs"] = outputs
-run["results"] = results
-run["stats"] = stats
+close_snapshot = {
+    "run_id": run_id,
+    "flight_id": flight.get("id") or "",
+    "status": "complete" if new_status == "landed" else "failed",
+    "ended": ended,
+    "completed_at": ended,
+    "close_reason": "harness-fallback",
+    "close_verified": True,
+    "outputs": outputs,
+    "results": results,
+    "stats": stats,
+    "elapsed": elapsed,
+    "elapsed_s": elapsed,
+    "snapshot_at": ended,
+}
 if model:
-    run["model"] = model
-if elapsed:
-    run["elapsed"] = elapsed
-    run["elapsed_s"] = elapsed
+    close_snapshot["model"] = model
 
-run_tmp = run_path + ".tmp." + str(os.getpid())
-with open(run_tmp, "w") as f:
-    json.dump(run, f, indent=2)
-    f.write("\n")
-os.replace(run_tmp, run_path)
-
-run_log_path = run.get("run_log_path") or ""
-if run_log_path:
-    try:
-        os.makedirs(os.path.dirname(run_log_path), exist_ok=True)
-        with open(run_log_path, "a") as f:
-            f.write(json.dumps(run) + "\n")
-    except Exception:
-        pass
+try:
+    os.makedirs(dispatch_dir, exist_ok=True)
+    with open(run_jsonl, "a") as f:
+        f.write(json.dumps(close_snapshot) + "\n")
+except Exception:
+    pass
 PYSTAMP
 }
 
@@ -418,9 +415,15 @@ _pi_on_exit() {
   # Fire-and-forget — same POST /flight that control.js flight close uses.
   if [ -n "${HARNESS_CONTROL_FLIGHT_ID:-}" ]; then
     _ct_url="${KOAD_IO_CONTROL_URL:-http://10.10.10.10:28283}"
+    _runtime_path="${KOAD_IO_RUNTIME_PATH:-$HOME/.local/share/koad-io/runtime}"
+    _dispatch_json="$_runtime_path/dispatches/$HARNESS_CONTROL_FLIGHT_ID/dispatch.json"
+    _stats_json="{}"
+    if [ -f "$_dispatch_json" ]; then
+      _stats_json="$(python3 -c "import json,sys; d=json.load(open('$_dispatch_json')); print(json.dumps(d.get('stats') or {}))" 2>/dev/null || echo '{}')"
+    fi
     curl -sSf --max-time 3 -X POST "$_ct_url/flight" \
       -H 'Content-Type: application/json' \
-      -d "{\"action\":\"close\",\"_id\":\"$HARNESS_CONTROL_FLIGHT_ID\",\"ended\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"completionSummary\":\"harness exit rc=$rc\",\"stats\":{}}" >/dev/null 2>&1 || true
+      -d "{\"action\":\"close\",\"_id\":\"$HARNESS_CONTROL_FLIGHT_ID\",\"ended\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"completionSummary\":\"harness exit rc=$rc\",\"stats\":$_stats_json}" >/dev/null 2>&1 || true
   fi
   [ -n "$_mcp_session_file" ] && rm -f "$_mcp_session_file" 2>/dev/null
 }
@@ -496,7 +499,7 @@ _dispatch_rc=$?
 # after the initial task completes. Poll the followup file and re-dispatch
 # until the dispatcher signals complete or timeout elapses.
 if [ -n "${HARNESS_CONTROL_FLIGHT_ID:-}" ]; then
-  _followup_file="${HOME}/.juno/control/flights/${HARNESS_CONTROL_FLIGHT_ID}.followup.jsonl"
+  _followup_file="${KOAD_IO_RUNTIME_PATH:-$HOME/.local/share/koad-io/runtime}/dispatches/${HARNESS_CONTROL_FLIGHT_ID}/followup.jsonl"
   _followup_timeout=300  # 5 minutes total for followups
   _followup_start=$(date +%s)
   _followup_pos=0

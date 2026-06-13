@@ -314,11 +314,11 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "dispatch_followup",
     label: "Dispatch Followup",
-    description: "Send a follow-up prompt to a running entity that called `koad-io wait followup`. Appends to the flight's followup.jsonl file.",
+    description: "Send a follow-up prompt to a running entity that called `koad-io wait followup`. Appends to the dispatch's followup.jsonl file.",
     promptSnippet: "Send follow-up prompt to running entity (flight_id, prompt)",
     promptGuidelines: [
       "Use dispatch_followup when a dispatched entity is awaiting further direction.",
-      "Appends JSONL to ~/.juno/control/flights/<id>.followup.jsonl.",
+      "Appends JSONL to \$KOAD_IO_RUNTIME_PATH/dispatches/<id>/followup.jsonl.",
       "Use dispatch_complete to signal mission finished instead of sending more work.",
     ],
     parameters: FollowupParams,
@@ -343,26 +343,23 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
       // the flights directory. The followup file uses the full timestamp-prefixed
       // format: YYYYMMDDTHHMMSS-mmmZ-entity-shortid.followup.jsonl
       let flightId = rawId;
+      const runtimePath = process.env.KOAD_IO_RUNTIME_PATH || path.join(HOME, ".local", "share", "koad-io", "runtime");
+      const dispatchesDir = path.join(runtimePath, "dispatches");
       if (!/^\d{8}T\d{6}-\d{3}Z-/.test(rawId)) {
-        const flightsDir = path.join(HOME, ".juno", "control", "flights");
         try {
-          const candidates = fs.readdirSync(flightsDir)
-            .filter(f => f.endsWith(`${rawId}.json`) || f.endsWith(`${rawId}.followup.jsonl`));
+          const candidates = fs.readdirSync(dispatchesDir, { withFileTypes: true })
+            .filter(d => d.isDirectory() && d.name.includes(rawId))
+            .map(d => d.name);
           if (candidates.length === 1) {
-            flightId = candidates[0].replace(/\.(json|followup\.jsonl)$/, '');
-          } else if (candidates.length > 1) {
-            // Multiple matches — prefer the .json flight record (canonical)
-            const jsonMatch = candidates.find(f => f.endsWith('.json') && !f.includes('.followup'));
-            flightId = (jsonMatch || candidates[0]).replace(/\.(json|followup\.jsonl)$/, '');
+            flightId = candidates[0];
           }
-          // If no candidates found, fall through with rawId — the appendFileSync
-          // will throw a clear error rather than silently writing to a dead path.
+          // If no candidates found, fall through with rawId
         } catch (_) {
           // readdir failed — fall through with rawId
         }
       }
       const prompt = params.prompt.trim();
-      const file = path.join(HOME, ".juno", "control", "flights", `${flightId}.followup.jsonl`);
+      const file = path.join(dispatchesDir, flightId, "followup.jsonl");
       const entry = JSON.stringify({ from: "juno", prompt, at: new Date().toISOString() }) + "\n";
       try {
         fs.appendFileSync(file, entry, "utf-8");
@@ -381,7 +378,7 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
     promptSnippet: "Signal mission complete to running entity (flight_id, note?)",
     promptGuidelines: [
       "Use dispatch_complete when you're satisfied with a dispatched entity's work.",
-      "Appends to ~/.juno/control/flights/<id>.followup.jsonl.",
+      "Appends to \$KOAD_IO_RUNTIME_PATH/dispatches/<id>/followup.jsonl.",
     ],
     parameters: CompleteParams,
     renderCall(args: any, theme: any) {
@@ -403,21 +400,20 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
       const rawId = params.flight_id.trim();
       // Same short-ID resolution as dispatch_followup
       let flightId = rawId;
+      const runtimePath = process.env.KOAD_IO_RUNTIME_PATH || path.join(HOME, ".local", "share", "koad-io", "runtime");
+      const dispatchesDir = path.join(runtimePath, "dispatches");
       if (!/^\d{8}T\d{6}-\d{3}Z-/.test(rawId)) {
-        const flightsDir = path.join(HOME, ".juno", "control", "flights");
         try {
-          const candidates = fs.readdirSync(flightsDir)
-            .filter(f => f.endsWith(`${rawId}.json`) || f.endsWith(`${rawId}.followup.jsonl`));
+          const candidates = fs.readdirSync(dispatchesDir, { withFileTypes: true })
+            .filter(d => d.isDirectory() && d.name.includes(rawId))
+            .map(d => d.name);
           if (candidates.length === 1) {
-            flightId = candidates[0].replace(/\.(json|followup\.jsonl)$/, '');
-          } else if (candidates.length > 1) {
-            const jsonMatch = candidates.find(f => f.endsWith('.json') && !f.includes('.followup'));
-            flightId = (jsonMatch || candidates[0]).replace(/\.(json|followup\.jsonl)$/, '');
+            flightId = candidates[0];
           }
         } catch (_) {}
       }
       const note = params.note?.trim() || "mission complete";
-      const file = path.join(HOME, ".juno", "control", "flights", `${flightId}.followup.jsonl`);
+      const file = path.join(dispatchesDir, flightId, "followup.jsonl");
       const entry = JSON.stringify({ action: "complete", from: "juno", note, at: new Date().toISOString() }) + "\n";
       try {
         fs.appendFileSync(file, entry, "utf-8");

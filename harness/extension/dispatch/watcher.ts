@@ -13,8 +13,15 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 const HOME = os.homedir();
-const FLIGHTS_DIR = path.join(HOME, ".juno", "control", "flights");
-const RUNS_DIR = path.join(HOME, ".juno", "control", "runs");
+const RUNTIME_PATH = process.env.KOAD_IO_RUNTIME_PATH ?? path.join(HOME, ".local", "share", "koad-io", "runtime");
+const DISPATCHES_DIR = path.join(RUNTIME_PATH, "dispatches");
+// Legacy paths for read fallback
+const LEGACY_FLIGHTS_DIR = path.join(HOME, ".juno", "control", "flights");
+const LEGACY_RUNS_DIR = path.join(HOME, ".juno", "control", "runs");
+
+function dispatchJsonPath(flightId: string): string {
+  return path.join(DISPATCHES_DIR, flightId, "dispatch.json");
+}
 
 const _BIND_IP = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
 const CONTROL_URL =
@@ -86,12 +93,21 @@ interface RichDiagnostics {
 }
 
 function readFlightFileDiagnostics(flightId: string): RichDiagnostics | null {
-  try {
-    const entries = fs.readdirSync(FLIGHTS_DIR);
-    const match = entries.find(f => f.includes(flightId) && f.endsWith(".json"));
-    if (!match) return null;
+  // New path first
+  let filePath = dispatchJsonPath(flightId);
+  if (!fs.existsSync(filePath)) {
+    // Legacy fallback: scan flat files
+    try {
+      const entries = fs.readdirSync(LEGACY_FLIGHTS_DIR);
+      const match = entries.find(f => f.includes(flightId) && f.endsWith(".json"));
+      if (match) filePath = path.join(LEGACY_FLIGHTS_DIR, match);
+      else return null;
+    } catch (_) {
+      return null;
+    }
+  }
 
-    const filePath = path.join(FLIGHTS_DIR, match);
+  try {
     const raw = fs.readFileSync(filePath, "utf-8");
     const record = JSON.parse(raw);
 
@@ -109,15 +125,28 @@ function readFlightFileDiagnostics(flightId: string): RichDiagnostics | null {
       if (stderrMatch) diag.stderrTail = stderrMatch[1].slice(0, 500);
     }
 
-    // Also check the run record for richer error data (stderr_tail, outputs)
+    // Also check run.jsonl for richer error data (stderr_tail, outputs)
     const runRecordId = record.run_record_id;
     if (runRecordId) {
       try {
-        const runPath = path.join(RUNS_DIR, `${runRecordId}.json`);
-        if (fs.existsSync(runPath)) {
-          const runData = JSON.parse(fs.readFileSync(runPath, "utf-8"));
-          if (runData.outputs?.stderr_tail && !diag.stderrTail) {
-            diag.stderrTail = String(runData.outputs.stderr_tail).slice(0, 500);
+        // New path: run.jsonl in dispatch folder
+        const runJsonl = path.join(DISPATCHES_DIR, flightId, "run.jsonl");
+        if (fs.existsSync(runJsonl)) {
+          const lines = fs.readFileSync(runJsonl, "utf-8").split("\n").filter(l => l.trim());
+          if (lines.length > 0) {
+            const runData = JSON.parse(lines[lines.length - 1]);
+            if (runData.outputs?.stderr_tail && !diag.stderrTail) {
+              diag.stderrTail = String(runData.outputs.stderr_tail).slice(0, 500);
+            }
+          }
+        } else {
+          // Legacy run record fallback
+          const legacyRunPath = path.join(LEGACY_RUNS_DIR, `${runRecordId}.json`);
+          if (fs.existsSync(legacyRunPath)) {
+            const runData = JSON.parse(fs.readFileSync(legacyRunPath, "utf-8"));
+            if (runData.outputs?.stderr_tail && !diag.stderrTail) {
+              diag.stderrTail = String(runData.outputs.stderr_tail).slice(0, 500);
+            }
           }
         }
       } catch (_) {}
