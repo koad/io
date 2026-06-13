@@ -256,6 +256,29 @@ def _persist_dispatch_result(dispatch_control_file, final_text, streamed_assista
     except OSError:
         pass
 
+    # Directly stamp dispatch.json as closed — the definitive close.
+    # No trap, no curl, no child.on('exit') — this runs when the agent
+    # actually finishes, before any harness exit trap.
+    dispatch_file = _dispatch_json_path(flight_id)
+    if os.path.exists(dispatch_file):
+        try:
+            with open(dispatch_file, "r") as f:
+                rec = json.load(f)
+            if rec.get("status") == "flying":
+                rec["status"] = "landed"
+                rec["ended"] = completed_at
+                rec["closeReason"] = "pi-rpc-dispatch"
+                rec["closingNote"] = summary or "agent completed"
+                if latest_model:
+                    rec["model"] = rec.get("model") or latest_model
+                tmp = dispatch_file + ".tmp." + str(os.getpid())
+                with open(tmp, "w") as f:
+                    json.dump(rec, f, indent=2)
+                    f.write("\n")
+                os.replace(tmp, dispatch_file)
+        except Exception:
+            pass
+
 
 def main():
     pi_bin = sys.argv[1]
