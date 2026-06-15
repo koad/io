@@ -87,6 +87,9 @@ Package.onUse(function(api) {
 	api.addFiles("client/ready.js", "client");   // koad.ready() — reactive readiness gate (mirrors server API)
 	api.addFiles("client/search.js", "client");
 
+	// Client ESM mainModule — wires koad.deps + koad.identity (imports from app node_modules)
+	api.mainModule('client/main.js', 'client');
+
 	api.addFiles([
 		"both/utils.js",
 		"both/time-constants.js",
