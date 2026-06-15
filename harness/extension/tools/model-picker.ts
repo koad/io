@@ -203,8 +203,7 @@ async function openModelOverlay(pi: ExtensionAPI, ctx: ExtensionContext): Promis
             dim(fmtMaxTokens(r.model.maxTokens).padStart(5));
 
           const line = padRow(left, right, w);
-          if (isSel) lines.push(theme.bg("selection", line));
-          else if (!r.isAvailable) lines.push(dim(line));
+          if (!r.isAvailable) lines.push(dim(line));
           else lines.push(line);
         }
 
