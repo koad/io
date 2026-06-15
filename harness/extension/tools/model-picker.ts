@@ -1,10 +1,11 @@
 /**
- * /model command — interactive model picker overlay with pricing.
+ * /model-cost command — interactive model picker overlay with pricing.
  *
- * Replaces the built-in /model with a scrollable overlay showing:
+ * A richer alternative to the built-in /model. Shows:
  *   - Provider · model name
  *   - Cost per 1M tokens (input / output / cache read / cache write)
- *   - Context window, max tokens, reasoning badge, input modalities
+ *   - Context window (color-coded), max tokens
+ *   - Reasoning badge, input modalities, subscription indicator
  *   - Active model highlighted
  *
  * Keyboard:
@@ -12,15 +13,12 @@
  *   Enter       — select model
  *   /           — filter by name/provider
  *   Escape      — close
- *
- * Built-in interactive commands (/model, /settings) can't be shadowed
- * via registerCommand — we intercept the input event instead.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
-import { bold, dim, white, yellow, green, cyan, magenta, brightWhite, brightYellow, brightGreen, brightCyan, brightMagenta, ctxColor } from "../utils/ansi";
+import { bold, dim, white, yellow, green, magenta, brightWhite, brightYellow, brightGreen, brightCyan, brightMagenta, ctxColor } from "../utils/ansi";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -73,7 +71,7 @@ function padRow(left: string, right: string, width: number): string {
   return left + " ".repeat(width - lw - rw) + right;
 }
 
-// ── Overlay logic ──────────────────────────────────────────────────
+// ── Row model ──────────────────────────────────────────────────────
 
 interface Row {
   model: Model<any>;
@@ -81,6 +79,8 @@ interface Row {
   isAvailable: boolean;
   isActive: boolean;
 }
+
+// ── Overlay ────────────────────────────────────────────────────────
 
 async function openModelOverlay(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
   const registry = ctx.modelRegistry;
@@ -156,7 +156,7 @@ async function openModelOverlay(pi: ExtensionAPI, ctx: ExtensionContext): Promis
         const lines: string[] = [];
 
         // Header
-        const title = bold(" model  ") + dim("— switch models");
+        const title = bold(" model-cost  ") + dim("— switch models with pricing");
         const rightHead = filter
           ? dim(`filter: "${filter}"  ${list.length} match${list.length !== 1 ? "es" : ""}`)
           : dim(`${list.length} model${list.length !== 1 ? "s" : ""}`);
@@ -178,8 +178,8 @@ async function openModelOverlay(pi: ExtensionAPI, ctx: ExtensionContext): Promis
           const provCol = providerColor(r.model.provider);
 
           const selMark = isSel ? brightWhite("▶ ") : "  ";
-          const availMark = r.isAvailable
-            ? r.isActive ? brightGreen("●") : green("○")
+          const availMark = r.isActive ? brightGreen("●")
+            : r.isAvailable ? green("○")
             : dim("◌");
           const reasoningBadge = r.model.reasoning ? magenta(" 🧠") : "";
           const oauthBadge = registry.isUsingOAuth(r.model) ? dim(" 🔑") : "";
@@ -210,7 +210,7 @@ async function openModelOverlay(pi: ExtensionAPI, ctx: ExtensionContext): Promis
 
         // Footer
         if (list.length > visibleRows) {
-          const pct = list.length > 0 ? Math.round(((scrollOffset + visibleRows) / list.length) * 100) : 100;
+          const pct = Math.round(((scrollOffset + visibleRows) / list.length) * 100);
           lines.push(dim(
             ` ↑↓ navigate  / filter  enter select  esc close  ` +
             `${scrollOffset + 1}-${Math.min(scrollOffset + visibleRows, list.length)} of ${list.length} (${pct}%)`,
@@ -277,20 +277,10 @@ async function openModelOverlay(pi: ExtensionAPI, ctx: ExtensionContext): Promis
 // ── Registration ───────────────────────────────────────────────────
 
 export function registerModelPicker(pi: ExtensionAPI): void {
-  // Intercept /model before the built-in handler sees it.
-  // Built-in interactive commands (/model, /settings) are handled
-  // outside the extension command system and can't be shadowed via
-  // registerCommand — the input event fires first.
-  pi.on("input", async (event, ctx) => {
-    const text = (event.text ?? "").trim();
-    if (text === "/model" || text.startsWith("/model ")) {
+  pi.registerCommand("model-cost", {
+    description: "Switch models — overlay with pricing, context windows, and filtering",
+    handler: async (_args, ctx) => {
       await openModelOverlay(pi, ctx);
-      return { preventDefault: true };
-    }
-    return undefined;
+    },
   });
-
-  // No registerCommand — built-in interactive commands (/model,
-  // /settings) can't be shadowed. The input interceptor above is
-  // the only path that fires. RPC mode uses the built-in /model.
 }
