@@ -11,6 +11,7 @@
 // (sessions are published to kingofalldata.com in real time).
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import * as path from "node:path";
 import { getDDP } from "../ddp";
 import type { DDPClient, DDPEvent, BondRecord } from "../ddp";
 import {
@@ -342,6 +343,42 @@ export function registerBondGate(
 
     // ── Write tools ────────────────────────────────────────────
     if (FILE_WRITE_TOOLS.has(toolName)) {
+      // ── Protected filenames: block write/edit, allow append ──
+      //
+      // The scrubber redacts secrets from read results. If the LLM
+      // then tries to write/edit a file it can't read (like .env),
+      // it would overwrite the file blindly — destroying secrets.
+      // append is safe: it adds lines without needing to see contents.
+      //
+      // Patterns are matched against the basename of the target path.
+      if (absolutePath && (toolName === "write" || toolName === "edit")) {
+        const basename = path.basename(absolutePath);
+        const protectedPatterns = [
+          /^\.env(\..*)?$/,          // .env, .env.local, .env.production
+          /^\.credentials(\..*)?$/,  // .credentials, .credentials.local
+          /^credentials(\..*)?$/,    // credentials, credentials.json
+          /^secret(s)?(\..*)?$/i,    // secret, secrets, secrets.yaml
+          /^\..*key(\.pem)?$/,       // .id_rsa, .ssh-key, .key.pem
+          /^\..*token$/i,            // .github-token, .api-token
+          /^id_rsa$/,                // raw SSH private key
+          /^id_ed25519$/,            // raw SSH private key
+        ];
+        const isProtected = protectedPatterns.some((re) => re.test(basename));
+        if (isProtected) {
+          log(`BLOCK ${toolName} ${absolutePath}: protected filename`);
+          auditBlock(entity, toolName, absolutePath, "protected filename — write/edit blocked, use append");
+          const safeMethod = "append";
+          return {
+            block: true,
+            reason:
+              `${rawPath} is a protected file — its contents are redacted in read results, ` +
+              `so a blind write or edit would destroy any existing secrets. ` +
+              `Use the \`${safeMethod}\` tool to add new lines without overwriting. ` +
+              `If you need to modify an existing line, ask the user to do it manually.`,
+          };
+        }
+      }
+
       if (writeScope.length === 0) {
         const msg = isVisitor ? `${toolName} is outside visitor write scope` : "no bond grants write permissions";
         return block(msg);

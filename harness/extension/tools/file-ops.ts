@@ -1,8 +1,13 @@
 /**
- * koad-io file operation tools — cp, mv, rm, chmod, mkdir.
+ * koad-io file operation tools — cp, mv, rm, chmod, mkdir, append.
  *
  * Gated by the bond gate's write scope (same as write/edit tools).
  * Registered as FILE_WRITE_TOOLS so the bond gate enforces path permissions.
+ *
+ * append is the safe write path for protected files (.env, .credentials,
+ * etc.) where the LLM cannot read the contents (redacted by the scrubber)
+ * so a blind write/edit would destroy them. append adds lines without
+ * needing to see existing content.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -189,6 +194,61 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: `✓ deleted ${target}` }],
           details: { path: target },
+        };
+      } catch (err: any) {
+        return { isError: true, content: [{ type: "text", text: `✗ ${err.message}` }], details: { error: err.message } };
+      }
+    },
+  });
+
+  // ── append ──────────────────────────────────────────────────
+  pi.registerTool({
+    name: "append",
+    label: "Append",
+    description:
+      "Append text to a file. Creates the file if it does not exist. " +
+      "Safe for protected files (.env, .credentials) where write/edit " +
+      "is blocked — append adds lines without needing to read existing content.",
+    promptSnippet: "append path — add lines to a file without overwriting",
+    promptGuidelines: [
+      "Use append to add lines to protected files (.env, .credentials, .gitignore) where write/edit is blocked.",
+      "Also use append for log files, growing lists, and incrementally building config files.",
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "File to append to. Created if missing." }),
+      content: Type.String({ description: "Text to append. A trailing newline is added automatically." }),
+    }),
+
+    renderCall(args: any, theme: any) {
+      const preview = (args.content || "").replace(/\n/g, " ").slice(0, 60);
+      return new Text([
+        theme.fg("toolTitle", theme.bold("append ")) +
+          theme.fg("accent", `${clip(args.path || "", 30)} ← ${clip(preview, 30)}`),
+      ].join("\n"), 0, 0);
+    },
+
+    renderResult(result: any, _opts: any, theme: any) {
+      const ok = !result?.isError;
+      return new Text(
+        theme.fg(ok ? "success" : "error",
+          ok ? `✓ appended ${result?.details?.bytes ?? 0}B to ${clip(result?.details?.path || "", 30)}`
+             : `✗ ${clip(result?.details?.error || "", 80)}`,
+        ), 0, 0,
+      );
+    },
+
+    async execute(_toolCallId, params) {
+      const cwd = process.env.HARNESS_WORK_DIR || process.cwd();
+      const target = resolvePath(params.path, cwd);
+      try {
+        const dir = path.dirname(target);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const text = String(params.content ?? "") + "\n";
+        fs.appendFileSync(target, text, "utf-8");
+        const bytes = Buffer.byteLength(text, "utf-8");
+        return {
+          content: [{ type: "text", text: `✓ appended ${bytes}B to ${target}` }],
+          details: { path: target, bytes },
         };
       } catch (err: any) {
         return { isError: true, content: [{ type: "text", text: `✗ ${err.message}` }], details: { error: err.message } };

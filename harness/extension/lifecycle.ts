@@ -381,81 +381,127 @@ export function registerHooks(pi: ExtensionAPI): void {
   //
   // Every tool result → daemon emission so the flight has a complete,
   // auditable record of what tools ran, their outcomes, and timing.
-  // This is the per-tool complement to turn_end's aggregate telemetry.
   //
-  // Important: handler return value passes through to next handler unchanged
-  // unless we explicitly return a patch. We DON'T modify the result here —
-  // bond-gate.ts already handles secret scrubbing. This is observation only.
+  // Emission payload is uniform across all tool types: the same fields are
+  // always present (null when not applicable). Consumers can index on any
+  // field without per-tool-type branching. The human-readable body omits
+  // the tool name since it's already in the payload.
+  //
+  // This is observation only — bond-gate.ts handles secret scrubbing.
   pi.on("tool_result", async (event) => {
     const toolName = event.toolName ?? "?";
     const isError = event.isError === true;
+    const input = (event.input ?? {}) as Record<string, unknown>;
 
-    // Build summary based on tool type — metadata only, never raw content
-    let summary: string;
-    if (isError) {
-      summary = "error";
-    } else if (toolName === "read") {
-      const path = ((event.input as any)?.path ?? "?").replace(/^\/home\/[^/]+/, "~");
-      const text = typeof event.content?.[0]?.text === "string" ? event.content[0].text : "";
-      const lines = text ? text.split("\n").length : 0;
-      const kb = text ? `${(text.length / 1024).toFixed(1)}KB` : "?";
-      summary = `${path} (${lines}L ${kb})`;
-    } else if (toolName === "write" || toolName === "edit") {
-      const path = ((event.input as any)?.path ?? (event.input as any)?.filePath ?? "?").replace(/^\/home\/[^/]+/, "~");
-      const text = typeof event.content?.[0]?.text === "string" ? event.content[0].text : "";
-      const kb = text ? `${(text.length / 1024).toFixed(1)}KB` : "";
-      summary = `${path}${kb ? ` (${kb})` : ""}`;
-    } else if (toolName === "bash") {
-      const cmd = ((event.input as any)?.command ?? "?").replace(/\n/g, " ").slice(0, 80);
-      const exitCode = (event.details as any)?.exitCode;
-      summary = exitCode !== undefined ? `${cmd} (exit ${exitCode})` : cmd;
-    } else if (toolName === "search") {
-      const mode = (event.input as any)?.mode ?? "text";
-      const query = (event.input as any)?.query ?? "";
-      summary = query ? `search ${mode} "${String(query).slice(0, 50)}"` : `search ${mode}`;
-    } else if (toolName === "status") {
-      const sub = (event.input as any)?.sub ?? "";
-      summary = sub ? `status ${sub}` : "status";
-    } else if (toolName === "sin") {
-      const dir = ((event.input as any)?.path ?? "?").replace(/^\/home\/[^/]+/, "~");
-      const query = (event.input as any)?.query ?? "?";
-      summary = `search in ${dir} for "${String(query).slice(0, 60)}"`;
-    } else if (toolName === "ls") {
-      const dir = ((event.input as any)?.path ?? ".").replace(/^\/home\/[^/]+/, "~");
-      const text = typeof event.content?.[0]?.text === "string" ? event.content[0].text : "";
-      const entries = text ? text.split("\n").filter(Boolean).length : 0;
-      summary = `ls ${dir} (${entries} entries)`;
-    } else if (toolName === "mkdir") {
-      const p = ((event.input as any)?.path ?? "?").replace(/^\/home\/[^/]+/, "~");
-      summary = `mkdir ${p}`;
-    } else if (toolName === "cp") {
-      const s = ((event.input as any)?.src ?? "?").replace(/^\/home\/[^/]+/, "~");
-      const d = ((event.input as any)?.dst ?? "?").replace(/^\/home\/[^/]+/, "~");
-      summary = `cp ${s} → ${d}`;
-    } else if (toolName === "mv") {
-      const s = ((event.input as any)?.src ?? "?").replace(/^\/home\/[^/]+/, "~");
-      const d = ((event.input as any)?.dst ?? "?").replace(/^\/home\/[^/]+/, "~");
-      summary = `mv ${s} → ${d}`;
-    } else if (toolName === "rm") {
-      const p = ((event.input as any)?.path ?? "?").replace(/^\/home\/[^/]+/, "~");
-      summary = `rm ${p}`;
-    } else if (toolName === "chmod") {
-      const m = (event.input as any)?.mode ?? "?";
-      const p = ((event.input as any)?.path ?? "?").replace(/^\/home\/[^/]+/, "~");
-      summary = `chmod ${m} ${p}`;
-    } else {
-      const sub = (event.input as any)?.sub ?? (event.input as any)?.command ?? "";
-      summary = sub ? `${toolName} ${String(sub).slice(0, 60)}` : toolName;
+    // ── Uniform structured payload (all fields present, null when n/a) ──
+    const homeRe = (s: string) => String(s).replace(/^\/home\/[^/]+/, "~");
+    const textContent = typeof event.content?.[0]?.text === "string" ? event.content[0].text : "";
+    const textBytes = textContent ? textContent.length : 0;
+    const textLines = textContent ? textContent.split("\n").length : 0;
+
+    interface ToolPayload {
+      tool: string;
+      ok: boolean;
+      path: string | null;
+      src: string | null;
+      dst: string | null;
+      lines: number | null;
+      bytes: number | null;
+      exitCode: number | null;
+      command: string | null;
+      query: string | null;
+      mode: string | null;
+      entries: number | null;
+      sub: string | null;
+      turn: number;
+      flightId: string | undefined;
+      sessionId: string | undefined;
     }
 
-    emitTelemetry("harness.tool-result", `[${toolName}] ${summary}`, {
-      toolName,
-      isError,
-      summary: summary.slice(0, 200),
-      turnIndex: _turnIndex,
+    const p: ToolPayload = {
+      tool: toolName,
+      ok: !isError,
+      path: null, src: null, dst: null,
+      lines: null, bytes: null, exitCode: null,
+      command: null, query: null, mode: null, entries: null, sub: null,
+      turn: _turnIndex,
       flightId: process.env.HARNESS_CONTROL_FLIGHT_ID,
       sessionId: process.env.HARNESS_SESSION_ID,
-    });
+    };
+
+    // ── Populate tool-specific fields ────────────────────────────────
+    if (isError) {
+      // nothing extra — ok:false is the signal
+    } else if (toolName === "read") {
+      p.path = homeRe(String(input.path ?? "?"));
+      p.lines = textLines || null;
+      p.bytes = textBytes || null;
+    } else if (toolName === "write" || toolName === "edit") {
+      p.path = homeRe(String(input.path ?? input.filePath ?? "?"));
+      p.bytes = textBytes || null;
+    } else if (toolName === "bash") {
+      const cmd = String(input.command ?? "?").replace(/\n/g, " ");
+      p.command = cmd.length > 200 ? cmd.slice(0, 197) + "..." : cmd;
+      p.exitCode = (event.details as any)?.exitCode ?? null;
+    } else if (toolName === "search") {
+      p.mode = String(input.mode ?? "text");
+      const q = String(input.query ?? "");
+      p.query = q || null;
+    } else if (toolName === "status") {
+      const s = String(input.sub ?? "");
+      p.sub = s || null;
+    } else if (toolName === "sin") {
+      p.path = homeRe(String(input.path ?? "?"));
+      const q = String(input.query ?? "");
+      p.query = q || null;
+    } else if (toolName === "ls") {
+      p.path = homeRe(String(input.path ?? "."));
+      p.entries = textContent ? textContent.split("\n").filter(Boolean).length : 0;
+    } else if (toolName === "mkdir") {
+      p.path = homeRe(String(input.path ?? "?"));
+    } else if (toolName === "cp") {
+      p.src = homeRe(String(input.src ?? "?"));
+      p.dst = homeRe(String(input.dst ?? "?"));
+    } else if (toolName === "mv") {
+      p.src = homeRe(String(input.src ?? "?"));
+      p.dst = homeRe(String(input.dst ?? "?"));
+    } else if (toolName === "rm") {
+      p.path = homeRe(String(input.path ?? "?"));
+    } else if (toolName === "chmod") {
+      p.mode = String(input.mode ?? "?");
+      p.path = homeRe(String(input.path ?? "?"));
+    } else {
+      // Extension tools: capture sub or command for routing context
+      const s = String(input.sub ?? input.command ?? "");
+      p.sub = s || null;
+    }
+
+    // ── Human-readable body (no [toolName] prefix — already in payload) ──
+    let body: string;
+    if (isError) {
+      body = "error";
+    } else if (p.path) {
+      const extras: string[] = [];
+      if (p.lines) extras.push(`${p.lines}L`);
+      if (p.bytes) extras.push(p.bytes >= 1024 ? `${(p.bytes / 1024).toFixed(1)}KB` : `${p.bytes}B`);
+      if (p.exitCode !== null) extras.push(`exit ${p.exitCode}`);
+      if (p.mode && toolName === "chmod") extras.push(p.mode);
+      body = p.path + (extras.length ? ` (${extras.join(" ")})` : "");
+    } else if (p.src && p.dst) {
+      body = `${p.src} → ${p.dst}`;
+    } else if (p.command) {
+      const cmdShort = p.command.length > 80 ? p.command.slice(0, 77) + "..." : p.command;
+      body = p.exitCode !== null ? `${cmdShort} (exit ${p.exitCode})` : cmdShort;
+    } else if (p.query) {
+      const qShort = p.query.length > 60 ? p.query.slice(0, 57) + "..." : p.query;
+      body = p.mode ? `${p.mode}: "${qShort}"` : `"${qShort}"`;
+    } else if (p.sub) {
+      body = p.sub;
+    } else {
+      body = toolName;
+    }
+
+    emitTelemetry("harness.tool-result", body, p as unknown as Record<string, unknown>);
 
     // Don't modify the result — let bond-gate.ts handle scrubbing
     return undefined;

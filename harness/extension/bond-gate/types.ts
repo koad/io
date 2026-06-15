@@ -133,7 +133,7 @@ export const GATED_DISPATCH_TOOLS = new Set(["dispatch", "dispatch_followup", "d
 export const GLOBAL_ALLOWED_TOOLS = new Set<string>();
 export const SCOPED_SEARCH_TOOLS = new Set(["search"]);
 export const FILE_READ_TOOLS = new Set(["read", "ls", "find", "grep", "sin"]);
-export const FILE_WRITE_TOOLS = new Set(["write", "edit", "mkdir", "cp", "mv", "rm", "chmod"]);
+export const FILE_WRITE_TOOLS = new Set(["write", "edit", "append", "mkdir", "cp", "mv", "rm", "chmod"]);
 export const SHELL_TOOLS = new Set(["bash"]);
 
 // ---------------------------------------------------------------------------
