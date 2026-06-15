@@ -69,6 +69,7 @@ import { registerProviderCircuitBreaker } from "./circuit-breaker";
 import { registerBodyTools } from "./tools/body-motions";
 import { registerKingdomQueryTools } from "./tools/kingdom-query";
 import { registerFileOpTools } from "./tools/file-ops";
+import { registerModelPicker } from "./tools/model-picker";
 
 const _BIND_IP = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
 const CONTROL_WS = (process.env.KOAD_IO_CONTROL_URL ?? `http://${_BIND_IP}:${process.env.KOAD_IO_CONTROL_PORT ?? "28283"}`)
@@ -131,8 +132,11 @@ function enforceHarnessToolPolicy(pi: ExtensionAPI): void {
 export default function (pi: ExtensionAPI) {
   const inSdkMode = sdkMode();
 
-  // ── File operation tools (mkdir, cp, mv, rm, chmod) ──────────
+  // ── File operation tools (mkdir, cp, mv, rm, chmod, append) ───
   registerFileOpTools(pi);
+
+  // ── Model picker overlay (replaces built-in /model) ──────────
+  registerModelPicker(pi);
 
   // ── Dispatch tools ────────────────────────────────────────────
   registerDispatchTools(pi);
