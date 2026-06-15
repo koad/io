@@ -290,12 +290,7 @@ export function registerModelPicker(pi: ExtensionAPI): void {
     return undefined;
   });
 
-  // Also register as a command so /model appears in slash-command
-  // autocomplete and works in RPC/print-mode.
-  pi.registerCommand("model", {
-    description: "Switch models — overlay with pricing, context windows, and filtering",
-    handler: async (_args, ctx) => {
-      await openModelOverlay(pi, ctx);
-    },
-  });
+  // No registerCommand — built-in interactive commands (/model,
+  // /settings) can't be shadowed. The input interceptor above is
+  // the only path that fires. RPC mode uses the built-in /model.
 }
