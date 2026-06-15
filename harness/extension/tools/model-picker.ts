@@ -18,7 +18,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
-import { bold, dim, white, yellow, green, magenta, brightWhite, brightYellow, brightGreen, brightCyan, brightMagenta, ctxColor } from "../utils/ansi";
+import { bold, dim, white, yellow, green, cyan, magenta, brightWhite, brightYellow, brightGreen, brightCyan, brightMagenta, ctxColor } from "../utils/ansi";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
