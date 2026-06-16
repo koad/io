@@ -121,7 +121,8 @@ export function registerKoadioTool(pi: ExtensionAPI): void {
       body: Type.Optional(Type.String({ description: "Body text for announce, message, tickle, emit, conversation." })),
       ref: Type.Optional(Type.String({ description: "Reference for pin." })),
       tags: Type.Optional(Type.Array(Type.String(), { description: "Tags for pin." })),
-      args: Type.Optional(Type.String({ description: "Additional arguments for git, session, or passthrough commands." })),
+      args: Type.Optional(Type.String({ description: "Additional arguments (single string, space-split). Prefer args_list for multi-word args." })),
+      args_list: Type.Optional(Type.Array(Type.String(), { description: "Additional arguments as an array. Preferred over args — no splitting needed." })),
       cwd: Type.Optional(Type.String({ description: "Working directory override. Default: HARNESS_WORK_DIR > entity home > session CWD." })),
       type: Type.Optional(Type.String({ description: "Emission type for emit (notice, warning, error)." })),
       slug: Type.Optional(Type.String({ description: "Topic slug for conversation." })),
@@ -161,25 +162,25 @@ export function registerKoadioTool(pi: ExtensionAPI): void {
       if (params.body)  execArgs.push(params.body);
       if (params.ref)   execArgs.push(params.ref);
       if (params.tags)  execArgs.push(...params.tags);
-      if (params.args) {
+      if (params.args_list?.length) {
+        execArgs.push(...params.args_list);
+      } else if (params.args) {
         // shell-split args string so "-m 'msg with spaces'" becomes separate argv entries
         for (const a of shellSplit(params.args)) execArgs.push(a);
       }
 
       const result = execKoadio(execArgs, params.cwd as string | undefined);
 
-      if (result.exitCode !== 0) {
-        const err = result.stderr.slice(0, 300) || `exit ${result.exitCode}`;
-        return {
-          content: [{ type: "text", text: `✗ ${cmd}: ${err}` }],
-          details: { ...params, command: cmd, args: execArgs, cwd: result.cwd, exitCode: result.exitCode, stderr: result.stderr.slice(0, 500), stdout: result.stdout.slice(0, 500) },
-        };
-      }
+      const out = (result.stdout || "").slice(0, 4000);
+      const err = (result.stderr || "").slice(0, 2000);
+      const exitOk = result.exitCode === 0;
 
-      const out = result.stdout || `✓ ${cmd}`;
+      let text = exitOk ? (out || `✓ ${cmd}`) : `✗ ${cmd} (exit ${result.exitCode})\n${err || out}`;
+      if (exitOk && err) text += `\nstderr: ${err.slice(0, 500)}`;
+
       return {
-        content: [{ type: "text", text: out.slice(0, 3000) }],
-        details: { ...params, command: cmd, args: execArgs, cwd: result.cwd, exitCode: 0, stdout: result.stdout, stderr: result.stderr.slice(0, 500) },
+        content: [{ type: "text", text: text.slice(0, 5000) }],
+        details: { ...params, command: cmd, args: execArgs, cwd: result.cwd, exitCode: result.exitCode, stdout: out, stderr: err },
       };
     },
   });
