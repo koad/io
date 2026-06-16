@@ -167,8 +167,8 @@ echo "$rec" | jq -r '.targets[] | "\(.host_port // .label)|\(.label)|\(if .alive
     info="$label"
     [ -n "$entity" ] && info="${info} (${entity})"
     if [ "$degraded" = "true" ]; then
-      printf '  %s◐%s %s%s%s  %s%s%s  %sHTTP %s (expected %s) %4sms %s%s\n' \
-        "$Y" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$Y" "$status" "$expected" "$ms" "$D" "$degraded_reason"
+      printf '  %s◐%s %s%s%s  %s%s%s  %sHTTP %s (expected %s) %4sms%s\n' \
+        "$Y" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$Y" "$status" "$expected" "$ms" "$R"
     else
       printf '  %s●%s %s%s%s  %s%s%s  %sHTTP %s %4sms%s\n' \
         "$GREEN" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$GREEN" "$status" "$ms" "$R"
