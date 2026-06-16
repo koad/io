@@ -246,6 +246,7 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
         echo "" >&2
         exit 64
       fi
+      export KOAD_IO_ROOTED=true
     fi
   fi
 fi

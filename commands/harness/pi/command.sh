@@ -212,6 +212,8 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
         echo "" >&2
         exit 64
       fi
+      # Entity spawned in its own home — equivalent to KOAD_IO_ROOTED=true
+      export KOAD_IO_ROOTED=true
     fi
   fi
 fi
