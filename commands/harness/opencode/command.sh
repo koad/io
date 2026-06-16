@@ -224,6 +224,10 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
     exit 64
   fi
   unset _work_dir_real _home_real _forbidden
+
+  if [ -f "$HOME/.koad-io/commands/assert/datadir/command.sh" ]; then
+    source "$HOME/.koad-io/commands/assert/datadir/command.sh"
+  fi
 fi
 
 # --- Announce -------------------------------------------------------------

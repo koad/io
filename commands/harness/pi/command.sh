@@ -185,6 +185,12 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
     exit 64
   fi
   unset _work_dir_real _home_real _forbidden
+
+  # Assert valid koad:io workspace — same check as start/restart commands.
+  # A koad-io project folder must have a .env file (source'd by assert/datadir).
+  if [ -f "$HOME/.koad-io/commands/assert/datadir/command.sh" ]; then
+    source "$HOME/.koad-io/commands/assert/datadir/command.sh"
+  fi
 fi
 
 # --- Context assembly (VESTA-SPEC-067) ------------------------------------
