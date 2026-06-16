@@ -198,6 +198,21 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
       echo "  cd to the project root (where .env lives) and try again." >&2
       exit 64
     fi
+
+    # If we're in an entity home directory (~/.something), ensure the
+    # running entity matches. vulcan can't spawn in ~/.juno.
+    _folder_name="$(basename "$_work_dir_real")"
+    if [[ "$_folder_name" == .* ]] && [[ -n "${ENTITY:-}" ]]; then
+      _folder_entity="${_folder_name#.}"
+      if [[ "${_folder_entity}" != "${ENTITY}" ]]; then
+        echo -e "\033[31m$(pwd) is ~/.${_folder_entity} — that's ${_folder_entity}'s home, not ${ENTITY}'s\033[0m" >&2
+        echo "" >&2
+        echo "  Entities can only spawn in their own home directory," >&2
+        echo "  or in a shared project folder (like ~/.forge/...)." >&2
+        echo "" >&2
+        exit 64
+      fi
+    fi
   fi
 fi
 
