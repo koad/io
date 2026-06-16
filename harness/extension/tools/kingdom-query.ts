@@ -581,10 +581,13 @@ export function registerKingdomQueryTools(
           const from = q.from || "?";
           const to = q.to || "?";
           const status = q.status || "?";
-          const question = (q.question || "").slice(0, 120);
           const icon = status === "open" ? "❓" : status === "answered" ? "✅" : "📋";
-          lines.push(`${icon} ${from}→${to} [${status}] ${question}`);
-          if (q._id) lines.push(`  id: ${q._id}`);
+          lines.push(`${icon} ${q.id}`);
+          lines.push(`  ${from} → ${to}  [${status}]  ${q.filed || ""}`);
+          lines.push(`  ${q.question}`);
+          if (q.options?.length) lines.push(`  options: ${q.options.join(" | ")}`);
+          if (q.answer) lines.push(`  answer: ${q.answer}`);
+          lines.push("");
         }
       }
 
