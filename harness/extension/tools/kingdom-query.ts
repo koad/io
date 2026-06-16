@@ -12,7 +12,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { clipText as clip } from "../utils/tool-render";
 import type { DDPClient } from "../ddp";
 import {
   missionQuery, sessionQuery, emissionQuery,
@@ -91,7 +90,7 @@ export function registerKingdomQueryTools(
       if (args.entity) parts.push(`@${args.entity}`);
       if (args.status) parts.push(args.status);
       if (args.active_only) parts.push("active");
-      if (args.id) parts.push(`#${clip(args.id, 20)}`);
+      if (args.id) parts.push(`#${args.id}`);
       const filter = parts.length > 0 ? ` (${parts.join(", ")})` : "";
       return new Text([
         theme.fg("toolTitle", theme.bold("mission_query")) + filter,
@@ -112,7 +111,7 @@ export function registerKingdomQueryTools(
       if (expanded && details.results?.length) {
         for (const m of details.results.slice(0, 10)) {
           const icon = m.status === "flying" ? "✈️" : m.status === "landed" ? "✅" : "📦";
-          lines.push(`  ${icon} ${theme.fg("accent", m.entity)} ${theme.fg("dim", clip(m.brief_slug || m.id, 30))} ${m.status}`);
+          lines.push(`  ${icon} ${theme.fg("accent", m.entity)} ${theme.fg("dim", m.brief_slug || m.id)} ${m.status}`);
         }
       }
       return new Text(lines.join("\n"), 0, 0);
@@ -210,7 +209,7 @@ export function registerKingdomQueryTools(
       if (expanded && details.results?.length) {
         for (const s of details.results.slice(0, 10)) {
           const icon = s.status === "active" ? "🟢" : "⚫";
-          lines.push(`  ${icon} ${theme.fg("accent", s.entity)} ${theme.fg("dim", clip(s.id, 20))} ${s.status}`);
+          lines.push(`  ${icon} ${theme.fg("accent", s.entity)} ${theme.fg("dim", s.id)} ${s.status}`);
         }
       }
       return new Text(lines.join("\n"), 0, 0);
@@ -319,7 +318,7 @@ export function registerKingdomQueryTools(
         for (const e of details.results.slice(0, 10)) {
           const ts = (e.started || "").slice(11, 19);
           const typeLabel = e.type || "?";
-          lines.push(`  ${theme.fg("dim", ts)} ${theme.fg("accent", e.entity)} ${theme.fg("dim", `[${typeLabel}]`)} ${clip(e.body || "", 50)}`);
+          lines.push(`  ${theme.fg("dim", ts)} ${theme.fg("accent", e.entity)} ${theme.fg("dim", `[${typeLabel}]`)} ${e.body || ""}`);
         }
       }
       return new Text(lines.join("\n"), 0, 0);
@@ -622,7 +621,7 @@ export function registerKingdomQueryTools(
     }),
 
     renderCall(args: any, theme: any) {
-      const filter = args.handle ? ` (@${args.handle})` : args.id ? ` (#${clip(args.id, 20)})` : "";
+      const filter = args.handle ? ` (@${args.handle})` : args.id ? ` (#${args.id})` : "";
       return new Text([
         theme.fg("toolTitle", theme.bold("entity_query")) + filter,
         `  ${theme.fg("dim", `query kingdom entities`)}`,

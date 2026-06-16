@@ -208,7 +208,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
       lines.push(`  ${theme.fg("dim", `⚡ actionable: ${buckets.actionable?.count ?? 0} · 🧠 decisions: ${buckets.decision_bearing?.count ?? 0} · 📦 stale: ${buckets.stale?.count ?? 0}`)}`);
       if (expanded && buckets.actionable?.items?.length) {
         for (const item of buckets.actionable.items.slice(0, 5)) {
-          lines.push(`  ${theme.fg("accent", `[${item.class}]`)} ${theme.fg("dim", clip(item.summary, 60))}`);
+          lines.push(`  ${theme.fg("accent", `[${item.class}]`)} ${theme.fg("dim", item.summary)}`);
         }
       }
       return new Text(lines.join("\n"), 0, 0);
@@ -302,7 +302,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
       const dry = args.dry_run ? " dry-run" : "";
       return new Text([
         theme.fg("toolTitle", theme.bold("intake_resolve ")) + theme.fg("accent", `${args.action || "?"}`),
-        `  ${theme.fg("dim", `${ids} item(s)${dry}${args.note ? ` · ${clip(args.note, 40)}` : ""}`)}`,
+        `  ${theme.fg("dim", `${ids} item(s)${dry}${args.note ? ` · ${args.note}` : ""}`)}`,
       ].join("\n"), 0, 0);
     },
 
@@ -382,7 +382,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
       lines.push(`  ${theme.fg("error", `🔴 overdue: ${buckets.overdue?.count ?? 0}`)} ${theme.fg("warning", `🟡 today: ${buckets.today?.count ?? 0}`)} ${theme.fg("dim", `📦 stale: ${buckets.stale?.count ?? 0}`)}`);
       if (expanded && buckets.overdue?.items?.length) {
         for (const item of buckets.overdue.items.slice(0, 5)) {
-          lines.push(`  ${theme.fg("error", `[${item.source}]`)} ${theme.fg("dim", clip(item.title || item.id, 60))}`);
+          lines.push(`  ${theme.fg("error", `[${item.source}]`)} ${theme.fg("dim", item.title || item.id)}`);
         }
       }
       return new Text(lines.join("\n"), 0, 0);
@@ -597,7 +597,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
       const brief = details.brief ?? {};
       const lines = [
         theme.fg("success", `✓ brief issued → ${brief.entity || "?"}`),
-        `  ${theme.fg("dim", `id: ${brief.id || "?"} · ${clip(brief.subject || "", 60)}`)}`,
+        `  ${theme.fg("dim", `id: ${brief.id || "?"} · ${brief.subject || ""}`)}`,
       ];
       if (details.dispatched && details.flight_id) {
         lines.push(`  ${theme.fg("accent", `✈️ flight: ${details.flight_id}`)}`);
@@ -674,7 +674,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
 
     renderCall(args: any, theme: any) {
       return new Text([
-        theme.fg("toolTitle", theme.bold("flight_log ")) + theme.fg("accent", `${clip(args.flight_id || "?", 30)}`),
+        theme.fg("toolTitle", theme.bold("flight_log ")) + theme.fg("accent", `${args.flight_id || "?"}`),
         `  ${theme.fg("dim", `read flight run record`)}`,
       ].join("\n"), 0, 0);
     },

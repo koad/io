@@ -2,7 +2,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { clipText as clip, formatDurationSeconds as formatDuration } from "../../utils/tool-render";
+import { formatDurationSeconds as formatDuration } from "../../utils/tool-render";
 import type { ChannelState, TurnRecord } from "../../channels/client";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ export function summarizeHands(state: ChannelState, max = 4): string {
 export function summarizeLatestTurn(turns: Array<{ entity: string; body: string; turnId: string }>): string | null {
   if (!turns?.length) return null;
   const last = turns[turns.length - 1];
-  return `${last.entity}: ${clip(last.body, 48)} (${last.turnId})`;
+  return `${last.entity}: ${last.body} (${last.turnId})`;
 }
 
 export function isAbortError(err: any): boolean {

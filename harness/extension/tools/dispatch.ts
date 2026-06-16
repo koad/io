@@ -212,7 +212,7 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
       if (sub === "flight") {
         if (details.status === "landed") {
           lines.push(theme.fg("success", `✓ flight landed after ${elapsed}`));
-          if (details.closingNote) lines.push(`  ${theme.fg("dim", clip(details.closingNote, expanded ? 180 : 90))}`);
+          if (details.closingNote) lines.push(`  ${theme.fg("dim", details.closingNote)}`);
           return new Text(lines.join("\n"), 0, 0);
         }
         if (details.status === "timeout") {
@@ -225,12 +225,12 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
       if (sub === "followup") {
         if (details.action === "complete") {
           lines.push(theme.fg("success", `✓ entity signaled mission complete after ${elapsed}`));
-          if (expanded && details.note) lines.push(`  ${theme.fg("dim", clip(details.note, 180))}`);
+          if (expanded && details.note) lines.push(`  ${theme.fg("dim", details.note)}`);
           return new Text(lines.join("\n"), 0, 0);
         }
         if (details.action === "followup") {
           lines.push(theme.fg("success", `✓ follow-up requested after ${elapsed}`));
-          if (expanded && details.prompt) lines.push(`  ${theme.fg("dim", `prompt: ${clip(details.prompt, 180)}`)}`);
+          if (expanded && details.prompt) lines.push(`  ${theme.fg("dim", `prompt: ${details.prompt}`)}`);
           return new Text(lines.join("\n"), 0, 0);
         }
         if (details.status === "timeout" || details.action === "timeout") {
@@ -325,7 +325,7 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
     renderCall(args: any, theme: any) {
       return new Text([
         theme.fg("toolTitle", theme.bold("dispatch_followup ")) + theme.fg("accent", `${shortFlightId(args.flight_id)}`),
-        `  ${theme.fg("dim", clip(args.prompt ?? "", 90))}`,
+        `  ${theme.fg("dim", args.prompt ?? "")}`,
       ].join("\n"), 0, 0);
     },
     renderResult(result: any, { expanded }: any, theme: any) {
@@ -384,14 +384,14 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
     renderCall(args: any, theme: any) {
       return new Text([
         theme.fg("toolTitle", theme.bold("dispatch_complete ")) + theme.fg("accent", `${shortFlightId(args.flight_id)}`),
-        `  ${theme.fg("dim", clip(args.note || "mission complete", 90))}`,
+        `  ${theme.fg("dim", args.note || "mission complete")}`,
       ].join("\n"), 0, 0);
     },
     renderResult(result: any, { expanded }: any, theme: any) {
       const details = (result?.details ?? {}) as Record<string, any>;
       const lines = [
         theme.fg("success", `✓ mission complete signaled`),
-        `  ${theme.fg("accent", `flight: ${shortFlightId(details.flight_id)}`)} ${theme.fg("dim", `· ${clip(details.note || "mission complete", expanded ? 180 : 90)}`)}`,
+        `  ${theme.fg("accent", `flight: ${shortFlightId(details.flight_id)}`)} ${theme.fg("dim", `· ${details.note || "mission complete"}`)}`,
       ];
       if (expanded && details.file) lines.push(`  ${theme.fg("dim", `file: ${details.file}`)}`);
       return new Text(lines.join("\n"), 0, 0);

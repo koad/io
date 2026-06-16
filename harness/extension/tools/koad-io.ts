@@ -41,7 +41,7 @@ function summarizeCall(params: any): string {
     .filter(Boolean)
     .map(v => String(v));
   if (params.tags?.length) parts.push(`#${params.tags.join(" #")}`);
-  if (params.body) parts.push(clip(params.body, 70));
+  if (params.body) parts.push(params.body);
   return parts.join(" · ") || "no additional args";
 }
 

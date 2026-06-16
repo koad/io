@@ -2,7 +2,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { clipText as clip, formatDurationSeconds as formatDuration } from "../../utils/tool-render";
+import { formatDurationSeconds as formatDuration } from "../../utils/tool-render";
 import {
   readChannelState, readTurnsSince,
   type ChannelState,
@@ -62,7 +62,7 @@ export function registerPollTools(pi: ExtensionAPI): void {
         lines.push(`  ${theme.fg("accent", slug)} ${theme.fg("dim", `· last: ${last}`)}`);
         if (expanded && details.turns) {
           for (const t of details.turns) {
-            lines.push(`  ${theme.fg("dim", `${t.entity}: ${clip(t.body, 60)} (${t.turnId})`)}`);
+            lines.push(`  ${theme.fg("dim", `${t.entity}: ${t.body} (${t.turnId})`)}`);
           }
         }
         return new Text(lines.join("\n"), 0, 0);
