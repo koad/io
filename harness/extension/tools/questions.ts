@@ -214,7 +214,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       const mode = wait ? `wait: yes · timeout: ${formatDuration(540)} · Esc cancels local wait` : "wait: no · returns question_id immediately";
       return new Text([
         theme.fg("toolTitle", theme.bold("ask_question ")) + theme.fg("accent", `${args.from || "?"} → ${args.to || "?"}${wd}`),
-        `  ${theme.fg("dim", `"${clip(args.question)}"`)}`,
+        `  ${theme.fg("dim", `"${clip(args.question, 400)}"`)}`,
         `  ${theme.fg("dim", `${mode}${options}`)}`,
       ].join("\n"), 0, 0);
     },
@@ -226,7 +226,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       const to = details.to ?? "?";
       const elapsed = formatDuration(details.elapsed_seconds ?? 0);
       const timeout = formatDuration(details.timeout_seconds ?? 540);
-      const prompt = clip(details.question);
+      const prompt = clip(details.question, 400);
       const lines: string[] = [];
       lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `${from} → ${to}`)}`);
 
@@ -248,8 +248,8 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
 
       if (details.status === "answered") {
         lines.push(theme.fg("success", `✓ answered by ${details.answered_by ?? "unknown"} after ${elapsed}`));
-        lines.push(`  ${theme.fg("dim", `· ${clip(details.answer ?? "(no text)")}`)}`);
-        if (expanded && details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${clip(details.answer_note)}`)}`);
+        lines.push(`  ${theme.fg("dim", `· ${clip(details.answer, 300) ?? "(no text)")}`)}`);
+        if (expanded && details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${clip(details.answer_note, 300)}`)}`);
         return new Text(lines.join("\n"), 0, 0);
       }
 
@@ -382,7 +382,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       const from = details.from ? `${details.from} → ${details.to ?? "?"}` : null;
       const elapsed = formatDuration(details.elapsed_seconds ?? 0);
       const timeout = formatDuration(details.timeout_seconds ?? 540);
-      const prompt = clip(details.question);
+      const prompt = clip(details.question, 400);
       const lines: string[] = [];
 
       if (isPartial || details.status === "waiting") {
@@ -395,8 +395,8 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
 
       if (details.status === "answered") {
         lines.push(theme.fg("success", `✓ answered by ${details.answered_by ?? "unknown"} after ${elapsed}`));
-        lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `· ${clip(details.answer ?? "(no text)")}`)}`);
-        if (expanded && details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${clip(details.answer_note)}`)}`);
+        lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `· ${clip(details.answer, 300) ?? "(no text)")}`)}`);
+        if (expanded && details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${clip(details.answer_note, 300)}`)}`);
         return new Text(lines.join("\n"), 0, 0);
       }
 
@@ -544,8 +544,8 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
     renderCall(args: any, theme: any) {
       return new Text([
         theme.fg("toolTitle", theme.bold("answer_question ")) + theme.fg("accent", `${args.question_id || "?"}`),
-        `  ${theme.fg("dim", `${args.answered_by || "?"} · ${clip(args.answer)}`)}`,
-        args.answer_note ? `  ${theme.fg("dim", `note: ${clip(args.answer_note)}`)}` : "",
+        `  ${theme.fg("dim", `${args.answered_by || "?"} · ${clip(args.answer, 300)}`)}`,
+        args.answer_note ? `  ${theme.fg("dim", `note: ${clip(args.answer_note, 300)}`)}` : "",
       ].filter(Boolean).join("\n"), 0, 0);
     },
 
@@ -553,9 +553,9 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       const details = (result?.details ?? {}) as Record<string, any>;
       const lines = [
         theme.fg("success", `✓ answer submitted`),
-        `  ${theme.fg("accent", `id: ${details.question_id ?? "?"}`)} ${theme.fg("dim", `· by: ${details.answered_by ?? "?"} · ${clip(details.answer ?? "")}`)}`,
+        `  ${theme.fg("accent", `id: ${details.question_id ?? "?"}`)} ${theme.fg("dim", `· by: ${details.answered_by ?? "?"} · ${clip(details.answer, 300) ?? "")}`)}`,
       ];
-      if (details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${clip(details.answer_note)}`)}`);
+      if (details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${clip(details.answer_note, 300)}`)}`);
       return new Text(lines.join("\n"), 0, 0);
     },
 
