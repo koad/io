@@ -552,7 +552,7 @@ export function registerKingdomQueryTools(
       if (expanded && details.results?.length) {
         for (const q of details.results.slice(0, 10)) {
           const icon = q.status === "open" ? "❓" : q.status === "answered" ? "✅" : "❌";
-          lines.push(`  ${icon} ${theme.fg("accent", q.from)}→${theme.fg("accent", q.to)} ${theme.fg("dim", clip(q.question, 200))}`);
+          lines.push(`  ${icon} ${theme.fg("accent", q.from)}→${theme.fg("accent", q.to)} ${theme.fg("dim", q.question)}`);
         }
       }
       return new Text(lines.join("\n"), 0, 0);
