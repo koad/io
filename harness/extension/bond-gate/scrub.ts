@@ -16,7 +16,7 @@ import * as path from "node:path";
 // ---------------------------------------------------------------------------
 
 const PROTECTED_PATH_RE =
-  /(?:^|[\s"'])((?:~\/|\/)[^\s"']*(?:\.env|\.credentials|auth\.json|\/id\/|\/trust\/bonds\/|\/secrets?\/|\/private\/)[^\s"']*)/i;
+  /(?:^|[\s"'])((?:~\/|\/)[^\s"']*(?:\.env|\.credentials|auth\.json|\/id\/|\/secrets?\/|\/private\/)[^\s"']*)/i;
 
 const KEY_BLOCK_RE =
   /-----BEGIN [A-Z0-9 ]*(?:PRIVATE KEY|PGP PRIVATE KEY BLOCK|OPENSSH PRIVATE KEY)-----[\s\S]*?-----END [A-Z0-9 ]*(?:PRIVATE KEY|PGP PRIVATE KEY BLOCK|OPENSSH PRIVATE KEY)-----/g;

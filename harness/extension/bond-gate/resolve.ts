@@ -72,6 +72,9 @@ function applyEnvLanes(scope: BondScope): BondScope {
   const allowDispatch = envFlag("KOAD_IO_BOND_GATE_ALLOW_DISPATCH", "KOAD_IO_PI_BOND_GATE_ALLOW_DISPATCH");
   const allowDispatchFollowup = envFlag("KOAD_IO_BOND_GATE_ALLOW_DISPATCH_FOLLOWUP", "KOAD_IO_PI_BOND_GATE_ALLOW_DISPATCH_FOLLOWUP");
   const allowDispatchComplete = envFlag("KOAD_IO_BOND_GATE_ALLOW_DISPATCH_COMPLETE", "KOAD_IO_PI_BOND_GATE_ALLOW_DISPATCH_COMPLETE");
+  const allowInteractiveBash = envFlag("KOAD_IO_BOND_GATE_ALLOW_INTERACTIVE_BASH", "KOAD_IO_PI_BOND_GATE_ALLOW_INTERACTIVE_BASH");
+  const allowInteractiveExec = envFlag("KOAD_IO_BOND_GATE_ALLOW_INTERACTIVE_EXEC", "KOAD_IO_PI_BOND_GATE_ALLOW_INTERACTIVE_EXEC");
+  const allowInteractiveWrite = envFlag("KOAD_IO_BOND_GATE_ALLOW_INTERACTIVE_WRITE", "KOAD_IO_PI_BOND_GATE_ALLOW_INTERACTIVE_WRITE");
   const envKoadioTools = envNames("KOAD_IO_BOND_GATE_ALLOW_KOADIO_TOOLS", "KOAD_IO_PI_BOND_GATE_ALLOW_KOADIO_TOOLS");
   const envKoadioCommands = envNames("KOAD_IO_BOND_GATE_ALLOW_KOADIO_COMMANDS", "KOAD_IO_PI_BOND_GATE_ALLOW_KOADIO_COMMANDS");
   const envChannelModerate = envNames("KOAD_IO_BOND_GATE_ALLOW_CHANNEL_MODERATE", "KOAD_IO_PI_BOND_GATE_ALLOW_CHANNEL_MODERATE");
@@ -141,6 +144,15 @@ function applyEnvLanes(scope: BondScope): BondScope {
   if (allowDispatchComplete) {
     next.tools.dispatch_complete = true;
     lanes.push("dispatch-complete");
+  }
+  if (allowInteractiveBash) {
+    lanes.push("interactive-bash");
+  }
+  if (allowInteractiveExec) {
+    lanes.push("interactive-exec");
+  }
+  if (allowInteractiveWrite) {
+    lanes.push("interactive-write");
   }
   if (envKoadioTools.length > 0) {
     pushUnique(next.tools.koadio_tools, envKoadioTools);
@@ -226,6 +238,7 @@ export function mergeBondScope(entity: string, bonds: ParsedBond[], errors: stri
       for (const p of b.interactive.exec)
         if (!intOverride.exec?.includes(p)) (intOverride.exec ??= []).push(p);
     }
+    if (b.interactive.bash !== undefined) intOverride.bash = b.interactive.bash;
     if (b.interactive.write) {
       for (const p of b.interactive.write)
         if (!intOverride.write?.includes(p)) (intOverride.write ??= []).push(p);
@@ -233,14 +246,19 @@ export function mergeBondScope(entity: string, bonds: ParsedBond[], errors: stri
   }
 
   if (interactive) {
-    if (intOverride.bash !== undefined) {
+    // Interactive overrides require explicit env-var opt-in.
+    // Bond declares capability; operator activates per-session.
+    const allowInteractiveBash = envFlag("KOAD_IO_BOND_GATE_ALLOW_INTERACTIVE_BASH", "KOAD_IO_PI_BOND_GATE_ALLOW_INTERACTIVE_BASH");
+    const allowInteractiveExec = envFlag("KOAD_IO_BOND_GATE_ALLOW_INTERACTIVE_EXEC", "KOAD_IO_PI_BOND_GATE_ALLOW_INTERACTIVE_EXEC");
+    const allowInteractiveWrite = envFlag("KOAD_IO_BOND_GATE_ALLOW_INTERACTIVE_WRITE", "KOAD_IO_PI_BOND_GATE_ALLOW_INTERACTIVE_WRITE");
+    if (intOverride.bash !== undefined && allowInteractiveBash) {
       tools.bash = intOverride.bash;
     }
-    if (intOverride.exec) {
+    if (intOverride.exec && allowInteractiveExec) {
       for (const p of intOverride.exec)
         if (!file.exec.includes(p)) file.exec.push(p);
     }
-    if (intOverride.write) {
+    if (intOverride.write && allowInteractiveWrite) {
       for (const p of intOverride.write)
         if (!file.write.includes(p)) file.write.push(p);
     }
@@ -361,27 +379,24 @@ export function resolveGate(entity: string, interactive: boolean): BondScope {
 export function bondBlockReason(entity: string, toolName: string, detail: string, scope?: BondScope): string {
   const now = new Date().toISOString();
   const lines = [
-    `koad:io bond gate — blocked`,
-    `  time:    ${now}`,
+    `koad:io bond gate — ${toolName} blocked`,
     `  entity:  ${entity}`,
-    `  tool:    ${toolName}`,
     `  reason:  ${detail}`,
   ];
   if (scope) {
-    const readDirs = scope.file.read.map(d => d.replace(HOME, "~")).join(", ");
-    const writeDirs = scope.file.write.map(d => d.replace(HOME, "~")).join(", ");
-    const execDirs = scope.file.exec.map(d => d.replace(HOME, "~")).join(", ");
-    lines.push(`  device:  ${scope.deviceId}`);
-    lines.push(`  file scope:`);
-    lines.push(`    read:  ${readDirs || "(none)"}`);
-    lines.push(`    write: ${writeDirs || "(none)"}`);
-    lines.push(`    exec:  ${execDirs || "(none)"}`);
-    lines.push(`  tool grants: bash=${scope.tools.bash} dispatch=${scope.tools.dispatch}`);
-    if (scope.envLanes.length > 0) {
-      lines.push(`  env lanes: ${scope.envLanes.join(", ")}`);
-    }
+    const readDirs = scope.file.read.map(d => d.replace(HOME, "~")).join(", ") || "(none)";
+    const writeDirs = scope.file.write.map(d => d.replace(HOME, "~")).join(", ") || "(none)";
+    const execDirs = scope.file.exec.map(d => d.replace(HOME, "~")).join(", ") || "(none)";
+    lines.push(`  bonds:   ${scope.bondCount} active`);
+    lines.push(`  mode:    ${scope.mode}`);
+    lines.push(`  granted — read: ${readDirs}  write: ${writeDirs}  exec: ${execDirs}`);
+    const toolGrants: string[] = [];
+    if (scope.tools.bash) toolGrants.push("bash");
+    if (scope.tools.dispatch) toolGrants.push("dispatch");
+    if (scope.tools.koadio_tools.length > 0) toolGrants.push(`tools:${scope.tools.koadio_tools.join(",")}`);
+    lines.push(`  granted — ${toolGrants.join(" ") || "(no tool grants)"}`);
   }
-  lines.push(`  action: use koad-io tool or ask_question(to="koad") to request expanded permissions`);
+  lines.push(`  remedy:  use koad-io tool or ask_question(to="koad") to request capability expansion`);
   return lines.join("\n");
 }
 

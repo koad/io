@@ -6,6 +6,12 @@ export function clipText(text: string | undefined, max = 90): string {
   return s.slice(0, Math.max(0, max - 1)) + "…";
 }
 
+export function clipPath(raw: string | undefined, max = 120): string {
+  const s = (raw ?? "").replace(/^\/home\/koad/, "~");
+  if (s.length <= max) return s;
+  return "…" + s.slice(s.length - max + 1);
+}
+
 export function formatDurationSeconds(totalSeconds?: number): string {
   if (totalSeconds == null) return "?";
   if (!Number.isFinite(totalSeconds)) return "∞";

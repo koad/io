@@ -66,13 +66,20 @@ function shellSplit(input: string): string[] {
   return result;
 }
 
-function execKoadio(args: string[]): { stdout: string; stderr: string; exitCode: number } {
+function execKoadio(args: string[], explicitCwd?: string): { stdout: string; stderr: string; exitCode: number } {
   const launcher = resolveCascadeLauncher();
   const cmd = `${launcher} ${args.map(a => JSON.stringify(a)).join(" ")}`;
+  // Resolve CWD: explicit override > HARNESS_WORK_DIR > entity home > process.cwd()
+  const entity = String(process.env.ENTITY || "").trim().toLowerCase();
+  const entityHome = entity ? path.join(HOME, `.${entity}`) : undefined;
+  const cwd = explicitCwd
+    || process.env.HARNESS_WORK_DIR
+    || (entityHome && fs.existsSync(entityHome) ? entityHome : undefined)
+    || process.cwd();
   try {
     const result = cp.spawnSync("bash", ["-c", cmd], {
       env: process.env,
-      cwd: process.env.HARNESS_WORK_DIR || process.cwd(),
+      cwd,
       timeout: 15000,
       stdio: "pipe",
     });
@@ -80,9 +87,10 @@ function execKoadio(args: string[]): { stdout: string; stderr: string; exitCode:
       stdout: (result.stdout || "").toString().trim(),
       stderr: (result.stderr || "").toString().trim(),
       exitCode: result.status ?? 1,
+      cwd,
     };
   } catch (err: any) {
-    return { stdout: "", stderr: err.message || "spawn failed", exitCode: 1 };
+    return { stdout: "", stderr: err.message || "spawn failed", exitCode: 1, cwd };
   }
 }
 
@@ -114,13 +122,15 @@ export function registerKoadioTool(pi: ExtensionAPI): void {
       ref: Type.Optional(Type.String({ description: "Reference for pin." })),
       tags: Type.Optional(Type.Array(Type.String(), { description: "Tags for pin." })),
       args: Type.Optional(Type.String({ description: "Additional arguments for git, session, or passthrough commands." })),
+      cwd: Type.Optional(Type.String({ description: "Working directory override. Default: HARNESS_WORK_DIR > entity home > session CWD." })),
       type: Type.Optional(Type.String({ description: "Emission type for emit (notice, warning, error)." })),
       slug: Type.Optional(Type.String({ description: "Topic slug for conversation." })),
     }),
 
     renderCall(args: any, theme: any) {
+      const cwdHint = args.cwd ? ` @ ${args.cwd.replace(/^\/home\/koad/, "~")}` : "";
       return new Text([
-        theme.fg("toolTitle", theme.bold("koad-io ")) + theme.fg("accent", `${args.command || "?"}`),
+        theme.fg("toolTitle", theme.bold("koad-io ")) + theme.fg("accent", `${args.command || "?"}${cwdHint}`),
         `  ${theme.fg("dim", summarizeCall(args))}`,
       ].join("\n"), 0, 0);
     },
@@ -129,11 +139,12 @@ export function registerKoadioTool(pi: ExtensionAPI): void {
       const details = (result?.details ?? {}) as Record<string, any>;
       const command = details.command ?? "?";
       const ok = details.exitCode === 0;
+      const cwdLabel = details.cwd ? ` @ ${details.cwd.replace(/^\/home\/koad/, "~")}` : "";
       const summary = ok
         ? clip(details.stdout || `✓ ${command}`, expanded ? 320 : 160)
         : clip(details.stderr || `exit ${details.exitCode ?? 1}`, expanded ? 320 : 160);
       const lines = [
-        theme.fg(ok ? "success" : "error", ok ? `✓ ${command}` : `✗ ${command}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${command}${cwdLabel}` : `✗ ${command}${cwdLabel}`),
         `  ${theme.fg("dim", summary)}`,
       ];
       if (expanded && details.args?.length) lines.push(`  ${theme.fg("dim", `args: ${details.args.join(" · ")}`)}`);
@@ -155,20 +166,20 @@ export function registerKoadioTool(pi: ExtensionAPI): void {
         for (const a of shellSplit(params.args)) execArgs.push(a);
       }
 
-      const result = execKoadio(execArgs);
+      const result = execKoadio(execArgs, params.cwd as string | undefined);
 
       if (result.exitCode !== 0) {
         const err = result.stderr.slice(0, 300) || `exit ${result.exitCode}`;
         return {
           content: [{ type: "text", text: `✗ ${cmd}: ${err}` }],
-          details: { ...params, command: cmd, args: execArgs, exitCode: result.exitCode, stderr: result.stderr.slice(0, 500), stdout: result.stdout.slice(0, 500) },
+          details: { ...params, command: cmd, args: execArgs, cwd: result.cwd, exitCode: result.exitCode, stderr: result.stderr.slice(0, 500), stdout: result.stdout.slice(0, 500) },
         };
       }
 
       const out = result.stdout || `✓ ${cmd}`;
       return {
         content: [{ type: "text", text: out.slice(0, 3000) }],
-        details: { ...params, command: cmd, args: execArgs, exitCode: 0, stdout: result.stdout, stderr: result.stderr.slice(0, 500) },
+        details: { ...params, command: cmd, args: execArgs, cwd: result.cwd, exitCode: 0, stdout: result.stdout, stderr: result.stderr.slice(0, 500) },
       };
     },
   });

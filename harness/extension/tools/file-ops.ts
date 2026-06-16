@@ -15,7 +15,7 @@ import { Text } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Type } from "typebox";
-import { clipText as clip } from "../utils/tool-render";
+import { clipText as clip, clipPath } from "../utils/tool-render";
 
 function resolvePath(raw: string, cwd: string): string {
   if (raw.startsWith("/") || raw.startsWith("~")) return raw.replace(/^~/, process.env.HOME || "/home/koad");
@@ -37,14 +37,14 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
 
     renderCall(args: any, theme: any) {
       return new Text([
-        theme.fg("toolTitle", theme.bold("mkdir ")) + theme.fg("accent", clip(args.path || "", 50)),
+        theme.fg("toolTitle", theme.bold("mkdir ")) + theme.fg("accent", clipPath(args.path)),
       ].join("\n"), 0, 0);
     },
 
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? `✓ created ${clip(result?.details?.path || "", 50)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.dst)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
         0, 0,
       );
     },
@@ -78,14 +78,14 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
 
     renderCall(args: any, theme: any) {
       return new Text([
-        theme.fg("toolTitle", theme.bold("cp ")) + theme.fg("accent", `${clip(args.src || "", 25)} → ${clip(args.dst || "", 25)}`),
+        theme.fg("toolTitle", theme.bold("cp ")) + theme.fg("accent", `${clipPath(args.src)} → ${clipPath(args.dst)}`),
       ].join("\n"), 0, 0);
     },
 
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? "✓ copied" : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.dst)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
         0, 0,
       );
     },
@@ -126,14 +126,14 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
 
     renderCall(args: any, theme: any) {
       return new Text([
-        theme.fg("toolTitle", theme.bold("mv ")) + theme.fg("accent", `${clip(args.src || "", 25)} → ${clip(args.dst || "", 25)}`),
+        theme.fg("toolTitle", theme.bold("mv ")) + theme.fg("accent", `${clipPath(args.src)} → ${clipPath(args.dst)}`),
       ].join("\n"), 0, 0);
     },
 
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? "✓ moved" : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.dst)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
         0, 0,
       );
     },
@@ -170,14 +170,14 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
 
     renderCall(args: any, theme: any) {
       return new Text([
-        theme.fg("toolTitle", theme.bold("rm ")) + theme.fg("accent", clip(args.path || "", 50)),
+        theme.fg("toolTitle", theme.bold("rm ")) + theme.fg("accent", clipPath(args.path)),
       ].join("\n"), 0, 0);
     },
 
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? "✓ deleted" : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.path)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
         0, 0,
       );
     },
@@ -223,7 +223,7 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
       const preview = (args.content || "").replace(/\n/g, " ").slice(0, 60);
       return new Text([
         theme.fg("toolTitle", theme.bold("append ")) +
-          theme.fg("accent", `${clip(args.path || "", 30)} ← ${clip(preview, 30)}`),
+          theme.fg("accent", `${clipPath(args.path)} ← ${clip(preview, 30)}`),
       ].join("\n"), 0, 0);
     },
 
@@ -231,7 +231,7 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
       const ok = !result?.isError;
       return new Text(
         theme.fg(ok ? "success" : "error",
-          ok ? `✓ appended ${result?.details?.bytes ?? 0}B to ${clip(result?.details?.path || "", 30)}`
+          ok ? `✓ appended ${result?.details?.bytes ?? 0}B to ${clipPath(result?.details?.path)}`
              : `✗ ${clip(result?.details?.error || "", 80)}`,
         ), 0, 0,
       );
@@ -270,14 +270,14 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
 
     renderCall(args: any, theme: any) {
       return new Text([
-        theme.fg("toolTitle", theme.bold("chmod ")) + theme.fg("accent", `${args.mode || ""} ${clip(args.path || "", 30)}`),
+        theme.fg("toolTitle", theme.bold("chmod ")) + theme.fg("accent", `${args.mode || ""} ${clipPath(args.path)}`),
       ].join("\n"), 0, 0);
     },
 
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? "✓ permissions updated" : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${result?.details?.mode || ""} ${clipPath(result?.details?.path)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
         0, 0,
       );
     },

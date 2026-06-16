@@ -290,57 +290,6 @@ export function registerBondGate(
       return undefined;
     }
 
-    // ── Ecosystem tools ────────────────────────────────────────
-    if (isEcosystemTool(toolName)) {
-      const ecoDeny = visitorEcosystemDeny(toolName);
-      if (ecoDeny) return ecoDeny;
-
-      if (isVisitor) return undefined; // bonded visitors pass through
-
-      if (!hasKoadioGrant(toolName)) {
-        log(`BLOCK koadio tool ${toolName}: not in koadio_tools grant (mode=${mode})`);
-        auditBlock(entity, toolName, "", "koadio tool not granted by bond");
-        return { block: true, reason: bondBlockReason(entity, toolName, `${toolName} not granted — add to koadio_tools in bond`, scope) };
-      }
-      if (toolName === "koad-io") {
-        const command = (input as Record<string, unknown>)?.command as string | undefined;
-        if (command && !scope.tools.koadio_commands.includes(command) && !scope.tools.koadio_commands.includes("*")) {
-          log(`BLOCK koad-io command ${command}: not in koadio_commands grant (mode=${mode})`);
-          auditBlock(entity, "koad-io", command, "cascade command not granted by bond");
-          return { block: true, reason: bondBlockReason(entity, "koad-io", `command "${command}" not granted — add to koadio_commands in bond`, scope) };
-        }
-      }
-      return undefined;
-    }
-
-    // ── Dispatch tools ─────────────────────────────────────────
-    if (GATED_DISPATCH_TOOLS.has(toolName)) {
-      const dispDeny = visitorDispatchDeny(toolName);
-      if (dispDeny) return dispDeny;
-
-      if (isVisitor) return undefined;
-
-      const dispatchGranted = toolName === "dispatch"
-        ? scope.tools.dispatch
-        : toolName === "dispatch_followup"
-          ? (scope.tools.dispatch_followup || scope.tools.dispatch)
-          : (scope.tools.dispatch_complete || scope.tools.dispatch);
-      if (!dispatchGranted) {
-        log(`BLOCK ${toolName}: not granted (mode=${mode})`);
-        return { block: true, reason: bondBlockReason(entity, toolName, `${toolName} not granted by bond — set the matching KOAD_IO_BOND_GATE_ALLOW_* lane or use ask_question(to=\"koad\") to request`, scope) };
-      }
-      if (toolName === "dispatch") {
-        const target = (input as Record<string, unknown>)?.entity as string | undefined;
-        if (target && scope.entity_capabilities.dispatch_targets.length > 0 &&
-            !scope.entity_capabilities.dispatch_targets.includes(target) &&
-            !scope.entity_capabilities.dispatch_targets.includes("*")) {
-          log(`BLOCK dispatch: target ${target} not in allowed list`);
-          return { block: true, reason: bondBlockReason(entity, toolName, `dispatch to ${target} not allowed — targets: ${scope.entity_capabilities.dispatch_targets.join(", ")}`) };
-        }
-      }
-      return undefined;
-    }
-
     // ── Write tools ────────────────────────────────────────────
     if (FILE_WRITE_TOOLS.has(toolName)) {
       // ── Protected filenames: block write/edit, allow append ──
@@ -391,6 +340,57 @@ export function registerBondGate(
         if (!isUnder(absolutePath, writeScope)) {
           if (ctx.hasUI) ctx.ui.notify(`koad:io bond gate — ${toolName} blocked: ${rawPath}`, "warning");
           return block(isVisitor ? `${rawPath} is outside visitor write scope` : `${rawPath} is outside bond scope`);
+        }
+      }
+      return undefined;
+    }
+
+    // ── Ecosystem tools ────────────────────────────────────────
+    if (isEcosystemTool(toolName)) {
+      const ecoDeny = visitorEcosystemDeny(toolName);
+      if (ecoDeny) return ecoDeny;
+
+      if (isVisitor) return undefined; // bonded visitors pass through
+
+      if (!hasKoadioGrant(toolName)) {
+        log(`BLOCK koadio tool ${toolName}: not in koadio_tools grant (mode=${mode})`);
+        auditBlock(entity, toolName, "", "koadio tool not granted by bond");
+        return { block: true, reason: bondBlockReason(entity, toolName, `${toolName} not granted — add to koadio_tools in bond`, scope) };
+      }
+      if (toolName === "koad-io") {
+        const command = (input as Record<string, unknown>)?.command as string | undefined;
+        if (command && !scope.tools.koadio_commands.includes(command) && !scope.tools.koadio_commands.includes("*")) {
+          log(`BLOCK koad-io command ${command}: not in koadio_commands grant (mode=${mode})`);
+          auditBlock(entity, "koad-io", command, "cascade command not granted by bond");
+          return { block: true, reason: bondBlockReason(entity, "koad-io", `command "${command}" not granted — add to koadio_commands in bond`, scope) };
+        }
+      }
+      return undefined;
+    }
+
+    // ── Dispatch tools ─────────────────────────────────────────
+    if (GATED_DISPATCH_TOOLS.has(toolName)) {
+      const dispDeny = visitorDispatchDeny(toolName);
+      if (dispDeny) return dispDeny;
+
+      if (isVisitor) return undefined;
+
+      const dispatchGranted = toolName === "dispatch"
+        ? scope.tools.dispatch
+        : toolName === "dispatch_followup"
+          ? (scope.tools.dispatch_followup || scope.tools.dispatch)
+          : (scope.tools.dispatch_complete || scope.tools.dispatch);
+      if (!dispatchGranted) {
+        log(`BLOCK ${toolName}: not granted (mode=${mode})`);
+        return { block: true, reason: bondBlockReason(entity, toolName, `${toolName} not granted by bond — set the matching KOAD_IO_BOND_GATE_ALLOW_* lane or use ask_question(to=\"koad\") to request`, scope) };
+      }
+      if (toolName === "dispatch") {
+        const target = (input as Record<string, unknown>)?.entity as string | undefined;
+        if (target && scope.entity_capabilities.dispatch_targets.length > 0 &&
+            !scope.entity_capabilities.dispatch_targets.includes(target) &&
+            !scope.entity_capabilities.dispatch_targets.includes("*")) {
+          log(`BLOCK dispatch: target ${target} not in allowed list`);
+          return { block: true, reason: bondBlockReason(entity, toolName, `dispatch to ${target} not allowed — targets: ${scope.entity_capabilities.dispatch_targets.join(", ")}`) };
         }
       }
       return undefined;
