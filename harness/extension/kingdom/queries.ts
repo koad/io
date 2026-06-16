@@ -446,19 +446,29 @@ export async function questionQuery(
   const backend = local ? "embedded" : "ddp";
   const limit = filters.limit || 50;
 
-  // ── Embedded: control-tower REST ──────────────────────────
+  // ── Embedded: read JSONL directly ───────────────────────
   if (local) {
-    const params = new URLSearchParams();
-    if (filters.from) params.set("from", filters.from);
-    if (filters.to) params.set("to", filters.to);
-    if (filters.status) params.set("status", filters.status);
-    params.set("limit", String(limit));
+    const RUNTIME_PATH = process.env.KOAD_IO_RUNTIME_PATH || path.join(require("node:os").homedir(), ".local", "share", "koad-io", "runtime");
+    const QUESTIONS_FILE = path.join(RUNTIME_PATH, "questions", "index.jsonl");
+    let questions: any[] = [];
+    try {
+      const raw = require("node:fs").readFileSync(QUESTIONS_FILE, "utf-8");
+      questions = raw.split("\n").filter(Boolean).map(line => {
+        try { return JSON.parse(line); } catch { return null; }
+      }).filter(Boolean);
+    } catch {}
 
-    const url = `${CONTROL_URL}/api/questions?${params.toString()}`;
-    const { ok, data } = await safeRestGet(url);
+    // Filter
+    if (filters.from) questions = questions.filter(q => q.from === filters.from);
+    if (filters.to) questions = questions.filter(q => q.to === filters.to);
+    if (filters.status) questions = questions.filter(q => q.status === filters.status);
+    if (filters.id) questions = questions.filter(q => q._id === filters.id);
 
-    if (ok && data && Array.isArray(data.questions)) {
-      const results: QuestionResult[] = data.questions.map((q: any) => ({
+    // Sort newest first
+    questions.sort((a, b) => (b.filed || "").localeCompare(a.filed || ""));
+    questions = questions.slice(0, limit);
+
+    const results: QuestionResult[] = questions.map((q: any) => ({
         id: q._id || "unknown",
         from: q.from || "unknown",
         to: q.to || "unknown",
@@ -473,15 +483,11 @@ export async function questionQuery(
         options: q.options || undefined,
       }));
 
-      // Client-side filtering for id
-      let filtered = results;
-      if (filters.id) filtered = results.filter(r => r.id === filters.id);
-
-      return { results: filtered, count: filtered.length, backend, degraded: false };
+      return { results, count: results.length, backend, degraded: false, source: "filesystem" };
     }
 
-    // 503 or other error — degraded but not failing
-    return { results: [], count: 0, backend, degraded: true, degraded_reason: data?.error || "control-tower unreachable" };
+    // No results — not an error, just empty
+    return { results: [], count: 0, backend, degraded: false, source: "filesystem" };
   }
 
   // ── Remote/DDP — attempt REST anyway (may be reachable) ──
