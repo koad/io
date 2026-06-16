@@ -13,49 +13,52 @@
 
 set -euo pipefail
 
-_INDEX_FILE="${KOAD_IO_STATUS_INDEX:-$HOME/.local/share/koad-io/services/index.jsonl}"
-if [ ! -f "$_INDEX_FILE" ]; then
+INDEX_FILE="${KOAD_IO_STATUS_INDEX:-$HOME/.local/share/koad-io/services/index.jsonl}"
+if [ ! -f "$INDEX_FILE" ]; then
   cat >&2 <<EOF
-status: no service index found at $_INDEX_FILE
+status: no service index found at $INDEX_FILE
 
 Create it as a JSONL file with one object per line:
 
-  mkdir -p "$(dirname "$_INDEX_FILE")"
-  echo '{"label":"my-service","url":"http://1.2.3.4:8080"}' >> "$_INDEX_FILE"
+  mkdir -p "$(dirname "$INDEX_FILE")"
+  echo '{"label":"my-service","url":"http://1.2.3.4:8080"}' >> "$INDEX_FILE"
 
 Each line needs "label" and "url" fields.
 EOF
   exit 69
 fi
 
-_TARGETS=""
+# Parse targets from index
+TARGETS=""
 while IFS= read -r line; do
   label=$(echo "$line" | jq -r '.label // empty' 2>/dev/null)
   url=$(echo "$line" | jq -r '.url // empty' 2>/dev/null)
   expected=$(echo "$line" | jq -r '.expected_status // empty' 2>/dev/null)
-  [ -n "$label" ] && [ -n "$url" ] && _TARGETS="$_TARGETS $label=$url=$expected"
-done < "$_INDEX_FILE"
-_LOG_FILE="${KOAD_IO_STATUS_LOG:-$HOME/.local/share/koad-io/sensors/status.jsonl}"
-_TIMEOUT=5
-_JSON=""
-_QUIET=""
-_HISTORY=""
-_HISTORY_LAST=20
+  [ -n "$label" ] && [ -n "$url" ] && TARGETS="$TARGETS $label=$url=$expected"
+done < "$INDEX_FILE"
+
+LOG_FILE="${KOAD_IO_STATUS_LOG:-$HOME/.local/share/koad-io/sensors/status.jsonl}"
+TIMEOUT=5
+JSON=""
+QUIET=""
+HISTORY=""
+HISTORY_LAST=20
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --json)       _JSON=1; shift ;;
-    --quiet)      _QUIET=1; shift ;;
-    --timeout)    _TIMEOUT="$2"; shift 2 ;;
-    --timeout=*)  _TIMEOUT="${1#*=}"; shift ;;
-    --history)    _HISTORY=1
-                  [[ "${2:-}" =~ ^[0-9]+$ ]] && { _HISTORY_LAST="$2"; shift; }
+    --json)       JSON=1; shift ;;
+    --quiet)      QUIET=1; shift ;;
+    --timeout)    TIMEOUT="$2"; shift 2 ;;
+    --timeout=*)  TIMEOUT="${1#*=}"; shift ;;
+    --history)    HISTORY=1
+                  [[ "${2:-}" =~ ^[0-9]+$ ]] && { HISTORY_LAST="$2"; shift; }
                   shift ;;
     -h|--help)    sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)            shift ;;
   esac
 done
 
+# Colors
 if [ -t 1 ]; then
   R=$'\033[0m'; B=$'\033[1m'; D=$'\033[2m'
   GREEN=$'\033[0;32m'; Y=$'\033[0;33m'; RED=$'\033[0;31m'
@@ -63,28 +66,27 @@ else
   R="" B="" D="" GREEN="" Y="" RED=""
 fi
 
-mkdir -p "$(dirname "$_LOG_FILE")"
+mkdir -p "$(dirname "$LOG_FILE")"
 
 # ── history ──
-if [ -n "$_HISTORY" ]; then
-  [ -f "$_LOG_FILE" ] || { echo "no probe log at $_LOG_FILE" >&2; exit 0; }
-  tail -n "$_HISTORY_LAST" "$_LOG_FILE"
+if [ -n "$HISTORY" ]; then
+  [ -f "$LOG_FILE" ] || { echo "no probe log at $LOG_FILE" >&2; exit 0; }
+  tail -n "$HISTORY_LAST" "$LOG_FILE"
   exit 0
 fi
 
-# ── probe one target, emit JSON fragment ──
+# ── probe one target ──
 probe_one() {
   local base="$1" label="$2"
   local url="${base%/}/.well-known/koad-io.json"
   local code body entity ms host_port
 
-  # extract host:port from URL for display
   host_port="${base#http://}"
   host_port="${host_port#https://}"
   host_port="${host_port%%/*}"
 
   ms=$(date +%s%3N 2>/dev/null || echo 0)
-  if body=$(curl -s --max-time "$_TIMEOUT" -w '\n%{http_code}' "$url" 2>/dev/null); then
+  if body=$(curl -s --max-time "$TIMEOUT" -w '\n%{http_code}' "$url" 2>/dev/null); then
     code=$(echo "$body" | tail -1)
     body=$(echo "$body" | sed '$d')
     entity=$(echo "$body" | jq -r '.entity // ""' 2>/dev/null)
@@ -106,10 +108,10 @@ probe_one() {
 
 # ── probe all ──
 t_start=$(date +%s%3N 2>/dev/null || echo 0)
-_parts=""
-_alive=0 _dead=0
+parts=""
+alive=0 dead=0
 
-for entry in $_TARGETS; do
+for entry in $TARGETS; do
   if [[ "$entry" == *"="*"="* ]]; then
     label="${entry%%=*}"
     url="${entry#*=}"
@@ -125,68 +127,69 @@ for entry in $_TARGETS; do
     expected=""
   fi
   fragment=$(probe_one "$url" "$label")
-  # Flag mismatch between expected and actual status
   if [ -n "$expected" ] && echo "$fragment" | grep -q '"alive":true'; then
     actual=$(echo "$fragment" | jq -r '.status' 2>/dev/null)
     if [ "$actual" != "$expected" ]; then
       fragment=$(echo "$fragment" | jq -c ".degraded = true | .expected_status = $expected | .degraded_reason = \"HTTP $actual (expected $expected)\"" 2>/dev/null || echo "$fragment")
     fi
   fi
-  _parts="${_parts}${fragment},"
+  parts="${parts}${fragment},"
   if echo "$fragment" | grep -q '"alive":true'; then
-    _alive=$((_alive + 1))
+    alive=$((alive + 1))
   else
-    _dead=$((_dead + 1))
+    dead=$((dead + 1))
   fi
 done
-_parts="${_parts%,}"
+parts="${parts%,}"
 
 t_end=$(date +%s%3N 2>/dev/null || echo 0)
-_total_ms=$(( t_end - t_start ))
-[ "$_total_ms" -lt 0 ] && _total_ms=0
+total_ms=$(( t_end - t_start ))
+[ "$total_ms" -lt 0 ] && total_ms=0
 
-_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-_rec=$(printf '{"ts":"%s","timeout_s":%s,"total_ms":%s,"alive":%s,"dead":%s,"targets":[%s]}\n' \
-  "$_ts" "$_TIMEOUT" "$_total_ms" "$_alive" "$_dead" "$_parts")
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+rec=$(printf '{"ts":"%s","timeout_s":%s,"total_ms":%s,"alive":%s,"dead":%s,"targets":[%s]}\n' \
+  "$ts" "$TIMEOUT" "$total_ms" "$alive" "$dead" "$parts")
 
 # ── log ──
-printf '%s\n' "$_rec" >> "$_LOG_FILE"
+printf '%s\n' "$rec" >> "$LOG_FILE"
 
 # ── json ──
-if [ -n "$_JSON" ]; then
-  printf '%s\n' "$_rec"
+if [ -n "$JSON" ]; then
+  printf '%s\n' "$rec"
   exit 0
 fi
 
 # ── render ──
-printf '%s── koad:io status (%s%sms%s) ──%s\n' "$D" "$B" "$_total_ms" "$D" "$R"
+printf '%s── koad:io status (%s%sms%s) ──%s\n' "$D" "$B" "$total_ms" "$D" "$R"
 
-echo "$_rec" | jq -r '.targets[] |
-  "\(.host_port // .label)|\(.label)|\(if .alive then .status else 0 end)|\(.ms)|\(.alive)|\(if .entity != "" and .entity != .label then .entity else "" end)|\(.error // "unreachable")|\(.degraded // false)|\(.expected_status // "")|\(.degraded_reason // "")'" | while IFS='|' read -r host_port label status ms alive entity err degraded expected degraded_reason; do
-  if [ "$alive" == "true" ]; then
-    _info="$label"
-    [ -n "$entity" ] && _info="$_info ($entity)"
-    if [ "$degraded" == "true" ]; then
-      printf '  %s◐%s %s%s%s  %s%s%s  %sHTTP %s (expected %s) %4sms %s%s\n' "$Y" "$R" "$B" "$host_port" "$R" "$D" "$_info" "$R" "$Y" "$status" "$expected" "$ms" "$D" "$degraded_reason"
+echo "$rec" | jq -r '.targets[] | "\(.host_port // .label)|\(.label)|\(if .alive then .status else 0 end)|\(.ms)|\(.alive)|\(if .entity != "" and .entity != .label then .entity else "" end)|\(.error // "unreachable")|\(.degraded // false)|\(.expected_status // "")|\(.degraded_reason // "")"' | while IFS='|' read -r host_port label status ms alive entity err degraded expected degraded_reason; do
+  if [ "$alive" = "true" ]; then
+    info="$label"
+    [ -n "$entity" ] && info="${info} (${entity})"
+    if [ "$degraded" = "true" ]; then
+      printf '  %s◐%s %s%s%s  %s%s%s  %sHTTP %s (expected %s) %4sms %s%s\n' \
+        "$Y" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$Y" "$status" "$expected" "$ms" "$D" "$degraded_reason"
     else
-      printf '  %s●%s %s%s%s  %s%s%s  %sHTTP %s %4sms%s\n' "$GREEN" "$R" "$B" "$host_port" "$R" "$D" "$_info" "$R" "$GREEN" "$status" "$ms" "$R"
+      printf '  %s●%s %s%s%s  %s%s%s  %sHTTP %s %4sms%s\n' \
+        "$GREEN" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$GREEN" "$status" "$ms" "$R"
     fi
   else
-    printf '  %s○%s %s%s%s  %s%s%s  %s%s (%sms)%s\n' "$RED" "$R" "$B" "$host_port" "$R" "$D" "$label" "$R" "$RED" "$err" "$ms" "$R"
+    printf '  %s○%s %s%s%s  %s%s%s  %s%s (%sms)%s\n' \
+      "$RED" "$R" "$B" "$host_port" "$R" "$D" "$label" "$R" "$RED" "$err" "$ms" "$R"
   fi
 done
 
 # ── summary ──
-if [ "$_dead" -eq 0 ]; then
-  printf '  %sall %s alive%s\n' "$GREEN" "$_alive" "$R"
-elif [ "$_alive" -eq 0 ]; then
-  printf '  %sall %s dead%s\n' "$RED" "$_dead" "$R"
+if [ "$dead" -eq 0 ]; then
+  printf '  %sall %s alive%s\n' "$GREEN" "$alive" "$R"
+elif [ "$alive" -eq 0 ]; then
+  printf '  %sall %s dead%s\n' "$RED" "$dead" "$R"
 else
-  printf '  %s%s alive, %s dead%s\n' "$Y" "$_alive" "$_dead" "$R"
+  printf '  %s%s alive, %s dead%s\n' "$Y" "$alive" "$dead" "$R"
 fi
 
 # ── exit ──
-[ -n "$_QUIET" ] && { [ "$_dead" -eq 0 ] && exit 0; [ "$_alive" -eq 0 ] && exit 2; exit 1; }
-[ "$_dead" -eq 0 ] && exit 0
-[ "$_alive" -eq 0 ] && exit 2
+[ -n "$QUIET" ] && { [ "$dead" -eq 0 ] && exit 0; [ "$alive" -eq 0 ] && exit 2; exit 1; }
+[ "$dead" -eq 0 ] && exit 0
+[ "$alive" -eq 0 ] && exit 2
 exit 1
