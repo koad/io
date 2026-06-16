@@ -189,7 +189,16 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
   # Assert valid koad:io workspace — same check as start/restart commands.
   # A koad-io project folder must have a .env file (source'd by assert/datadir).
   if [ -f "$HOME/.koad-io/commands/assert/datadir/command.sh" ]; then
-    source "$HOME/.koad-io/commands/assert/datadir/command.sh"
+    if ! source "$HOME/.koad-io/commands/assert/datadir/command.sh" 2>/dev/null; then
+      echo -e "\033[31m$(pwd) is not a valid koad:io project folder\033[0m" >&2
+      echo "" >&2
+      echo "  A koad:io project folder must have a .env file at its root." >&2
+      echo "  Entities can only spawn in the project root folder —" >&2
+      echo "  not in subdirectories of the project tree." >&2
+      echo "" >&2
+      echo "  cd to the project root (where .env lives) and try again." >&2
+      exit 64
+    fi
   fi
 fi
 
