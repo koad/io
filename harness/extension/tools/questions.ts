@@ -395,7 +395,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
 
       if (details.status === "answered") {
         lines.push(theme.fg("success", `✓ answered by ${details.answered_by ?? "unknown"} after ${elapsed}`));
-        lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `· ${details.answer ?? "(no text)")}`)}`);
+        lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", "· " + (details.answer ?? "(no text)"))}`);
         if (expanded && details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${details.answer_note}`)}`);
         return new Text(lines.join("\n"), 0, 0);
       }
@@ -553,7 +553,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       const details = (result?.details ?? {}) as Record<string, any>;
       const lines = [
         theme.fg("success", `✓ answer submitted`),
-        `  ${theme.fg("accent", `id: ${details.question_id ?? "?"}`)} ${theme.fg("dim", `· by: ${details.answered_by ?? "?"} · ${details.answer ?? "")}`)}`,
+        `  ${theme.fg("accent", `id: ${details.question_id ?? "?"}`)} ${theme.fg("dim", "· by: " + (details.answered_by ?? "?") + " · " + (details.answer ?? ""))}`),
       ];
       if (details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${details.answer_note}`)}`);
       return new Text(lines.join("\n"), 0, 0);
