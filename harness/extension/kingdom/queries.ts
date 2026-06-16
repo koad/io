@@ -449,52 +449,44 @@ export async function questionQuery(
   const backend = local ? "embedded" : "ddp";
   const limit = filters.limit || 50;
 
-  // ── Embedded: read JSONL directly ───────────────────────
-  if (local) {
-    const RUNTIME_PATH = process.env.KOAD_IO_RUNTIME_PATH || path.join(os.homedir(), ".local", "share", "koad-io", "runtime");
-    const QUESTIONS_FILE = path.join(RUNTIME_PATH, "questions", "index.jsonl");
-    let questions: any[] = [];
-    try {
-      const raw = fs.readFileSync(QUESTIONS_FILE, "utf-8");
-      questions = raw.split("\n").filter(Boolean).map(line => {
-        try { return JSON.parse(line); } catch { return null; }
-      }).filter(Boolean);
-    } catch {}
-
-    // Filter
-    if (filters.from) questions = questions.filter(q => q.from === filters.from);
-    if (filters.to) questions = questions.filter(q => q.to === filters.to);
-    if (filters.status) questions = questions.filter(q => q.status === filters.status);
-    if (filters.id) questions = questions.filter(q => q._id === filters.id);
-
-    // Sort newest first
-    questions.sort((a, b) => (b.filed || "").localeCompare(a.filed || ""));
-    questions = questions.slice(0, limit);
-
-    const results: QuestionResult[] = questions.map((q: any) => ({
-        id: q._id || "unknown",
-        from: q.from || "unknown",
-        to: q.to || "unknown",
-        question: q.question || "",
-        status: q.status || "unknown",
-        answer: q.answer || undefined,
-        answered_by: q.answered_by || undefined,
-        answered_at: q.answered_at || undefined,
-        filed: q.filed || undefined,
-        workdir: q.workdir || undefined,
-        context_ref: q.context_ref || undefined,
-        options: q.options || undefined,
-      }));
-
-      return { results, count: results.length, backend, degraded: false, source: "filesystem" };
-    }
-
-    // No results — not an error, just empty
-    return { results: [], count: 0, backend, degraded: false, source: "filesystem" };
+  if (!local) {
+    return { results: [], count: 0, backend, degraded: true, degraded_reason: "question_query remote — filesystem not accessible" };
   }
 
-  // ── Remote/DDP — JSONL not accessible, honest degradation ──
-  return { results: [], count: 0, backend, degraded: true, degraded_reason: "question_query remote — filesystem not accessible from this context" };
+  const RUNTIME_PATH = process.env.KOAD_IO_RUNTIME_PATH || path.join(os.homedir(), ".local", "share", "koad-io", "runtime");
+  const QUESTIONS_FILE = path.join(RUNTIME_PATH, "questions", "index.jsonl");
+  let questions: any[] = [];
+  try {
+    const raw = fs.readFileSync(QUESTIONS_FILE, "utf-8");
+    questions = raw.split("\n").filter(Boolean).map(line => {
+      try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+  } catch {}
+
+  if (filters.from) questions = questions.filter(q => q.from === filters.from);
+  if (filters.to) questions = questions.filter(q => q.to === filters.to);
+  if (filters.status) questions = questions.filter(q => q.status === filters.status);
+  if (filters.id) questions = questions.filter(q => q._id === filters.id);
+
+  questions.sort((a, b) => (b.filed || "").localeCompare(a.filed || ""));
+  questions = questions.slice(0, limit);
+
+  const results: QuestionResult[] = questions.map((q: any) => ({
+    id: q._id || "unknown",
+    from: q.from || "unknown",
+    to: q.to || "unknown",
+    question: q.question || "",
+    status: q.status || "unknown",
+    answer: q.answer || undefined,
+    answered_by: q.answered_by || undefined,
+    answered_at: q.answered_at || undefined,
+    filed: q.filed || undefined,
+    workdir: q.workdir || undefined,
+    context_ref: q.context_ref || undefined,
+    options: q.options || undefined,
+  }));
+
+  return { results, count: results.length, backend, degraded: false, source: "filesystem" };
 }
 
 // ===================================================================
