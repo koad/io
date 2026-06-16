@@ -1,5 +1,5 @@
 /**
- * koad-io question tools — ask_question, wait_for_answer, answer_question.
+ * koad-io question tools - ask_question, wait_for_answer, answer_question.
  *
  * Talks to the daemon's /api/questions REST endpoints (VESTA-SPEC-165).
  * JSONL-backed question queue in ~/.koad-io/daemon/runtime/questions/index.jsonl.
@@ -71,7 +71,7 @@ async function daemonPost(urlPath: string, body: Record<string, unknown>, signal
 }
 
 // ---------------------------------------------------------------------------
-// Long-poll loop — shared by ask_question (wait:true) and wait_for_answer
+// Long-poll loop - shared by ask_question (wait:true) and wait_for_answer
 // ---------------------------------------------------------------------------
 
 async function pollUntilAnswered(
@@ -125,7 +125,7 @@ async function pollUntilAnswered(
     answered_by: null,
     answered_at: null,
     elapsed_seconds: Math.round((Date.now() - startedAt) / 1000),
-    error: `No answer received within ${maxSeconds} seconds. Call wait_for_answer("${question_id}") to re-enter the wait — the question is still open.`,
+    error: `No answer received within ${maxSeconds} seconds. Call wait_for_answer("${question_id}") to re-enter the wait - the question is still open.`,
   };
 }
 
@@ -145,7 +145,7 @@ const AskQuestionParams = Type.Object({
 
 const WaitForAnswerParams = Type.Object({
   question_id: Type.String({ description: "The question_id returned by ask_question." }),
-  max_seconds: Type.Optional(Type.Number({ description: "Max seconds to block (default 540 — ~9 min). Clamped to [10, 600].", minimum: 10, maximum: 600, default: 540 })),
+  max_seconds: Type.Optional(Type.Number({ description: "Max seconds to block (default 540 - ~9 min). Clamped to [10, 600].", minimum: 10, maximum: 600, default: 540 })),
 });
 
 const AnswerQuestionParams = Type.Object({
@@ -165,22 +165,23 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
     name: "ask_question",
     label: "Ask Question",
     description: "File a question to an operator or entity via the daemon questions queue. By default (wait: true) blocks until answered or cancelled (9-minute timeout). Set wait: false to fire-and-forget and return immediately. If the transport drops mid-wait, call wait_for_answer(question_id) to re-enter the wait.",
-    promptSnippet: "Ask question to operator (from, to, question) — optionally block for answer",
+    promptSnippet: "Ask question to operator (from, to, question) - optionally block for answer",
     promptGuidelines: [
       "Use ask_question when a task genuinely needs human or peer input to continue.",
       "Default wait:true blocks until answered. Use wait:false for fire-and-forget.",
       "If transport drops mid-wait, recover with wait_for_answer(question_id).",
-      "Do NOT file a duplicate question — the original is still alive.",
+      "Do NOT file a duplicate question - the original is still alive.",
     ],
     parameters: AskQuestionParams,
 
     renderCall(args: any, theme: any) {
       const wait = args.wait !== false;
       const options = Array.isArray(args.options) && args.options.length > 0 ? ` · options: ${args.options.length}` : "";
+      const wd = args.workdir ? ` @ ${args.workdir.replace(/^\/home\/koad/, "~")}` : "";
       const mode = wait ? `wait: yes · timeout: ${formatDuration(540)} · Esc cancels local wait` : "wait: no · returns question_id immediately";
       return new Text([
-        theme.fg("toolTitle", theme.bold("ask_question ")) + theme.fg("accent", `${args.from || "?"} → ${args.to || "?"}`),
-        `  ${theme.fg("dim", `“${clip(args.question)}”`)}`,
+        theme.fg("toolTitle", theme.bold("ask_question ")) + theme.fg("accent", `${args.from || "?"} → ${args.to || "?"}${wd}`),
+        `  ${theme.fg("dim", `"${clip(args.question)}"`)}`,
         `  ${theme.fg("dim", `${mode}${options}`)}`,
       ].join("\n"), 0, 0);
     },
@@ -198,7 +199,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       if (isPartial || details.status === "waiting") {
         lines.push(theme.fg("warning", `⏳ waiting for answer`));
         lines.push(`  ${theme.fg("accent", `${from} → ${to}`)} ${theme.fg("dim", `· id: ${qid} · elapsed: ${elapsed} · timeout: ${timeout}`)}`);
-        if (prompt) lines.push(`  ${theme.fg("dim", `“${prompt}”`)}`);
+        if (prompt) lines.push(`  ${theme.fg("dim", `"${prompt}"`)}`);
         if (expanded && details.options?.length) lines.push(`  ${theme.fg("dim", `options: ${details.options.join(", ")}`)}`);
         if (expanded && details.context_ref) lines.push(`  ${theme.fg("dim", `context: ${details.context_ref}`)}`);
         if (expanded && details.workdir) lines.push(`  ${theme.fg("dim", `workdir: ${details.workdir}`)}`);
@@ -227,7 +228,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       }
 
       lines.push(theme.fg("success", `✓ question filed: ${qid}`));
-      lines.push(`  ${theme.fg("dim", `${from} → ${to}${prompt ? ` · “${prompt}”` : ""}`)}`);
+      lines.push(`  ${theme.fg("dim", `${from} → ${to}${prompt ? ` · "${prompt}"` : ""}`)}`);
       if (expanded && details.options?.length) lines.push(`  ${theme.fg("dim", `options: ${details.options.join(", ")}`)}`);
       if (expanded && details.context_ref) lines.push(`  ${theme.fg("dim", `context: ${details.context_ref}`)}`);
       if (expanded && details.workdir) lines.push(`  ${theme.fg("dim", `workdir: ${details.workdir}`)}`);
@@ -280,7 +281,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       } catch (err: any) {
         if (isAbortError(err)) {
           return {
-            content: [{ type: "text", text: `wait cancelled — question still open: \`${question_id}\`` }],
+            content: [{ type: "text", text: `wait cancelled - question still open: \`${question_id}\`` }],
             details: { ...meta, status: "cancelled", interrupted: true, elapsed_seconds: latestElapsed },
           };
         }
@@ -311,7 +312,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
     promptSnippet: "Re-enter wait for existing question (question_id)",
     promptGuidelines: [
       "Use after ask_question or a previous wait_for_answer drops mid-wait.",
-      "The question stays alive in the daemon queue — this just re-enters the poll loop.",
+      "The question stays alive in the daemon queue - this just re-enters the poll loop.",
       "Do NOT file a new ask_question for the same thing.",
     ],
     parameters: WaitForAnswerParams,
@@ -337,7 +338,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       if (isPartial || details.status === "waiting") {
         lines.push(theme.fg("warning", `⏳ waiting for answer`));
         lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `· elapsed: ${elapsed} · timeout: ${timeout}`)}`);
-        if (from) lines.push(`  ${theme.fg("dim", from + (prompt ? ` · “${prompt}”` : ""))}`);
+        if (from) lines.push(`  ${theme.fg("dim", from + (prompt ? ` · "${prompt}"` : ""))}`);
         if (expanded && details.options?.length) lines.push(`  ${theme.fg("dim", `options: ${details.options.join(", ")}`)}`);
         return new Text(lines.join("\n"), 0, 0);
       }
@@ -358,7 +359,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       if (details.status === "timeout") {
         lines.push(theme.fg("warning", `⏳ still open after ${elapsed}`));
         lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `· timeout: ${timeout}`)}`);
-        if (expanded && from) lines.push(`  ${theme.fg("dim", from + (prompt ? ` · “${prompt}”` : ""))}`);
+        if (expanded && from) lines.push(`  ${theme.fg("dim", from + (prompt ? ` · "${prompt}"` : ""))}`);
         return new Text(lines.join("\n"), 0, 0);
       }
 
@@ -380,11 +381,11 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       } catch (e: any) {
         if (isAbortError(e)) {
           return {
-            content: [{ type: "text", text: `wait cancelled — question still open: \`${question_id}\`` }],
+            content: [{ type: "text", text: `wait cancelled - question still open: \`${question_id}\`` }],
             details: { question_id, status: "cancelled", interrupted: true, timeout_seconds: maxSeconds, elapsed_seconds: 0 },
           };
         }
-        throw new Error(`wait_for_answer: daemon unreachable — ${e.message}`);
+        throw new Error(`wait_for_answer: daemon unreachable - ${e.message}`);
       }
 
       const q = data?.question;
@@ -432,7 +433,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       } catch (e: any) {
         if (isAbortError(e)) {
           return {
-            content: [{ type: "text", text: `wait cancelled — question still open: \`${question_id}\`` }],
+            content: [{ type: "text", text: `wait cancelled - question still open: \`${question_id}\`` }],
             details: { ...meta, status: "cancelled", interrupted: true, elapsed_seconds: latestElapsed },
           };
         }
