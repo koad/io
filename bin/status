@@ -32,7 +32,8 @@ _TARGETS=""
 while IFS= read -r line; do
   label=$(echo "$line" | jq -r '.label // empty' 2>/dev/null)
   url=$(echo "$line" | jq -r '.url // empty' 2>/dev/null)
-  [ -n "$label" ] && [ -n "$url" ] && _TARGETS="$_TARGETS $label=$url"
+  expected=$(echo "$line" | jq -r '.expected_status // empty' 2>/dev/null)
+  [ -n "$label" ] && [ -n "$url" ] && _TARGETS="$_TARGETS $label=$url=$expected"
 done < "$_INDEX_FILE"
 _LOG_FILE="${KOAD_IO_STATUS_LOG:-$HOME/.local/share/koad-io/sensors/status.jsonl}"
 _TIMEOUT=5
@@ -109,14 +110,28 @@ _parts=""
 _alive=0 _dead=0
 
 for entry in $_TARGETS; do
-  if [[ "$entry" == *"="* ]]; then
+  if [[ "$entry" == *"="*"="* ]]; then
     label="${entry%%=*}"
     url="${entry#*=}"
+    expected="${url##*=}"
+    url="${url%=*}"
+  elif [[ "$entry" == *"="* ]]; then
+    label="${entry%%=*}"
+    url="${entry#*=}"
+    expected=""
   else
     label="$entry"
     url="$entry"
+    expected=""
   fi
   fragment=$(probe_one "$url" "$label")
+  # Flag mismatch between expected and actual status
+  if [ -n "$expected" ] && echo "$fragment" | grep -q '"alive":true'; then
+    actual=$(echo "$fragment" | jq -r '.status' 2>/dev/null)
+    if [ "$actual" != "$expected" ]; then
+      fragment=$(echo "$fragment" | jq -c ".degraded = true | .expected_status = $expected | .degraded_reason = \"HTTP $actual (expected $expected)\"" 2>/dev/null || echo "$fragment")
+    fi
+  fi
   _parts="${_parts}${fragment},"
   if echo "$fragment" | grep -q '"alive":true'; then
     _alive=$((_alive + 1))
@@ -147,11 +162,15 @@ fi
 printf '%s── koad:io status (%s%sms%s) ──%s\n' "$D" "$B" "$_total_ms" "$D" "$R"
 
 echo "$_rec" | jq -r '.targets[] |
-  "\(.host_port // .label)|\(.label)|\(if .alive then .status else 0 end)|\(.ms)|\(.alive)|\(if .entity != "" and .entity != .label then .entity else "" end)|\(.error // "unreachable")"' | while IFS='|' read -r host_port label status ms alive entity err; do
+  "\(.host_port // .label)|\(.label)|\(if .alive then .status else 0 end)|\(.ms)|\(.alive)|\(if .entity != "" and .entity != .label then .entity else "" end)|\(.error // "unreachable")|\(.degraded // false)|\(.expected_status // "")|\(.degraded_reason // "")'" | while IFS='|' read -r host_port label status ms alive entity err degraded expected degraded_reason; do
   if [ "$alive" == "true" ]; then
     _info="$label"
     [ -n "$entity" ] && _info="$_info ($entity)"
-    printf '  %s●%s %s%s%s  %s%s%s  %sHTTP %s %4sms%s\n' "$GREEN" "$R" "$B" "$host_port" "$R" "$D" "$_info" "$R" "$GREEN" "$status" "$ms" "$R"
+    if [ "$degraded" == "true" ]; then
+      printf '  %s◐%s %s%s%s  %s%s%s  %sHTTP %s (expected %s) %4sms %s%s%s\n' "$Y" "$R" "$B" "$host_port" "$R" "$D" "$_info" "$R" "$Y" "$status" "$expected" "$ms" "$D" "$degraded_reason" "$R"
+    else
+      printf '  %s●%s %s%s%s  %s%s%s  %sHTTP %s %4sms%s\n' "$GREEN" "$R" "$B" "$host_port" "$R" "$D" "$_info" "$R" "$GREEN" "$status" "$ms" "$R"
+    fi
   else
     printf '  %s○%s %s%s%s  %s%s%s  %s%s (%sms)%s\n' "$RED" "$R" "$B" "$host_port" "$R" "$D" "$label" "$R" "$RED" "$err" "$ms" "$R"
   fi
