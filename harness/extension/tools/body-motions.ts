@@ -240,7 +240,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
         lines.push("⚡ ACTIONABLE:");
         for (const item of actionableItems.slice(0, 15)) {
           const cls = item.class || "?";
-          const summary = (item.summary || "").slice(0, 100);
+          const summary = item.summary || "";
           lines.push(`  [${cls}] ${summary} — id: ${item.id}`);
         }
       }
@@ -250,7 +250,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
         lines.push("");
         lines.push("🧠 DECISIONS:");
         for (const item of decisionItems.slice(0, 10)) {
-          const summary = (item.summary || "").slice(0, 100);
+          const summary = item.summary || "";
           lines.push(`  ${summary} — id: ${item.id}`);
         }
       }
@@ -412,7 +412,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
         lines.push("🔴 OVERDUE:");
         for (const item of overdueItems.slice(0, 20)) {
           const src = String(item.source || "?").slice(0, 1).toUpperCase();
-          const title = String(item.title || item.id || "?").slice(0, 100);
+          const title = String(item.title || item.id || "?");
           const age = item.age_days ?? 0;
           const pri = item.priority || "normal";
           lines.push(`  [${src}] ${title} (${age}d, ${pri}) — id: ${item.id}`);
@@ -426,7 +426,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
         lines.push("🟡 TODAY:");
         for (const item of todayItems.slice(0, 10)) {
           const src = String(item.source || "?").slice(0, 1).toUpperCase();
-          const title = String(item.title || item.id || "?").slice(0, 100);
+          const title = String(item.title || item.id || "?");
           lines.push(`  [${src}] ${title} — id: ${item.id}`);
         }
       }
@@ -438,7 +438,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
         lines.push(`📦 STALE (${staleItems.length}):`);
         for (const item of staleItems.slice(0, 20)) {
           const src = String(item.source || "?").slice(0, 1).toUpperCase();
-          const title = String(item.title || item.id || "?").slice(0, 100);
+          const title = String(item.title || item.id || "?");
           const age = item.age_days ?? 0;
           lines.push(`  [${src}] ${title} (${age}d) — id: ${item.id}`);
         }
@@ -709,7 +709,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
       lines.push(`brief: ${parsed.brief || "?"}`);
       if (parsed.completion_summary) {
         lines.push("");
-        lines.push(`completion: ${parsed.completion_summary.slice(0, 300)}`);
+        lines.push(`completion: ${parsed.completion_summary}`);
       }
       if (parsed.stderr_tail) {
         lines.push("");

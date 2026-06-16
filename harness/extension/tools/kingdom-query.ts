@@ -137,12 +137,12 @@ export function registerKingdomQueryTools(
         for (const m of missions.slice(0, 20)) {
           const entity = m.entity || "?";
           const status = m.status || "?";
-          const brief = (m.brief_slug || m.id || "").slice(0, 60);
+          const brief = m.brief_slug || m.id || "";
           const icon = status === "flying" ? "✈️" : status === "landed" ? "✅" : "📦";
           const elapsed = m.elapsed ? ` ${m.elapsed}s` : "";
           lines.push(`${icon} ${entity} [${status}]${elapsed} ${brief}`);
           if (m.id) lines.push(`  id: ${m.id}`);
-          if (m.completion_summary) lines.push(`  → ${m.completion_summary.slice(0, 120)}`);
+          if (m.completion_summary) lines.push(`  → ${m.completion_summary}`);
         }
       }
 
@@ -232,7 +232,7 @@ export function registerKingdomQueryTools(
           const ent = s.entity || "?";
           const status = s.status || "?";
           const icon = status === "active" ? "🟢" : "⚫";
-          lines.push(`${icon} ${ent} [${status}] ${String(s.id || "").slice(0, 40)}`);
+          lines.push(`${icon} ${ent} [${status}] ${s.id || ""}`);
         }
       }
 
@@ -373,7 +373,7 @@ export function registerKingdomQueryTools(
         for (const e of emissions.slice(0, 20)) {
           const ent = e.entity || "?";
           const type = e.type || "?";
-          const body = (e.body || "").slice(0, 80);
+          const body = e.body || "";
           const ts = (e.started || "").slice(11, 19);
           lines.push(`${ts} ${ent} [${type}] ${body}`);
         }

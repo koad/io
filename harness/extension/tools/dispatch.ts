@@ -440,7 +440,7 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
 
     renderCall(args: any, theme: any) {
       const entity = args.entity || "...";
-      const task = (args.task || "...").slice(0, 60);
+      const task = args.task || "...";
       const shape = args.shape || "flight";
       const cwdHint = args.cwd ? ` @ ${args.cwd.replace(/^\/home\/koad/, "~")}` : "";
       const text = theme.fg("toolTitle", theme.bold("dispatch ")) + theme.fg("accent", `${shape} → ${entity}${cwdHint}`) + "\n  " + theme.fg("dim", task);
