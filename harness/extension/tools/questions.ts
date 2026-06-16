@@ -228,10 +228,11 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       const timeout = formatDuration(details.timeout_seconds ?? 540);
       const prompt = clip(details.question);
       const lines: string[] = [];
+      lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `${from} → ${to}`)}`);
 
       if (isPartial || details.status === "waiting") {
         lines.push(theme.fg("warning", `⏳ waiting for answer`));
-        lines.push(`  ${theme.fg("accent", `${from} → ${to}`)} ${theme.fg("dim", `· id: ${qid} · elapsed: ${elapsed} · timeout: ${timeout}`)}`);
+        lines.push(`  ${theme.fg("dim", `elapsed: ${elapsed} · timeout: ${timeout}`)}`);
         if (prompt) lines.push(`  ${theme.fg("dim", `"${prompt}"`)}`);
         if (expanded && details.options?.length) lines.push(`  ${theme.fg("dim", `options: ${details.options.join(", ")}`)}`);
         if (expanded && details.context_ref) lines.push(`  ${theme.fg("dim", `context: ${details.context_ref}`)}`);
@@ -239,29 +240,35 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
         return new Text(lines.join("\n"), 0, 0);
       }
 
+      if (details.status === "acknowledged") {
+        lines.push(theme.fg("warning", `👀 acknowledged`));
+        if (prompt) lines.push(`  ${theme.fg("dim", `"${prompt}"`)}`);
+        return new Text(lines.join("\n"), 0, 0);
+      }
+
       if (details.status === "answered") {
         lines.push(theme.fg("success", `✓ answered by ${details.answered_by ?? "unknown"} after ${elapsed}`));
-        lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `· ${clip(details.answer ?? "(no text)")}`)}`);
+        lines.push(`  ${theme.fg("dim", `· ${clip(details.answer ?? "(no text)")}`)}`);
         if (expanded && details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${clip(details.answer_note)}`)}`);
         return new Text(lines.join("\n"), 0, 0);
       }
 
       if (details.status === "cancelled" && details.interrupted) {
         lines.push(theme.fg("warning", `⏸ local wait cancelled`));
-        lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `· still open · elapsed: ${elapsed}`)}`);
+        lines.push(`  ${theme.fg("dim", `· still open · elapsed: ${elapsed}`)}`);
         if (expanded && details.context_ref) lines.push(`  ${theme.fg("dim", `context: ${details.context_ref}`)}`);
         return new Text(lines.join("\n"), 0, 0);
       }
 
       if (details.status === "timeout") {
         lines.push(theme.fg("warning", `⏳ still open after ${elapsed}`));
-        lines.push(`  ${theme.fg("accent", `id: ${qid}`)} ${theme.fg("dim", `· timeout: ${timeout} · use wait_for_answer to re-enter`)}`);
+        lines.push(`  ${theme.fg("dim", `· timeout: ${timeout} · use wait_for_answer to re-enter`)}`);
         if (expanded && details.context_ref) lines.push(`  ${theme.fg("dim", `context: ${details.context_ref}`)}`);
         return new Text(lines.join("\n"), 0, 0);
       }
 
-      lines.push(theme.fg("success", `✓ question filed: ${qid}`));
-      lines.push(`  ${theme.fg("dim", `${from} → ${to}${prompt ? ` · "${prompt}"` : ""}`)}`);
+      lines.push(theme.fg("success", `✓ question filed`));
+      if (prompt) lines.push(`  ${theme.fg("dim", `"${prompt}"`)}`);
       if (expanded && details.options?.length) lines.push(`  ${theme.fg("dim", `options: ${details.options.join(", ")}`)}`);
       if (expanded && details.context_ref) lines.push(`  ${theme.fg("dim", `context: ${details.context_ref}`)}`);
       if (expanded && details.workdir) lines.push(`  ${theme.fg("dim", `workdir: ${details.workdir}`)}`);
@@ -478,6 +485,46 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       return {
         content: [{ type: "text", text: `⏳ question \`${question_id}\` still open after ${maxSeconds}s` }],
         details: { ...meta, ...result, timeout_seconds: maxSeconds },
+      };
+    },
+  });
+
+  // ── question_ack ──────────────────────────────────────────────
+  pi.registerTool({
+    name: "question_ack",
+    label: "Acknowledge Question",
+    description: "Acknowledge receipt of a question — marks it acknowledged so the sender knows it was seen. Does not answer; use answer_question for that.",
+    promptSnippet: "Acknowledge question (question_id) — seen, not yet answered",
+    promptGuidelines: [
+      "Use question_ack to signal you've seen a question and will respond.",
+      "Does not unblock the sender — only answer_question does that.",
+    ],
+    parameters: Type.Object({
+      question_id: Type.String({ description: "The question _id to acknowledge." }),
+    }),
+    renderCall(args: any, theme: any) {
+      return new Text([
+        theme.fg("toolTitle", theme.bold("question_ack ")) + theme.fg("accent", `${args.question_id || "?"}`),
+        `  ${theme.fg("dim", `acknowledge receipt`)}`,
+      ].join("\n"), 0, 0);
+    },
+    renderResult(result: any, _opts: any, theme: any) {
+      const details = (result?.details ?? {}) as Record<string, any>;
+      return new Text(
+        theme.fg("success", `✓ acknowledged ${details.question_id || "?"}`),
+        0, 0,
+      );
+    },
+    async execute(_toolCallId, params, _signal) {
+      const { question_id } = params;
+      const q = findQuestion(question_id);
+      if (!q) throw new Error(`question_ack: question ${question_id} not found`);
+      if (q.status !== "open") throw new Error(`question_ack: question ${question_id} is already ${q.status}`);
+      const updated = updateQuestion(question_id, { status: "acknowledged" });
+      if (!updated) throw new Error(`question_ack: failed to update ${question_id}`);
+      return {
+        content: [{ type: "text", text: `acknowledged \`${question_id}\`` }],
+        details: { question_id, status: "acknowledged" },
       };
     },
   });
