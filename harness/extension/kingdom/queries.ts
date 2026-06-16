@@ -493,44 +493,8 @@ export async function questionQuery(
     return { results: [], count: 0, backend, degraded: false, source: "filesystem" };
   }
 
-  // ── Remote/DDP — attempt REST anyway (may be reachable) ──
-  // Soft-degrade: try the control-tower REST with a shorter timeout.
-  // If it fails, degrade honestly rather than returning a hollow placeholder.
-  {
-    const params = new URLSearchParams();
-    if (filters.from) params.set("from", filters.from);
-    if (filters.to) params.set("to", filters.to);
-    if (filters.status) params.set("status", filters.status);
-    params.set("limit", String(limit));
-
-    const url = `${CONTROL_URL}/api/questions?${params.toString()}`;
-    const { ok, data } = await safeRestGet(url);
-
-    if (ok && data && Array.isArray(data.questions)) {
-      const results: QuestionResult[] = data.questions.map((q: any) => ({
-        id: q._id || "unknown",
-        from: q.from || "unknown",
-        to: q.to || "unknown",
-        question: q.question || "",
-        status: q.status || "unknown",
-        answer: q.answer || undefined,
-        answered_by: q.answered_by || undefined,
-        answered_at: q.answered_at || undefined,
-        filed: q.filed || undefined,
-        workdir: q.workdir || undefined,
-        context_ref: q.context_ref || undefined,
-        options: q.options || undefined,
-      }));
-
-      let filtered = results;
-      if (filters.id) filtered = results.filter(r => r.id === filters.id);
-
-      return { results: filtered, count: filtered.length, backend, degraded: false };
-    }
-
-    // REST unreachable in remote mode — honest degradation
-    return { results: [], count: 0, backend, degraded: true, degraded_reason: data?.error || "control-tower unreachable from remote" };
-  }
+  // ── Remote/DDP — JSONL not accessible, honest degradation ──
+  return { results: [], count: 0, backend, degraded: true, degraded_reason: "question_query remote — filesystem not accessible from this context" };
 }
 
 // ===================================================================
