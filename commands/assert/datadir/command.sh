@@ -53,8 +53,13 @@ else
 fi
 
 if [ -z "$DATADIR" ]; then
-    echo -e "\033[31mkoad/io: $DATADIR is not a valid koad:io workspace or fixture\033[0m"
-    echo "exiting... 64"
+    echo -e "\033[31mkoad:io: $(pwd) is not a valid koad:io project folder\033[0m" >&2
+    echo "" >&2
+    echo "  A koad:io project folder must have a .env file at its root." >&2
+    echo "  Entities can only spawn in the project root folder —" >&2
+    echo "  not in subdirectories of the project tree." >&2
+    echo "" >&2
+    echo "  cd to the project root (where .env lives) and try again." >&2
     exit 64
 fi
 
