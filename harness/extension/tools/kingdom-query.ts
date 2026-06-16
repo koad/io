@@ -551,7 +551,12 @@ export function registerKingdomQueryTools(
       if (details.results?.length) {
         for (const q of details.results.slice(0, expanded ? 10 : 5)) {
           const icon = q.status === "open" ? "❓" : q.status === "answered" ? "✅" : "❌";
-          lines.push(`  ${icon} ${theme.fg("accent", q.from)}→${theme.fg("accent", q.to)} ${theme.fg("dim", q.question)}`);
+          lines.push(`${icon} ${theme.fg("accent", q.id)}`);
+          lines.push(`  ${theme.fg("dim", q.from)} → ${theme.fg("dim", q.to)}  ${theme.fg("dim", q.status)}  ${q.filed ? theme.fg("dim", q.filed.slice(0, 16)) : ""}`);
+          lines.push(`  ${theme.fg("dim", q.question)}`);
+          if (q.options?.length) lines.push(`  ${theme.fg("dim", "options: " + q.options.join(" | "))}`);
+          if (q.answer) lines.push(`  ${theme.fg("success", "✓ " + q.answer)}`);
+          lines.push("");
         }
       }
       return new Text(lines.join("\n"), 0, 0);
