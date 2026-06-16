@@ -11,6 +11,9 @@
  */
 
 import type { DDPClient, FlightRecord, SessionRecord, EmissionRecord, BondRecord, EntityRecord } from "../ddp";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 const DAEMON_URL = process.env.KOAD_IO_DAEMON_URL || `http://${process.env.KOAD_IO_BIND_IP || "10.10.10.10"}:${process.env.KOAD_IO_PORT || "28282"}`;
 const CONTROL_URL = process.env.KOAD_IO_CONTROL_URL || `http://${process.env.KOAD_IO_BIND_IP || "10.10.10.10"}:${process.env.KOAD_IO_CONTROL_PORT || "28283"}`;
@@ -448,11 +451,11 @@ export async function questionQuery(
 
   // ── Embedded: read JSONL directly ───────────────────────
   if (local) {
-    const RUNTIME_PATH = process.env.KOAD_IO_RUNTIME_PATH || path.join(require("node:os").homedir(), ".local", "share", "koad-io", "runtime");
+    const RUNTIME_PATH = process.env.KOAD_IO_RUNTIME_PATH || path.join(os.homedir(), ".local", "share", "koad-io", "runtime");
     const QUESTIONS_FILE = path.join(RUNTIME_PATH, "questions", "index.jsonl");
     let questions: any[] = [];
     try {
-      const raw = require("node:fs").readFileSync(QUESTIONS_FILE, "utf-8");
+      const raw = fs.readFileSync(QUESTIONS_FILE, "utf-8");
       questions = raw.split("\n").filter(Boolean).map(line => {
         try { return JSON.parse(line); } catch { return null; }
       }).filter(Boolean);
