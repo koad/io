@@ -38,7 +38,8 @@ export interface DispatchResult {
   plan_path?: string;
   entity: string;
   shape: string;
-  error?: string; // legacy — kept for renderResult; prefer DispatchError below
+  cwd?: string;
+  error?: string;
   _error?: DispatchError;
 }
 
@@ -359,5 +360,6 @@ export async function dispatchFlight(params: {
     plan_path: planPath,
     entity,
     shape: "flight",
+    cwd: params.cwd,
   };
 }

@@ -442,7 +442,8 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
       const entity = args.entity || "...";
       const task = (args.task || "...").slice(0, 60);
       const shape = args.shape || "flight";
-      const text = theme.fg("toolTitle", theme.bold("dispatch ")) + theme.fg("accent", `${shape} → ${entity}`) + "\n  " + theme.fg("dim", task);
+      const cwdHint = args.cwd ? ` @ ${args.cwd.replace(/^\/home\/koad/, "~")}` : "";
+      const text = theme.fg("toolTitle", theme.bold("dispatch ")) + theme.fg("accent", `${shape} → ${entity}${cwdHint}`) + "\n  " + theme.fg("dim", task);
       return new Text(text, 0, 0);
     },
 
@@ -453,7 +454,8 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
       }
       const entity = details.entity ?? "?";
       const fid = (details.flight_id ?? "?").replace(/^\d{8}T\d{6}-\d{3}Z-/, '');
-      const lines = [theme.fg("success", `✓ dispatched ${entity}`), `  ${theme.fg("accent", `flight: ${fid}`)}`];
+      const cwdLabel = details.cwd ? ` @ ${details.cwd.replace(/^\/home\/koad/, "~")}` : "";
+      const lines = [theme.fg("success", `✓ dispatched ${entity}${cwdLabel}`), `  ${theme.fg("accent", `flight: ${fid}`)}`];
       if (expanded && details.plan_path) lines.push(`  ${theme.fg("dim", `plan: ${details.plan_path}`)}`);
       return new Text(lines.join("\n"), 0, 0);
     },
@@ -470,7 +472,10 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
         const result = await dispatchFlight({ entity, task, cwd: params.cwd, budget: params.budget, modelCeiling: params.model_ceiling });
 
         if (!result.ok) {
-          throw new Error(`dispatch ${entity} failed: ${result.error}`);
+          return {
+            content: [{ type: "text", text: `✗ dispatch failed: ${result.error ?? `dispatch ${entity} failed`}` }],
+            details: result,
+          };
         }
 
         const planBasename = path.basename(result.plan_path ?? "", ".md");
