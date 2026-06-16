@@ -548,8 +548,8 @@ export function registerKingdomQueryTools(
           `${degraded && count === 0 ? "⚠" : "✓"} ${count} question(s)`),
         `  ${theme.fg("dim", `${details.backend || "?"}${degraded ? " (degraded)" : ""}`)}`,
       ];
-      if (expanded && details.results?.length) {
-        for (const q of details.results.slice(0, 10)) {
+      if (details.results?.length) {
+        for (const q of details.results.slice(0, expanded ? 10 : 5)) {
           const icon = q.status === "open" ? "❓" : q.status === "answered" ? "✅" : "❌";
           lines.push(`  ${icon} ${theme.fg("accent", q.from)}→${theme.fg("accent", q.to)} ${theme.fg("dim", q.question)}`);
         }
