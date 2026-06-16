@@ -1,26 +1,86 @@
 /**
- * koad-io question tools - ask_question, wait_for_answer, answer_question.
+ * koad-io question tools — ask_question, wait_for_answer, answer_question.
  *
- * Talks to the daemon's /api/questions REST endpoints (VESTA-SPEC-165).
- * JSONL-backed question queue in ~/.koad-io/daemon/runtime/questions/index.jsonl.
+ * Reads/writes JSONL directly at $KOAD_IO_RUNTIME_PATH/questions/index.jsonl.
+ * No daemon, no REST, no indexer — filesystem is the source of truth.
  *
- * ask_question with wait:true long-polls until answered, with periodic
+ * ask_question with wait:true long-polls via filesystem stat, with periodic
  * progress notifications to keep the harness transport warm.
- *
- * Migrated from ~/.forge/dance-hall/src/mcp/daemon-tools.js (questions section).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { clipText as clip, formatDurationSeconds as formatDuration } from "../utils/tool-render";
 
-const _BIND_IP = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
-const CONTROL_URL = process.env.KOAD_IO_CONTROL_URL ?? `http://${_BIND_IP}:${process.env.KOAD_IO_CONTROL_PORT ?? "28283"}`;
+const HOME = os.homedir();
+const RUNTIME_PATH = process.env.KOAD_IO_RUNTIME_PATH || path.join(HOME, ".local", "share", "koad-io", "runtime");
+const QUESTIONS_FILE = path.join(RUNTIME_PATH, "questions", "index.jsonl");
 
 // ---------------------------------------------------------------------------
-// HTTP helpers
+// Filesystem helpers
 // ---------------------------------------------------------------------------
+
+interface QuestionRecord {
+  _id: string;
+  from: string;
+  to: string;
+  question: string;
+  status: "open" | "answered" | "cancelled";
+  filed: string;
+  answer: string | null;
+  answered_by: string | null;
+  answered_at: string | null;
+  answer_note?: string | null;
+  workdir?: string;
+  context_ref?: string;
+  options?: string[];
+}
+
+function readAllQuestions(): QuestionRecord[] {
+  try {
+    if (!fs.existsSync(QUESTIONS_FILE)) return [];
+    const raw = fs.readFileSync(QUESTIONS_FILE, "utf-8");
+    return raw.split("\n").filter(Boolean).map(line => {
+      try { return JSON.parse(line) as QuestionRecord; } catch { return null; }
+    }).filter((q): q is QuestionRecord => q !== null);
+  } catch {
+    return [];
+  }
+}
+
+function findQuestion(id: string): QuestionRecord | undefined {
+  return readAllQuestions().find(q => q._id === id);
+}
+
+function generateId(from: string): string {
+  const ts = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `q-${ts}-${from}-${rand}`;
+}
+
+function appendQuestion(q: QuestionRecord): void {
+  const dir = path.dirname(QUESTIONS_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.appendFileSync(QUESTIONS_FILE, JSON.stringify(q) + "\n", "utf-8");
+}
+
+function updateQuestion(id: string, patch: Partial<QuestionRecord>): boolean {
+  const all = readAllQuestions();
+  let found = false;
+  const updated = all.map(q => {
+    if (q._id === id) { found = true; return { ...q, ...patch }; }
+    return q;
+  });
+  if (!found) return false;
+  const tmp = QUESTIONS_FILE + ".tmp." + process.pid;
+  fs.writeFileSync(tmp, updated.map(q => JSON.stringify(q)).join("\n") + "\n", "utf-8");
+  fs.renameSync(tmp, QUESTIONS_FILE);
+  return true;
+}
 
 function isAbortError(err: any): boolean {
   return err?.name === "AbortError" || err?.code === "ABORT_ERR";
@@ -52,26 +112,8 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function daemonGet(urlPath: string, signal?: AbortSignal): Promise<any> {
-  const res = await fetch(`${CONTROL_URL}${urlPath}`, { signal });
-  if (!res.ok) throw new Error(`daemon GET ${urlPath}: HTTP ${res.status}`);
-  return res.json();
-}
-
-async function daemonPost(urlPath: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
-  const res = await fetch(`${CONTROL_URL}${urlPath}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || `daemon POST ${urlPath}: HTTP ${res.status}`);
-  return data;
-}
-
 // ---------------------------------------------------------------------------
-// Long-poll loop - shared by ask_question (wait:true) and wait_for_answer
+// Long-poll loop — filesystem-based
 // ---------------------------------------------------------------------------
 
 async function pollUntilAnswered(
@@ -93,16 +135,7 @@ async function pollUntilAnswered(
       try { await sendProgress(elapsed, maxSeconds); } catch (_) {}
     }
 
-    let data: any;
-    try {
-      throwIfAborted(signal);
-      data = await daemonGet(`/api/questions/${encodeURIComponent(question_id)}`, signal);
-    } catch (err: any) {
-      if (isAbortError(err)) throw err;
-      continue; // daemon temporarily unreachable
-    }
-
-    const q = data?.question;
+    const q = findQuestion(question_id);
     if (!q) continue;
 
     if (q.status === "answered" || q.status === "cancelled") {
@@ -125,7 +158,7 @@ async function pollUntilAnswered(
     answered_by: null,
     answered_at: null,
     elapsed_seconds: Math.round((Date.now() - startedAt) / 1000),
-    error: `No answer received within ${maxSeconds} seconds. Call wait_for_answer("${question_id}") to re-enter the wait - the question is still open.`,
+    error: `No answer received within ${maxSeconds} seconds. Call wait_for_answer("${question_id}") to re-enter the wait — the question is still open.`,
   };
 }
 
@@ -145,7 +178,7 @@ const AskQuestionParams = Type.Object({
 
 const WaitForAnswerParams = Type.Object({
   question_id: Type.String({ description: "The question_id returned by ask_question." }),
-  max_seconds: Type.Optional(Type.Number({ description: "Max seconds to block (default 540 - ~9 min). Clamped to [10, 600].", minimum: 10, maximum: 600, default: 540 })),
+  max_seconds: Type.Optional(Type.Number({ description: "Max seconds to block (default 540 — ~9 min). Clamped to [10, 600].", minimum: 10, maximum: 600, default: 540 })),
 });
 
 const AnswerQuestionParams = Type.Object({
@@ -164,13 +197,13 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "ask_question",
     label: "Ask Question",
-    description: "File a question to an operator or entity via the daemon questions queue. By default (wait: true) blocks until answered or cancelled (9-minute timeout). Set wait: false to fire-and-forget and return immediately. If the transport drops mid-wait, call wait_for_answer(question_id) to re-enter the wait.",
-    promptSnippet: "Ask question to operator (from, to, question) - optionally block for answer",
+    description: "File a question to an operator or entity via the questions JSONL file. By default (wait: true) blocks until answered or cancelled (9-minute timeout). Set wait: false to fire-and-forget and return immediately. If the transport drops mid-wait, call wait_for_answer(question_id) to re-enter the wait.",
+    promptSnippet: "Ask question to operator (from, to, question) — optionally block for answer",
     promptGuidelines: [
       "Use ask_question when a task genuinely needs human or peer input to continue.",
       "Default wait:true blocks until answered. Use wait:false for fire-and-forget.",
       "If transport drops mid-wait, recover with wait_for_answer(question_id).",
-      "Do NOT file a duplicate question - the original is still alive.",
+      "Do NOT file a duplicate question — the original is still alive.",
     ],
     parameters: AskQuestionParams,
 
@@ -239,13 +272,23 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       const { from, to, question, options, workdir, context_ref } = params;
       const wait = params.wait !== false;
 
-      const body: Record<string, unknown> = { from, to, question };
-      if (options) body.options = options;
-      if (workdir) body.workdir = workdir;
-      if (context_ref) body.context_ref = context_ref;
+      const question_id = generateId(from);
+      const now = new Date().toISOString();
+      const record: QuestionRecord = {
+        _id: question_id,
+        from, to, question,
+        status: "open",
+        filed: now,
+        answer: null,
+        answered_by: null,
+        answered_at: null,
+      };
+      if (options) record.options = options;
+      if (workdir) record.workdir = workdir;
+      if (context_ref) record.context_ref = context_ref;
 
-      const filed = await daemonPost("/api/questions", body, signal);
-      const question_id = filed.question_id as string;
+      appendQuestion(record);
+
       const meta = {
         question_id,
         from,
@@ -281,7 +324,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       } catch (err: any) {
         if (isAbortError(err)) {
           return {
-            content: [{ type: "text", text: `wait cancelled - question still open: \`${question_id}\`` }],
+            content: [{ type: "text", text: `wait cancelled — question still open: \`${question_id}\`` }],
             details: { ...meta, status: "cancelled", interrupted: true, elapsed_seconds: latestElapsed },
           };
         }
@@ -308,11 +351,11 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "wait_for_answer",
     label: "Wait For Answer",
-    description: "Re-enter the wait on an existing question after a transport drop. Polls the daemon until answered/cancelled or max_seconds elapses. If you lost the question_id, query GET /api/questions?from=<entity>&status=open.",
+    description: "Re-enter the wait on an existing question after a transport drop. Polls the JSONL file until answered/cancelled or max_seconds elapses. If you lost the question_id, query GET /api/questions?from=<entity>&status=open.",
     promptSnippet: "Re-enter wait for existing question (question_id)",
     promptGuidelines: [
       "Use after ask_question or a previous wait_for_answer drops mid-wait.",
-      "The question stays alive in the daemon queue - this just re-enters the poll loop.",
+      "The question stays alive in the JSONL file — this just re-enters the poll loop.",
       "Do NOT file a new ask_question for the same thing.",
     ],
     parameters: WaitForAnswerParams,
@@ -374,21 +417,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       const { question_id } = params;
       const maxSeconds = Math.max(10, Math.min(600, params.max_seconds ?? 540));
 
-      // Verify question exists
-      let data: any;
-      try {
-        data = await daemonGet(`/api/questions/${encodeURIComponent(question_id)}`, signal);
-      } catch (e: any) {
-        if (isAbortError(e)) {
-          return {
-            content: [{ type: "text", text: `wait cancelled - question still open: \`${question_id}\`` }],
-            details: { question_id, status: "cancelled", interrupted: true, timeout_seconds: maxSeconds, elapsed_seconds: 0 },
-          };
-        }
-        throw new Error(`wait_for_answer: daemon unreachable - ${e.message}`);
-      }
-
-      const q = data?.question;
+      const q = findQuestion(question_id);
       if (!q) {
         throw new Error(`wait_for_answer: question ${question_id} not found`);
       }
@@ -402,7 +431,6 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
         timeout_seconds: maxSeconds,
       };
 
-      // Already resolved
       if (q.status === "answered" || q.status === "cancelled") {
         return {
           content: [{ type: "text", text: `${q.status}: ${q.answer ?? "(no text)"}` }],
@@ -433,7 +461,7 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
       } catch (e: any) {
         if (isAbortError(e)) {
           return {
-            content: [{ type: "text", text: `wait cancelled - question still open: \`${question_id}\`` }],
+            content: [{ type: "text", text: `wait cancelled — question still open: \`${question_id}\`` }],
             details: { ...meta, status: "cancelled", interrupted: true, elapsed_seconds: latestElapsed },
           };
         }
@@ -458,11 +486,11 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "answer_question",
     label: "Answer Question",
-    description: "Submit an answer to an open question in the daemon questions queue. Unblocks any waiting ask_question or wait_for_answer caller.",
+    description: "Submit an answer to an open question. Updates the JSONL file directly — unblocks any waiting ask_question or wait_for_answer caller on next poll cycle.",
     promptSnippet: "Answer open question (question_id, answer, answered_by)",
     promptGuidelines: [
       "Use when responding to a question filed by another entity.",
-      "The blocked entity's ask_question/wait_for_answer will return with this answer.",
+      "The blocked entity's ask_question/wait_for_answer will return with this answer on next poll (~3s).",
     ],
     parameters: AnswerQuestionParams,
 
@@ -481,24 +509,36 @@ export function registerQuestionTools(pi: ExtensionAPI): void {
         `  ${theme.fg("accent", `id: ${details.question_id ?? "?"}`)} ${theme.fg("dim", `· by: ${details.answered_by ?? "?"} · ${clip(details.answer ?? "")}`)}`,
       ];
       if (details.answer_note) lines.push(`  ${theme.fg("dim", `note: ${clip(details.answer_note)}`)}`);
-      if (expanded && details.result?.status) lines.push(`  ${theme.fg("dim", `status: ${details.result.status}`)}`);
       return new Text(lines.join("\n"), 0, 0);
     },
 
     async execute(_toolCallId, params, _signal) {
       const { question_id, answer, answered_by, answer_note } = params;
 
-      const body: Record<string, unknown> = { answer, answered_by };
-      if (answer_note?.trim()) body.answer_note = answer_note.trim();
+      const q = findQuestion(question_id);
+      if (!q) {
+        throw new Error(`answer_question: question ${question_id} not found`);
+      }
+      if (q.status !== "open") {
+        throw new Error(`answer_question: question ${question_id} is already ${q.status}`);
+      }
 
-      const result = await daemonPost(
-        `/api/questions/${encodeURIComponent(question_id)}/answer`,
-        body,
-      );
+      const now = new Date().toISOString();
+      const updated = updateQuestion(question_id, {
+        status: "answered",
+        answer,
+        answered_by,
+        answered_at: now,
+        answer_note: answer_note?.trim() || null,
+      });
+
+      if (!updated) {
+        throw new Error(`answer_question: failed to update ${question_id}`);
+      }
 
       return {
         content: [{ type: "text", text: `answer submitted for \`${question_id}\`` }],
-        details: { ...result, result, question_id, answer, answered_by, answer_note: answer_note?.trim() || null },
+        details: { question_id, answer, answered_by, answer_note: answer_note?.trim() || null, status: "answered" },
       };
     },
   });
