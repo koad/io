@@ -215,12 +215,10 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
   _home_real="$(cd "$HOME" 2>/dev/null && pwd -P || echo "$HOME")"
   _forbidden=false
   [ "$_work_dir_real" = "$_home_real" ] && _forbidden=true
-  [ "$_work_dir_real" = "$ENTITY_DIR" ] && _forbidden=true
   if [ "$_forbidden" = "true" ]; then
-    echo "Error: WORK_DIR '$WORK_DIR' is a home or entity directory." >&2
+    echo "Error: WORK_DIR '$WORK_DIR' is the home directory." >&2
     echo "  Agent harnesses must run in an explicit project working folder." >&2
-    echo "  HOME and ~/.\$ENTITY are not valid; dotfolders like ~/.forge are fine." >&2
-    echo "  Invoke from your project directory or set KOAD_IO_ROOTED=true for entity-home operation." >&2
+    echo "  cd to any project folder (with a .env at its root) and try again." >&2
     exit 64
   fi
   unset _work_dir_real _home_real _forbidden
