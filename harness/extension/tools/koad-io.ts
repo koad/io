@@ -66,7 +66,7 @@ function shellSplit(input: string): string[] {
   return result;
 }
 
-function execKoadio(args: string[], explicitCwd?: string): { stdout: string; stderr: string; exitCode: number } {
+function execKoadio(args: string[], explicitCwd?: string, timeoutSec?: number): { stdout: string; stderr: string; exitCode: number; cwd: string } {
   const launcher = resolveCascadeLauncher();
   const cmd = `${launcher} ${args.map(a => JSON.stringify(a)).join(" ")}`;
   // Resolve CWD: explicit override > HARNESS_WORK_DIR > entity home > process.cwd()
@@ -80,7 +80,7 @@ function execKoadio(args: string[], explicitCwd?: string): { stdout: string; std
     const result = cp.spawnSync("bash", ["-c", cmd], {
       env: process.env,
       cwd,
-      timeout: 15000,
+      timeout: (timeoutSec ?? 300) * 1000,
       stdio: "pipe",
     });
     return {
@@ -124,6 +124,7 @@ export function registerKoadioTool(pi: ExtensionAPI): void {
       args: Type.Optional(Type.String({ description: "Additional arguments (single string, space-split). Prefer args_list for multi-word args." })),
       args_list: Type.Optional(Type.Array(Type.String(), { description: "Additional arguments as an array. Preferred over args — no splitting needed." })),
       cwd: Type.Optional(Type.String({ description: "Working directory override. Default: HARNESS_WORK_DIR > entity home > session CWD." })),
+      timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)." })),
       type: Type.Optional(Type.String({ description: "Emission type for emit (notice, warning, error)." })),
       slug: Type.Optional(Type.String({ description: "Topic slug for conversation." })),
     }),
@@ -169,7 +170,7 @@ export function registerKoadioTool(pi: ExtensionAPI): void {
         for (const a of shellSplit(params.args)) execArgs.push(a);
       }
 
-      const result = execKoadio(execArgs, params.cwd as string | undefined);
+      const result = execKoadio(execArgs, params.cwd as string | undefined, params.timeout as number | undefined);
 
       const out = (result.stdout || "").slice(0, 4000);
       const err = (result.stderr || "").slice(0, 2000);
