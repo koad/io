@@ -12,10 +12,23 @@
 if [[ -z "${DISPLAY:-}" ]]; then
   SERVICE_NAME="${1:-}"
   if [[ -z "$SERVICE_NAME" ]]; then
+    # Try to detect from CWD via assert/datadir
+    if [ -f "$HOME/.koad-io/commands/assert/datadir/command.sh" ]; then
+      source "$HOME/.koad-io/commands/assert/datadir/command.sh" 2>/dev/null || true
+    fi
+    if [[ -n "${DATADIR:-}" ]]; then
+      cd "$DATADIR"
+      # Derive screen name from DATADIR — same pattern as start command
+      SCREEN_NAME=$(echo "$DATADIR" | sed "s|$HOME/\.||; s|/|-|g")
+      echo "restart: headless → stop+start ${SCREEN_NAME}"
+      "$HOME/.koad-io/commands/stop/command.sh" "$@"
+      exec "$HOME/.koad-io/commands/start/command.sh" "$@"
+    fi
     echo "restart: service name required (headless mode)" >&2
     exit 1
   fi
 
+  # Explicit service name — use daemon API
   DAEMON_URL="${KOAD_IO_CONTROL_URL:-http://${KOAD_IO_BIND_IP:-10.10.10.10}:${KOAD_IO_CONTROL_PORT:-28283}}"
   echo "restart: headless → ${DAEMON_URL}/api/service/restart (${SERVICE_NAME})"
 
