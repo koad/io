@@ -134,7 +134,9 @@ for entry in $TARGETS; do
     fi
   fi
   parts="${parts}${fragment},"
-  if echo "$fragment" | grep -q '"alive":true'; then
+  if echo "$fragment" | grep -q '"degraded":true'; then
+    dead=$((dead + 1))
+  elif echo "$fragment" | grep -q '"alive":true'; then
     alive=$((alive + 1))
   else
     dead=$((dead + 1))
@@ -167,15 +169,15 @@ echo "$rec" | jq -r '.targets[] | "\(.host_port // .label)|\(.label)|\(if .alive
     info="$label"
     [ -n "$entity" ] && info="${info} (${entity})"
     if [ "$degraded" = "true" ]; then
-      printf '  %s◐%s %s%s%s  %s%s%s  %sHTTP %s (expected %s) %4sms%s\n' \
-        "$Y" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$Y" "$status" "$expected" "$ms" "$R"
+      printf '  %s○%s %s%s%s  %sDOWN%s  %sHTTP %s (expected %s) %4sms%s\n' \
+        "$RED" "$R" "$B" "$host_port" "$R" "$RED" "$R" "$D" "$status" "$expected" "$ms" "$R"
     else
       printf '  %s●%s %s%s%s  %s%s%s  %sHTTP %s %4sms%s\n' \
         "$GREEN" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$GREEN" "$status" "$ms" "$R"
     fi
   else
-    printf '  %s○%s %s%s%s  %s%s%s  %s%s (%sms)%s\n' \
-      "$RED" "$R" "$B" "$host_port" "$R" "$D" "$label" "$R" "$RED" "$err" "$ms" "$R"
+    printf '  %s○%s %s%s%s  %s%s%s  %sDOWN (%sms)%s\n' \
+      "$RED" "$R" "$B" "$host_port" "$R" "$D" "$label" "$R" "$RED" "$ms" "$R"
   fi
 done
 
