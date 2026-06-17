@@ -724,7 +724,7 @@ export function registerBodyTools(pi: ExtensionAPI): void {
       }
       return {
         content: [{ type: "text", text: lines.join("\n") }],
-        details: parsed,
+        details: { ...parsed, exitCode: 0 },
       };
     },
   });
