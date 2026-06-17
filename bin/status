@@ -176,7 +176,7 @@ echo "$rec" | jq -r '.targets[] | "\(.host_port // .label)|\(.label)|\(if .alive
         "$GREEN" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$GREEN" "$status" "$ms" "$R"
     fi
   else
-    printf '  %s○%s %s%s%s  %s%s%s  %sDOWN %s(%sms)%s\n' \
+    printf '  %s○%s %s%s%s  %s%s%s  %sDOWN %s (%sms)%s\n' \
       "$RED" "$R" "$B" "$host_port" "$R" "$D" "$label" "$R" "$RED" "$err" "$ms" "$R"
   fi
 done
