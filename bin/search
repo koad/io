@@ -641,13 +641,13 @@ _mode_stale() {
           _display_md "$_md"
           echo "  (${_age}d untouched)"
           _found=1
+          [[ $LIMIT -gt 0 ]] && [[ $_found -ge $LIMIT ]] && break 3
         fi
       done < <(find "$_path" -name '*.md' $(_exclude_find "$_path") 2>/dev/null)
     done
     [[ $_entity_found -eq 1 ]] && echo
   done
 
-  [[ $LIMIT -gt 0 ]] && return 0  # limit applied by caller
   [[ $_found -eq 0 ]] && echo "nothing stale — all active work is fresh"
   return 0
 }
@@ -682,6 +682,7 @@ _mode_atlas() {
         _entry="$(printf '\033[0;36m%s\033[0m  \033[0;33m%s\033[0m  [\033[0;35m%s\033[0m]\n' "$_md" "${_title:-}" "$_status")"
         _by_status["$_norm"]="${_by_status[$_norm]}${_entry}"
         _total=$((_total + 1))
+        [[ $LIMIT -gt 0 ]] && [[ $_total -ge $LIMIT ]] && break 3
       done < <(find "$_path" -name '*.md' $(_exclude_find "$_path") 2>/dev/null)
     done
   done
