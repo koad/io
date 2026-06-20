@@ -104,26 +104,20 @@ const SUBSCRIPTIONS_BY_BACKEND: Record<DDPBackend, string[]> = {
     "passengers",
     "current",
   ],
-  control: [
-    "flights.active",
-    "flights.recent",
-    "harnesses.active",
-    "harnesses.recent",
-  ],
-  live: [
-    "sessions.harness",
-  ],
+  control: [],
+  live: [],
 };
 
 export interface DDPClientEvents {
-  emission:    [event: DDPEvent, record: EmissionRecord];
-  bond:        [event: DDPEvent, record: BondRecord];
-  flight:      [event: DDPEvent, record: FlightRecord];
-  session:     [event: DDPEvent, record: SessionRecord];
-  entity:      [event: DDPEvent, record: EntityRecord];
-  health:      [health: HealthSnapshot];
-  connected:   [];
-  disconnected:[];
+  emission:         [event: DDPEvent, record: EmissionRecord];
+  bond:             [event: DDPEvent, record: BondRecord];
+  flight:           [event: DDPEvent, record: FlightRecord];
+  session:          [event: DDPEvent, record: SessionRecord];
+  entity:           [event: DDPEvent, record: EntityRecord];
+  health:           [health: HealthSnapshot];
+  connected:        [];
+  disconnected:     [];
+  ownSessionChange: [record: SessionRecord];
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +150,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer:      ReturnType<typeof setInterval>  | null = null;
   private _running        = false;
+  private _ownSessionId: string | null = null;
 
   // Subscription readiness — tracks which subs have received their 'ready' message.
   // An empty map means we haven't subscribed yet (not connected).
@@ -200,6 +195,27 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   get emissionsList()  { return Array.from(this.emissions.values()); }
   get bondsList()      { return Array.from(this.bonds.values()); }
   get isConnected()    { return this.ws?.readyState === WebSocket.OPEN; }
+
+  // ── Own session tracking ──────────────────────────────────────────
+
+  /** Set the harness's own ApplicationSessions document ID. */
+  setOwnSessionId(id: string): void {
+    this._ownSessionId = id;
+    // If the session doc is already in the local index, emit immediately
+    const existing = this.sessions.get(id);
+    if (existing) this.emit("ownSessionChange", existing);
+  }
+
+  /** Get the harness's own ApplicationSessions document ID. */
+  getOwnSessionId(): string | null {
+    return this._ownSessionId;
+  }
+
+  /** Get the harness's own session record from the local DDP index, if known. */
+  getOwnSessionDoc(): SessionRecord | null {
+    if (!this._ownSessionId) return null;
+    return this.sessions.get(this._ownSessionId) ?? null;
+  }
 
   /** True when all expected subscriptions have received their 'ready' message. */
   get isWarm(): boolean {
@@ -352,7 +368,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
         if (msg.collection === "emissions") this.onEmissionAdded(msg);
         else if (msg.collection === "bonds") this.onBondAdded(msg);
         else if (msg.collection === "Flights") this.onFlightAdded(msg);
-        else if (msg.collection === "HarnessSessions" || msg.collection === "LibrarySessions" || msg.collection === "sessions") this.onSessionAdded(msg);
+        else if (msg.collection === "HarnessSessions" || msg.collection === "LibrarySessions" || msg.collection === "sessions" || msg.collection === "ApplicationSessions") this.onSessionAdded(msg);
         else if (msg.collection === "Entities") this.onEntityAdded(msg);
         else if (msg.collection === "health") this.onHealthUpdate(msg.fields as any);
         break;
@@ -361,7 +377,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
         if (msg.collection === "emissions") this.onEmissionChanged(msg);
         else if (msg.collection === "bonds") this.onBondChanged(msg);
         else if (msg.collection === "Flights") this.onFlightChanged(msg);
-        else if (msg.collection === "HarnessSessions" || msg.collection === "LibrarySessions" || msg.collection === "sessions") this.onSessionChanged(msg);
+        else if (msg.collection === "HarnessSessions" || msg.collection === "LibrarySessions" || msg.collection === "sessions" || msg.collection === "ApplicationSessions") this.onSessionChanged(msg);
         else if (msg.collection === "Entities") this.onEntityChanged(msg);
         else if (msg.collection === "health") this.onHealthUpdate(msg.fields as any);
         break;
@@ -370,7 +386,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
         if (msg.collection === "emissions") this.onEmissionRemoved(msg);
         else if (msg.collection === "bonds") this.onBondRemoved(msg);
         else if (msg.collection === "Flights") this.onFlightRemoved(msg);
-        else if (msg.collection === "HarnessSessions" || msg.collection === "LibrarySessions" || msg.collection === "sessions") this.onSessionRemoved(msg);
+        else if (msg.collection === "HarnessSessions" || msg.collection === "LibrarySessions" || msg.collection === "sessions" || msg.collection === "ApplicationSessions") this.onSessionRemoved(msg);
         else if (msg.collection === "Entities") this.onEntityRemoved(msg);
         break;
 
@@ -537,6 +553,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
     record._id = msg.id;
     this.sessions.set(msg.id, record);
     this.emit("session", "added", record);
+    if (msg.id === this._ownSessionId) this.emit("ownSessionChange", record);
   }
 
   private onSessionChanged(msg: { id: string; fields?: Record<string, unknown>; cleared?: string[] }): void {
@@ -548,6 +565,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
     }
     if (msg.cleared) for (const key of msg.cleared) delete (existing as any)[key];
     this.emit("session", "changed", existing);
+    if (msg.id === this._ownSessionId) this.emit("ownSessionChange", existing);
   }
 
   private onSessionRemoved(msg: { id: string }): void {

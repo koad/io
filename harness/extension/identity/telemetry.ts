@@ -14,6 +14,17 @@ import { flushSession, emitUpdate, bootstrapFromPiSession } from "./session";
 import { pollHealth, updateStatusIndicators, wireDDPHandlers } from "./health";
 
 // ---------------------------------------------------------------------------
+// Module-level own-session tracking
+// ---------------------------------------------------------------------------
+
+let _ownSessionId: string | null = null;
+
+/** Get the harness's own ApplicationSessions document ID, if known. */
+export function getOwnSessionId(): string | null {
+  return _ownSessionId;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -48,7 +59,7 @@ export function createTelemetrySession(
   const sessionsDir = process.env.KOAD_IO_HARNESS_SESSIONS_DIR ?? "";
   const mcpToken = process.env.KOAD_IO_MCP_SESSION_TOKEN ?? "";
   const emitEnabled = process.env.KOAD_IO_EMIT === "1";
-  const emissionId = process.env.HARNESS_EMISSION_ID ?? "";
+
   const _ip = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
   const daemonHttpUrl = process.env.KOAD_IO_DAEMON_URL ?? `http://${_ip}:${process.env.KOAD_IO_PORT ?? "28282"}`;
   const controlHttpUrl = process.env.KOAD_IO_CONTROL_URL ?? `http://${_ip}:${process.env.KOAD_IO_CONTROL_PORT ?? "28283"}`;
@@ -63,7 +74,7 @@ export function createTelemetrySession(
   }
 
   function emit(payload: Record<string, unknown>): void {
-    emitUpdate(clients.control, emitEnabled, emissionId, payload);
+    emitUpdate(clients.control, emitEnabled, payload);
   }
 
   // -----------------------------------------------------------------
@@ -230,6 +241,27 @@ export function createTelemetrySession(
       emit({
         status_line: `${entity} online | ${modelLabel}${id.flightId ? ` | ${id.flightId.split("-").slice(-2).join("-")}` : ""}${id.flightPlan ? ` | ${briefSlug(id.flightPlan)}` : ""}`,
       });
+
+      // Declare work identity on the control-tower connection.
+      // By now the DDP WebSocket should be open (500ms+ boot delay).
+      if (clients.control?.isConnected) {
+        clients.control.call('session.hello', {
+          entity,
+          flightId: id.flightId || undefined,
+          model: modelLabel || undefined,
+          harness: 'pi',
+          host: id.host,
+          pid: process.pid,
+          cwd: id.piSessionCwd || process.env.PWD || process.cwd(),
+          operator: id.operator || undefined,
+        }).then((result: any) => {
+          if (result && typeof result._id === "string") {
+            id.ownSessionId = result._id;
+            _ownSessionId = result._id;
+            clients.control.setOwnSessionId(result._id);
+          }
+        }).catch(() => {});
+      }
     }
     setTimeout(tryBootstrap, bootDelay);
   });
@@ -408,6 +440,21 @@ export function createTelemetrySession(
     }
     storeCtx(ctx);
     refresh();
+
+    // Push live session telemetry to ApplicationSessions on every tool call.
+    // The overview dashboard reads these fields for session cards.
+    if (clients.control?.isConnected) {
+      const uptimeS = Math.floor((Date.now() - id.sessionStartedAt.getTime()) / 1000);
+      clients.control.call('emit.update', {
+        tokensIn: tel.tokensIn,
+        tokensOut: tel.tokensOut,
+        cost: tel.totalCost,
+        turnCount: tel.turnCount,
+        toolCount: tel.toolCount,
+        contextPct: tel.contextPct,
+        durationMs: uptimeS * 1000,
+      }).catch(() => {});
+    }
   });
 
   // ── Flight landing message renderer ─────────────────────────────

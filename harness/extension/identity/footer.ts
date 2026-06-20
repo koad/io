@@ -30,6 +30,7 @@ export interface FooterIdentity {
   sessionStartedAt: Date;
   currentProvider: string;
   currentModel: string;
+  ownSessionId: string;
 }
 
 export function footerIdentityDefaults(): FooterIdentity {
@@ -45,6 +46,7 @@ export function footerIdentityDefaults(): FooterIdentity {
     sessionStartedAt: new Date(),
     currentProvider: process.env.ENTITY_PI_PROVIDER ?? process.env.PROVIDER ?? "",
     currentModel: process.env.ENTITY_PI_MODEL ?? process.env.MODEL ?? "",
+    ownSessionId: "",
   };
 }
 
