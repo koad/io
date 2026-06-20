@@ -9,6 +9,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { getDDPClient, getDDPClients, type DDPClient, type SessionRecord } from "../ddp";
+import { evalOnTarget } from "./meteor-shell";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -236,11 +237,14 @@ export function registerDDPTool(pi: ExtensionAPI): void {
             return { content: [{ type: "text", text: "sessionId is required for sub=session" }] };
           }
 
-          // Search across all backends
+          // Search across all backends — exact match first, then prefix match
           let found: SessionRecord | null = null;
           let foundBackend = "";
           for (const [backend, client] of clients) {
-            const hit = client.sessionsList.find(s => s._id === id);
+            let hit = client.sessionsList.find(s => s._id === id);
+            if (!hit && id.length >= 6) {
+              hit = client.sessionsList.find(s => s._id.startsWith(id));
+            }
             if (hit) { found = hit; foundBackend = backend; break; }
           }
 
@@ -266,6 +270,7 @@ export function registerDDPTool(pi: ExtensionAPI): void {
           if (s.harness)            lines.push(`  harness:   ${s.harness}`);
           if (s.pid != null)        lines.push(`  pid:       ${s.pid}`);
           if (s.spirit)             lines.push(`  spirit:    ${s.spirit}`);
+          if ((s as any).status_line) lines.push(`  status:    ${(s as any).status_line}`);
           lines.push(`  startedAt: ${fmtDate(s.startedAt)}`);
           lines.push(`  lastSeen:  ${fmtDate(s.lastSeen)}`);
           if (s.endedAt)            lines.push(`  endedAt:   ${fmtDate(s.endedAt)}`);
@@ -283,10 +288,10 @@ export function registerDDPTool(pi: ExtensionAPI): void {
             lines.push("");
             lines.push(`  ── last ${sigCandidates.length} signals ──`);
             for (const sig of sigCandidates) {
-              const type = sig.type ?? "?";
+              const type = ((sig.type ?? "?") as string).slice(0, 25);
               const body = trunc80(sig.body);
               const at = sig.startedAt ? fmtDate(sig.startedAt).slice(11) : "?";
-              lines.push(`  ${type.padEnd(12)} ${at}  ${body}`);
+              lines.push(`  ${type.padEnd(25)} ${at}  ${body}`);
             }
           }
 
@@ -340,52 +345,46 @@ export function registerDDPTool(pi: ExtensionAPI): void {
 
         // ── NEW: publications — list available publications ────────────
         case "publications": {
-          // Try to query via meteor_shell on control then daemon
-          const targets = ["control", "daemon"] as const;
+          // Use meteor_shell's evalOnTarget to query publication lists
+          const targets = ["control", "daemon", "live"] as const;
           const lines: string[] = [];
+          const pubCode = `Object.keys(Meteor.server.publish_handlers).sort()`;
 
           for (const t of targets) {
             const client = getDDPClient(t);
             if (!client?.isConnected) continue;
 
-            try {
-              // Attempt to list publications via a Meteor introspection method.
-              // Not all servers have this — degrade gracefully.
-              const result = await client.call("eval.server", `
-                (function() {
-                  try {
-                    // Meteor 3: publications are on Meteor.server.publish_handlers
-                    if (typeof Meteor !== 'undefined' && Meteor.server && Meteor.server.publish_handlers) {
-                      return Object.keys(Meteor.server.publish_handlers).sort();
-                    }
-                    // Fallback: try to find the publication registry
-                    if (typeof globalThis !== 'undefined' && globalThis.__koad_pub_list) {
-                      return globalThis.__koad_pub_list;
-                    }
-                    return null;
-                  } catch(e) { return String(e); }
-                })()
-              `);
+            const result = await evalOnTarget(t, pubCode);
 
-              lines.push(`── ${t} ──`);
-              if (result === null || result === undefined) {
-                lines.push("  (publication introspection not available)");
-              } else if (typeof result === "string") {
-                lines.push(`  (error: ${result})`);
-              } else if (Array.isArray(result)) {
-                if (result.length === 0) {
+            lines.push(`── ${t} ──`);
+            if (result.error) {
+              lines.push(`  (${result.error})`);
+            } else if (result.raw === null || result.raw === undefined) {
+              lines.push("  (publication introspection not available)");
+            } else if (Array.isArray(result.raw)) {
+              if (result.raw.length === 0) {
+                lines.push("  (no publications registered)");
+              } else {
+                for (const name of result.raw) {
+                  lines.push(`  ${name}`);
+                }
+              }
+            } else if (typeof result.raw === "string") {
+              lines.push(`  (error: ${result.raw})`);
+            } else {
+              // Fallback: try to format as object keys
+              if (result.raw && typeof result.raw === "object") {
+                const keys = Object.keys(result.raw);
+                if (keys.length === 0) {
                   lines.push("  (no publications registered)");
                 } else {
-                  for (const name of result) {
+                  for (const name of keys.sort()) {
                     lines.push(`  ${name}`);
                   }
                 }
               } else {
-                lines.push(`  (unexpected result type: ${typeof result})`);
+                lines.push(`  (unexpected result type: ${typeof result.raw})`);
               }
-            } catch (err: any) {
-              lines.push(`── ${t} ──`);
-              lines.push(`  (failed to query: ${err.message || err})`);
             }
           }
 

@@ -208,7 +208,7 @@ export function registerMeteorShellTool(pi: ExtensionAPI): void {
 // Core eval
 // ---------------------------------------------------------------------------
 
-async function evalOnTarget(target: string, code: string): Promise<{
+export async function evalOnTarget(target: string, code: string): Promise<{
   raw?: unknown;
   formatted?: string;
   error?: string;

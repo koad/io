@@ -75,6 +75,7 @@ export interface SessionRecord {
   harness?:     string;
   pid?:         number;
   spirit?:      string;
+  status_line?: string;
 }
 
 export interface EntityRecord {
@@ -105,7 +106,9 @@ const SUBSCRIPTIONS_BY_BACKEND: Record<DDPBackend, string[]> = {
     "current",
   ],
   control: [],
-  live: [],
+  live: [
+    "current",
+  ],
 };
 
 export interface DDPClientEvents {
@@ -544,6 +547,12 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
     if (!s.entity && s.entityId) s.entity = String(s.entityId);
     if (!s.status && s.state) s.status = String(s.state);
     if (!s.model && s.modelId) s.model = String(s.modelId);
+    // Map timestamp fields from different collection shapes
+    if (!s.startedAt && (s as any).timestamp) s.startedAt = String((s as any).timestamp);
+    if (!s.lastSeen && (s as any).updatedAt) s.lastSeen = String((s as any).updatedAt);
+    if (!s.startedAt && (s as any).established) s.startedAt = String((s as any).established);
+    // Preserve status_line if present
+    if ((s as any).status_line) (s as any).status_line = String((s as any).status_line);
     return s as SessionRecord;
   }
 

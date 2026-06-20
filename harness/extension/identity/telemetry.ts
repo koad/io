@@ -3,7 +3,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import * as os from "node:os";
-import { DDPClient } from "../ddp";
+import { DDPClient, getDDPClient } from "../ddp";
 import { createFooterComponent, FooterIdentity, footerIdentityDefaults, briefSlug } from "./footer";
 import { clearOutfitCache } from "../utils/outfit";
 import { compactModel } from "../utils/format";
@@ -259,6 +259,9 @@ export function createTelemetrySession(
             id.ownSessionId = result._id;
             _ownSessionId = result._id;
             clients.control.setOwnSessionId(result._id);
+            // Also wire the live client so the session doc lookup works
+            const live = getDDPClient("live");
+            if (live) live.setOwnSessionId(result._id);
           }
         }).catch(() => {});
       }

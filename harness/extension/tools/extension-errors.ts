@@ -53,8 +53,10 @@ export function registerExtensionErrorsTool(pi: ExtensionAPI): void {
       lines.push("── Own session ──");
       const ownSid = getOwnSessionId();
       if (ownSid) {
+        // Check control first, then live (where ApplicationSessions docs live)
         const control = getDDPClient("control");
-        const doc = control?.getOwnSessionDoc() ?? null;
+        const live = getDDPClient("live");
+        const doc = control?.getOwnSessionDoc() ?? live?.getOwnSessionDoc() ?? null;
         if (doc) {
           const entity = doc.entity || doc.entityHandle || doc.entityId || "?";
           const status = doc.status || doc.state || "?";
