@@ -74,7 +74,9 @@ export function createTelemetrySession(
   }
 
   function emit(payload: Record<string, unknown>): void {
-    emitUpdate(clients.control, emitEnabled, payload);
+    const sessionId = process.env.HARNESS_SESSION_ID;
+    if (!sessionId) return;
+    emitUpdate(clients.control, emitEnabled, { ...payload, sessionId });
   }
 
   // -----------------------------------------------------------------
@@ -168,17 +170,18 @@ export function createTelemetrySession(
     tuiRef?.requestRender();
 
     // Emit error to control tower via DDP
-    if (clients.control?.isConnected) {
+    const sessionIdErr = process.env.HARNESS_SESSION_ID;
+    if (clients.control?.isConnected && sessionIdErr) {
       clients.control.call('emit.insert', {
         entity,
         type: "harness.error",
         body: `${toolName ? `[${toolName}] ` : ""}${msg}`,
+        sessionId: sessionIdErr,
         timestamp: new Date(),
         meta: {
           payload: {
             toolName: toolName ?? null,
             errorCount: kingdom.errorCount,
-            sessionId: process.env.HARNESS_SESSION_ID,
           },
           source: "pi-telemetry",
         },
@@ -244,9 +247,11 @@ export function createTelemetrySession(
 
       // Declare work identity on the control-tower connection.
       // By now the DDP WebSocket should be open (500ms+ boot delay).
-      if (clients.control?.isConnected) {
+      const harnessSessionId = process.env.HARNESS_SESSION_ID;
+      if (clients.control?.isConnected && harnessSessionId) {
         clients.control.call('session.hello', {
           entity,
+          sessionId: harnessSessionId,
           flightId: id.flightId || undefined,
           model: modelLabel || undefined,
           harness: 'pi',
@@ -411,10 +416,13 @@ export function createTelemetrySession(
           : `${elapsedMs}ms`;
 
         if (clients.control?.isConnected) {
+          const sessionIdSlow = process.env.HARNESS_SESSION_ID;
+          if (!sessionIdSlow) return;
           clients.control.call('emit.insert', {
             entity,
             type: "harness.slow-tool",
             body: `${event.toolName} took ${elapsedFmt}`,
+            sessionId: sessionIdSlow,
             timestamp: new Date(),
             meta: {
               payload: {
@@ -422,7 +430,6 @@ export function createTelemetrySession(
                 elapsedMs,
                 threshold: SLOW_TOOL_THRESHOLD_MS,
                 turnIndex: tel.turnCount,
-                sessionId: process.env.HARNESS_SESSION_ID,
               },
               source: "pi-telemetry",
             },
@@ -444,11 +451,13 @@ export function createTelemetrySession(
     storeCtx(ctx);
     refresh();
 
-    // Push live session telemetry to ApplicationSessions on every tool call.
+    // Push live session telemetry to HarnessSessions on every tool call.
     // The overview dashboard reads these fields for session cards.
-    if (clients.control?.isConnected) {
+    const sessionId = process.env.HARNESS_SESSION_ID;
+    if (clients.control?.isConnected && sessionId) {
       const uptimeS = Math.floor((Date.now() - id.sessionStartedAt.getTime()) / 1000);
       clients.control.call('emit.update', {
+        sessionId,
         tokensIn: tel.tokensIn,
         tokensOut: tel.tokensOut,
         cost: tel.totalCost,

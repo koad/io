@@ -32,7 +32,6 @@ import type { DDPClient } from "./ddp";
 
 const HOME = os.homedir();
 const FORGE_HOOKS = path.join(HOME, ".forge", "hooks");
-const EMIT_URL = (process.env.KOAD_IO_CONTROL_URL ?? `http://${process.env.KOAD_IO_BIND_IP ?? "10.10.10.10"}:${process.env.KOAD_IO_CONTROL_PORT ?? "28283"}`) + "/emit";
 const ENTITY = process.env.ENTITY ?? "";
 const EMIT_ENABLED = process.env.KOAD_IO_EMIT === "1";
 
@@ -80,30 +79,17 @@ function runHookCapture(name: string, timeout?: number): string {
 }
 
 function emitTelemetry(type: string, body: string, meta?: Record<string, unknown>): void {
-  if (!EMIT_ENABLED) return;
-  // Prefer DDP when available; fall back to REST
-  if (_controlDDP?.isConnected) {
-    _controlDDP.call('emit.insert', {
-      entity: ENTITY,
-      type,
-      body,
-      timestamp: new Date(),
-      meta: { payload: meta ?? {}, source: "pi-hooks" },
-    }).catch(() => {});
-  } else {
-    fetch(EMIT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        entity: ENTITY,
-        type,
-        body,
-        timestamp: new Date().toISOString(),
-        meta: { payload: meta ?? {}, source: "pi-hooks" },
-      }),
-      signal: AbortSignal.timeout(2000),
-    }).catch(() => {});
-  }
+  const sessionId = process.env.HARNESS_SESSION_ID;
+  if (!EMIT_ENABLED || !sessionId) return;
+  if (!_controlDDP?.isConnected) return;
+  _controlDDP.call('emit.insert', {
+    entity: ENTITY,
+    type,
+    body,
+    sessionId,
+    timestamp: new Date(),
+    meta: { payload: meta ?? {}, source: "pi-hooks" },
+  }).catch(() => {});
 }
 
 let _controlDDP: DDPClient | undefined;
