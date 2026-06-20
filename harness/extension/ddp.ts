@@ -135,6 +135,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   private session:    string | null = null;
   private nextId      = 1;
   private pendingSubs = new Map<string, { name: string; resolve: () => void; reject: (e: Error) => void }>();
+  private pendingMethods = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer:      ReturnType<typeof setInterval>  | null = null;
   private _running        = false;
@@ -205,6 +206,29 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
       await new Promise(r => setTimeout(r, 100));
     }
     return this.isWarm;
+  }
+
+  /**
+   * Call a DDP method on the server. Returns a promise that resolves with
+   * the result or rejects with the error. Connect middleware timeout is 10s.
+   */
+  call(methodName: string, ...args: unknown[]): Promise<unknown> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error(`DDP not connected (${this.backend})`));
+    }
+    return new Promise((resolve, reject) => {
+      const id = this.nextIdStr();
+      this.pendingMethods.set(id, { resolve, reject });
+      this.send({ msg: "method", method: methodName, params: args, id });
+      // Safety timeout: don't block forever if the server never responds
+      setTimeout(() => {
+        const pending = this.pendingMethods.get(id);
+        if (pending) {
+          this.pendingMethods.delete(id);
+          pending.reject(new Error(`DDP method ${methodName} timed out`));
+        }
+      }, 10_000);
+    });
   }
 
   connect(): this {
@@ -335,6 +359,21 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
           const reason = msg.error?.error ?? "subscription failed";
           pending.reject(new Error(`[${pending.name}] ${reason}`));
           this.pendingSubs.delete(msg.id);
+        }
+        break;
+      }
+
+      case "result": {
+        const pending = this.pendingMethods.get(msg.id);
+        if (pending) {
+          this.pendingMethods.delete(msg.id);
+          if (msg.error) {
+            const errMsg = typeof msg.error === "object" && (msg.error as any).error
+              ? (msg.error as any).error : String(msg.error);
+            pending.reject(new Error(errMsg));
+          } else {
+            pending.resolve(msg.result);
+          }
         }
         break;
       }

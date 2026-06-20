@@ -28,6 +28,7 @@ import { execSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { DDPClient } from "./ddp";
 
 const HOME = os.homedir();
 const FORGE_HOOKS = path.join(HOME, ".forge", "hooks");
@@ -80,26 +81,40 @@ function runHookCapture(name: string, timeout?: number): string {
 
 function emitTelemetry(type: string, body: string, meta?: Record<string, unknown>): void {
   if (!EMIT_ENABLED) return;
-  fetch(EMIT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  // Prefer DDP when available; fall back to REST
+  if (_controlDDP?.isConnected) {
+    _controlDDP.call('emit.insert', {
       entity: ENTITY,
       type,
       body,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       meta: { payload: meta ?? {}, source: "pi-hooks" },
-    }),
-    signal: AbortSignal.timeout(2000),
-  }).catch(() => {});
+    }).catch(() => {});
+  } else {
+    fetch(EMIT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        entity: ENTITY,
+        type,
+        body,
+        timestamp: new Date().toISOString(),
+        meta: { payload: meta ?? {}, source: "pi-hooks" },
+      }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(() => {});
+  }
 }
+
+let _controlDDP: DDPClient | undefined;
 
 // Track turn state for telemetry
 let _turnIndex = 0;
 let _agentStartedAt = 0;
 let _promptText = "";
 
-export function registerHooks(pi: ExtensionAPI): void {
+export function registerHooks(pi: ExtensionAPI, controlDDP?: DDPClient): void {
+  _controlDDP = controlDDP;
   // ═══════════════════════════════════════════════════════════════════════════
   // session_start
   // ═══════════════════════════════════════════════════════════════════════════

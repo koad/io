@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { FooterIdentity, briefSlug } from "./footer";
 import { compactModel } from "../../utils/format";
 import type { Telemetry, KingdomState } from "./types";
+import type { DDPClient } from "../../ddp";
 
 // ---------------------------------------------------------------------------
 // Session flush (every 30s) — writes session state JSON
@@ -62,22 +63,18 @@ export function flushSession(
 }
 
 // ---------------------------------------------------------------------------
-// Emission update (via control-tower)
+// Emission update (via control-tower DDP)
 // ---------------------------------------------------------------------------
 
 export function emitUpdate(
-  emitHttpUrl: string,
+  control: DDPClient | undefined,
   emitEnabled: boolean,
   emissionId: string,
   payload: Record<string, unknown>,
 ): void {
   if (!emitEnabled || !emissionId) return;
-  fetch(`${emitHttpUrl}/emit/update`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ _id: emissionId, ...payload }),
-    signal: AbortSignal.timeout(2000),
-  }).catch(() => {});
+  if (!control?.isConnected) return;
+  control.call('emit.update', emissionId, payload).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------

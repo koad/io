@@ -63,7 +63,7 @@ export function createTelemetrySession(
   }
 
   function emit(payload: Record<string, unknown>): void {
-    emitUpdate(emitHttpUrl, emitEnabled, emissionId, payload);
+    emitUpdate(clients.control, emitEnabled, emissionId, payload);
   }
 
   // -----------------------------------------------------------------
@@ -156,15 +156,13 @@ export function createTelemetrySession(
     kingdom.errorCount++;
     tuiRef?.requestRender();
 
-    // Emit error to control tower
-    fetch(`${emitHttpUrl}/emit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    // Emit error to control tower via DDP
+    if (clients.control?.isConnected) {
+      clients.control.call('emit.insert', {
         entity,
         type: "harness.error",
         body: `${toolName ? `[${toolName}] ` : ""}${msg}`,
-        timestamp: new Date().toISOString(),
+        timestamp: new Date(),
         meta: {
           payload: {
             toolName: toolName ?? null,
@@ -173,9 +171,8 @@ export function createTelemetrySession(
           },
           source: "pi-telemetry",
         },
-      }),
-      signal: AbortSignal.timeout(2000),
-    }).catch(() => {});
+      }).catch(() => {});
+    }
   }
 
   // Tool execution timing
@@ -189,6 +186,17 @@ export function createTelemetrySession(
   pi.on("session_shutdown", () => {
     stopTimers();
     flush();
+    // Close the flight via DDP if this session was a dispatch
+    if (id.flightId && clients.control?.isConnected) {
+      const note = `session ended | t${tel.turnCount} ${tel.totalCost.toFixed(4)}`;
+      clients.control.call('dispatch.close', id.flightId, note, {
+        turns: tel.turnCount,
+        toolCalls: tel.toolCount,
+        inputTokens: tel.tokensIn,
+        outputTokens: tel.tokensOut,
+        cost: tel.totalCost,
+      }).catch(() => {});
+    }
   });
 
   let sessionNamed = false;
@@ -307,25 +315,15 @@ export function createTelemetrySession(
     }
     refresh();
 
-    // Push live stats to the control-tower flight record
-    if (id.flightId && tel.turnCount > 0) {
-      fetch(`${controlHttpUrl}/flight`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "stats",
-          _id: id.flightId,
-          stats: {
-            turns: tel.turnCount,
-            toolCalls: tel.toolCount,
-            inputTokens: tel.tokensIn,
-            outputTokens: tel.tokensOut,
-            cost: tel.totalCost,
-          },
-          model: id.currentModel || undefined,
-        }),
-        signal: AbortSignal.timeout(2000),
-      }).catch(() => {});
+    // Push live stats to the control-tower flight record via DDP
+    if (id.flightId && tel.turnCount > 0 && clients.control?.isConnected) {
+      clients.control.call('dispatch.stats', id.flightId, {
+        turns: tel.turnCount,
+        toolCalls: tel.toolCount,
+        inputTokens: tel.tokensIn,
+        outputTokens: tel.tokensOut,
+        cost: tel.totalCost,
+      }, id.currentModel || undefined).catch(() => {});
     }
   });
 
@@ -377,14 +375,12 @@ export function createTelemetrySession(
           ? `${(elapsedMs / 1000).toFixed(1)}s`
           : `${elapsedMs}ms`;
 
-        fetch(`${emitHttpUrl}/emit`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        if (clients.control?.isConnected) {
+          clients.control.call('emit.insert', {
             entity,
             type: "harness.slow-tool",
             body: `${event.toolName} took ${elapsedFmt}`,
-            timestamp: new Date().toISOString(),
+            timestamp: new Date(),
             meta: {
               payload: {
                 toolName: event.toolName,
@@ -395,9 +391,8 @@ export function createTelemetrySession(
               },
               source: "pi-telemetry",
             },
-          }),
-          signal: AbortSignal.timeout(2000),
-        }).catch(() => {});
+          }).catch(() => {});
+        }
       }
     }
 
