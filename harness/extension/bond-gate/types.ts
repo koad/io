@@ -16,6 +16,12 @@ export interface FileScope {
   write: string[];
   exec: string[];
   blocked: string[];
+  /** If non-empty, only files matching these extensions may be read. ".md", ".js", etc. */
+  read_extensions: string[];
+  /** If non-empty, only files matching these extensions may be written/edited/appended. ".md", ".js", etc. */
+  write_extensions: string[];
+  /** Extensions that are always blocked, regardless of path grants. ".asc", ".pem", etc. */
+  blocked_extensions: string[];
 }
 
 export interface ToolGrants {
@@ -85,13 +91,26 @@ export interface BondScope {
 export const HOME = os.homedir();
 export const FORGE_DIR = path.join(HOME, ".forge");
 
-export const DEFAULT_BLOCKED = ["/.env", "/.credentials", "/.git/", "/id/"];
+export const DEFAULT_BLOCKED = [
+  "/.env",
+  "/.credentials",
+  "/.git/",
+  "/id/",
+  "/.ssh/",
+  "/auth.json",
+  "/secrets/",
+  "/secret/",
+  "/private/",
+];
 
 export const EMPTY_FILE_SCOPE: FileScope = {
   read: [],
   write: [],
   exec: [],
   blocked: [...DEFAULT_BLOCKED],
+  read_extensions: [],
+  write_extensions: [],
+  blocked_extensions: [],
 };
 
 export const EMPTY_TOOL_GRANTS: ToolGrants = {
@@ -123,18 +142,34 @@ export const KOADIO_TOOLS = new Set([
   "channel_wait_for_next_turn", "channel_wait_for_state_change",
   "channel_event_fire",
   "search", "status", "music", "koad-io", "wait",
-  "mission",
+  "mission", "ddp",
+  "meteor_shell",
 ]);
 
 export const PI_BUILTIN_TOOLS = new Set(["read", "write", "edit", "bash", "ls", "grep", "find"]);
 
-export const GATED_DISPATCH_TOOLS = new Set(["dispatch", "dispatch_followup", "dispatch_complete"]);
+export const GATED_DISPATCH_TOOLS = new Set(["dispatch", "dispatch_followup", "dispatch_complete", "flight_update"]);
 
-export const GLOBAL_ALLOWED_TOOLS = new Set<string>();
+export const GLOBAL_ALLOWED_TOOLS = new Set<string>(["clipboard", "copy"]);
 export const SCOPED_SEARCH_TOOLS = new Set(["search"]);
-export const FILE_READ_TOOLS = new Set(["read", "ls", "find", "grep", "sin"]);
-export const FILE_WRITE_TOOLS = new Set(["write", "edit", "append", "mkdir", "cp", "mv", "rm", "chmod"]);
+export const FILE_READ_TOOLS = new Set(["read", "ls", "find", "grep", "sin", "cut"]);
+export const FILE_WRITE_TOOLS = new Set(["write", "edit", "append", "mkdir", "cp", "mv", "rm", "chmod", "paste", "cut"]);
 export const SHELL_TOOLS = new Set(["bash"]);
+
+export const CHANNEL_PARTICIPANT_TOOLS = new Set([
+  "wait_for_cue",
+  "raise_hand",
+  "channel_leave",
+  "channel_wait_for_next_turn",
+  "channel_state_read",
+]);
+
+export const CHANNEL_MODERATOR_TOOLS = new Set([
+  "channel_cue_deliver",
+  "channel_broadcast",
+  "channel_wait_for_state_change",
+  "channel_event_fire",
+]);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -189,6 +224,36 @@ export function isUnder(absolutePath: string, prefixes: string[]): boolean {
 export function isBlocked(absolutePath: string, blocked: string[]): boolean {
   const normalized = absolutePath + "/";
   return blocked.some(pattern => normalized.includes(pattern));
+}
+
+// ---------------------------------------------------------------------------
+// Extension helpers
+// ---------------------------------------------------------------------------
+
+export function fileExtension(absolutePath: string): string {
+  const base = path.basename(absolutePath);
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return "";
+  return base.slice(dot).toLowerCase();
+}
+
+/**
+ * Check if a file's extension is allowed by the scope.
+ * - If allowed_extensions is empty, all extensions are allowed (no restriction).
+ * - Otherwise, the file's extension must be in the allowed list.
+ * - Files with no extension are allowed only if "" is in the allowed list.
+ */
+export function isExtensionAllowed(absolutePath: string, allowedExtensions: string[]): boolean {
+  if (allowedExtensions.length === 0) return true;
+  const ext = fileExtension(absolutePath);
+  return allowedExtensions.some(a => a.toLowerCase() === ext);
+}
+
+/** Check if a file's extension is explicitly blocked by a deny-list. */
+export function isExtensionBlocked(absolutePath: string, blockedExtensions: string[]): boolean {
+  if (blockedExtensions.length === 0) return false;
+  const ext = fileExtension(absolutePath);
+  return blockedExtensions.some(a => a.toLowerCase() === ext);
 }
 
 // ---------------------------------------------------------------------------
