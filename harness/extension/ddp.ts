@@ -52,15 +52,29 @@ export interface FlightRecord {
 }
 
 export interface SessionRecord {
-  _id:        string;
-  entity?:    string;
-  sessionId?: string;
-  status?:    string;
-  host?:      string;
-  model?:     string;
-  lastSeen?:  string;
-  startedAt?: string;
-  endedAt?:   string;
+  _id:          string;
+  entity?:      string;
+  entityId?:    string;   // LibrarySessions / ApplicationSessions field
+  entityHandle?:string;   // alternate field name
+  sessionId?:   string;
+  status?:      string;
+  state?:       string;   // some collections use 'state' instead of 'status'
+  host?:        string;
+  model?:       string;
+  modelId?:     string;
+  lastSeen?:    string;
+  startedAt?:   string;
+  endedAt?:     string;
+  cost?:        number;
+  tokensIn?:    number;
+  tokensOut?:   number;
+  turnCount?:   number;
+  toolCount?:   number;
+  contextPct?:  number;
+  cwd?:         string;
+  harness?:     string;
+  pid?:         number;
+  spirit?:      string;
 }
 
 export interface EntityRecord {
@@ -82,7 +96,7 @@ export interface HealthSnapshot {
   controlUptime: number;
 }
 
-export type DDPBackend = "daemon" | "control";
+export type DDPBackend = "daemon" | "control" | "live";
 export type DDPEvent = "added" | "changed" | "removed";
 
 const SUBSCRIPTIONS_BY_BACKEND: Record<DDPBackend, string[]> = {
@@ -95,6 +109,9 @@ const SUBSCRIPTIONS_BY_BACKEND: Record<DDPBackend, string[]> = {
     "flights.recent",
     "harnesses.active",
     "harnesses.recent",
+  ],
+  live: [
+    "sessions.harness",
   ],
 };
 
@@ -195,6 +212,21 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   get warmProgress(): { ready: number; total: number } {
     const ready = [...this._subsReady.values()].filter(v => v).length;
     return { ready, total: this._subsTotal };
+  }
+
+  /**
+   * Subscribe to a DDP publication at runtime. Works like Meteor.subscribe() —
+   * sends a sub message and waits for the ready acknowledgement. Useful for
+   * pulling data the tool doesn't auto-subscribe to.
+   */
+  async subscribe(name: string, ...args: unknown[]): Promise<void> {
+    this._subsReady.set(name, false);
+    this._subsTotal = this._subsReady.size;
+    return new Promise((resolve, reject) => {
+      const id = this.nextIdStr();
+      this.pendingSubs.set(id, { name, resolve, reject });
+      this.send({ msg: "sub", id, name, params: args });
+    });
   }
 
   /** Wait for all expected subscriptions to receive their 'ready' message. */
@@ -320,7 +352,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
         if (msg.collection === "emissions") this.onEmissionAdded(msg);
         else if (msg.collection === "bonds") this.onBondAdded(msg);
         else if (msg.collection === "Flights") this.onFlightAdded(msg);
-        else if (msg.collection === "HarnessSessions") this.onSessionAdded(msg);
+        else if (msg.collection === "HarnessSessions" || msg.collection === "LibrarySessions" || msg.collection === "sessions") this.onSessionAdded(msg);
         else if (msg.collection === "Entities") this.onEntityAdded(msg);
         else if (msg.collection === "health") this.onHealthUpdate(msg.fields as any);
         break;
@@ -329,7 +361,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
         if (msg.collection === "emissions") this.onEmissionChanged(msg);
         else if (msg.collection === "bonds") this.onBondChanged(msg);
         else if (msg.collection === "Flights") this.onFlightChanged(msg);
-        else if (msg.collection === "HarnessSessions") this.onSessionChanged(msg);
+        else if (msg.collection === "HarnessSessions" || msg.collection === "LibrarySessions" || msg.collection === "sessions") this.onSessionChanged(msg);
         else if (msg.collection === "Entities") this.onEntityChanged(msg);
         else if (msg.collection === "health") this.onHealthUpdate(msg.fields as any);
         break;
@@ -338,7 +370,7 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
         if (msg.collection === "emissions") this.onEmissionRemoved(msg);
         else if (msg.collection === "bonds") this.onBondRemoved(msg);
         else if (msg.collection === "Flights") this.onFlightRemoved(msg);
-        else if (msg.collection === "HarnessSessions") this.onSessionRemoved(msg);
+        else if (msg.collection === "HarnessSessions" || msg.collection === "LibrarySessions" || msg.collection === "sessions") this.onSessionRemoved(msg);
         else if (msg.collection === "Entities") this.onEntityRemoved(msg);
         break;
 
@@ -488,8 +520,20 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
 
   // ── Session handlers ──────────────────────────────────────
 
+  /** Normalize session fields from different collection shapes. */
+  private normalizeSession(fields: Record<string, unknown>): SessionRecord {
+    const s = fields as SessionRecord & Record<string, unknown>;
+    // Map alternate field names
+    if (!s.entity && s.entityHandle) s.entity = String(s.entityHandle);
+    if (!s.entity && s.entityId) s.entity = String(s.entityId);
+    if (!s.status && s.state) s.status = String(s.state);
+    if (!s.model && s.modelId) s.model = String(s.modelId);
+    return s as SessionRecord;
+  }
+
   private onSessionAdded(msg: { id: string; fields?: Record<string, unknown> }): void {
-    const record = (msg.fields ?? {}) as SessionRecord;
+    const raw = msg.fields ?? {};
+    const record = this.normalizeSession(raw);
     record._id = msg.id;
     this.sessions.set(msg.id, record);
     this.emit("session", "added", record);
@@ -498,7 +542,10 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
   private onSessionChanged(msg: { id: string; fields?: Record<string, unknown>; cleared?: string[] }): void {
     const existing = this.sessions.get(msg.id);
     if (!existing) return;
-    if (msg.fields) Object.assign(existing, msg.fields);
+    if (msg.fields) {
+      const normalized = this.normalizeSession(msg.fields);
+      Object.assign(existing, normalized);
+    }
     if (msg.cleared) for (const key of msg.cleared) delete (existing as any)[key];
     this.emit("session", "changed", existing);
   }
@@ -563,25 +610,46 @@ export class DDPClient extends EventEmitter<DDPClientEvents> {
     return String(this.nextId++);
   }
 
+  // EJSON replacer — preserves Date objects as {"$date": ms} so they survive
+  // the JSON round-trip and pass Meteor's check(Date) on the server.
+  private static ejsonReplacer(_key: string, value: unknown): unknown {
+    if (value instanceof Date) {
+      return { $date: value.getTime() };
+    }
+    return value;
+  }
+
   private send(msg: Record<string, unknown>): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
+      this.ws.send(JSON.stringify(msg, DDPClient.ejsonReplacer));
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Factory (no singleton — supports multiple named connections)
+// Factory — named multi-connection registry
 // ---------------------------------------------------------------------------
 
+const _clients = new Map<string, DDPClient>();
 let _shared: DDPClient | null = null;
 
 export function createDDPClient(url?: string, backend: DDPBackend = "daemon"): DDPClient {
   const client = new DDPClient(url, backend);
   if (!_shared) _shared = client;
+  _clients.set(backend, client);
   return client;
 }
 
 export function getDDP(): DDPClient | null {
   return _shared;
+}
+
+/** Get a DDP client by backend name ("daemon" or "control"). */
+export function getDDPClient(backend: string): DDPClient | null {
+  return _clients.get(backend) ?? null;
+}
+
+/** Get all registered DDP clients. */
+export function getDDPClients(): ReadonlyMap<string, DDPClient> {
+  return _clients;
 }
