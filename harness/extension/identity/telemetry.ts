@@ -252,6 +252,7 @@ export function createTelemetrySession(
         clients.control.call('session.hello', {
           entity,
           sessionId: harnessSessionId,
+          conversationId: process.env.HARNESS_CONVERSATION_ID || undefined,
           flightId: id.flightId || undefined,
           model: modelLabel || undefined,
           harness: 'pi',

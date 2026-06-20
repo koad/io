@@ -78,6 +78,10 @@ while [[ $# -gt 0 ]]; do
       CONTINUE_FLAG="-c"
       shift
       ;;
+    --new-conversation)
+      NEW_CONVERSATION=1
+      shift
+      ;;
     --prompt|-p)
       _prompt_flag="$1"
       shift
@@ -154,14 +158,20 @@ fi
 
 # --- Rooted vs roaming cwd ------------------------------------------------
 
-HARNESS_WORK_DIR="${CWD:-$PWD}"
-export HARNESS_WORK_DIR
+CALL_DIR="${CWD:-$PWD}"
 
 if [ "${KOAD_IO_ROOTED:-false}" = "true" ]; then
   WORK_DIR="$ENTITY_DIR"
 else
-  WORK_DIR="$HARNESS_WORK_DIR"
+  WORK_DIR="$CALL_DIR"
 fi
+
+# HARNESS_WORK_DIR is the actual working lane exposed to the entity and the
+# bond gate. It must match WORK_DIR after rooted/roaming resolution; otherwise
+# launching a rooted entity from $HOME incorrectly grants /home/koad as the
+# work lane while pi itself runs in ~/.entity.
+HARNESS_WORK_DIR="$WORK_DIR"
+export HARNESS_WORK_DIR
 
 cd "$WORK_DIR"
 # --- Working folder guard -------------------------------------------------
@@ -252,6 +262,28 @@ export HARNESS_PID=$$
 # Format: <entity>-<harness-pid>. Unique per pi instance, shared by all
 # subprocesses via the process tree. Source of truth for session-watchers.
 export HARNESS_SESSION_ID="${ENTITY}-${HARNESS_PID}"
+
+# Conversation ID — stable across reloads. Persisted on disk so that
+# multiple harness sessions spanning pi reloads share one conversation
+# record in control-tower's HarnessConversations collection.
+# --new-conversation forces a fresh ID (e.g. for a new topic).
+_conversation_id_file="$_harness_pid_dir/conversation-id"
+if [ "${NEW_CONVERSATION:-0}" = "1" ] || [ ! -f "$_conversation_id_file" ]; then
+  if command -v uuidgen >/dev/null 2>&1; then
+    _conv_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+  elif command -v python3 >/dev/null 2>&1; then
+    _conv_id="$(python3 -c 'import uuid; print(str(uuid.uuid4()))')"
+  else
+    _conv_id="conv_$(date +%s)_$"
+  fi
+  echo "$_conv_id" > "$_conversation_id_file"
+  echo "[harness/pi] new conversation id: $_conv_id" >&2
+else
+  _conv_id="$(cat "$_conversation_id_file")"
+  echo "[harness/pi] resumed conversation id: $_conv_id" >&2
+fi
+export HARNESS_CONVERSATION_ID="$_conv_id"
+
 # Spirit — who's at the keyboard. Defaults to $USER until sovereign-login is wired.
 export KOAD_IO_SPIRIT="${KOAD_IO_SPIRIT:-${USER:-unknown}}"
 
@@ -449,9 +481,35 @@ _pi_on_exit() {
     _ct_url="${KOAD_IO_CONTROL_URL:-http://10.10.10.10:28283}"
     _runtime_path="${KOAD_IO_RUNTIME_PATH:-$HOME/.local/share/koad-io/runtime}"
     _dispatch_json="$_runtime_path/dispatches/$HARNESS_CONTROL_FLIGHT_ID/dispatch.json"
+    _run_jsonl="$_runtime_path/dispatches/$HARNESS_CONTROL_FLIGHT_ID/run.jsonl"
     _stats_json="{}"
     if [ -f "$_dispatch_json" ]; then
       _stats_json="$(python3 -c "import json,sys; d=json.load(open('$_dispatch_json')); print(json.dumps(d.get('stats') or {}))" 2>/dev/null || echo '{}')"
+    fi
+    # Capture files touched via git diff (if in a git repo)
+    _files_touched="[]"
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+      _files_touched="$(git diff --name-only 2>/dev/null | python3 -c "import sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))" 2>/dev/null || echo '[]')"
+    fi
+    # Capture stderr tail if pi stderr was logged
+    _stderr_tail=""
+    _stderr_log="$_runtime_path/dispatches/$HARNESS_CONTROL_FLIGHT_ID/stderr.log"
+    if [ -f "$_stderr_log" ]; then
+      _stderr_tail="$(tail -c 2000 "$_stderr_log" 2>/dev/null | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))" 2>/dev/null || echo '""')"
+    fi
+    # Write enriched outputs to run.jsonl
+    if [ -f "$_run_jsonl" ]; then
+      python3 -c "
+import json, sys
+patch = {'outputs': {}}
+files = json.loads('''$_files_touched''')
+stderr = json.loads('''$_stderr_tail''')
+if files: patch['outputs']['files_touched'] = files
+if stderr: patch['outputs']['stderr_tail'] = stderr[:2000]
+if patch['outputs']:
+  with open('$_run_jsonl','a') as f:
+    f.write(json.dumps(patch)+'\n')
+" 2>/dev/null || true
     fi
     curl -sSf --max-time 3 -X POST "$_ct_url/flight" \
       -H 'Content-Type: application/json' \
@@ -486,7 +544,7 @@ echo
 
 # --- Base flags -----------------------------------------------------------
 
-BASE_FLAGS=(--no-context-files "${MODEL_ARG[@]}" ${CONTINUE_FLAG:+"$CONTINUE_FLAG"} "${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}")
+BASE_FLAGS=(--no-builtin-tools --no-context-files "${MODEL_ARG[@]}" ${CONTINUE_FLAG:+"$CONTINUE_FLAG"} "${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}")
 
 if [ -n "$SYSTEM_PROMPT" ]; then
   BASE_FLAGS+=(--system-prompt "$SYSTEM_PROMPT")
@@ -523,7 +581,14 @@ koad_io_emit_update "rpc dispatch started"
 
 export PROMPT
 
-python3 "$SCRIPT_DIR/pi_rpc_dispatch.py" "$PI_BIN" "${BASE_FLAGS[@]}"
+if [ -n "${HARNESS_CONTROL_FLIGHT_ID:-}" ]; then
+  _runtime_path="${KOAD_IO_RUNTIME_PATH:-$HOME/.local/share/koad-io/runtime}"
+  _stderr_log="$_runtime_path/dispatches/$HARNESS_CONTROL_FLIGHT_ID/stderr.log"
+  mkdir -p "$(dirname "$_stderr_log")" 2>/dev/null
+  python3 "$SCRIPT_DIR/pi_rpc_dispatch.py" "$PI_BIN" "${BASE_FLAGS[@]}" 2>"$_stderr_log"
+else
+  python3 "$SCRIPT_DIR/pi_rpc_dispatch.py" "$PI_BIN" "${BASE_FLAGS[@]}"
+fi
 _dispatch_rc=$?
 
 # --- Followup polling loop (control-tower dispatched flights) ---------------
@@ -563,7 +628,13 @@ if [ -n "${HARNESS_CONTROL_FLIGHT_ID:-}" ]; then
         _followup_prompt=$(echo "$_first_line" | jq -r '.prompt // .message // ""' 2>/dev/null || echo "")
         if [ -n "$_followup_prompt" ]; then
           koad_io_emit_update "followup received, re-dispatching"
-          PROMPT="$_followup_prompt" python3 "$SCRIPT_DIR/pi_rpc_dispatch.py" "$PI_BIN" "${BASE_FLAGS[@]}"
+          if [ -n "${HARNESS_CONTROL_FLIGHT_ID:-}" ]; then
+            _runtime_path="${KOAD_IO_RUNTIME_PATH:-$HOME/.local/share/koad-io/runtime}"
+            _stderr_log="$_runtime_path/dispatches/$HARNESS_CONTROL_FLIGHT_ID/stderr.log"
+            PROMPT="$_followup_prompt" python3 "$SCRIPT_DIR/pi_rpc_dispatch.py" "$PI_BIN" "${BASE_FLAGS[@]}" 2>>"$_stderr_log"
+          else
+            PROMPT="$_followup_prompt" python3 "$SCRIPT_DIR/pi_rpc_dispatch.py" "$PI_BIN" "${BASE_FLAGS[@]}"
+          fi
           _dispatch_rc=$?
           # Reset timeout on each received followup so the dispatcher can
           # chain multiple follow-ups without racing the clock
