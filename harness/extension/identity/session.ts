@@ -69,12 +69,11 @@ export function flushSession(
 export function emitUpdate(
   control: DDPClient | undefined,
   emitEnabled: boolean,
-  emissionId: string,
   payload: Record<string, unknown>,
 ): void {
-  if (!emitEnabled || !emissionId) return;
+  if (!emitEnabled) return;
   if (!control?.isConnected) return;
-  control.call('emit.update', emissionId, payload).catch(() => {});
+  control.call('emit.update', payload).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
