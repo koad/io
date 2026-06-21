@@ -77,6 +77,23 @@ export function emitUpdate(
 }
 
 // ---------------------------------------------------------------------------
+// Extract pi session ID from session filename.
+// Pi session filenames follow the pattern: <timestamp>_<uuid>.jsonl
+// e.g. 2026-06-12T21-31-37-519Z_019ebdbf-64af-73e1-84ed-2a88c757f268.jsonl
+// ---------------------------------------------------------------------------
+
+export function extractPiSessionId(sessionFile: string): string | undefined {
+  const basename = path.basename(sessionFile, ".jsonl");
+  const underscoreIdx = basename.indexOf("_");
+  if (underscoreIdx >= 0) {
+    const candidate = basename.slice(underscoreIdx + 1);
+    // Sanity check: pi session IDs are UUIDs, so they contain hyphens.
+    if (candidate.includes("-")) return candidate;
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap from Pi session jsonl — replays session to rebuild token counts,
 // model, thinking level, and cwd. Called on session_start with retries.
 // ---------------------------------------------------------------------------
@@ -87,6 +104,13 @@ export function bootstrapFromPiSession(
   tel: Telemetry,
 ): void {
   if (!sessionFile) return;
+
+  // Seed piSessionId from filename before reading JSONL.
+  // On fresh sessions the JSONL header may not yet contain the id field,
+  // but the filename always encodes pi's session UUID.
+  if (!id.piSessionId) {
+    id.piSessionId = extractPiSessionId(sessionFile);
+  }
 
   let raw: string;
   try {
@@ -111,6 +135,7 @@ export function bootstrapFromPiSession(
 
     if (obj.type === "session") {
       if (obj.cwd) id.piSessionCwd = obj.cwd;
+      // JSONL id field takes precedence over filename-derived value
       if (obj.id) id.piSessionId = obj.id;
       if (typeof obj.version === "number") id.piSessionVersion = obj.version;
       continue;
