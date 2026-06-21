@@ -1,8 +1,8 @@
-// Background flight watcher — polls control-tower /api/flights via Node http
-// until the dispatched flight lands or errors, then injects a session
+// Background dispatch watcher — polls control-tower /api/dispatches via Node http
+// until the dispatched entity lands or errors, then injects a session
 // message and stops. No child process — no early-exit race.
 //
-// For failed flights, also reads the flight JSON file directly to surface
+// For failed dispatches, also reads the dispatch JSON file directly to surface
 // richer diagnostics (stderr tail, stats, close reason) that may not be
 // exposed through the control-tower REST API.
 
@@ -19,8 +19,8 @@ const DISPATCHES_DIR = path.join(RUNTIME_PATH, "dispatches");
 const LEGACY_FLIGHTS_DIR = path.join(HOME, ".juno", "control", "flights");
 const LEGACY_RUNS_DIR = path.join(HOME, ".juno", "control", "runs");
 
-function dispatchJsonPath(flightId: string): string {
-  return path.join(DISPATCHES_DIR, flightId, "dispatch.json");
+function dispatchJsonPath(dispatchId: string): string {
+  return path.join(DISPATCHES_DIR, dispatchId, "dispatch.json");
 }
 
 const _BIND_IP = process.env.KOAD_IO_BIND_IP ?? "10.10.10.10";
@@ -31,9 +31,10 @@ const CONTROL_PORT = parseInt(new URL(CONTROL_URL).port || "28283", 10);
 const POLL_INTERVAL_MS = 4000;
 const MAX_POLLS = 450;
 
-interface FlightResult {
+interface DispatchPollResult {
   found: boolean;
   status?: string;
+  started?: string;
   ended?: string;
   elapsed_s?: number;
   closingNote?: string;
@@ -42,10 +43,18 @@ interface FlightResult {
 
 const watchers = new Map<string, ReturnType<typeof setInterval>>();
 
-function pollFlight(flightId: string): Promise<FlightResult> {
+function computeElapsedSeconds(started?: string, ended?: string): number | undefined {
+  if (!started || !ended) return undefined;
+  const startMs = Date.parse(started);
+  const endMs = Date.parse(ended);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return undefined;
+  return Math.max(0, Math.round((endMs - startMs) / 1000));
+}
+
+function pollDispatch(dispatchId: string): Promise<DispatchPollResult> {
   return new Promise((resolve) => {
     const req = http.get(
-      `http://${CONTROL_HOST}:${CONTROL_PORT}/api/flights`,
+      `http://${CONTROL_HOST}:${CONTROL_PORT}/api/dispatches`,
       { timeout: 5000 },
       (res) => {
         let body = "";
@@ -53,37 +62,80 @@ function pollFlight(flightId: string): Promise<FlightResult> {
         res.on("end", () => {
           try {
             const data = JSON.parse(body);
-            const flights: any[] = data?.flights ?? [];
-            const match = flights.find((f: any) =>
-              f._id?.endsWith(flightId),
+            const dispatches: any[] = data?.dispatches ?? data?.flights ?? [];
+            const match = dispatches.find((f: any) =>
+              f._id?.endsWith(dispatchId),
             );
-            if (!match) {
-              resolve({ found: false });
+            if (match) {
+              const started = match.started ?? match.started_at;
+              const ended = match.ended ?? match.completed_at;
+              const elapsed = match.elapsed ?? match.elapsed_s ?? computeElapsedSeconds(started, ended);
+              resolve({
+                found: true,
+                status: match.status,
+                started,
+                ended,
+                elapsed_s: elapsed,
+                closingNote: match.completionSummary ?? match.closingNote,
+                brief: match.briefSlug ?? match.brief,
+              });
               return;
             }
-            resolve({
-              found: true,
-              status: match.status,
-              ended: match.ended,
-              elapsed_s: match.elapsed,
-              closingNote: match.completionSummary ?? match.closingNote,
-              brief: match.briefSlug ?? match.brief,
-            });
+            // Not in control-tower — try disk for CLI-dispatched entities
+            resolve(pollDiskDispatch(dispatchId));
           } catch {
-            resolve({ found: false });
+            resolve(pollDiskDispatch(dispatchId));
           }
         });
       },
     );
-    req.on("error", () => resolve({ found: false }));
+    req.on("error", () => resolve(pollDiskDispatch(dispatchId)));
     req.on("timeout", () => {
       req.destroy();
-      resolve({ found: false });
+      resolve(pollDiskDispatch(dispatchId));
     });
   });
 }
 
-// ── Rich diagnostics from flight + run record files ───────────────
+function pollDiskDispatch(dispatchId: string): DispatchPollResult {
+  const filePath = findDispatchFile(dispatchId);
+  if (!filePath) return { found: false };
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const rec = JSON.parse(raw);
+    const started = rec.started ?? rec.started_at;
+    const ended = rec.ended ?? rec.completed_at;
+    const elapsed = rec.elapsed ?? rec.elapsed_s ?? computeElapsedSeconds(started, ended);
+    return {
+      found: true,
+      status: rec.status,
+      started,
+      ended,
+      elapsed_s: elapsed,
+      closingNote: rec.closingNote,
+      brief: rec.brief,
+    };
+  } catch {
+    return { found: false };
+  }
+}
+
+function findDispatchFile(dispatchId: string): string | null {
+  const exactPath = dispatchJsonPath(dispatchId);
+  if (fs.existsSync(exactPath)) return exactPath;
+  try {
+    const entries = fs.readdirSync(DISPATCHES_DIR, { withFileTypes: true });
+    for (const e of entries) {
+      if (e.isDirectory() && e.name.includes(dispatchId)) {
+        const p = path.join(DISPATCHES_DIR, e.name, "dispatch.json");
+        if (fs.existsSync(p)) return p;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+// ── Rich diagnostics from dispatch + run record files ───────────────
 
 interface RichDiagnostics {
   stderrTail?: string;
@@ -92,14 +144,14 @@ interface RichDiagnostics {
   stats?: Record<string, unknown>;
 }
 
-function readFlightFileDiagnostics(flightId: string): RichDiagnostics | null {
+function readDispatchFileDiagnostics(dispatchId: string): RichDiagnostics | null {
   // New path first
-  let filePath = dispatchJsonPath(flightId);
+  let filePath = dispatchJsonPath(dispatchId);
   if (!fs.existsSync(filePath)) {
     // Legacy fallback: scan flat files
     try {
       const entries = fs.readdirSync(LEGACY_FLIGHTS_DIR);
-      const match = entries.find(f => f.includes(flightId) && f.endsWith(".json"));
+      const match = entries.find(f => f.includes(dispatchId) && f.endsWith(".json"));
       if (match) filePath = path.join(LEGACY_FLIGHTS_DIR, match);
       else return null;
     } catch (_) {
@@ -130,7 +182,7 @@ function readFlightFileDiagnostics(flightId: string): RichDiagnostics | null {
     if (runRecordId) {
       try {
         // New path: run.jsonl in dispatch folder
-        const runJsonl = path.join(DISPATCHES_DIR, flightId, "run.jsonl");
+        const runJsonl = path.join(DISPATCHES_DIR, dispatchId, "run.jsonl");
         if (fs.existsSync(runJsonl)) {
           const lines = fs.readFileSync(runJsonl, "utf-8").split("\n").filter(l => l.trim());
           if (lines.length > 0) {
@@ -162,32 +214,32 @@ function readFlightFileDiagnostics(flightId: string): RichDiagnostics | null {
 
 export function startWatching(
   pi: ExtensionAPI,
-  flightId: string,
+  dispatchId: string,
   entity: string,
   planBasename: string,
 ): void {
-  if (watchers.has(flightId)) return;
+  if (watchers.has(dispatchId)) return;
 
   let polls = 0;
 
   const check = async () => {
     polls++;
 
-    const result = await pollFlight(flightId);
+    const result = await pollDispatch(dispatchId);
 
     if (!result.found) {
       if (polls >= MAX_POLLS) {
         const elapsed = polls * (POLL_INTERVAL_MS / 1000);
         pi.sendMessage(
           {
-            customType: "koad-io-flight-landing",
-            content: `⏳ **${entity}** ⟐ \`${flightId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\` — still flying after ${elapsed}s`,
+            customType: "koad-io-dispatch-landing",
+            content: `⏳ **${entity}** ⟐ \`${dispatchId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\` — still flying after ${elapsed}s`,
             display: true,
-            details: { flightId, entity, planBasename, status: "timeout", elapsedS: elapsed },
+            details: { dispatchId, entity, planBasename, status: "timeout", elapsedS: elapsed },
           },
           { triggerTurn: true },
         );
-        stopWatching(flightId);
+        stopWatching(dispatchId);
       }
       return;
     }
@@ -198,14 +250,14 @@ export function startWatching(
         const elapsed = polls * (POLL_INTERVAL_MS / 1000);
         pi.sendMessage(
           {
-            customType: "koad-io-flight-landing",
-            content: `⏳ **${entity}** ⟐ \`${flightId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\` — still flying after ${elapsed}s`,
+            customType: "koad-io-dispatch-landing",
+            content: `⏳ **${entity}** ⟐ \`${dispatchId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\` — still flying after ${elapsed}s`,
             display: true,
-            details: { flightId, entity, planBasename, status: "timeout", elapsedS: elapsed },
+            details: { dispatchId, entity, planBasename, status: "timeout", elapsedS: elapsed },
           },
           { triggerTurn: true },
         );
-        stopWatching(flightId);
+        stopWatching(dispatchId);
       }
       return;
     }
@@ -217,10 +269,10 @@ export function startWatching(
     const dur = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
     let note = result.closingNote ? ` — ${result.closingNote}` : "";
 
-    // For failed/error flights, surface richer diagnostics
+    // For failed/error dispatches, surface richer diagnostics
     let diag: RichDiagnostics | null = null;
     if (status === "error" || status === "failed") {
-      diag = readFlightFileDiagnostics(flightId);
+      diag = readDispatchFileDiagnostics(dispatchId);
       if (diag?.stderrTail) {
         // Truncate for display, full stderr in details
         const tail = diag.stderrTail.slice(0, 300);
@@ -233,20 +285,20 @@ export function startWatching(
 
     let msg: string;
     if (status === "landed" || status === "closed") {
-      msg = `✓ **${entity}** landed ⟐ \`${flightId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\` (${dur})${note}`;
+      msg = `✓ **${entity}** landed ⟐ \`${dispatchId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\` (${dur})${note}`;
     } else if (status === "error" || status === "failed") {
-      msg = `⚠ **${entity}** ${status} ⟐ \`${flightId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\`${note}`;
+      msg = `⚠ **${entity}** ${status} ⟐ \`${dispatchId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\`${note}`;
     } else {
-      msg = `⏳ **${entity}** ⟐ \`${flightId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\` — ${status} after ${dur}`;
+      msg = `⏳ **${entity}** ⟐ \`${dispatchId.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\` — ${status} after ${dur}`;
     }
 
     pi.sendMessage(
       {
-        customType: "koad-io-flight-landing",
+        customType: "koad-io-dispatch-landing",
         content: msg,
         display: true,
         details: {
-          flightId,
+          dispatchId,
           entity,
           planBasename,
           brief: result.brief || undefined,
@@ -260,19 +312,19 @@ export function startWatching(
       { triggerTurn: true },
     );
 
-    stopWatching(flightId);
+    stopWatching(dispatchId);
   };
 
   const timer = setInterval(check, POLL_INTERVAL_MS);
-  watchers.set(flightId, timer);
-  // Run immediately for fast flights
+  watchers.set(dispatchId, timer);
+  // Run immediately for fast dispatches
   check();
 }
 
-function stopWatching(flightId: string): void {
-  const timer = watchers.get(flightId);
+function stopWatching(dispatchId: string): void {
+  const timer = watchers.get(dispatchId);
   if (timer) {
     clearInterval(timer);
-    watchers.delete(flightId);
+    watchers.delete(dispatchId);
   }
 }
