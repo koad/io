@@ -44,7 +44,7 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.dst)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.dst)}` : `✗ ${clip(result?.details?.error || "no error info — check debug.log", 80)}`),
         0, 0,
       );
     },
@@ -85,7 +85,7 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.dst)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.dst)}` : `✗ ${clip(result?.details?.error || "no error info — check debug.log", 80)}`),
         0, 0,
       );
     },
@@ -133,7 +133,7 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.dst)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.dst)}` : `✗ ${clip(result?.details?.error || "no error info — check debug.log", 80)}`),
         0, 0,
       );
     },
@@ -177,7 +177,7 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.path)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${clipPath(result?.details?.path)}` : `✗ ${clip(result?.details?.error || "no error info — check debug.log", 80)}`),
         0, 0,
       );
     },
@@ -232,7 +232,7 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
       return new Text(
         theme.fg(ok ? "success" : "error",
           ok ? `✓ appended ${result?.details?.bytes ?? 0}B to ${clipPath(result?.details?.path)}`
-             : `✗ ${clip(result?.details?.error || "", 80)}`,
+             : `✗ ${clip(result?.details?.error || "no error info — check debug.log", 80)}`,
         ), 0, 0,
       );
     },
@@ -277,7 +277,7 @@ export function registerFileOpTools(pi: ExtensionAPI): void {
     renderResult(result: any, _opts: any, theme: any) {
       const ok = !result?.isError;
       return new Text(
-        theme.fg(ok ? "success" : "error", ok ? `✓ ${result?.details?.mode || ""} ${clipPath(result?.details?.path)}` : `✗ ${clip(result?.details?.error || "", 80)}`),
+        theme.fg(ok ? "success" : "error", ok ? `✓ ${result?.details?.mode || ""} ${clipPath(result?.details?.path)}` : `✗ ${clip(result?.details?.error || "no error info — check debug.log", 80)}`),
         0, 0,
       );
     },

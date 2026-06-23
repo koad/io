@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { clipText as clip, formatDurationSeconds as formatDuration } from "../utils/tool-render";
-import { dispatchFlight, type DispatchResult } from "../dispatch/flight";
+import { dispatchFlight, type DispatchResult } from "../dispatch/dispatch";
 import { startWatching } from "../dispatch/watcher";
 
 const HOME = os.homedir();
@@ -153,7 +153,7 @@ const WaitParams = Type.Object({
     default: "flight",
   }),
   flight_id: Type.String({ description: "Flight ID to wait for (required for sub=flight)" }),
-  timeout: Type.Optional(Type.Number({ description: "Max seconds to wait (default 300). 0 = no timeout.", default: 300 })),
+  timeout: Type.Optional(Type.Number({ description: "Max seconds to wait (default: 0 = wait forever). Set to a positive number to cap the wait.", default: 0 })),
   interval: Type.Optional(Type.Number({ description: "Seconds between polls (default 4).", default: 4 })),
 });
 
@@ -177,7 +177,7 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
     renderCall(args: any, theme: any) {
       const sub = args.sub || "flight";
       const flightId = shortFlightId(args.flight_id);
-      const timeout = args.timeout ?? 300;
+      const timeout = args.timeout ?? 0;
       const interval = args.interval ?? 4;
       const timeoutText = timeout === 0 ? "∞" : formatDuration(timeout);
       const text = [
@@ -193,7 +193,7 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
       const sub = details.sub ?? "flight";
       const flightId = shortFlightId(details.flight_id);
       const elapsed = formatDuration(details.elapsed_s ?? 0);
-      const timeout = details.timeout_s === 0 ? "∞" : formatDuration(details.timeout_s ?? 300);
+      const timeout = details.timeout_s === 0 ? "∞" : formatDuration(details.timeout_s ?? 0);
       const poll = details.poll_interval_s ?? 4;
       const lines: string[] = [];
 
@@ -250,7 +250,7 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
         throw new Error(`wait ${sub}: flight_id is required`);
       }
 
-      const timeout = params.timeout ?? 300;
+      const timeout = params.timeout ?? 0;
       const interval = params.interval ?? 4;
       const meta = {
         sub,
@@ -450,10 +450,10 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
     renderResult(result: any, { expanded }: any, theme: any) {
       const details = result.details as DispatchResult | undefined;
       if (!details?.ok) {
-        return new Text(theme.fg("error", `✗ dispatch failed: ${details?.error ?? "unknown error"}`), 0, 0);
+        return new Text(theme.fg("error", `✗ dispatch failed: ${details?.error || "no error info — check debug.log"}`), 0, 0);
       }
       const entity = details.entity ?? "?";
-      const fid = (details.flight_id ?? "?").replace(/^\d{8}T\d{6}-\d{3}Z-/, '');
+      const fid = (details.dispatch_id ?? "?").replace(/^\d{8}T\d{6}-\d{3}Z-/, '');
       const cwdLabel = details.cwd ? ` @ ${details.cwd.replace(/^\/home\/koad/, "~")}` : "";
       const lines = [theme.fg("success", `✓ dispatched ${entity}${cwdLabel}`), `  ${theme.fg("accent", `flight: ${fid}`)}`];
       if (expanded && details.plan_path) lines.push(`  ${theme.fg("dim", `plan: ${details.plan_path}`)}`);
@@ -473,20 +473,144 @@ export function registerDispatchTools(pi: ExtensionAPI): void {
 
         if (!result.ok) {
           return {
-            content: [{ type: "text", text: `✗ dispatch failed: ${result.error ?? `dispatch ${entity} failed`}` }],
+            content: [{ type: "text", text: `✗ dispatch failed: ${result.error || `no error info for dispatch ${entity} — check debug.log`}` }],
             details: result,
           };
         }
 
         const planBasename = path.basename(result.plan_path ?? "", ".md");
-        const summary = [`dispatched **${entity}**  ⟐ \`${result.flight_id!.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\``, `plan: \`${planBasename}\`  ·  path: ${result.plan_path}`].join("\n");
+        const summary = [`dispatched **${entity}**  ⟐ \`${result.dispatch_id!.replace(/^\d{8}T\d{6}-\d{3}Z-/, '')}\``, `plan: \`${planBasename}\`  ·  path: ${result.plan_path}`].join("\n");
 
-        startWatching(pi, result.flight_id!, entity, planBasename);
+        startWatching(pi, result.dispatch_id!, entity, planBasename);
 
         return { content: [{ type: "text", text: summary }], details: result };
       }
 
       throw new Error(`dispatch: unknown shape "${shape}". Supported: flight`);
+    },
+  });
+
+  // ── flight_update ────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "flight_update",
+    label: "Flight Update",
+    description: [
+      "Update a flight's status and/or note directly in its dispatch.json on disk.",
+      "Used to acknowledge stale flights, close failed ones, or add operator notes.",
+      "Updates the on-disk record; the flight indexer picks up changes on next scan.",
+    ].join("\n"),
+    promptSnippet: "Update flight status/note (flight_id, status?, note?)",
+    promptGuidelines: [
+      "Use flight_update to close stale flights or add notes to any flight.",
+      "Status can be any string: landed, stale, acknowledged, failed, etc.",
+      "Changes are written directly to disk — no DDP or API dependency.",
+    ],
+    parameters: Type.Object({
+      flight_id: Type.String({ description: "Flight ID to update (full or partial match supported)" }),
+      status: Type.Optional(Type.String({ description: "New status (landed, stale, acknowledged, failed, or any custom value)" })),
+      note: Type.Optional(Type.String({ description: "Operator note or closing summary" })),
+    }),
+
+    renderCall(args: any, theme: any) {
+      const fid = shortFlightId(args.flight_id);
+      const parts = [theme.fg("toolTitle", theme.bold("flight_update ")) + theme.fg("accent", fid)];
+      if (args.status) parts.push(`  status → ${args.status}`);
+      if (args.note) parts.push(`  note: ${args.note.slice(0, 80)}`);
+      return new Text(parts.join("\n"), 0, 0);
+    },
+
+    renderResult(result: any, { expanded }: any, theme: any) {
+      const d = result?.details ?? {};
+      const ok = d.updated === true;
+      const summary = ok ? `✓ ${d.flight_id ?? "?"}` : `✗ ${d.error || "flight_update: no error info — check debug.log"}`;
+      return new Text(theme.fg(ok ? "success" : "error", summary), 0, 0);
+    },
+
+    async execute(_toolCallId, params, _signal) {
+      const flightId = String(params.flight_id ?? "").trim();
+      if (!flightId) throw new Error("flight_id is required");
+
+      const runtime = process.env.KOAD_IO_RUNTIME_PATH || path.join(HOME, ".local", "share", "koad-io", "runtime");
+      const dispatchesDir = path.join(runtime, "dispatches");
+
+      // Resolve flight ID (full or partial match)
+      let resolvedId = "";
+      let dispatchPath = "";
+      try {
+        const entries = fs.readdirSync(dispatchesDir, { withFileTypes: true })
+          .filter(e => e.isDirectory() && e.name.includes(flightId))
+          .map(e => e.name);
+        if (entries.length === 0) throw new Error(`no flight found matching "${flightId}"`);
+        if (entries.length > 1) throw new Error(`ambiguous: ${entries.length} flights match "${flightId}"`);
+        resolvedId = entries[0];
+        dispatchPath = path.join(dispatchesDir, resolvedId, "dispatch.json");
+      } catch (err: any) {
+        return {
+          content: [{ type: "text", text: `✗ ${err.message}` }],
+          details: { updated: false, error: err.message },
+        };
+      }
+
+      // Read existing record
+      let record: any;
+      try {
+        record = JSON.parse(fs.readFileSync(dispatchPath, "utf8"));
+      } catch (err: any) {
+        return {
+          content: [{ type: "text", text: `✗ cannot read dispatch.json: ${err.message}` }],
+          details: { updated: false, error: err.message },
+        };
+      }
+
+      const oldStatus = record.status;
+      const now = new Date().toISOString();
+
+      // Apply updates
+      if (params.status) {
+        record.status = params.status;
+        if (!record.ended || record.status !== "flying") {
+          record.ended = record.ended || now;
+        }
+      }
+      if (params.note) {
+        record.closingNote = record.closingNote
+          ? `${record.closingNote}; ${params.note}`
+          : params.note;
+        record.operator_note = params.note;
+        record.operator_note_at = now;
+      }
+      record.updated_by_operator = true;
+      record.updated_at = now;
+
+      // Write back
+      try {
+        const tmp = `${dispatchPath}.${process.pid}.tmp`;
+        fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + "\n", "utf8");
+        fs.renameSync(tmp, dispatchPath);
+      } catch (err: any) {
+        return {
+          content: [{ type: "text", text: `✗ write failed: ${err.message}` }],
+          details: { updated: false, error: err.message },
+        };
+      }
+
+      const summary = [
+        `✓ **${record.entity ?? "?"}**  ⟐ \`${shortFlightId(resolvedId)}\``,
+        `status: ${oldStatus} → ${record.status}`,
+        record.closingNote ? `note: ${record.closingNote.slice(0, 120)}` : "",
+      ].filter(Boolean).join("\n");
+
+      return {
+        content: [{ type: "text", text: summary }],
+        details: {
+          updated: true,
+          flight_id: resolvedId,
+          entity: record.entity,
+          old_status: oldStatus,
+          new_status: record.status,
+          note: record.closingNote || "",
+        },
+      };
     },
   });
 }

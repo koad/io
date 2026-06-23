@@ -7,9 +7,11 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { getDDPClient, getDDPClients, type DDPClient, type SessionRecord } from "../ddp";
-import { evalOnTarget } from "./meteor-shell";
+import { runMeteorShell } from "./meteor-shell";
+import { clipText as clip } from "../utils/tool-render";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,7 +35,7 @@ function clientSummary(client: DDPClient, label: string): string {
     lines.push(`  bonds: ${bonds}  emissions: ${emissions}`);
     const h = client.health;
     if (h[label as keyof typeof h] !== undefined) {
-      lines.push(`  health: ${(h as any)[label] ?? "unknown"}`);
+      lines.push(`  health: ${(h as any)[label] != null ? (h as any)[label] : "unknown"}`);
     }
   }
   return lines.join("\n");
@@ -132,8 +134,47 @@ export function registerDDPTool(pi: ExtensionAPI): void {
       })),
     }),
 
+    renderCall(args: any, theme: any) {
+      const sub = args.sub || "status";
+      const subIcons: Record<string, string> = {
+        status: "⚡", collections: "📦", flights: "✈", sessions: "💬",
+        session: "🔍", method: "⚙", subscribe: "📡", publications: "📋",
+      };
+      const icon = subIcons[sub] || "";
+      const detailParts: string[] = [];
+      switch (sub) {
+        case "session": if (args.sessionId) detailParts.push(`id=${clip(String(args.sessionId), 24)}`); break;
+        case "method":
+          if (args.methodName) detailParts.push(args.methodName);
+          if (args.methodArgs) detailParts.push(`args=${clip(String(args.methodArgs), 40)}`);
+          break;
+        case "subscribe":
+          if (args.pubName) detailParts.push(args.pubName);
+          if (args.pubArgs) detailParts.push(`args=${clip(String(args.pubArgs), 40)}`);
+          break;
+      }
+      return new Text([
+        theme.fg("toolTitle", theme.bold("ddp ")) + theme.fg("accent", `${icon} ${sub}`),
+        ...(detailParts.length ? [`  ${theme.fg("dim", detailParts.join(" · "))}`] : []),
+      ].join("\n"), 0, 0);
+    },
+
+    renderResult(result: any, { expanded }: any, theme: any) {
+      const details = (result && result.details) ? result.details : {} as Record<string, any>;
+      const ok = !details.error;
+      const content = (result && result.content && result.content[0] && result.content[0].text) ? result.content[0].text : "";
+      const linesArr = content.split("\n");
+      const firstLine = linesArr.length > 0 ? linesArr[0].slice(0, 120) : "";
+      const contentLines = linesArr.length;
+      return new Text([
+        theme.fg(ok ? "success" : "error", ok ? `✓ ddp — ${contentLines}L` : `✗ ddp — ${details.error || "no error info — check debug.log"}`),
+        `  ${theme.fg("dim", firstLine + (contentLines > 1 ? " …" : ""))}`,
+        ...(expanded && content ? [`  ${theme.fg("dim", clip(content, 480))}`] : []),
+      ].join("\n"), 0, 0);
+    },
+
     async execute(_toolCallId, params, _signal, _onUpdate) {
-      const sub = params.sub ?? "status";
+      const sub = params.sub != null ? params.sub : "status";
       const clients = getDDPClients();
 
       if (clients.size === 0) {
@@ -144,12 +185,6 @@ export function registerDDPTool(pi: ExtensionAPI): void {
 
       switch (sub) {
         case "status": {
-          // Wait for live client to warm before reporting
-          const live = getDDPClient("live");
-          if (live?.isConnected) {
-            await live.waitForWarm(5000);
-          }
-
           const lines: string[] = [];
           for (const [backend, client] of clients) {
             lines.push(clientSummary(client, backend));
@@ -199,9 +234,9 @@ export function registerDDPTool(pi: ExtensionAPI): void {
             return { content: [{ type: "text", text: "No flights in local index." }] };
           }
           for (const f of flights) {
-            const status = f.status ?? "?";
-            const entity = f.entity ?? "?";
-            const brief = (f.briefSlug ?? "").slice(0, 50) || "?";
+            const status = f.status != null ? f.status : "?";
+            const entity = f.entity != null ? f.entity : "?";
+            const brief = (f.briefSlug != null ? f.briefSlug : "").slice(0, 50) || "?";
             lines.push(`${f._id.slice(0, 10)}  ${entity.padEnd(10)} ${status.padEnd(12)} ${brief}`);
           }
           return {
@@ -220,7 +255,7 @@ export function registerDDPTool(pi: ExtensionAPI): void {
             for (const s of sessions) {
               const status = sessionStatus(s);
               const entity = sessionEntity(s);
-              const host = s.host ?? "?";
+              const host = s.host != null ? s.host : "?";
               lines.push(`${s._id.slice(0, 10)}  ${entity.padEnd(10)} ${status.padEnd(10)} ${host}`);
             }
           }
@@ -232,7 +267,7 @@ export function registerDDPTool(pi: ExtensionAPI): void {
 
         // ── NEW: session <id> — show one session in detail ─────────────
         case "session": {
-          const id = (params.sessionId as string) ?? "";
+          const id = (params.sessionId != null ? params.sessionId : "") as string;
           if (!id) {
             return { content: [{ type: "text", text: "sessionId is required for sub=session" }] };
           }
@@ -258,7 +293,7 @@ export function registerDDPTool(pi: ExtensionAPI): void {
           lines.push(`  _id:       ${s._id}`);
           lines.push(`  entity:    ${sessionEntity(s)}`);
           lines.push(`  status:    ${sessionStatus(s)}`);
-          lines.push(`  host:      ${s.host ?? "?"}`);
+          lines.push(`  host:      ${s.host != null ? s.host : "?"}`);
           lines.push(`  model:     ${sessionModel(s)}`);
           if (s.cost != null)       lines.push(`  cost:      $${s.cost.toFixed(2)}`);
           if (s.tokensIn != null)   lines.push(`  tokensIn:  ${s.tokensIn}`);
@@ -276,7 +311,8 @@ export function registerDDPTool(pi: ExtensionAPI): void {
           if (s.endedAt)            lines.push(`  endedAt:   ${fmtDate(s.endedAt)}`);
 
           // Last 10 signals — emissions related to this session (by entity or missionId)
-          const emissions = (getDDPClient("daemon") ?? getDDPClient("control"))?.emissionsList ?? [];
+          const ddClient = getDDPClient("daemon") || getDDPClient("control");
+          const emissions = ddClient ? ddClient.emissionsList : [];
           const sigCandidates = emissions
             .filter(e => {
               const entityMatch = e.entity && s.entity && e.entity === s.entity;
@@ -288,7 +324,7 @@ export function registerDDPTool(pi: ExtensionAPI): void {
             lines.push("");
             lines.push(`  ── last ${sigCandidates.length} signals ──`);
             for (const sig of sigCandidates) {
-              const type = ((sig.type ?? "?") as string).slice(0, 25);
+              const type = ((sig.type != null ? sig.type : "?") as string).slice(0, 25);
               const body = trunc80(sig.body);
               const at = sig.startedAt ? fmtDate(sig.startedAt).slice(11) : "?";
               lines.push(`  ${type.padEnd(25)} ${at}  ${body}`);
@@ -303,7 +339,7 @@ export function registerDDPTool(pi: ExtensionAPI): void {
 
         // ── NEW: subscribe <publication> [args] ────────────────────────
         case "subscribe": {
-          const pubName = (params.pubName as string) ?? "";
+          const pubName = (params.pubName != null ? params.pubName : "") as string;
           if (!pubName) {
             return { content: [{ type: "text", text: "pubName is required for sub=subscribe" }] };
           }
@@ -321,11 +357,12 @@ export function registerDDPTool(pi: ExtensionAPI): void {
           }
 
           // Try control first, then daemon
-          const subTarget = (getDDPClient("control")?.isConnected ? getDDPClient("control") : null) ??
-                            (getDDPClient("daemon")?.isConnected ? getDDPClient("daemon") : null) ??
-                            getDDPClient("live");
+          const ctrlClient = getDDPClient("control");
+          const dmnClient = getDDPClient("daemon");
+          const subTarget = (ctrlClient && ctrlClient.isConnected) ? ctrlClient :
+                            (dmnClient && dmnClient.isConnected) ? dmnClient : null;
 
-          if (!subTarget?.isConnected) {
+          if (!subTarget || !subTarget.isConnected) {
             return { content: [{ type: "text", text: "No connected DDP client available for subscribe." }] };
           }
 
@@ -345,51 +382,45 @@ export function registerDDPTool(pi: ExtensionAPI): void {
 
         // ── NEW: publications — list available publications ────────────
         case "publications": {
-          // Use meteor_shell's evalOnTarget to query publication lists
+          // Use runMeteorShell (native meteor shell CLI) to query publication lists
           const targets = ["control", "daemon", "live"] as const;
           const lines: string[] = [];
-          const pubCode = `Object.keys(Meteor.server.publish_handlers).sort()`;
+          const pubCode = `Object.keys(Meteor.server.publish_handlers).sort().join('\\n')`;
 
           for (const t of targets) {
-            const client = getDDPClient(t);
-            if (!client?.isConnected) continue;
-
-            const result = await evalOnTarget(t, pubCode);
+            const result = runMeteorShell(t, pubCode);
 
             lines.push(`── ${t} ──`);
-            if (result.error) {
+            if (result.error && !result.output) {
               lines.push(`  (${result.error})`);
-            } else if (result.raw === null || result.raw === undefined) {
-              lines.push("  (publication introspection not available)");
-            } else if (Array.isArray(result.raw)) {
-              if (result.raw.length === 0) {
+            } else if (!result.output) {
+              lines.push("  (no output)");
+            } else {
+              // meteor shell prints the string representation (escaped \n),
+              // so JSON.parse to get real newlines, then split
+              const raw = result.output;
+              let names: string[] = [];
+              try {
+                const parsed = JSON.parse(raw);
+                if (typeof parsed === "string") {
+                  names = parsed.split("\n").filter(Boolean);
+                }
+              } catch {
+                // fallback: try splitting on literal \n
+                names = raw.replace(/^"|"$/g, "").split(/\\n/).filter(Boolean);
+              }
+              if (names.length === 0) {
                 lines.push("  (no publications registered)");
               } else {
-                for (const name of result.raw) {
+                for (const name of names) {
                   lines.push(`  ${name}`);
                 }
-              }
-            } else if (typeof result.raw === "string") {
-              lines.push(`  (error: ${result.raw})`);
-            } else {
-              // Fallback: try to format as object keys
-              if (result.raw && typeof result.raw === "object") {
-                const keys = Object.keys(result.raw);
-                if (keys.length === 0) {
-                  lines.push("  (no publications registered)");
-                } else {
-                  for (const name of keys.sort()) {
-                    lines.push(`  ${name}`);
-                  }
-                }
-              } else {
-                lines.push(`  (unexpected result type: ${typeof result.raw})`);
               }
             }
           }
 
           if (lines.length === 0) {
-            return { content: [{ type: "text", text: "No connected backends to query for publications." }] };
+            return { content: [{ type: "text", text: "No backends available for publication queries." }] };
           }
 
           return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -424,8 +455,8 @@ export function registerDDPTool(pi: ExtensionAPI): void {
           // Try control first, then daemon
           const control = getDDPClient("control");
           const daemon = getDDPClient("daemon");
-          const target = (control?.isConnected ? control : null) ??
-                         (daemon?.isConnected ? daemon : null);
+          const target = (control && control.isConnected) ? control :
+                         (daemon && daemon.isConnected) ? daemon : null;
 
           if (!target) {
             return {
