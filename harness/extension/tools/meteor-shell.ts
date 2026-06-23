@@ -75,12 +75,23 @@ export interface MeteorShellResult {
 }
 
 /**
- * Run JS code against a Meteor server via the native `meteor shell` CLI.
+ * Wrap user code so uncaught errors become caught REPL values.
  *
- * Saves the code to a timestamped file in the harness meteor-shell directory,
- * then runs `cd <target-dir> && meteor shell <file>`.
- * The file is kept for session records — it lives outside entity write scope.
+ * `meteor shell` hangs (never exits) when piped code throws an uncaught
+ * error.  Wrapping in try/catch converts the throw into a string value
+ * the REPL prints and then exits cleanly — no 60s timeout.
  */
+function wrapCode(code: string): string {
+  return [
+    "try {",
+    code,
+    '} catch (__meteor_shell_err) {',
+    '  "ERROR: " + (__meteor_shell_err.stack || __meteor_shell_err.message || String(__meteor_shell_err));',
+    "}",
+  ].join("\n");
+}
+
+/** Run JS code against a Meteor server via the native `meteor shell` CLI. */
 export function runMeteorShell(target: string, code: string): MeteorShellResult {
   const entity = process.env.ENTITY ?? "unknown";
   const ts = Date.now();
@@ -89,6 +100,7 @@ export function runMeteorShell(target: string, code: string): MeteorShellResult 
   const filePath = path.join(dir, `${ts}-${rand}.js`);
 
   fs.mkdirSync(dir, { recursive: true });
+  // write raw code for audit trail
   fs.writeFileSync(filePath, code, "utf-8");
 
   const targetDir = TARGET_DIRS[target];
@@ -96,14 +108,21 @@ export function runMeteorShell(target: string, code: string): MeteorShellResult 
     return { output: "", filePath, error: `Unknown target: ${target}` };
   }
 
+  // write a wrapper file that catches errors so meteor shell never hangs
+  const wrapperPath = path.join(os.tmpdir(), `meteor-shell-${entity}-${ts}-${rand}.js`);
+  fs.writeFileSync(wrapperPath, wrapCode(code), "utf-8");
+
   try {
-    const stdout = cp.execSync(`cd ${targetDir} && meteor shell < ${filePath}`, {
+    const stdout = cp.execSync(`cd ${targetDir} && meteor shell < ${wrapperPath}`, {
       timeout: 60_000,
       encoding: "utf-8",
       env: { ...process.env, METEOR_PROFILE: "" },
     });
+    // clean up temp wrapper
+    try { fs.unlinkSync(wrapperPath); } catch { /* best-effort */ }
     return { output: stdout.trim(), filePath };
   } catch (err: any) {
+    try { fs.unlinkSync(wrapperPath); } catch { /* best-effort */ }
     const stderr = err.stderr?.toString() || err.message || String(err);
     const stdout = err.stdout?.toString() || "";
     return { output: stdout.trim(), filePath, error: stderr.trim() };
