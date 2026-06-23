@@ -24,7 +24,7 @@ import {
 } from "./types";
 import { resolveGate, bondBlockReason, auditBlock } from "./resolve";
 import { inspectBashCommand } from "./bash-policy";
-import { inputLooksSensitive, scrubToolResult } from "./scrub";
+import { scrubToolResult } from "./scrub";
 
 // ---------------------------------------------------------------------------
 // Entity-mode helpers
@@ -415,15 +415,6 @@ export function registerBondGate(
 
   if (process.env.KOAD_IO_SKIP_SCRUB !== "1") {
     pi.on("tool_result", async (event) => {
-      // If the tool input itself targets sensitive paths or commands, redact entirely
-      if (inputLooksSensitive(event.input)) {
-        return {
-          content: [{ type: "text", text: "[redacted sensitive tool result]" }],
-          details: { redacted: true, reason: "protected-source" },
-          isError: event.isError,
-        };
-      }
-
       const scrubbed = scrubToolResult(event.content, event.details, event.isError);
       if (scrubbed) {
         return {
