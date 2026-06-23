@@ -357,6 +357,43 @@ GITIGNORE
 }
 
 # ---------------------------------------------------------------------------
+# Helper: bootstrap entity GPG keyring after key generation
+# ---------------------------------------------------------------------------
+
+bootstrap_keyring() {
+    local entity_dir="$1"
+    local entity_id_dir="$2"
+    local device_dir="$3"
+    local entity_name="$4"
+
+    local keyring_dir="$entity_dir/keyring"
+    local entity_pub="$entity_id_dir/entity.public.asc"
+    local leaf_pub="$device_dir/leaf.public.asc"
+
+    mkdir -p "$keyring_dir"
+    chmod 700 "$keyring_dir"
+
+    # Import entity public key (idempotent — gpg --import on existing key is a no-op)
+    if [ -f "$entity_pub" ]; then
+        GNUPGHOME="$keyring_dir" gpg --import "$entity_pub" 2>&1 | while IFS= read -r line; do
+            say "  gpg: $line"
+        done
+    else
+        warn "entity.public.asc not found at $entity_pub — skipping keyring import"
+        return 1
+    fi
+
+    # Import device leaf public key (always present after key generation)
+    if [ -f "$leaf_pub" ]; then
+        GNUPGHOME="$keyring_dir" gpg --import "$leaf_pub" 2>&1 | while IFS= read -r line; do
+            say "  gpg: $line"
+        done
+    fi
+
+    say "  keyring bootstrapped: $keyring_dir"
+}
+
+# ---------------------------------------------------------------------------
 # Helper: commit + push sovereign sigchain after entries are filed
 # ---------------------------------------------------------------------------
 
@@ -553,12 +590,17 @@ elif [ "$ACTION" = "migrate" ]; then
 
     unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR ENTITY_PUBLIC_ARMOR LEAF_PUBLIC_ARMOR
 
-    # Step 3b: Sign sigchain entries
+    # Step 3b: Bootstrap keyring
+    say ""
+    say "Bootstrapping GPG keyring..."
+    bootstrap_keyring "$ENTITY_DIR" "$ENTITY_ID_DIR" "$DEVICE_DIR" "$ENTITY_NAME"
+
+    # Step 3c: Sign sigchain entries
     say ""
     say "Signing sigchain entries..."
     sign_entity_sigchain_entries 0
 
-    # Step 3c: Commit + push sovereign sigchain (before entity commit — surface errors early)
+    # Step 3d: Commit + push sovereign sigchain (before entity commit — surface errors early)
     say ""
     say "Committing sovereign sigchain..."
     commit_push_sovereign_sigchain "$ENTITY_NAME"
@@ -624,6 +666,11 @@ elif [ "$ACTION" = "secondary-device" ]; then
 
     unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR LEAF_PUBLIC_ARMOR
 
+    # Bootstrap keyring (entity key already on disk; import it + new leaf)
+    say ""
+    say "Bootstrapping GPG keyring..."
+    bootstrap_keyring "$ENTITY_DIR" "$ENTITY_ID_DIR" "$DEVICE_DIR" "$ENTITY_NAME"
+
     # Read entity fingerprint from disk (entity key already committed)
     ENTITY_FINGERPRINT=$(cat "$ENTITY_ID_DIR/entity.fingerprint" 2>/dev/null || true)
 
@@ -683,6 +730,11 @@ elif [ "$ACTION" = "re-seed" ]; then
 
     unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR ENTITY_PUBLIC_ARMOR LEAF_PUBLIC_ARMOR
 
+    # Bootstrap keyring
+    say ""
+    say "Bootstrapping GPG keyring..."
+    bootstrap_keyring "$ENTITY_DIR" "$ENTITY_ID_DIR" "$DEVICE_DIR" "$ENTITY_NAME"
+
     say ""
     say "Signing sigchain entries..."
     sign_entity_sigchain_entries 0
@@ -724,6 +776,7 @@ GIT_COMMITTER_NAME=$SCAFFOLD_DISPLAY
 GIT_COMMITTER_EMAIL=$ENTITY_NAME@$SCAFFOLD_DOMAIN
 
 KOAD_IO_EMIT=1
+GNUPGHOME=\$HOME/.\$ENTITY_NAME/keyring
 ENVEOF
     say "wrote: $ENTITY_DIR/.env"
 fi
