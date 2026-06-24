@@ -405,4 +405,4 @@ If the signature validates against the signer's published fingerprint, the bond 
 
 ---
 
-*Walked 2026-06-19. Tool classification section rewritten to match source code (`types.ts` + `tool-registry.ts`). Added always-on tools, DDP-dependent tools table, 12-lane classification (was 10), corrected `paste`/`cut`/`wait` lane assignments, added `flight_log`, `flight_update`, body tools, kingdom query tools, session tools, and `list_tools`.*
+*Walked 2026-06-24. Added `browse` tool (CDP browser control via HTTP+WebSocket, gated by `koadio_tools`). Added Scope-gated tools (non-DDP) table for `fetch` and `browse`.*
