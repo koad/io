@@ -72,6 +72,16 @@ export function registerStatusTool(pi: ExtensionAPI): void {
         return await executeStatusSessions(params);
       }
 
+      // flights subcommand: scan dispatch records from disk
+      if (params.sub === "flights") {
+        return await executeStatusFlights(params);
+      }
+
+      // emissions subcommand: scan emission timeline from disk
+      if (params.sub === "emissions") {
+        return await executeStatusEmissions(params);
+      }
+
       const args: string[] = [];
       if (params.sub) args.push(params.sub);
       if (params.json) args.push("--json");
@@ -267,4 +277,157 @@ async function executeStatusSessions(params: any) {
     content: [{ type: "text", text }],
     details: { sessions: active.length, total: sessions.length, active, recent, byEntity },
   };
+}
+
+// ── status flights: scan dispatch records from disk ──────────────────────────
+
+interface FlightBrief {
+  id: string;
+  entity: string;
+  briefSlug: string;
+  status: string;
+  started: string;
+  host: string;
+  model: string;
+}
+
+function walkDispatchFiles(dir: string): string[] {
+  const files: string[] = [];
+  let entries: fs.Dirent[];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+  catch { return []; }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkDispatchFiles(full));
+    } else if (entry.name === "dispatch.json") {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
+function scanDispatchBrief(filePath: string): FlightBrief | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const record = JSON.parse(raw);
+    if (!record.flight_id && !record._id) return null;
+    return {
+      id: record.flight_id || record._id,
+      entity: record.entity || "?",
+      briefSlug: record.briefSlug || record.brief || "?",
+      status: record.status || "landed",
+      started: record.started || record.started_at || "?",
+      host: record.host || "?",
+      model: record.model || "?",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function executeStatusFlights(_params: any) {
+  const runtimePath = process.env.KOAD_IO_RUNTIME_PATH || path.join(HOME, ".local", "share", "koad-io", "runtime");
+  const dispatchDir = path.join(runtimePath, "dispatches");
+  const files = walkDispatchFiles(dispatchDir);
+
+  const flights: FlightBrief[] = [];
+  for (const file of files) {
+    const f = scanDispatchBrief(file);
+    if (f) flights.push(f);
+  }
+
+  const flying = flights.filter(f => f.status === "flying" || f.status === "running");
+  const stale = flights.filter(f => f.status === "stale");
+  const recent = flights.filter(f => f.status !== "flying" && f.status !== "running" && f.status !== "stale").slice(0, 20);
+
+  const lines: string[] = [];
+  lines.push(`── koad:io flights ──`);
+  lines.push(`  total: ${flights.length} dispatch records on disk`);
+  lines.push(`  flying: ${flying.length}`);
+  lines.push(`  stale: ${stale.length}`);
+  lines.push("");
+
+  if (flying.length > 0) {
+    lines.push("── flying ──");
+    for (const f of flying) {
+      lines.push(`  ● ${f.entity}  ·  ${f.briefSlug.slice(0, 60)}  ·  [${f.status}]  ·  ${f.model}  ·  ${f.host !== "?" ? `@${f.host}` : ""}`);
+    }
+    lines.push("");
+  }
+
+  if (stale.length > 0) {
+    lines.push("── stale ──");
+    for (const f of stale.slice(0, 10)) {
+      lines.push(`  ⚠ ${f.entity}  ·  ${f.briefSlug.slice(0, 60)}  ·  [${f.status}]`);
+    }
+    lines.push("");
+  }
+
+  if (recent.length > 0) {
+    lines.push("── recent (last 20 landed) ──");
+    for (const f of recent) {
+      lines.push(`  ◐ ${f.entity}  ·  ${f.briefSlug.slice(0, 60)}  ·  [${f.status}]`);
+    }
+  }
+
+  const text = lines.join("\n");
+  return {
+    content: [{ type: "text", text }],
+    details: { total: flights.length, flying: flying.length, stale: stale.length, flights: flying.concat(stale, recent) },
+  };
+}
+
+// ── status emissions: call forge bash command (daemon API) ───────────────────
+
+async function executeStatusEmissions(params: any) {
+  const forgeEmissionsBin = path.join(HOME, ".forge", "commands", "status", "emissions", "command.sh");
+  const args: string[] = [];
+  if (params.json) args.push("--json");
+  if (params.entity) { args.push("--entity"); args.push(params.entity); }
+
+  return new Promise((resolve) => {
+    const child = cp.spawn("bash", [forgeEmissionsBin, ...args], {
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      resolve({
+        content: [{ type: "text", text: stdout || "emissions daemon unreachable (timeout)" }],
+        details: { reachable: false, exitCode: 1, timedOut: true },
+      });
+    }, 8000);
+
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      const exitCode = code ?? 1;
+      if (exitCode !== 0) {
+        resolve({
+          content: [{ type: "text", text: stdout || `emissions daemon unreachable (exit ${exitCode})` }],
+          details: { reachable: false, exitCode, stderr: stderr.slice(0, 200) },
+        });
+        return;
+      }
+      resolve({
+        content: [{ type: "text", text: stdout.slice(0, 3000) }],
+        details: { exitCode },
+      });
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      resolve({
+        content: [{ type: "text", text: `emissions daemon unreachable: ${err.message}` }],
+        details: { reachable: false, exitCode: 1, stderr: err.message },
+      });
+    });
+  });
 }

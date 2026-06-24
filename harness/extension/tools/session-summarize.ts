@@ -61,9 +61,13 @@ export function registerSessionSummarizeTool(pi: ExtensionAPI): void {
     },
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const sessionFile = String(params.session_file || "").trim();
+      let sessionFile = String(params.session_file || "").trim();
       if (!sessionFile) {
         throw new Error("session_summarize: session_file is required");
+      }
+      // Expand tilde — session_list outputs paths like ~/.koad-io/...
+      if (sessionFile.startsWith("~")) {
+        sessionFile = path.join(HOME, sessionFile.slice(1));
       }
 
       return new Promise((resolve) => {
