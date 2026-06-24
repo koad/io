@@ -141,9 +141,9 @@ export const KOADIO_TOOLS = new Set([
   "channel_state_read", "channel_cue_deliver", "channel_broadcast",
   "channel_wait_for_next_turn", "channel_wait_for_state_change",
   "channel_event_fire",
-  "search", "status", "music", "koad-io", "wait",
+  "search", "status", "music", "koad-io", "wait", "browse",
   "mission", "ddp",
-  "meteor_shell",
+  "meteor_shell", "extension_errors", "fetch",
 ]);
 
 export const PI_BUILTIN_TOOLS = new Set(["read", "write", "edit", "bash", "ls", "grep", "find"]);
@@ -153,7 +153,7 @@ export const GATED_DISPATCH_TOOLS = new Set(["dispatch", "dispatch_followup", "d
 export const GLOBAL_ALLOWED_TOOLS = new Set<string>(["clipboard", "copy"]);
 export const SCOPED_SEARCH_TOOLS = new Set(["search"]);
 export const FILE_READ_TOOLS = new Set(["read", "ls", "find", "grep", "sin", "cut"]);
-export const FILE_WRITE_TOOLS = new Set(["write", "edit", "append", "mkdir", "cp", "mv", "rm", "chmod", "paste", "cut"]);
+export const FILE_WRITE_TOOLS = new Set(["write", "edit", "append", "prepend", "mkdir", "cp", "mv", "rm", "chmod", "paste", "cut"]);
 export const SHELL_TOOLS = new Set(["bash"]);
 
 export const CHANNEL_PARTICIPANT_TOOLS = new Set([
