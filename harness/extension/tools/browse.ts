@@ -38,10 +38,11 @@ function discoverPort(): number {
     if (!isNaN(p) && p > 0) return p;
   }
 
-  // 2. Port file: ~/.forge/runtime/browse/<entity>.port
+  // 2. Port file: $KOAD_IO_RUNTIME_PATH/browse/<entity>.port
   const entity = process.env.ENTITY ?? "";
   if (entity) {
-    const portFile = path.join(HOME, ".forge", "runtime", "browse", `${entity}.port`);
+    const runtimePath = process.env.KOAD_IO_RUNTIME_PATH || path.join(HOME, ".local", "share", "koad-io", "runtime");
+    const portFile = path.join(runtimePath, "browse", `${entity}.port`);
     try {
       const raw = fs.readFileSync(portFile, "utf-8").trim();
       const p = parseInt(raw, 10);
