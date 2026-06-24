@@ -222,7 +222,7 @@ Source of truth: `~/.koad-io/harness/extension/bond-gate/types.ts` (tool sets) a
                                    channel_state_read, channel_cue_deliver,
                                    channel_broadcast, channel_wait_for_next_turn,
                                    channel_wait_for_state_change, channel_event_fire,
-                                   search, status, music, wait, mission, fetch
+                                   search, status, music, wait, mission, fetch, browse
                                    (explicitly in the KOADIO_TOOLS set)
 
 11. koadio_tools (fallback) → flight_log, surface_now, intake_digest,
@@ -268,6 +268,15 @@ These tools connect to the daemon or control-tower via WebSocket. They only regi
 | `bond_query` | `tools/kingdom-query.ts` | `koadio_tools` (fallback) |
 | `question_query` | `tools/kingdom-query.ts` | `koadio_tools` (fallback) |
 | `entity_query` | `tools/kingdom-query.ts` | `koadio_tools` (fallback) |
+
+### Scope-gated tools (non-DDP)
+
+These tools are registered directly in `tool-registry.ts` (not `ddp-setup.ts`). They do not need DDP — they operate via direct HTTP or filesystem access. Gated by `koadio_tools`.
+
+| Tool | Source | Gated by |
+|------|--------|----------|
+| `fetch` | `tools/fetch.ts` | `koadio_tools` |
+| `browse` | `tools/browse.ts` | `koadio_tools` |
 
 ### Common confusion cases
 

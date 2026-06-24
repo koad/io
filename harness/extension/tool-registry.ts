@@ -42,6 +42,7 @@ import { registerStatusTool } from "./tools/status";
 import { registerSessionSummarizeTool } from "./tools/session-summarize";
 import { registerSessionListTool } from "./tools/session-list";
 import { registerFetchTool } from "./tools/fetch";
+import { registerBrowseTool } from "./tools/browse";
 
 // ── Scope-gating helpers ──────────────────────────────────────────────────
 
@@ -127,4 +128,5 @@ export function registerHarnessTools(pi: ExtensionAPI, scope: BondScope | null):
   if (canRegister("search", scope))            registerSearchTool(pi);
   if (canRegister("status", scope))            registerStatusTool(pi);
   if (canRegister("fetch", scope))             registerFetchTool(pi);
+  if (canRegister("browse", scope))            registerBrowseTool(pi);
 }
