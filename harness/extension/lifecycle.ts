@@ -99,6 +99,9 @@ let _turnIndex = 0;
 let _agentStartedAt = 0;
 let _promptText = "";
 
+// Track last-seen TODO signal index for dedup across prompts
+let _lastTodoSignalIdx = -1;
+
 export function registerHooks(pi: ExtensionAPI, controlDDP?: DDPClient): void {
   _controlDDP = controlDDP;
   // ═══════════════════════════════════════════════════════════════════════════
@@ -171,13 +174,37 @@ export function registerHooks(pi: ExtensionAPI, controlDDP?: DDPClient): void {
       sessionId: process.env.HARNESS_SESSION_ID,
     });
 
+    // ── TODO signal injection ───────────────────────────────────────
+    // Check own session doc for unseen TODO signals (type=todo) injected
+    // by the control-tower file watcher. One-shot per signal — index-tracked.
+    let todoLines: string[] = [];
+    try {
+      if (_controlDDP?.isConnected) {
+        const ownDoc = _controlDDP.getOwnSessionDoc() as Record<string, unknown> | null;
+        if (ownDoc) {
+          const signals = (ownDoc as any).signals as Array<{ type: string; body: string; at: string }> | undefined;
+          if (signals && signals.length > 0) {
+            // Find unseen TODO signals since last check
+            const newTodos = signals.slice(_lastTodoSignalIdx + 1).filter(s => s.type === 'todo');
+            if (newTodos.length > 0) {
+              todoLines = newTodos.map(s => `⚠ TODO: ${s.body}`);
+              _lastTodoSignalIdx = signals.length - 1;
+            }
+          }
+        }
+      }
+    } catch (_) { /* non-critical — don't block prompt for TODO signal failure */ }
+
     const awareness = runHookCapture("prompt-awareness.sh", 8000);
-    if (!awareness) return;
+
+    // Combine TODO signals with bash hook output
+    const combined = [...todoLines, awareness].filter(Boolean).join("\n");
+    if (!combined) return;
 
     return {
       message: {
         customType: "koad-io-awareness",
-        content: awareness,
+        content: combined,
         display: true,
       },
     };
