@@ -189,25 +189,34 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
   if [ "$_forbidden" = "true" ]; then
     echo "Error: WORK_DIR '$WORK_DIR' is the home directory." >&2
     echo "  Agent harnesses must run in an explicit project working folder." >&2
-    echo "  cd to any project folder (with a .env at its root) and try again." >&2
+    echo "  cd to any project folder (with a .env at its root) or git repo and try again." >&2
     echo "  Invoke from your project directory or set KOAD_IO_ROOTED=true for entity-home operation." >&2
     exit 64
   fi
   unset _work_dir_real _home_real _forbidden
 
-  # Assert valid koad:io workspace — same check as start/restart commands.
-  # A koad-io project folder must have a .env file (source'd by assert/datadir).
+  # Assert valid workspace — koad:io datadir (.env) or any git repository.
+  _valid_workspace=false
   if [ -f "$HOME/.koad-io/commands/assert/datadir/command.sh" ]; then
-    if ! source "$HOME/.koad-io/commands/assert/datadir/command.sh" 2>/dev/null; then
-      echo -e "\033[31m$(pwd) is not a valid koad:io project folder\033[0m" >&2
-      echo "" >&2
-      echo "  A koad:io project folder must have a .env file at its root." >&2
-      echo "  Entities can only spawn in the project root folder —" >&2
-      echo "  not in subdirectories of the project tree." >&2
-      echo "" >&2
-      echo "  cd to the project root (where .env lives) and try again." >&2
-      exit 64
+    if bash "$HOME/.koad-io/commands/assert/datadir/command.sh" 2>/dev/null; then
+      _valid_workspace=true
     fi
+  fi
+  if [ "$_valid_workspace" != "true" ]; then
+    # Fallback: allow any git repository — even without .env, even in a subdirectory.
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+      _valid_workspace=true
+    fi
+  fi
+  if [ "$_valid_workspace" != "true" ]; then
+    echo -e "\033[31m$(pwd) is not a valid koad:io project folder or git repository\033[0m" >&2
+    echo "" >&2
+    echo "  A koad:io project folder must have a .env file at its root," >&2
+    echo "  or be anywhere inside a git repository." >&2
+    echo "" >&2
+    echo "  cd to a project root (where .env lives) or any git repo and try again." >&2
+    exit 64
+  fi
 
     # If we're in an entity home directory (~/.something), ensure the
     # running entity matches. vulcan can't spawn in ~/.juno.
@@ -226,7 +235,6 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
       export KOAD_IO_ROOTED=true
     fi
   fi
-fi
 
 # --- Context assembly (VESTA-SPEC-067) ------------------------------------
 # Same startup.sh used by claude harness. Assembles KOAD_IO.md → ENTITY.md

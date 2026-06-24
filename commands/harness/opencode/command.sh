@@ -224,7 +224,7 @@ if [ "${KOAD_IO_ROOTED:-false}" != "true" ]; then
   unset _work_dir_real _home_real _forbidden
 
   if [ -f "$HOME/.koad-io/commands/assert/datadir/command.sh" ]; then
-    if ! source "$HOME/.koad-io/commands/assert/datadir/command.sh" 2>/dev/null; then
+    if ! bash "$HOME/.koad-io/commands/assert/datadir/command.sh" 2>/dev/null; then
       echo -e "\033[31m$(pwd) is not a valid koad:io project folder\033[0m" >&2
       echo "" >&2
       echo "  A koad:io project folder must have a .env file at its root." >&2
