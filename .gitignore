@@ -37,3 +37,6 @@ cache/
 
 # Workspace skeletons — separate repo
 skeletons/
+
+desktop/
+harness/
