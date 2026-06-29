@@ -80,14 +80,33 @@ fi
 #
 # Harness directory resolution:
 #   $KOAD_IO_HARNESS               — business-layer override (e.g. ~/.forge/commands/harness)
-#   $HOME/.koad-io/harness         — framework default (minimal, opencode-only kindergarten)
+#                                  — bash is framework default (minimal, kindergarten)
+#                                  — see https://github.com/koad/dotfiles for 
+#                                          example harness command structures
 
 HARNESS_ROOT="${KOAD_IO_HARNESS:-$HOME/.koad-io/commands/harness}"
 HARNESS_CMD="$HARNESS_ROOT/default/command.sh"
 if [ ! -f "$HARNESS_CMD" ]; then
-  echo "[error] harness default not found: $HARNESS_CMD" >&2
-  echo "[error]   set KOAD_IO_HARNESS to override the harness directory" >&2
-  exit 1
+  exec bash --rcfile <(cat <<'RCEOF'
+# koad:io bash harness rc — sourced once on interactive shell start.
+# Pulls the user's normal rc, then tags the prompt with the entity name.
+
+if [ -f ~/.bashrc ]; then
+  # shellcheck disable=SC1090
+  source ~/.bashrc
+fi
+
+# Entity tag in bright magenta, then whatever PS1 the user's rc left us.
+# \[ \] tell bash the bytes are non-printing so line wrapping stays correct.
+if [ -n "$ENTITY" ]; then
+  PS1="\[\033[1;35m\][$ENTITY]\[\033[0m\] ${PS1:-\\w \\$ }"
+fi
+
+export KOAD_IO_HARNESS=bash
+RCEOF
+) -i
+
+  exit
 fi
 
 exec "$HARNESS_CMD"
