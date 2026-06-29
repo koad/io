@@ -20,6 +20,7 @@ koad = {
 	identity: null,   // populated by both/identity-factory.js + server/identity.js or client/identity.js
 	storage: {},
 	library: {},
+	indexes: {},
 	format: {
 		timestamp: function(d, s) {
 		if(!d) d = new Date();

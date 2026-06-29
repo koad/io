@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-ENTITY_DIR="$HOME/.$ENTITY"
-# Function to find the right DATADIR based on the command and its parameters
+# assert/datadir — resolve a koad:io workspace path from a name or PWD.
+# Entity-agnostic. The only requirement: the resolved directory must contain
+# a .env file. Callers that need entity-scoped resolution do it upstream.
 
 LOCAL_BUILD=false
 
@@ -21,35 +22,38 @@ unset _positional _arg
 
 echo "asserting valid datadir"
 
-KOAD_IO_TYPE=$1
+NAME=$1
 SUBFOLDER=$2
 DATADIR=
 
-if [[ -n $KOAD_IO_TYPE && -n $SUBFOLDER ]]; then 
-    # many arguments exist, enough that it might be plural
-    [[ -d "$ENTITY_DIR/${KOAD_IO_TYPE}s/" ]] && echo "type is plural"
-    [[ -f "$ENTITY_DIR/${KOAD_IO_TYPE}s/$SUBFOLDER/.env" ]] && echo ".env is present, DATADIR found" && DATADIR="$ENTITY_DIR/${KOAD_IO_TYPE}s/$SUBFOLDER"
-elif [[ -n $KOAD_IO_TYPE ]]; then 
-    # enough arguments exist to specify a singular
-    [[ -d "$ENTITY_DIR/$KOAD_IO_TYPE/" ]] && echo "type is singular"
-    [[ -f "$ENTITY_DIR/$KOAD_IO_TYPE/.env" ]] && echo ".env is present, DATADIR found" && DATADIR="$ENTITY_DIR/$KOAD_IO_TYPE"
+if [[ -n $NAME && -n $SUBFOLDER ]]; then
+    # plural form: <type>s/<name> (e.g. "websites" "kingofalldata.com")
+    [[ -f "$PWD/${NAME}s/$SUBFOLDER/.env" ]] && DATADIR="$PWD/${NAME}s/$SUBFOLDER"
+    [[ -z "$DATADIR" && -f "$NAME/$SUBFOLDER/.env" ]] && DATADIR="$NAME/$SUBFOLDER"
+elif [[ -n $NAME ]]; then
+    # Absolute path passed directly
+    [[ -f "$NAME/.env" ]] && DATADIR="$NAME"
+    # Name relative to CWD
+    [[ -z "$DATADIR" && -f "$PWD/$NAME/.env" ]] && DATADIR="$PWD/$NAME"
 else
-    # no arguments, must be PWD
-    if [[ -f "$PWD/.env" ]]; then
-        DATADIR="$PWD"
-        
-        # Attempt to detect the type
-        DIRNAME=$(basename "$PWD")
-        PARENTDIR=$(basename "$(dirname "$PWD")")
+    # No args — use PWD
+    [[ -f "$PWD/.env" ]] && DATADIR="$PWD"
+fi
 
-        if [[ $PARENTDIR == ${DIRNAME}s ]]; then
-            # Previous folder ends in "s", indicating plural form
-            KOAD_IO_TYPE=${DIRNAME}
-        elif [[ -d "$ENTITY_DIR/$DIRNAME/" ]]; then
-            # Folder exists in the entity's folder, indicating type
-            KOAD_IO_TYPE=${DIRNAME}
-        fi
+# Fallback: services registry (process-control) maps names → datadir for
+# forge services that live outside any entity directory.
+if [ -z "$DATADIR" ] && [ -n "$NAME" ]; then
+  SERVICES_FILE="${KOAD_IO_RUNTIME_PATH:-$HOME/.local/share/koad-io/runtime}/services.jsonl"
+  if [ -f "$SERVICES_FILE" ]; then
+    MATCH=$(grep "\"name\":\"$NAME\"" "$SERVICES_FILE" | head -1)
+    if [ -n "$MATCH" ]; then
+      SVC_DATADIR=$(echo "$MATCH" | python3 -c "import sys,json; print(json.loads(sys.stdin.readline()).get('datadir',''))" 2>/dev/null)
+      if [ -n "$SVC_DATADIR" ] && [ -f "$SVC_DATADIR/.env" ]; then
+        DATADIR="$SVC_DATADIR"
+        echo "DATADIR resolved from services registry: $DATADIR"
+      fi
     fi
+  fi
 fi
 
 if [ -z "$DATADIR" ]; then
@@ -64,6 +68,5 @@ set -a
 source $DATADIR/.env && echo "absorbing $DATADIR/.env"
 [[ -f $DATADIR/.credentials ]] && source $DATADIR/.credentials && echo "obsorbing $DATADIR/.credentials"
 set +a
-
 
 echo "-"

@@ -83,12 +83,10 @@ Package.onUse(function(api) {
 	api.addFiles("server/logger.js", "server");
 	api.addFiles("server/upstart.js", "server");
 	api.addFiles("server/ready.js", "server");  // koad.ready() — indexer readiness gate; must load before any indexer
+	api.addFiles("server/indexes.js", "server"); // koad.indexes — collection registry; must load before any indexer
 	api.addFiles("client/upstart.js", "client");
 	api.addFiles("client/ready.js", "client");   // koad.ready() — reactive readiness gate (mirrors server API)
 	api.addFiles("client/search.js", "client");
-
-	// Client ESM mainModule — wires koad.deps + koad.identity (imports from app node_modules)
-	api.mainModule('client/main.js', 'client');
 
 	api.addFiles([
 		"both/utils.js",
@@ -103,6 +101,9 @@ Package.onUse(function(api) {
 		"server/sysinfo.js",
 		"server/counters.js",
 		"server/search.js",
+		"server/service-bridge.js",
+		"server/file-touch-reactor.js",
+		"server/kingdom-keys.js",
 	], "server");
 
 
