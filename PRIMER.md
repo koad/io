@@ -121,21 +121,32 @@ as-of: a176654204bedb918d3342206b9ae5e226687616
 
 > The skeleton every kingdom inherits. Ships clean: runtime, commands, cascade, daemon, hooks, helpers. Nothing kingdom-specific.
 
-`~/.koad-io/` is the koad:io framework root. Clone it and you get structure, not someone else's business. Business — products, services, editorial voice, storefronts — lives in overlays: `~/.forge/` (business machinery) and `~/.<entity>/` (identity + scope).
+## Cognitive Externalization System
 
-## The three-layer architecture
+koad:io is not an app. It is a **system for externalizing cognition into named, auditable shards** so you never have to think about the same mechanical problem twice.
 
 ```
-~/.koad-io/          ← Framework: CLI tools, commands, skeletons, daemon, hooks
+think once per idea
+  → encode as named shard (command, package, entity, bond, primer)
+  → wire it in via the cascade
+  → never think about it again
+```
+
+The shard carries everything: its name, purpose, boundaries, dependencies, execution surface, and custody trail. The system wires them together automatically. You just drop them in place.
+
+## The Three-Layer Architecture
+
+```
+~/.koad-io/          ← Framework: CLI tools, commands, packages, daemon, hooks
 ~/.<entity>/         ← Entity: identity, keys, memories, commands, trust bonds
 ~/.forge/            ← Business overlay: websites, services, forge packages
 ```
 
-The framework provides runtime. The entity provides identity. The forge provides the kingdom's actual products.
+- **Framework** provides runtime. Generic shapes any kingdom needs.
+- **Entity** provides identity. Who is acting, with what capabilities, under what bonds.
+- **Forge** provides products. The kingdom's actual business — services, websites, content.
 
-## The cascade is load-bearing
-
-Every command runs through the entity launcher (`<entity> <cmd> [args]`). The launcher fires the env cascade before `command.sh` executes:
+The cascade is load-bearing. Every command runs through the entity launcher, which fires the env cascade before `command.sh` executes:
 
 ```
 ~/.koad-io/.env       ← Framework defaults
@@ -143,9 +154,31 @@ Every command runs through the entity launcher (`<entity> <cmd> [args]`). The la
 ./commands/.env       ← Command-local overrides
 ```
 
-By the time a command runs, every variable — ports, bind addresses, database URLs, domain names, settings paths, screen names — is already resolved. Running a tool directly (skipping the launcher) breaks this. The cascade is the contract.
+By the time a command runs, every variable is resolved. **The cascade is the contract.** Running a tool directly (skipping the launcher) breaks it.
 
-## Top-level inventory
+## Packages Are the Real System
+
+Apps are thin shells. The real logic lives in packages:
+
+```
+~/.koad-io/packages/     ← framework packages
+~/.forge/packages/        ← business packages
+~/.ecoincore/packages/    ← domain packages
+```
+
+Each package declares its own scope. The app shell consumes packages — it doesn't own the logic. This makes the system portable, auditable, replaceable, and LLM-comprehensible.
+
+## Safety Model
+
+### 1. Bond Gate (live constraint)
+
+Tools are only visible and executable when granted by an active bond. Bash is rerouted to typed kingdom tools. Results are scrubbed of secrets. Dispatch targets and channel access are scoped by bond.
+
+### 2. Control Surface (chain of custody)
+
+Flights carry lineage: who dispatched, from which session, with what plan, what model, what cwd. Session watchers observe active work. Postgres + JSONL archives provide durable audit trails.
+
+## Top-level Inventory
 
 | Path | Role | Walk status |
 |------|------|-------------|
@@ -175,7 +208,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `patches/` | Upstream dependency patches | not-yet-walked |
 | `passenger/` | Per-entity passenger.json metadata | not-yet-walked |
 
-## Key files at the root
+## Key Files at the Root
 
 | File | Purpose |
 |------|---------|
@@ -187,15 +220,15 @@ By the time a command runs, every variable — ports, bind addresses, database U
 | `README.md` | Framework overview (public-facing) |
 | `PRIMER.md` | This file — agent orientation |
 
-## Subfolders with their own PRIMERs
+## Subfolders with Their Own PRIMERs
 
 - `commands/PRIMER.md` — full command inventory, `.gitignore` whitelist pattern, command shape contract
 - `daemon/PRIMER.md` — daemon architecture, guardrails, dev-mode lifecycle, `MONGO_URL=false`
 - `helpers/PRIMER.md` — emit.sh/py, discovery.sh, ask.sh usage patterns
 - `hooks/PRIMER.md` — framework hook details: executed-without-arguments, entity-upstart, CWD PRIMER injection; three-tier cascade explained; drift note on orchestrator hooks living in juno not here
-- `training/PRIMER.md` — graduation ladder for lessons; four documented subfolders (cascade, layout, pluggable-indexers, sovereign-services)
+- `training/PRIMER.md` — graduation ladder for lessons; four documented subfolders (cascade, layout, pluggable-indexers, sovereign services)
 
-## What goes here vs. forge
+## What Goes Here vs. Forge
 
 **Framework (`~/.koad-io/`):** Commands, hooks, and helpers that any kingdom needs from day one. Generic shapes — not specific to koad's products.
 

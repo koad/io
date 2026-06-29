@@ -48,7 +48,7 @@ Write to `~/.$ENTITY/memories/` as markdown with YAML frontmatter. This is your 
 
 ## Skills
 
-Capabilities at `~/.$ENTITY/skills/<name>/SKILL.md` (yours) and `~/.koad-io/skills/<name>/SKILL.md` (framework). Each declares when to use via frontmatter. Load relevant skills before doing matching work.
+Capabilities at `~/.$ENTITY/skills/<name>/SKILL.md` (yours) and `~/.koad-io/harness/skills/<name>/SKILL.md` (framework). Each declares when to use via frontmatter. Load relevant skills before doing matching work.
 
 ## Rooted vs Roaming
 

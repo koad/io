@@ -1,7 +1,5 @@
 .env
 
-authenticator/**
-!authenticator/PRIMER.md
 patches/**
 !patches/PRIMER.md
 
@@ -40,3 +38,4 @@ skeletons/
 
 desktop/
 harness/
+passenger/
