@@ -9,6 +9,10 @@
 
 import { WebApp } from 'meteor/webapp';
 
+// Only register disk-based endpoints in scanner mode.
+// In remote mode, the proxy middleware (server/remote.js) handles these.
+if (!EntityPackage || !EntityPackage.isScanner) return;
+
 const os = Npm.require('os');
 const fs = Npm.require('fs');
 const path = Npm.require('path');
@@ -137,13 +141,21 @@ WebApp.handlers.use((req, res, next) => {
   if (!m) return next();
 
   const handle = m[1];
+  if (!EntityPackage.serves(handle)) {
+    res.writeHead(404);
+    return res.end('Not Found');
+  }
   const entityDir = path.join(home, `.${handle}`);
 
   try {
     const stat = fs.statSync(entityDir);
-    if (!stat.isDirectory()) return next();
+    if (!stat.isDirectory()) {
+      res.writeHead(404);
+      return res.end('Not Found');
+    }
   } catch (_) {
-    return next();
+    res.writeHead(404);
+    return res.end('Not Found');
   }
 
   const posts = readPosts(handle);
