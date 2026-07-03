@@ -24,12 +24,12 @@ Template.body.events({
 	}
 })
 
-Template.hoverableTimestamp.onCreated(function() {
+Template.HoverableTimestamp.onCreated(function() {
 	this.showRelativeDate = new ReactiveVar(false)
 	this.hoverTimeout = null
 })
 
-Template.hoverableTimestamp.events({
+Template.HoverableTimestamp.events({
 	'mouseover .hoverable-timestamp': function(event, template) {
 		if (template.hoverTimeout) {
 			clearTimeout(template.hoverTimeout)
@@ -43,7 +43,7 @@ Template.hoverableTimestamp.events({
 	}
 })
 
-Template.hoverableTimestamp.helpers({
+Template.HoverableTimestamp.helpers({
 	showRelativeDate: function() {
 		return Template.instance().showRelativeDate.get()
 	}

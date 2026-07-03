@@ -1,4 +1,5 @@
 import { Template } from 'meteor/templating'
+import { TimeSync } from 'meteor/mizzao:timesync';
 
 Template.registerHelper('Reldate', function(context) {
 	if(context) {

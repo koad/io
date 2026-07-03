@@ -12,6 +12,7 @@ Package.onUse(function (api) {
 
   // Server-only — pure compute, no UI, no collections.
   api.mainModule('server/merkle-tree.js', 'server');
+  api.addFiles('server/merkle.js', 'server');
 
   api.export('KingdomMerkleTree', 'server');
 });
