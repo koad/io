@@ -47,6 +47,9 @@
     "./auth": {
       "import": "./auth.js",
       "require": "./auth.cjs"
+    },
+    "./bond-gate": {
+      "import": "./bond-gate.js"
     }
   },
   "main": "./index.cjs",

@@ -128,3 +128,4 @@ export { koad };
 export { dagJsonEncode, dagJsonDecode, CID, sha256, base64, ed, pgp } from './deps.js';
 export { clearsign, verify } from './pgp.js';
 export { createIdentityShape, createIdentity } from './identity.js';
+export { resolveGate, checkCommand, checkPath, summarizeScope } from './bond-gate.js';
