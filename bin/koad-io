@@ -341,7 +341,6 @@ fi
 
 
 export COMMAND_LOCATION=$COMMAND_LOCATION
-
 # if DEBUG is set, barf out some details.
 [[ $DEBUG ]] && echo >&2
 [[ $DEBUG ]] && echo "COMMAND_LOCATION=$COMMAND_LOCATION" >&2;

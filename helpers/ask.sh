@@ -132,17 +132,17 @@ ask() {
 
         echo "$result"
     else
-        # Non-interactive: use default if available, otherwise fail
+        # Non-interactive: use default if available, otherwise signal to harness
         if [ -n "$default" ]; then
             echo "$default"
         elif [ "$required" -eq 0 ]; then
             echo ""
         else
-            local var_hint=""
-            var_hint=$(echo "$prompt" | tr '[:lower:] ' '[:upper:]_' | tr -cd 'A-Z0-9_')
-            echo "[ask] ERROR: Non-interactive mode — cannot prompt for: $prompt" >&2
-            echo "[ask] Set env var (e.g. KOAD_IO_${var_hint}) or run interactively." >&2
-            exit 1
+            local _var="${write_var:-UNKNOWN}"
+            local _default="${default:-}"
+            printf '{"KOAD_IO_ASK":{"var":"%s","prompt":"%s","required":%s,"default":"%s"}}\n' \
+                "$_var" "$prompt" "$required" "$_default" >&2
+            exit 67
         fi
     fi
 }
@@ -205,10 +205,10 @@ ask_yn() {
 
         [ "$yn_result" = "yes" ] && return 0 || return 1
     else
-        local var_hint
-        var_hint=$(echo "$prompt" | tr '[:lower:] ' '[:upper:]_' | tr -cd 'A-Z0-9_')
-        echo "[ask] ERROR: Non-interactive mode — cannot prompt for: $prompt" >&2
-        echo "[ask] Set env var (e.g. KOAD_IO_${var_hint}=y) or run interactively." >&2
-        exit 1
+        local _var="${write_var:-UNKNOWN}"
+        local _default="${default:-}"
+        printf '{"KOAD_IO_ASK":{"var":"%s","prompt":"%s","required":%s,"default":"%s","kind":"yn"}}\n' \
+            "$_var" "$prompt" "$required" "$_default" >&2
+        exit 67
     fi
 }
