@@ -190,6 +190,52 @@ function extractYamlBlock(fm, key) {
   return block;
 }
 
+function parseYamlDeviceGrants(fm) {
+  const devices = {};
+  const devBlock = extractYamlBlock(fm, 'devices');
+  if (!devBlock) return devices;
+
+  const lines = devBlock.split('\n');
+  let currentHost = null;
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    const hostMatch = line.match(/^\s{2}([a-zA-Z0-9_-]+):\s*$/);
+    if (hostMatch) {
+      currentHost = hostMatch[1];
+      devices[currentHost] = { allow: false };
+      continue;
+    }
+    if (!currentHost) continue;
+    const propMatch = line.match(/^\s{4}([a-zA-Z_]+):\s*(.+)$/);
+    if (!propMatch) continue;
+    const [, key, rawValue] = propMatch;
+    const val = yamlAtom(rawValue);
+
+    if (key === 'allow') {
+      devices[currentHost].allow = /^(true|yes)$/i.test(val);
+    } else if (key === 'label') {
+      devices[currentHost].label = val;
+    } else if (key === 'paths') {
+      if (rawValue.trim().startsWith('[')) {
+        devices[currentHost].paths = rawValue.trim().slice(1, -1).split(',').map(yamlAtom).filter(Boolean);
+      } else {
+        devices[currentHost].paths = parseYamlList(devBlock, 'paths', currentHost);
+      }
+    } else if (key === 'commands') {
+      if (rawValue.trim().startsWith('[')) {
+        devices[currentHost].commands = rawValue.trim().slice(1, -1).split(',').map(yamlAtom).filter(Boolean);
+      }
+    } else if (key === 'deny_commands') {
+      if (rawValue.trim().startsWith('[')) {
+        devices[currentHost].deny_commands = rawValue.trim().slice(1, -1).split(',').map(yamlAtom).filter(Boolean);
+      }
+    } else if (key === 'allow_write') {
+      devices[currentHost].allow_write = /^(true|yes)$/i.test(val);
+    }
+  }
+  return devices;
+}
+
 function extractClearsignedBody(content) {
   return content
     .replace(/^-----BEGIN PGP SIGNED MESSAGE-----\s*/m, '')
@@ -349,12 +395,13 @@ export function parseBonds(entity) {
 
       const specRefs = parseYamlList(fm, 'spec-refs');
       const reason = parseYamlString(fm, 'reason');
+      const devices = parseYamlDeviceGrants(fm);
 
       bonds.push({
         type, from, from_fingerprint: fromFp, to, status, visibility,
         created, expires, renewal,
         capabilities, tools, entity_capabilities, interactive,
-        device_ids, path: bondPath, specRefs, reason,
+        device_ids, devices, path: bondPath, specRefs, reason,
       });
     } catch {
       errors.push(`bond parse error: ${entry} — unreadable or malformed frontmatter`);
@@ -423,6 +470,7 @@ export function mergeBondScope(entity, bonds, errors, interactive = false) {
   const tools = structuredClone(EMPTY_TOOL_GRANTS);
   const entity_capabilities = structuredClone(EMPTY_ENTITY_CAPS);
   const intOverride = structuredClone(EMPTY_INTERACTIVE);
+  const devices = {};
 
   for (const b of bonds) {
     pushUnique(file.read, b.capabilities.read);
@@ -449,6 +497,8 @@ export function mergeBondScope(entity, bonds, errors, interactive = false) {
     if (b.interactive.exec) pushUnique(intOverride.exec ??= [], b.interactive.exec);
     if (b.interactive.write) pushUnique(intOverride.write ??= [], b.interactive.write);
     if (b.interactive.bash !== undefined) intOverride.bash = b.interactive.bash;
+
+    Object.assign(devices, b.devices);
   }
 
   if (interactive) {
@@ -472,6 +522,7 @@ export function mergeBondScope(entity, bonds, errors, interactive = false) {
     tools,
     entity_capabilities,
     interactive: intOverride,
+    devices,
     errors,
     mode: 'bonded',
     label: `mode=bonded device=${deviceId} bonds=${bonds.length}`,
@@ -492,6 +543,7 @@ export function resolveGate(entity, { interactive = false } = {}) {
       tools: { bash: true, dispatch: true, dispatch_followup: true, dispatch_complete: true, koadio_tools: ['*'], koadio_commands: ['*'], channels: { moderate: ['*'], participate: ['*'] } },
       entity_capabilities: { dispatch_targets: ['*'], message_targets: ['*'], channel_roles: {} },
       interactive: {},
+      devices: {},
       errors: [],
       mode: 'bypass',
       label: 'mode=bypass — ALL ACCESS GRANTED',
@@ -515,6 +567,7 @@ export function resolveGate(entity, { interactive = false } = {}) {
       tools: structuredClone(EMPTY_TOOL_GRANTS),
       entity_capabilities: structuredClone(EMPTY_ENTITY_CAPS),
       interactive: {},
+      devices: {},
       errors,
       mode: 'fatal',
       label: 'mode=fatal — bond verification failed',
@@ -540,6 +593,7 @@ export function resolveGate(entity, { interactive = false } = {}) {
         tools: structuredClone(EMPTY_TOOL_GRANTS),
         entity_capabilities: structuredClone(EMPTY_ENTITY_CAPS),
         interactive: {},
+        devices: {},
         errors,
         mode: 'env-var',
         label: 'mode=env-var dispatch dir r+w+e',
@@ -556,6 +610,7 @@ export function resolveGate(entity, { interactive = false } = {}) {
         tools: structuredClone(EMPTY_TOOL_GRANTS),
         entity_capabilities: structuredClone(EMPTY_ENTITY_CAPS),
         interactive: {},
+        devices: {},
         errors: dispatchDir && dispatchExpanded === HOME ? [...errors, 'HARNESS_WORK_DIR points at HOME; automatic r+w+e lane skipped'] : errors,
         mode: 'default',
         label: errors.length ? 'mode=default — no valid bonds' : 'mode=default — no bonds, no access',
@@ -629,6 +684,7 @@ export function summarizeScope(scope) {
     file: scope.file,
     tools: scope.tools,
     entity_capabilities: scope.entity_capabilities,
+    devices: scope.devices,
     envLanes: scope.envLanes,
   };
 }
