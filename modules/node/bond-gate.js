@@ -215,22 +215,6 @@ function parseYamlDeviceGrants(fm) {
       devices[currentHost].allow = /^(true|yes)$/i.test(val);
     } else if (key === 'label') {
       devices[currentHost].label = val;
-    } else if (key === 'paths') {
-      if (rawValue.trim().startsWith('[')) {
-        devices[currentHost].paths = rawValue.trim().slice(1, -1).split(',').map(yamlAtom).filter(Boolean);
-      } else {
-        devices[currentHost].paths = parseYamlList(devBlock, 'paths', currentHost);
-      }
-    } else if (key === 'commands') {
-      if (rawValue.trim().startsWith('[')) {
-        devices[currentHost].commands = rawValue.trim().slice(1, -1).split(',').map(yamlAtom).filter(Boolean);
-      }
-    } else if (key === 'deny_commands') {
-      if (rawValue.trim().startsWith('[')) {
-        devices[currentHost].deny_commands = rawValue.trim().slice(1, -1).split(',').map(yamlAtom).filter(Boolean);
-      }
-    } else if (key === 'allow_write') {
-      devices[currentHost].allow_write = /^(true|yes)$/i.test(val);
     }
   }
   return devices;
