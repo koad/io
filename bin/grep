@@ -139,6 +139,14 @@ for arg in "${passthrough[@]}"; do
       expect_kind="pattern"
       continue
       ;;
+    --include=*|--exclude=*|--exclude-dir=*|--label=*)
+      continue
+      ;;
+    --include|--exclude|--exclude-dir|--label)
+      expect_value=1
+      expect_kind="other"
+      continue
+      ;;
     --binary-files=*)
       user_binary_mode=1
       continue
