@@ -26,6 +26,17 @@ function gatherToolCalls(blocks) {
   return calls;
 }
 
+function roleSummaryItems({ userTurns, assistantTurns, auxiliaryEntries, rawRoleCounts }) {
+  const items = [
+    `user: ${userTurns}`,
+    `assistant: ${assistantTurns}`,
+  ];
+  const extraRoles = Array.from(rawRoleCounts.entries()).filter(([role]) => !["user", "assistant"].includes(role));
+  if (auxiliaryEntries > 0) items.push(`auxiliary: ${auxiliaryEntries}`);
+  for (const [role, count] of extraRoles.slice(0, 6)) items.push(`${role}: ${count}`);
+  return items;
+}
+
 export const parser = {
   name: "session",
   aliases: ["session-jsonl", "pi-session"],
@@ -48,7 +59,7 @@ export const parser = {
     let sessionMeta = null;
     let sessionInfo = null;
     let customBanner = null;
-    const roleCounts = new Map();
+    const rawRoleCounts = new Map();
     const userMessages = [];
     const assistantMessages = [];
     const toolCalls = [];
@@ -62,6 +73,9 @@ export const parser = {
     let errors = 0;
     let firstTimestamp = null;
     let lastTimestamp = null;
+    let userTurns = 0;
+    let assistantTurns = 0;
+    let auxiliaryEntries = 0;
 
     for (const rawLine of lines) {
       if (!rawLine.trim()) continue;
@@ -83,16 +97,35 @@ export const parser = {
       }
       if (entry.type === "custom_message") {
         customMessages.push(`${entry.customType || "custom"}: ${clip(entry.content || "", 160)}`);
+        continue;
+      }
+      if (entry.type === "tool_call") {
+        toolCalls.push({
+          id: entry.toolCallId || entry.id || null,
+          name: entry.toolName || entry.name || "unknown",
+          arguments: entry.arguments ?? {},
+        });
+        continue;
+      }
+      if (entry.type === "tool_result") {
+        if (entry.isError) errors += 1;
+        continue;
       }
       if (entry.type !== "message") continue;
+
       const message = entry.message || {};
       const role = message.role || "unknown";
-      roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
+      rawRoleCounts.set(role, (rawRoleCounts.get(role) || 0) + 1);
       if (entry.isError || message.isError) errors += 1;
+
       if (role === "user") {
+        userTurns += 1;
         userMessages.push(contentBlocksToText(message.content, { includeThinking: false, limit: 180 }));
+        continue;
       }
+
       if (role === "assistant") {
+        assistantTurns += 1;
         const assistantText = contentBlocksToText(message.content, { includeThinking: false, limit: 180 });
         const assistantToolCalls = gatherToolCalls(message.content);
         assistantMessages.push(assistantText || (assistantToolCalls.length ? `[tool call only: ${assistantToolCalls.map((call) => call.name).join(", ")}]` : "[assistant message with no text blocks]"));
@@ -104,23 +137,45 @@ export const parser = {
         totalCacheRead += Number(usage.cacheRead || 0);
         totalCacheWrite += Number(usage.cacheWrite || 0);
         totalCost += Number(usage.cost?.total || 0);
+        continue;
       }
+
+      auxiliaryEntries += 1;
     }
 
     if (malformedLines) warnings.push(`${malformedLines} malformed JSONL line(s) skipped.`);
     if (!sessionMeta) warnings.push("No session header found.");
+    if (auxiliaryEntries) {
+      const details = Array.from(rawRoleCounts.entries())
+        .filter(([role]) => !["user", "assistant"].includes(role))
+        .map(([role, count]) => `${role}:${count}`)
+        .join(", ");
+      warnings.push(`${auxiliaryEntries} non-conversation message entr${auxiliaryEntries === 1 ? "y was" : "ies were"} excluded from turn counts${details ? ` (${details}).` : "."}`);
+    }
 
-    const messageEntries = Array.from(roleCounts.values()).reduce((sum, count) => sum + count, 0);
+    const turns = userTurns + assistantTurns;
     const durationSeconds = firstTimestamp && lastTimestamp
       ? Math.max(0, Math.round((new Date(lastTimestamp).getTime() - new Date(firstTimestamp).getTime()) / 1000))
       : null;
+
+    const userLimit = ctx.verbosity >= 2 ? 12 : 6;
+    const assistantLimit = ctx.verbosity >= 2 ? 12 : 6;
+    const toolLimit = ctx.verbosity >= 2 ? 20 : 10;
+    const customLimit = ctx.verbosity >= 2 ? 8 : 4;
+
+    const userPreview = userMessages.filter(Boolean).slice(0, userLimit);
+    const assistantPreview = assistantMessages.filter(Boolean).slice(0, assistantLimit);
+    const toolPreview = toolCalls.slice(0, toolLimit);
+    const customPreview = customMessages.slice(0, customLimit);
 
     return {
       summary: {
         title: `Session summary :: ${path.basename(ctx.target.resolved)}`,
         headline: firstNonEmpty(customBanner, `Session ${sessionMeta?.id || path.basename(ctx.target.resolved)} in ${sessionMeta?.cwd || sessionInfo?.name || path.dirname(ctx.target.resolved)}`) || "",
         metrics: {
-          turns: messageEntries,
+          turns,
+          user_turns: userTurns,
+          assistant_turns: assistantTurns,
           tool_calls: toolCalls.length,
           errors,
           tokens: totalTokens,
@@ -134,28 +189,28 @@ export const parser = {
         },
         sections: [
           {
-            title: "roles",
-            items: Array.from(roleCounts.entries()).map(([role, count]) => `${role}: ${count}`),
+            title: "conversation shape",
+            items: roleSummaryItems({ userTurns, assistantTurns, auxiliaryEntries, rawRoleCounts }),
           },
           {
             title: "user messages",
-            items: userMessages.filter(Boolean).slice(0, ctx.verbosity >= 2 ? 12 : 6).map((text) => `- ${text}`),
+            items: userPreview.map((text) => `- ${text}`),
           },
           {
             title: "assistant responses",
-            items: assistantMessages.filter(Boolean).slice(0, ctx.verbosity >= 2 ? 12 : 6).map((text) => `- ${text}`),
+            items: assistantPreview.map((text) => `- ${text}`),
           },
           {
             title: "tool calls",
-            items: toolCalls.slice(0, ctx.verbosity >= 2 ? 20 : 10).map((call) => `- ${call.name} ${JSON.stringify(call.arguments)}`),
+            items: toolPreview.map((call) => `- ${call.name} ${JSON.stringify(call.arguments)}`),
           },
           {
             title: "custom messages",
-            items: customMessages.slice(0, ctx.verbosity >= 2 ? 8 : 4).map((text) => `- ${text}`),
+            items: customPreview.map((text) => `- ${text}`),
           },
         ].filter((section) => section.items.length > 0),
         compat_footer: {
-          Turns: messageEntries,
+          Turns: turns,
           "Tool calls": toolCalls.length,
           Errors: errors,
           Tokens: totalTokens,
@@ -166,9 +221,20 @@ export const parser = {
         session_id: sessionMeta?.id || null,
         cwd: sessionMeta?.cwd || null,
         name: sessionInfo?.name || null,
-        message_entries: messageEntries,
-        role_counts: Object.fromEntries(roleCounts),
-        tool_calls: toolCalls,
+        turns,
+        user_turns: userTurns,
+        assistant_turns: assistantTurns,
+        role_counts: Object.fromEntries(rawRoleCounts),
+        tool_calls: toolPreview,
+        user_messages: userPreview,
+        assistant_responses: assistantPreview,
+        custom_messages: customPreview,
+        omitted_counts: {
+          user_messages: Math.max(0, userMessages.filter(Boolean).length - userPreview.length),
+          assistant_responses: Math.max(0, assistantMessages.filter(Boolean).length - assistantPreview.length),
+          tool_calls: Math.max(0, toolCalls.length - toolPreview.length),
+          custom_messages: Math.max(0, customMessages.length - customPreview.length),
+        },
         malformed_lines: malformedLines,
         started_at: firstTimestamp,
         ended_at: lastTimestamp,
@@ -181,10 +247,6 @@ export const parser = {
           cache_write: totalCacheWrite,
         },
         cost_total: Number(totalCost.toFixed(6)),
-        samples: {
-          user: userMessages.filter(Boolean).slice(0, 8),
-          assistant: assistantMessages.filter(Boolean).slice(0, 8),
-        },
       },
       warnings,
     };

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { SUMMARY_SCHEMA, SUMMARY_SCHEMA_ID } from "./_schema.mjs";
+import { resolveSummarySchema, SUMMARY_SCHEMA_ID } from "./_schema.mjs";
 import {
   basenameOrInput,
   clip,
@@ -363,7 +363,7 @@ async function main() {
     return;
   }
   if (options.format === "schema") {
-    console.log(JSON.stringify(SUMMARY_SCHEMA, null, 2));
+    console.log(JSON.stringify(resolveSummarySchema(options.schema), null, 2));
     return;
   }
   if (!options.target) {
