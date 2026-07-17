@@ -1,0 +1,336 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "$SELF_DIR/../helpers/kingdom-safe-search.sh"
+
+SYSTEM_GREP="/usr/bin/grep"
+SYSTEM_FIND="/usr/bin/find"
+
+show_help() {
+  cat <<'EOF'
+kingdom-safe grep
+
+Usage:
+  grep [--raw|--full] [--show-excludes] [grep args...]
+  grep --kingdom-help
+
+Behavior:
+  - passes plain stdin/file grep through to /usr/bin/grep
+  - when recursive grep flags are present (-r, -R, --recursive,
+    --directories=recurse, --dereference-recursive), walks files through a
+    kingdom-safe find layer that prunes noisy/generated trees by default
+  - use --raw or --full to bypass the safe layer entirely
+
+Notes:
+  - wrapper help: grep --kingdom-help
+  - GNU grep help: /usr/bin/grep --help
+EOF
+}
+
+exec_raw() {
+  exec "$SYSTEM_GREP" "$@"
+}
+
+if [[ $# -eq 0 ]]; then
+  exec_raw
+fi
+
+passthrough=()
+raw_mode=0
+show_excludes=0
+for arg in "$@"; do
+  case "$arg" in
+    --raw|--full)
+      raw_mode=1
+      ;;
+    --show-excludes)
+      show_excludes=1
+      ;;
+    --kingdom-help)
+      show_help
+      exit 0
+      ;;
+    *)
+      passthrough+=("$arg")
+      ;;
+  esac
+done
+
+if [[ $show_excludes -eq 1 && ${#passthrough[@]} -eq 0 ]]; then
+  kg_safe_show_excludes "grep"
+  exit 0
+fi
+
+if [[ $raw_mode -eq 1 ]]; then
+  exec_raw "${passthrough[@]}"
+fi
+
+if [[ ${#passthrough[@]} -eq 1 && "${passthrough[0]}" == "--version" ]]; then
+  exec_raw "${passthrough[@]}"
+fi
+
+recursive=0
+follow_symlinks=0
+user_binary_mode=0
+pattern_set=0
+expect_value=0
+expect_kind=""
+after_ddash=0
+paths=()
+
+for arg in "${passthrough[@]}"; do
+  if [[ $after_ddash -eq 1 ]]; then
+    if [[ $pattern_set -eq 0 ]]; then
+      pattern_set=1
+    else
+      paths+=("$arg")
+    fi
+    continue
+  fi
+
+  if [[ $expect_value -eq 1 ]]; then
+    case "$expect_kind" in
+      pattern)
+        pattern_set=1
+        ;;
+      recursive-dir)
+        [[ "$arg" == "recurse" ]] && recursive=1
+        ;;
+      binary)
+        user_binary_mode=1
+        ;;
+    esac
+    expect_value=0
+    expect_kind=""
+    continue
+  fi
+
+  case "$arg" in
+    --)
+      after_ddash=1
+      continue
+      ;;
+    --recursive)
+      recursive=1
+      continue
+      ;;
+    --dereference-recursive)
+      recursive=1
+      follow_symlinks=1
+      continue
+      ;;
+    --directories=recurse)
+      recursive=1
+      continue
+      ;;
+    --directories)
+      expect_value=1
+      expect_kind="recursive-dir"
+      continue
+      ;;
+    --regexp=*|--file=*)
+      pattern_set=1
+      continue
+      ;;
+    --regexp|--file)
+      expect_value=1
+      expect_kind="pattern"
+      continue
+      ;;
+    --binary-files=*)
+      user_binary_mode=1
+      continue
+      ;;
+    --binary-files)
+      expect_value=1
+      expect_kind="binary"
+      continue
+      ;;
+    --text|-a|-I)
+      user_binary_mode=1
+      ;;
+    --version)
+      continue
+      ;;
+  esac
+
+  if [[ "$arg" == --* ]]; then
+    continue
+  fi
+
+  if [[ "$arg" == -* && "$arg" != "-" ]]; then
+    short="${arg#-}"
+    short_len=${#short}
+    i=0
+    while [[ $i -lt $short_len ]]; do
+      ch="${short:$i:1}"
+      case "$ch" in
+        r)
+          recursive=1
+          ;;
+        R)
+          recursive=1
+          follow_symlinks=1
+          ;;
+        a|I)
+          user_binary_mode=1
+          ;;
+        e|f)
+          pattern_set=1
+          if [[ $((i + 1)) -eq $short_len ]]; then
+            expect_value=1
+            expect_kind="pattern"
+          fi
+          i=$short_len
+          continue
+          ;;
+        A|B|C|D|d|f|m)
+          if [[ $((i + 1)) -eq $short_len ]]; then
+            expect_value=1
+            expect_kind="other"
+          fi
+          i=$short_len
+          continue
+          ;;
+      esac
+      i=$((i + 1))
+    done
+    continue
+  fi
+
+  if [[ $pattern_set -eq 0 ]]; then
+    pattern_set=1
+  else
+    paths+=("$arg")
+  fi
+done
+
+if [[ $recursive -eq 0 ]]; then
+  exec_raw "${passthrough[@]}"
+fi
+
+parsed_path_count=${#paths[@]}
+if [[ ${#paths[@]} -eq 0 ]]; then
+  paths=(".")
+fi
+
+if [[ $parsed_path_count -gt 0 ]]; then
+  arg_limit=$(( ${#passthrough[@]} - parsed_path_count ))
+  final_grep_args=("${passthrough[@]:0:arg_limit}")
+else
+  final_grep_args=("${passthrough[@]}")
+fi
+if [[ $user_binary_mode -eq 0 ]]; then
+  final_grep_args+=("-I")
+fi
+
+kg_safe_print_banner "grep"
+if [[ $show_excludes -eq 1 ]]; then
+  kg_safe_show_excludes "grep" >&2
+fi
+
+overall_rc=1
+update_rc() {
+  local rc="$1"
+  if [[ $rc -eq 2 ]]; then
+    overall_rc=2
+  elif [[ $rc -eq 0 && $overall_rc -ne 2 ]]; then
+    overall_rc=0
+  fi
+}
+
+run_file_batch() {
+  local rc
+  set +e
+  "$SYSTEM_GREP" "${final_grep_args[@]}" "$@"
+  rc=$?
+  set -e
+  update_rc "$rc"
+}
+
+run_find_root() {
+  local root="$1"
+  local find_cmd=("$SYSTEM_FIND")
+  if [[ $follow_symlinks -eq 1 ]]; then
+    find_cmd+=("-L")
+  fi
+  find_cmd+=("$root")
+  find_cmd+=(
+    '('
+      -type d
+      '('
+  )
+
+  local first=1
+  local name
+  for name in "${KG_SAFE_DIR_NAMES[@]}"; do
+    if [[ $first -eq 0 ]]; then
+      find_cmd+=( -o )
+    fi
+    first=0
+    find_cmd+=( -name "$name" )
+  done
+  local pattern
+  for pattern in "${KG_SAFE_PATH_PATTERNS[@]}"; do
+    if [[ $first -eq 0 ]]; then
+      find_cmd+=( -o )
+    fi
+    first=0
+    find_cmd+=( -path "$pattern" )
+  done
+  local abs_path
+  for abs_path in "${KG_SAFE_ABS_PATHS[@]}"; do
+    if [[ $first -eq 0 ]]; then
+      find_cmd+=( -o )
+    fi
+    first=0
+    find_cmd+=( -path "$abs_path" -o -path "$abs_path/*" )
+  done
+
+  find_cmd+=(
+      ')'
+      -prune
+    ')'
+    -o
+    -type f
+    -exec
+    "$SYSTEM_GREP"
+  )
+
+  local arg
+  for arg in "${final_grep_args[@]}"; do
+    find_cmd+=("$arg")
+  done
+  find_cmd+=( {} + )
+
+  local rc
+  set +e
+  "${find_cmd[@]}"
+  rc=$?
+  set -e
+  update_rc "$rc"
+}
+
+file_targets=()
+dir_targets=()
+for path in "${paths[@]}"; do
+  if [[ "$path" == "-" ]]; then
+    file_targets+=("$path")
+  elif [[ -d "$path" ]]; then
+    dir_targets+=("$path")
+  else
+    file_targets+=("$path")
+  fi
+done
+
+if [[ ${#file_targets[@]} -gt 0 ]]; then
+  run_file_batch "${file_targets[@]}"
+fi
+
+for path in "${dir_targets[@]}"; do
+  run_find_root "$path"
+done
+
+exit "$overall_rc"

@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+source "$SELF_DIR/../helpers/kingdom-safe-search.sh"
+
+SYSTEM_FIND="/usr/bin/find"
+
+show_help() {
+  cat <<'EOF'
+kingdom-safe find
+
+Usage:
+  find [--raw|--full] [--show-excludes] [find args...]
+  find --kingdom-help
+
+Behavior:
+  - preserves standard find path + expression shape
+  - injects a default prune layer for noisy/generated/runtime trees
+  - use --raw or --full to bypass the prune layer entirely
+
+Notes:
+  - wrapper help: find --kingdom-help
+  - GNU find help: /usr/bin/find --help
+EOF
+}
+
+exec_raw() {
+  exec "$SYSTEM_FIND" "$@"
+}
+
+if [[ $# -eq 0 ]]; then
+  kg_safe_print_banner "find"
+  exec "$SYSTEM_FIND" .
+fi
+
+passthrough=()
+raw_mode=0
+show_excludes=0
+for arg in "$@"; do
+  case "$arg" in
+    --raw|--full)
+      raw_mode=1
+      ;;
+    --show-excludes)
+      show_excludes=1
+      ;;
+    --kingdom-help)
+      show_help
+      exit 0
+      ;;
+    *)
+      passthrough+=("$arg")
+      ;;
+  esac
+done
+
+if [[ $show_excludes -eq 1 && ${#passthrough[@]} -eq 0 ]]; then
+  kg_safe_show_excludes "find"
+  exit 0
+fi
+
+if [[ $raw_mode -eq 1 ]]; then
+  exec_raw "${passthrough[@]}"
+fi
+
+if [[ ${#passthrough[@]} -eq 1 && "${passthrough[0]}" == "--version" ]]; then
+  exec_raw "${passthrough[@]}"
+fi
+
+leading_opts=()
+roots=()
+expr=()
+index=0
+parsing_leading=1
+parsing_roots=1
+
+while [[ $index -lt ${#passthrough[@]} ]]; do
+  arg="${passthrough[$index]}"
+
+  if [[ $parsing_leading -eq 1 ]]; then
+    case "$arg" in
+      -H|-L|-P|-D|-O)
+        leading_opts+=("$arg")
+        if [[ "$arg" == "-D" || "$arg" == "-O" ]]; then
+          index=$((index + 1))
+          if [[ $index -lt ${#passthrough[@]} ]]; then
+            leading_opts+=("${passthrough[$index]}")
+          fi
+        fi
+        index=$((index + 1))
+        continue
+        ;;
+      --)
+        parsing_leading=0
+        parsing_roots=0
+        index=$((index + 1))
+        continue
+        ;;
+      *)
+        parsing_leading=0
+        ;;
+    esac
+  fi
+
+  if [[ $parsing_roots -eq 1 ]]; then
+    case "$arg" in
+      ''|'-'|'!'|'('|')'|','|';'|+|-*)
+        parsing_roots=0
+        ;;
+      *)
+        roots+=("$arg")
+        index=$((index + 1))
+        continue
+        ;;
+    esac
+  fi
+
+  expr+=("$arg")
+  index=$((index + 1))
+done
+
+if [[ ${#roots[@]} -eq 0 ]]; then
+  roots=(.)
+fi
+
+if [[ ${#expr[@]} -eq 0 ]]; then
+  expr=(-print)
+fi
+
+expr_has_action=0
+for arg in "${expr[@]}"; do
+  case "$arg" in
+    -print|-print0|-ls|-fls|-delete|-quit|-exec|-execdir|-ok|-okdir|-fprint|-fprint0|-fprintf)
+      expr_has_action=1
+      break
+      ;;
+  esac
+done
+if [[ $expr_has_action -eq 0 ]]; then
+  expr+=( -print )
+fi
+
+cmd=("$SYSTEM_FIND")
+for arg in "${leading_opts[@]}"; do
+  cmd+=("$arg")
+done
+for arg in "${roots[@]}"; do
+  cmd+=("$arg")
+done
+
+cmd+=(
+  '('
+    -type d
+    '('
+)
+
+first=1
+for arg in "${KG_SAFE_DIR_NAMES[@]}"; do
+  if [[ $first -eq 0 ]]; then
+    cmd+=( -o )
+  fi
+  first=0
+  cmd+=( -name "$arg" )
+done
+for arg in "${KG_SAFE_PATH_PATTERNS[@]}"; do
+  if [[ $first -eq 0 ]]; then
+    cmd+=( -o )
+  fi
+  first=0
+  cmd+=( -path "$arg" )
+done
+for arg in "${KG_SAFE_ABS_PATHS[@]}"; do
+  if [[ $first -eq 0 ]]; then
+    cmd+=( -o )
+  fi
+  first=0
+  cmd+=( -path "$arg" -o -path "$arg/*" )
+done
+
+cmd+=(
+    ')'
+    -prune
+  ')'
+  -o
+)
+for arg in "${expr[@]}"; do
+  cmd+=("$arg")
+done
+
+kg_safe_print_banner "find"
+if [[ $show_excludes -eq 1 ]]; then
+  kg_safe_show_excludes "find" >&2
+fi
+
+exec "${cmd[@]}"
