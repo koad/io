@@ -1,6 +1,6 @@
 # koad:io Bin Folder
 
-The `bin` folder within your `~/.koad-io` directory contains essential scripts and executables that are integral to the functioning of your koad:io installation. These scripts provide key functionalities and utilities for managing your koad:io environment, interacting with entities, and executing various commands. It also houses a small set of generic shell wrappers (`grep`, `find`) that add kingdom-safe defaults at the PATH layer.
+The `bin` folder within your `~/.koad-io` directory contains essential scripts and executables that are integral to the functioning of your koad:io installation. These scripts provide key functionalities and utilities for managing your koad:io environment, interacting with entities, and executing various commands. It also houses a small set of generic wrappers at the PATH layer: kingdom-safe shell primitives (`grep`, `find`) plus the pluggable `summary` host.
 
 ## Contents
 
@@ -10,6 +10,7 @@ The `bin` folder typically includes the following files:
 
 - `entity`: This script is a dynamic script that gets copied to your entity's name during the entity's gestation or initialization process. For example, if your entity is named "alice," this script will be copied to `alice`. The `entity` script contains entity-specific functionalities and commands that can be executed within the context of that particular entity. It allows you to perform entity-specific actions and manage entity-related configurations.
 - `grep` / `find`: Kingdom-safe wrappers around the familiar Unix primitives. By default they prune noisy/generated/runtime trees such as `node_modules/`, `isopacks/`, `.meteor/local/`, `.git/`, and runtime exhaust. Use `--raw` (or `--full`) to bypass the safety layer when you intentionally need the full tree.
+- `summary`: Generalized summary host. Autodetects or explicitly runs parser modules from `~/.koad-io/parsers/` for sessions, flights, JSON/JSONL, markdown frontmatter, directories, and messages.
 
 ## Usage
 
@@ -41,7 +42,7 @@ To interact with the scripts within the `bin` folder, you can use the following 
 
 The scripts within the `bin` folder are designed to provide core functionalities for your koad:io installation. While customization of these scripts is possible, it is generally recommended to avoid modifying them directly, as it may lead to compatibility issues or unexpected behavior.
 
-The main exception is the generic shell-wrapper layer: if a primitive is causing repeated operator pain across shells and harnesses, the framework may bless a PATH-level wrapper here so the relief is universal rather than harness-only.
+The main exception is the generic wrapper layer: if a primitive is causing repeated operator pain across shells and harnesses, the framework may bless a PATH-level wrapper here so the relief is universal rather than harness-only. `summary` follows the same rule: a reusable parser host belongs in `bin/` because both shell users and harness adapters need the same summary brain.
 
 Instead, you can extend the functionalities by creating your own scripts or commands within the appropriate entity-specific `commands` directory. This allows you to tailor your koad:io environment to your specific needs without modifying the core scripts within the `bin` folder.
 
