@@ -1,0 +1,10 @@
+{
+  "signale": "1.4.0",
+  "node-machine-id": "1.1.12",
+  "systeminformation": "5.11.14",
+  "@scure/bip39": "1.2.1",
+  "ssh2": "1.14.0",
+  "kbpgp": "2.1.15",
+  "ipfs-core": "0.18.1",
+  "ipfs-http-client": "60.0.1"
+}

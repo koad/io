@@ -10,11 +10,19 @@
   "dependencies": {
     "@babel/runtime": "^7.23.2",
     "@ipld/dag-json": "10.2.7",
+    "@koad-io/node": "file:../../modules/node",
     "@noble/ed25519": "2.1.0",
+    "@scure/bip39": "1.2.1",
     "body-parser": "^1.20.2",
+    "ipfs-core": "0.18.1",
+    "ipfs-http-client": "60.0.1",
     "js-yaml": "^4.1.1",
+    "kbpgp": "2.1.15",
     "meteor-node-stubs": "^1.2.1",
     "multiformats": "13.4.2",
-    "@koad-io/node": "file:../../modules/node"
+    "node-machine-id": "1.1.12",
+    "signale": "1.4.0",
+    "ssh2": "1.14.0",
+    "systeminformation": "5.11.14"
   }
 }

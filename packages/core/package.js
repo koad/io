@@ -5,29 +5,7 @@ Package.describe({
 	"documentation": "https://book.koad.sh/"
 });
 
-Npm.depends({
-	"signale": "1.4.0",
-	"ua-parser": "0.3.5",
-	"os": "0.1.1",
-	"pidusage": "2.0.18",
-	"simpl-schema": "1.10.2",
-	"node-machine-id": "1.1.12",
-	"cron": "1.8.2",
-	"systeminformation": "5.11.14",
-	// "bitcoinjs-lib": "6.1.3",
-	// "@scure/bip32": "1.3.2",
-	"@scure/bip39": "1.2.1", // https://github.com/paulmillr/scure-bip39
-	// "ethereum-cryptography": "2.1.2",
-	"ssh2": "1.14.0",
-	"kbpgp": "2.1.15", // Keybase PGP. Reverted from 2.1.17 — Meteor build-cache wedge on bump (rename ENOENT during ipfs-core dep cascade). SPEC-148 §6 pin-agreement violation pending fix.
-	"ipfs-core": "0.18.1", // IPFS implementation for distributed storage
-	"ipfs-http-client": "60.0.1" // IPFS HTTP client
-
-	// ── Shared crypto/IPFS deps ──
-	// Moved to daemon/src/package.json (app-level) so Meteor's client bundler
-	// can resolve bare specifiers. Also live in ~/.koad-io/modules/node/.
-	// Npm.depends() can't serve the client bundler for ESM-only packages.
-});
+// Npm dependencies are intentionally app-owned. See npm-versions.json for known-good versions.
 
 Package.onUse(function(api) {
 	api.versionsFrom(["3.0", "3.4"])
@@ -101,9 +79,6 @@ Package.onUse(function(api) {
 		"server/sysinfo.js",
 		"server/counters.js",
 		"server/search.js",
-		"server/service-bridge.js",
-		"server/file-touch-reactor.js",
-		"server/kingdom-keys.js",
 	], "server");
 
 

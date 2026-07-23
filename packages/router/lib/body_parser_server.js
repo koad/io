@@ -1,1 +1,1 @@
-Router.bodyParser = Npm.require('body-parser');
+Router.bodyParser = require('body-parser');

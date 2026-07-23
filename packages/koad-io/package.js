@@ -80,10 +80,5 @@ Package.onTest(function(api) {
   api.mainModule('tests.js');
 });
 
-Npm.depends({
-  "ua-parser-js": "1.0.35",
-  "geoip-lite": "1.2.1",
-  "web-vitals": "3.0.4",
-  'path-to-regexp': '6.2.1',
-  'useragent': '2.3.0'
-});
+// Npm dependencies are intentionally app-owned. See npm-versions.json for known-good versions.
+

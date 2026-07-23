@@ -1,4 +1,4 @@
-const { Signale } = Npm.require('signale');
+const { Signale } = require('signale');
 
 // TODO: this is a placeholder...  This logger should also log to DB or files when necessary,. 
 // hopefully someone else has a nice solution to use here.  

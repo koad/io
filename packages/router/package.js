@@ -4,9 +4,7 @@ Package.describe({
   version: '3.6.9'
 });
 
-Npm.depends({
-  'body-parser': '1.12.4'
-});
+// Npm dependencies are intentionally app-owned. See npm-versions.json for known-good versions.
 
 Package.onUse(function (api) {
   api.versionsFrom(['3.0.2', '3.3']);

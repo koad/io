@@ -78,7 +78,7 @@ if [[ -d "$HOME/.koad-io/desktop" ]] && [[ -n "$DISPLAY" ]] && [[ -z "$SSH_CONNE
     console_log "starting koad:io desktop ui"
     # gnome-terminal -- bash -c "cd /home/koad/.koad-io/desktop/ && sleep 3 && koad-io start; exec bash"
     # sleep 0.420 && wmctrl -r :ACTIVE: -e 0,1920,915,2200,423 && sleep 0.69
-    screen -dmS koad:io-desktop-ui bash -c 'cd /home/koad/.koad-io/desktop && ~/.koad-io/bin/koad-io start'
+    screen -dmS koad-io-desktop bash -c 'cd /home/koad/.koad-io/desktop && ~/.koad-io/bin/koad-io start'
     sleep "$SLEEP_DURATION"
 fi
 

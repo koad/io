@@ -1,7 +1,7 @@
-const os = Npm.require('os'); 
-const fs = Npm.require('fs'); 
-const si = Npm.require('systeminformation');
-const nmi  = Npm.require('node-machine-id');
+const os = require('os'); 
+const fs = require('fs'); 
+const si = require('systeminformation');
+const nmi  = require('node-machine-id');
 
 const machineID = nmi.machineIdSync();
 const DEVICE_UPDATE_INTERVAL = 6 * MINUTES;
@@ -21,8 +21,8 @@ var timeOfDeath = function (interval) {
 // If our program is within a repo, we save the repo's last commit hash with our process.
 let revision  = 'ungit';
 const isGitRepo = false;
-// const isGitRepo = Npm.require('child_process').execSync(`cd ${process.env.CWD} && git rev-parse --is-inside-work-tree 2>/dev/null`, {encoding: 'utf8'});
-if(isGitRepo == 'true\n') revision = Npm.require('child_process')
+// const isGitRepo = require('child_process').execSync(`cd ${process.env.CWD} && git rev-parse --is-inside-work-tree 2>/dev/null`, {encoding: 'utf8'});
+if(isGitRepo == 'true\n') revision = require('child_process')
   .execSync(`cd ${process.env.CWD} && git rev-parse HEAD`)
   .toString().trim()
 

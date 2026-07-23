@@ -20,7 +20,7 @@
 //   requireObserveMode(sessionId)         — throws if not observe-mode-OK
 //   requireSignMode(sessionId, methodName, proof)  — async; throws if proof invalid
 
-const kbpgp = Npm.require('kbpgp');
+const kbpgp = require('kbpgp');
 
 const SIGN_PROOF_WINDOW_MS = 60 * 1000; // 60-second window per VESTA-SPEC-185 §8.8 OQ-3
 const SIGN_PROOF_PREFIX = 'koad-io:method-proof:v1:';

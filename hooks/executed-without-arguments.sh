@@ -2,6 +2,36 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 set -euo pipefail
 
+# --- Check: ENTITY must be set ------------------------------------------------
+if [ -z "${ENTITY:-}" ]; then
+  cat >&2 <<'EOF'
+
+  ╔══════════════════════════════════════════════════════════════╗
+  ║  ██╗  ██╗ ██████╗  █████╗ ██████╗     ██╗ ██████╗          ║
+  ║  ██║ ██╔╝██╔═══██╗██╔══██╗██╔══██╗    ██║██╔═══██╗         ║
+  ║  █████╔╝ ██║   ██║███████║██║  ██║    ██║██║   ██║         ║
+  ║  ██╔═██╗ ██║   ██║██╔══██║██║  ██║    ██║██║   ██║         ║
+  ║  ██║  ██╗╚██████╔╝██║  ██║██████╔╝    ██║╚██████╔╝         ║
+  ║  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝     ╚═╝ ╚═════╝          ║
+  ║                                                              ║
+  ║     Thank you for installing koad:io!                         ║
+  ║                                                              ║
+  ║     You invoked koad:io directly without any arguments.        ║
+  ║     To get started with your own sovereign AI entity,         ║
+  ║     visit:                                                    ║
+  ║                                                              ║
+  ║        🌐  https://kingofalldata.com                          ║
+  ║                                                              ║
+  ║     Once gestated, invoke your entity like:                   ║
+  ║                                                              ║
+  ║        $ <your-entity-name>                                   ║
+  ║                                                              ║
+  ╚══════════════════════════════════════════════════════════════╝
+
+EOF
+  exit 0
+fi
+
 # executed-without-arguments.sh — the "just type the entity name" entry point.
 #
 # Delegates to `harness default`. Context assembly (startup.sh, PRIMER

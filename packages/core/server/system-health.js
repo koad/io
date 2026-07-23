@@ -1,5 +1,5 @@
-const os = Npm.require('os');
-const { monitorEventLoopDelay, PerformanceObserver } = Npm.require('perf_hooks');
+const os = require('os');
+const { monitorEventLoopDelay, PerformanceObserver } = require('perf_hooks');
 
 koad.system = koad.system || {};
 

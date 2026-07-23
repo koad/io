@@ -1,7 +1,7 @@
 if(!process.env.KOAD_IO_ENABLE_404_MIDDLEWARE) return;
 if(process.env.KOAD_IO_DISABLE_404_MIDDLEWARE) return;
 
-const { pathToRegexp } = Npm.require("path-to-regexp");
+const { pathToRegexp } = require("path-to-regexp");
 const useragent = require('useragent');
 const hostname = new URL(Meteor.absoluteUrl()).hostname;
 
