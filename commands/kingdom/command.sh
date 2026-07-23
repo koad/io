@@ -17,6 +17,10 @@
 #   koad-io kingdom link <project> <goal>
 #   koad-io kingdom acl <slug> [--add <cid> | --remove <cid>]
 #   koad-io kingdom forge ...
+#   koad-io kingdom contacts list
+#   koad-io kingdom contacts show <handle>
+#   koad-io kingdom contacts add <url> [--org=<org>]
+#   koad-io kingdom contacts sync <handle>
 #
 # See: ~/.juno/briefs/2026-07-23-kingdom-tooling.md
 
@@ -26,6 +30,7 @@ set -euo pipefail
 KINGDOM_ROOT="/kingdom"
 GOALS_DIR="${KINGDOM_ROOT}/goals"
 PROJECTS_DIR="${KINGDOM_ROOT}/projects"
+CONTACTS_DIR="${KINGDOM_ROOT}/contacts"
 FM_PARSER="$(dirname "$0")/fm.py"
 COMMAND_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -38,7 +43,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 usage() {
-    sed -n '2,16p' "$0" | sed 's/^# //'
+    sed -n '2,21p' "$0" | sed 's/^# //'
     exit 0
 }
 
@@ -473,6 +478,153 @@ cmd_commit() {
     commit_bubble "$type" "$slug" "$message"
 }
 
+# --- Contacts helpers ---
+
+contact_exists() {
+    local handle="$1"
+    [ -d "${CONTACTS_DIR}/${handle}" ] && [ -d "${CONTACTS_DIR}/${handle}/.git" ]
+}
+
+contact_get_origin() {
+    local handle="$1"
+    cd "${CONTACTS_DIR}/${handle}" 2>/dev/null
+    git remote get-url origin 2>/dev/null || echo "-"
+}
+
+contact_get_forge() {
+    local handle="$1"
+    cd "${CONTACTS_DIR}/${handle}" 2>/dev/null
+    git remote get-url forge 2>/dev/null || echo "-"
+}
+
+contact_last_commit() {
+    local handle="$1"
+    cd "${CONTACTS_DIR}/${handle}" 2>/dev/null
+    git log -1 --format='%h %s %ar' 2>/dev/null || echo "-"
+}
+
+contact_get_cid() {
+    local handle="$1"
+    koad-io generate cid "$handle" 2>/dev/null || echo "?"
+}
+
+# --- Contacts subcommands ---
+
+cmd_contacts_list() {
+    [ ! -d "$CONTACTS_DIR" ] && { echo "No contacts directory"; exit 0; }
+
+    printf "${BOLD}%-20s %-35s %-35s %s${NC}\n" "HANDLE" "ORIGIN" "FORGE" "LAST COMMIT"
+    printf "%s\n" "----------------------------------------------------------------------------------------------------"
+
+    for dir in "$CONTACTS_DIR"/*/; do
+        [ ! -d "$dir" ] && continue
+        local handle=$(basename "$dir")
+        [ ! -d "${dir}.git" ] && continue
+
+        local origin=$(cd "$dir" && git remote get-url origin 2>/dev/null || echo "-")
+        local forge=$(cd "$dir" && git remote get-url forge 2>/dev/null || echo "-")
+        local last=$(cd "$dir" && git log -1 --format='%h %s %ar' 2>/dev/null || echo "-")
+
+        printf "%-20s %-35s %-35s %s\n" "$handle" "$origin" "$forge" "$last"
+    done
+}
+
+cmd_contacts_show() {
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom contacts show <handle>"
+    local handle="$1"
+    contact_exists "$handle" || die "Contact '${handle}' not found at ${CONTACTS_DIR}/${handle}"
+
+    local cid=$(contact_get_cid "$handle")
+    local origin=$(contact_get_origin "$handle")
+    local forge=$(contact_get_forge "$handle")
+    local last=$(contact_last_commit "$handle")
+
+    echo -e "${BOLD}=== ${handle} ===${NC}"
+    echo ""
+    echo -e "${BOLD}Handle:${NC}    ${handle}"
+    echo -e "${BOLD}CID:${NC}       ${cid}"
+    echo -e "${BOLD}Origin:${NC}    ${origin}"
+    echo -e "${BOLD}Forge:${NC}     ${forge}"
+    echo -e "${BOLD}Last commit:${NC} ${last}"
+    echo ""
+
+    # Show git status
+    if cd "${CONTACTS_DIR}/${handle}" 2>/dev/null; then
+        local status=$(git status --short 2>/dev/null | head -10)
+        if [ -n "$status" ]; then
+            echo -e "${YELLOW}Uncommitted changes:${NC}"
+            echo "$status"
+        else
+            echo -e "${GREEN}Working tree clean${NC}"
+        fi
+        echo ""
+        echo -e "Branches:"
+        git branch -a 2>/dev/null | head -10
+    fi
+}
+
+cmd_contacts_add() {
+    local url="" org="contacts"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --org=*) org="${1#*=}" ;;
+            --*) die "Unknown flag: $1" ;;
+            *) url="$1" ;;
+        esac
+        shift
+    done
+    [ -z "$url" ] && die "Usage: koad-io kingdom contacts add <url> [--org=<org>]"
+
+    # Derive name from url
+    local name
+    name=$(basename "$url" .git)
+    [ -z "$name" ] && die "Could not derive contact name from URL"
+
+    local dir="${CONTACTS_DIR}/${name}"
+    [ -d "$dir" ] && die "Contact '${name}' already exists at ${dir}"
+
+    echo -e "→ Cloning ${url} into ${dir}"
+    mkdir -p "$dir"
+    git clone "$url" "$dir" || die "Clone failed for ${url}"
+
+    echo -e "→ Mirroring to forge (org: ${org})"
+    # Mirror via the forge mirror subcommand
+    "${COMMAND_DIR}/forge/mirror/command.sh" "$url" --org="$org" --name="$name" || echo -e "${YELLOW}⚠${NC} forge mirror failed — continuing with local clone"
+
+    echo -e "${GREEN}✓${NC} Contact '${name}' added"
+    echo -e "  Location: ${dir}"
+    echo -e "  Remotes:"
+    cd "$dir" 2>/dev/null && git remote -v | while read -r line; do echo "    $line"; done
+}
+
+cmd_contacts_sync() {
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom contacts sync <handle>"
+    local handle="$1"
+    contact_exists "$handle" || die "Contact '${handle}' not found"
+
+    local dir="${CONTACTS_DIR}/${handle}"
+
+    echo -e "→ Syncing ${handle}..."
+
+    # Pull from origin
+    if cd "$dir" && git remote get-url origin &>/dev/null; then
+        echo -e "  ${BOLD}Pull from origin${NC}"
+        git pull --ff-only origin 2>&1 | sed 's/^/    /' || echo -e "  ${YELLOW}⚠${NC} pull failed (not ff? network?)"
+    else
+        echo -e "  ${YELLOW}⚠${NC} no origin remote configured"
+    fi
+
+    # Push to forge
+    if cd "$dir" && git remote get-url forge &>/dev/null; then
+        echo -e "  ${BOLD}Push to forge${NC}"
+        git push forge 2>&1 | sed 's/^/    /' || echo -e "  ${YELLOW}⚠${NC} push failed"
+    else
+        echo -e "  ${YELLOW}⚠${NC} no forge remote configured"
+    fi
+
+    echo -e "${GREEN}✓${NC} Sync complete for ${handle}"
+}
+
 # --- Router ---
 main() {
     [ $# -eq 0 ] && { usage; exit 0; }
@@ -506,8 +658,19 @@ main() {
         link)   cmd_link "$@" ;;
         acl)    cmd_acl "$@" ;;
         commit) cmd_commit "$@" ;;
+        contacts)
+            [ $# -eq 0 ] && die "Usage: koad-io kingdom contacts <list|show|add|sync>"
+            local sub="$1"; shift
+            case "$sub" in
+                list) cmd_contacts_list "$@" ;;
+                show) cmd_contacts_show "$@" ;;
+                add)  cmd_contacts_add "$@" ;;
+                sync) cmd_contacts_sync "$@" ;;
+                *)    die "Unknown contacts subcommand: ${sub}. Try: list, show, add, sync" ;;
+            esac
+            ;;
         help|--help|-h) usage ;;
-        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, forge" ;;
+        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, contacts, forge" ;;
     esac
 }
 

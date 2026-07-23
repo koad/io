@@ -23,13 +23,18 @@ koad-io kingdom link <project> <goal>
 koad-io kingdom acl <slug> [--add <cid> | --remove <cid>]
 
 koad-io kingdom forge [clone|list|setup|...]
+
+koad-io kingdom contacts list
+koad-io kingdom contacts show <handle>
+koad-io kingdom contacts add <url> [--org=<org>]
+koad-io kingdom contacts sync <handle>
 ```
 
 ## Files
 
 | Path | Purpose |
 |------|---------|
-| `command.sh` | Bash router — subcommand dispatch |
+| `command.sh` | Bash router — subcommand dispatch (goals, projects, contacts, forge) |
 | `fm.py` | Python frontmatter parser (no deps) |
 | `README.md` | This file |
 
@@ -45,6 +50,10 @@ Per Juno's spec (`~/.juno/briefs/2026-07-23-kingdom-tooling.md`):
 | 4. Create (with CID check) | ⬜ scaffold works, GPG gate pending |
 | 5. Context updates | ✅ stdin pipe |
 | 6. Daemon integration | ⬜ future |
+| 7. Contacts list | ✅ |
+| 8. Contacts show | ✅ CID via generate cid |
+| 9. Contacts add | ✅ clone + forge mirror |
+| 10. Contacts sync | ✅ pull origin + push forge |
 
 ## Deployed
 
