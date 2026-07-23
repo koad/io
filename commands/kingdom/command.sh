@@ -26,6 +26,12 @@
 #   koad-io kingdom contacts add <url> [--org=<org>]
 #   koad-io kingdom contacts sync <handle>
 #
+#   koad-io kingdom calendar list [--date=<ISO>] [--month=<YYYY-MM>]
+#   koad-io kingdom calendar show <slug> [--date=<ISO>]
+#   koad-io kingdom calendar add <date> <title> [--time=<HH:MM>] [--duration=<N>h] [--kind=<type>] [--project=<slug>]
+#   koad-io kingdom calendar done <slug> [--date=<ISO>]
+#   koad-io kingdom calendar cancel <slug> [--date=<ISO>]
+#
 # See: ~/.juno/briefs/2026-07-23-kingdom-tooling.md
 
 set -euo pipefail
@@ -36,6 +42,7 @@ GOALS_DIR="${KINGDOM_ROOT}/goals"
 PROJECTS_DIR="${KINGDOM_ROOT}/projects"
 CONTACTS_DIR="${KINGDOM_ROOT}/contacts"
 PACKAGES_DIR="${KINGDOM_ROOT}/packages"
+CALENDAR_DIR="${KINGDOM_ROOT}/calendar"
 FRAMEWORK_PACKAGES_DIR="/home/koad/.koad-io/packages"
 FM_PARSER="$(dirname "$0")/fm.py"
 COMMAND_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -735,6 +742,253 @@ cmd_packages_diff() {
     diff -ruN -x '.git' "$framework" "$override" 2>/dev/null || true
 }
 
+# --- Calendar subcommands ---
+
+calendar_slug() {
+    local title="$1"
+    echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+}
+
+calendar_path() {
+    local date="$1" slug="$2"
+    local year month day
+    IFS='-' read -r year month day <<< "$date"
+    echo "${CALENDAR_DIR}/${year}/${month}/${day}-${slug}.md"
+}
+
+calendar_ensure_dir() {
+    local date="$1"
+    local year month
+    IFS='-' read -r year month _ <<< "$date"
+    mkdir -p "${CALENDAR_DIR}/${year}/${month}"
+}
+
+calendar_is_date() {
+    [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+}
+
+calendar_is_month() {
+    [[ "$1" =~ ^[0-9]{4}-[0-9]{2}$ ]]
+}
+
+cmd_calendar_list() {
+    local date="" month=""
+    for arg in "$@"; do
+        case "$arg" in
+            --date=*) date="${arg#*=}" ;;
+            --month=*) month="${arg#*=}" ;;
+        esac
+    done
+
+    [ ! -d "$CALENDAR_DIR" ] && { echo "No calendar directory"; exit 0; }
+
+    # Default to today
+    if [ -z "$date" ] && [ -z "$month" ]; then
+        date=$(date +%Y-%m-%d)
+    fi
+
+    if [ -n "$date" ]; then
+        calendar_is_date "$date" || die "Invalid date: ${date} (use YYYY-MM-DD)"
+        local year month day
+        IFS='-' read -r year month day <<< "$date"
+        local dir="${CALENDAR_DIR}/${year}/${month}"
+
+        if [ ! -d "$dir" ]; then
+            echo "No entries for ${date}"
+            exit 0
+        fi
+
+        printf "${BOLD}%-30s %-8s %-8s %-12s %s${NC}\n" "TITLE" "TIME" "DUR" "KIND" "STATUS"
+        printf "%s\n" "--------------------------------------------------------------------------------"
+
+        local any=false
+        for f in "$dir/${day}-"*.md; do
+            [ ! -f "$f" ] && continue
+            any=true
+            local title time duration kind status
+            title=$(fm_get "$f" "title")
+            time=$(fm_get "$f" "time")
+            duration=$(fm_get "$f" "duration")
+            kind=$(fm_get "$f" "kind")
+            status=$(fm_get "$f" "status")
+            [ "$time" = "null" ] && time=""
+            [ "$duration" = "null" ] && duration=""
+            [ "$status" = "null" ] && status="scheduled"
+
+            local sc=""
+            case "$status" in
+                done)      sc="${GREEN}" ;;
+                cancelled) sc="${YELLOW}" ;;
+            esac
+
+            printf "${sc}%-30s %-8s %-8s %-12s %s${NC}\n" "$title" "$time" "$duration" "$kind" "$status"
+        done
+        $any || echo "No entries for ${date}"
+
+    elif [ -n "$month" ]; then
+        calendar_is_month "$month" || die "Invalid month: ${month} (use YYYY-MM)"
+        local year month_num
+        IFS='-' read -r year month_num <<< "$month"
+        local dir="${CALENDAR_DIR}/${year}/${month_num}"
+
+        [ ! -d "$dir" ] && { echo "No entries for ${month}"; exit 0; }
+
+        printf "${BOLD}%-12s %-30s %-8s %-8s %-12s %s${NC}\n" "DATE" "TITLE" "TIME" "DUR" "KIND" "STATUS"
+        printf "%s\n" "----------------------------------------------------------------------------------------------------"
+
+        local any=false
+        for f in "$dir/"*.md; do
+            [ ! -f "$f" ] && continue
+            any=true
+            local fname title time duration kind status
+            fname=$(basename "$f" .md)
+            title=$(fm_get "$f" "title")
+            time=$(fm_get "$f" "time")
+            duration=$(fm_get "$f" "duration")
+            kind=$(fm_get "$f" "kind")
+            status=$(fm_get "$f" "status")
+            [ "$time" = "null" ] && time=""
+            [ "$duration" = "null" ] && duration=""
+            [ "$status" = "null" ] && status="scheduled"
+
+            local day slug_part
+            day=$(echo "$fname" | cut -d- -f1)
+            slug_part=$(echo "$fname" | cut -d- -f2-)
+
+            local sc=""
+            case "$status" in
+                done)      sc="${GREEN}" ;;
+                cancelled) sc="${YELLOW}" ;;
+            esac
+
+            printf "${sc}%-12s %-30s %-8s %-8s %-12s %s${NC}\n" "${year}-${month_num}-${day}" "$title" "$time" "$duration" "$kind" "$status"
+        done
+        $any || echo "No entries for ${month}"
+    fi
+}
+
+cmd_calendar_show() {
+    local date="" slug=""
+    for arg in "$@"; do
+        case "$arg" in
+            --date=*) date="${arg#*=}" ;;
+            *) [ -z "$slug" ] && slug="$arg" ;;
+        esac
+    done
+    [ -z "$slug" ] && die "Usage: koad-io kingdom calendar show <slug> [--date=<ISO>]"
+    [ -z "$date" ] && date=$(date +%Y-%m-%d)
+    calendar_is_date "$date" || die "Invalid date: ${date}"
+
+    local file; file=$(calendar_path "$date" "$slug")
+    [ ! -f "$file" ] && die "Calendar entry '${slug}' not found on ${date}"
+
+    echo -e "${BOLD}=== ${slug} ===${NC}"
+    echo ""
+    python3 "${COMMAND_DIR}/fm.py" show "$file"
+    echo ""
+    echo -e "${BOLD}File:${NC} ${file}"
+    echo ""
+    # Show body (content after frontmatter)
+    sed '1,/^---$/d' "$file" | tail -n +3
+}
+
+cmd_calendar_add() {
+    local date="" title="" time="" duration="" kind="event" project=""
+    local parsed_date=false
+    for arg in "$@"; do
+        case "$arg" in
+            --time=*)     time="${arg#*=}" ;;
+            --duration=*) duration="${arg#*=}" ;;
+            --kind=*)     kind="${arg#*=}" ;;
+            --project=*)  project="${arg#*=}" ;;
+            *)
+                if ! $parsed_date; then
+                    date="$arg"
+                    parsed_date=true
+                elif [ -z "$title" ]; then
+                    title="$arg"
+                fi
+                ;;
+        esac
+    done
+
+    [ -z "$date" ] && die "Usage: koad-io kingdom calendar add <date> <title> [--time=<HH:MM>] [--duration=<N>h] [--kind=<type>] [--project=<slug>]"
+    [ -z "$title" ] && die "Title is required"
+    calendar_is_date "$date" || die "Invalid date: ${date} (use YYYY-MM-DD)"
+
+    local slug; slug=$(calendar_slug "$title")
+    calendar_ensure_dir "$date"
+
+    local file; file=$(calendar_path "$date" "$slug")
+    [ -f "$file" ] && die "Calendar entry '${slug}' already exists on ${date}"
+
+    local year month day
+    IFS='-' read -r year month day <<< "$date"
+
+    cat > "$file" << CALEOF
+---
+slug: ${slug}
+title: ${title}
+date: ${date}
+time: ${time:-null}
+duration: ${duration:-null}
+participants: []
+kind: ${kind}
+status: scheduled
+recurring: none
+goal_ref: null
+project_ref: null
+---
+
+# ${title}
+
+CALEOF
+
+    # Set project_ref if provided
+    if [ -n "$project" ]; then
+        fm_set "$file" "project_ref" "/kingdom/projects/${project}"
+    fi
+
+    echo -e "${GREEN}✓${NC} Calendar entry '${slug}' created for ${date}"
+    echo -e "  File: ${file}"
+}
+
+cmd_calendar_done() {
+    local date="" slug=""
+    for arg in "$@"; do
+        case "$arg" in
+            --date=*) date="${arg#*=}" ;;
+            *) [ -z "$slug" ] && slug="$arg" ;;
+        esac
+    done
+    [ -z "$slug" ] && die "Usage: koad-io kingdom calendar done <slug> [--date=<ISO>]"
+    [ -z "$date" ] && date=$(date +%Y-%m-%d)
+
+    local file; file=$(calendar_path "$date" "$slug")
+    [ ! -f "$file" ] && die "Calendar entry '${slug}' not found on ${date}"
+
+    fm_set "$file" "status" "done"
+    echo -e "${GREEN}✓${NC} '${slug}' marked as done"
+}
+
+cmd_calendar_cancel() {
+    local date="" slug=""
+    for arg in "$@"; do
+        case "$arg" in
+            --date=*) date="${arg#*=}" ;;
+            *) [ -z "$slug" ] && slug="$arg" ;;
+        esac
+    done
+    [ -z "$slug" ] && die "Usage: koad-io kingdom calendar cancel <slug> [--date=<ISO>]"
+    [ -z "$date" ] && date=$(date +%Y-%m-%d)
+
+    local file; file=$(calendar_path "$date" "$slug")
+    [ ! -f "$file" ] && die "Calendar entry '${slug}' not found on ${date}"
+
+    fm_set "$file" "status" "cancelled"
+    echo -e "${GREEN}✓${NC} '${slug}' marked as cancelled"
+}
+
 # --- Router ---
 main() {
     [ $# -eq 0 ] && { usage; exit 0; }
@@ -790,8 +1044,20 @@ main() {
                 *)      die "Unknown packages subcommand: ${sub}. Try: list, clone, status, diff" ;;
             esac
             ;;
+        calendar)
+            [ $# -eq 0 ] && die "Usage: koad-io kingdom calendar <list|show|add|done|cancel>"
+            local sub="$1"; shift
+            case "$sub" in
+                list)   cmd_calendar_list "$@" ;;
+                show)   cmd_calendar_show "$@" ;;
+                add)    cmd_calendar_add "$@" ;;
+                done)   cmd_calendar_done "$@" ;;
+                cancel) cmd_calendar_cancel "$@" ;;
+                *)      die "Unknown calendar subcommand: ${sub}. Try: list, show, add, done, cancel" ;;
+            esac
+            ;;
         help|--help|-h) usage ;;
-        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, contacts, packages, forge" ;;
+        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, contacts, packages, calendar, forge" ;;
     esac
 }
 
