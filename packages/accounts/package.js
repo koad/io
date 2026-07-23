@@ -37,6 +37,8 @@ Package.onUse(function(api) {
 		'server/pgp-auth.js',
 		'server/sign-required.js',
 		'server/identity-session-methods.js',
+		'server/authorization-bridge.js',     // sovereign auth helpers — authorizeByBond, authorizeByCID, authorizeSession (VESTA-SPEC-185 v2.0 §6)
+		'server/sovereign-resolve.js',        // sovereign.resolve method — pure fingerprint identity resolution (VESTA-SPEC-185 v2.0 §4.4)
 		'server/user-profile-publication.js', // user.profile pub — ProfileShell user profiles
 	], 'server');
 
@@ -50,9 +52,7 @@ Package.onUse(function(api) {
 
 });
 
-Npm.depends({
-  "kbpgp": "2.1.15",
-});
+// Npm dependencies are intentionally app-owned. See npm-versions.json for known-good versions.
 
 Package.onTest(function(api) {
 });
