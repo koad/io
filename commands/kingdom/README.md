@@ -28,6 +28,12 @@ koad-io kingdom contacts list
 koad-io kingdom contacts show <handle>
 koad-io kingdom contacts add <url> [--org=<org>]
 koad-io kingdom contacts sync <handle>
+
+koad-io kingdom calendar list [--date=<ISO>] [--month=<YYYY-MM>]
+koad-io kingdom calendar show <slug> [--date=<ISO>]
+koad-io kingdom calendar add <date> <title> [--time=<HH:MM>] [--duration=<N>h] [--kind=<type>] [--project=<slug>]
+koad-io kingdom calendar done <slug> [--date=<ISO>]
+koad-io kingdom calendar cancel <slug> [--date=<ISO>]
 ```
 
 ## Files
@@ -54,6 +60,11 @@ Per Juno's spec (`~/.juno/briefs/2026-07-23-kingdom-tooling.md`):
 | 8. Contacts show | ✅ CID via generate cid |
 | 9. Contacts add | ✅ clone + forge mirror |
 | 10. Contacts sync | ✅ pull origin + push forge |
+| 11. Calendar list | ✅ date and month views |
+| 12. Calendar show | ✅ frontmatter + body |
+| 13. Calendar add | ✅ with slug derivation, auto-dirs |
+| 14. Calendar done | ✅ status transition |
+| 15. Calendar cancel | ✅ status transition |
 
 ## Deployed
 
