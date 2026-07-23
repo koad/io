@@ -28,9 +28,7 @@
 #
 #   koad-io kingdom calendar list [--date=<ISO>] [--month=<YYYY-MM>]
 #   koad-io kingdom calendar show <slug> [--date=<ISO>]
-#   koad-io kingdom calendar add <date> <title> [--time=<HH:MM>] [--duration=<N>h] [--kind=<type>] [--project=<slug>]
-#   koad-io kingdom calendar done <slug> [--date=<ISO>]
-#   koad-io kingdom calendar cancel <slug> [--date=<ISO>]
+#   koad-io kingdom calendar pin <date> <title> [--ref=<ref>] [--refs=<list>] [--tags=<list>]
 #
 #   koad-io kingdom commitment list [--type=expense|meeting]
 #   koad-io kingdom commitment show <slug>
@@ -899,27 +897,22 @@ cmd_calendar_show() {
     sed '1,/^---$/d' "$file" | tail -n +3
 }
 
-cmd_calendar_add() {
-    local date="" title="" time="" duration="" kind="event" project=""
-    local parsed_date=false
+cmd_calendar_pin() {
+    local date="" title="" ref="" refs="" tags=""
+    local positional=()
     for arg in "$@"; do
         case "$arg" in
-            --time=*)     time="${arg#*=}" ;;
-            --duration=*) duration="${arg#*=}" ;;
-            --kind=*)     kind="${arg#*=}" ;;
-            --project=*)  project="${arg#*=}" ;;
-            *)
-                if ! $parsed_date; then
-                    date="$arg"
-                    parsed_date=true
-                elif [ -z "$title" ]; then
-                    title="$arg"
-                fi
-                ;;
+            --ref=*)   ref="${arg#*=}" ;;
+            --refs=*)  refs="${arg#*=}" ;;
+            --tags=*)  tags="${arg#*=}" ;;
+            *)         positional+=("$arg") ;;
         esac
     done
 
-    [ -z "$date" ] && die "Usage: koad-io kingdom calendar add <date> <title> [--time=<HH:MM>] [--duration=<N>h] [--kind=<type>] [--project=<slug>]"
+    date="${positional[0]:-}"
+    title="${positional[1]:-}"
+
+    [ -z "$date" ] && die "Usage: koad-io kingdom calendar pin <date> <title> [--ref=<ref>] [--refs=<list>] [--tags=<list>]"
     [ -z "$title" ] && die "Title is required"
     calendar_is_date "$date" || die "Invalid date: ${date} (use YYYY-MM-DD)"
 
@@ -927,73 +920,61 @@ cmd_calendar_add() {
     calendar_ensure_dir "$date"
 
     local file; file=$(calendar_path "$date" "$slug")
-    [ -f "$file" ] && die "Calendar entry '${slug}' already exists on ${date}"
+    [ -f "$file" ] && die "Keyframe '${slug}' already exists on ${date}"
 
-    local year month day
-    IFS='-' read -r year month day <<< "$date"
+    # Build refs YAML list
+    local refs_yaml="[]"
+    local refs_list=""
+    if [ -n "$refs" ]; then
+        refs_list="$refs"
+    fi
+    if [ -n "$ref" ]; then
+        if [ -n "$refs_list" ]; then
+            refs_list="${refs_list},${ref}"
+        else
+            refs_list="$ref"
+        fi
+    fi
+    if [ -n "$refs_list" ]; then
+        refs_yaml=""
+        IFS=',' read -ra parts <<< "$refs_list"
+        for p in "${parts[@]}"; do
+            p="$(echo "$p" | xargs)"
+            [ -n "$p" ] && refs_yaml="${refs_yaml}  - ${p}\n"
+        done
+        refs_yaml="$(echo -e "$refs_yaml" | sed 's/\n$//')"
+    fi
 
-    cat > "$file" << CALEOF
+    # Build tags YAML list
+    local tags_yaml="[]"
+    if [ -n "$tags" ]; then
+        tags_yaml=""
+        IFS=',' read -ra parts <<< "$tags"
+        for p in "${parts[@]}"; do
+            p="$(echo "$p" | xargs)"
+            [ -n "$p" ] && tags_yaml="${tags_yaml}  - ${p}\n"
+        done
+        tags_yaml="$(echo -e "$tags_yaml" | sed 's/\n$//')"
+    fi
+
+    cat > "$file" << PINEOF
 ---
 slug: ${slug}
 title: ${title}
 date: ${date}
-time: ${time:-null}
-duration: ${duration:-null}
-participants: []
-kind: ${kind}
-status: scheduled
-recurring: none
-goal_ref: null
-project_ref: null
+kind: keyframe
+refs:
+${refs_yaml}
+tags:
+${tags_yaml}
 ---
 
-# ${title}
+${title}
 
-CALEOF
+PINEOF
 
-    # Set project_ref if provided
-    if [ -n "$project" ]; then
-        fm_set "$file" "project_ref" "/kingdom/projects/${project}"
-    fi
-
-    echo -e "${GREEN}✓${NC} Calendar entry '${slug}' created for ${date}"
+    echo -e "${GREEN}✓${NC} Keyframe '${slug}' pinned for ${date}"
     echo -e "  File: ${file}"
-}
-
-cmd_calendar_done() {
-    local date="" slug=""
-    for arg in "$@"; do
-        case "$arg" in
-            --date=*) date="${arg#*=}" ;;
-            *) [ -z "$slug" ] && slug="$arg" ;;
-        esac
-    done
-    [ -z "$slug" ] && die "Usage: koad-io kingdom calendar done <slug> [--date=<ISO>]"
-    [ -z "$date" ] && date=$(date +%Y-%m-%d)
-
-    local file; file=$(calendar_path "$date" "$slug")
-    [ ! -f "$file" ] && die "Calendar entry '${slug}' not found on ${date}"
-
-    fm_set "$file" "status" "done"
-    echo -e "${GREEN}✓${NC} '${slug}' marked as done"
-}
-
-cmd_calendar_cancel() {
-    local date="" slug=""
-    for arg in "$@"; do
-        case "$arg" in
-            --date=*) date="${arg#*=}" ;;
-            *) [ -z "$slug" ] && slug="$arg" ;;
-        esac
-    done
-    [ -z "$slug" ] && die "Usage: koad-io kingdom calendar cancel <slug> [--date=<ISO>]"
-    [ -z "$date" ] && date=$(date +%Y-%m-%d)
-
-    local file; file=$(calendar_path "$date" "$slug")
-    [ ! -f "$file" ] && die "Calendar entry '${slug}' not found on ${date}"
-
-    fm_set "$file" "status" "cancelled"
-    echo -e "${GREEN}✓${NC} '${slug}' marked as cancelled"
 }
 
 # --- Commitment subcommands ---
@@ -1245,15 +1226,13 @@ main() {
             esac
             ;;
         calendar)
-            [ $# -eq 0 ] && die "Usage: koad-io kingdom calendar <list|show|add|done|cancel>"
+            [ $# -eq 0 ] && die "Usage: koad-io kingdom calendar <list|show|pin>"
             local sub="$1"; shift
             case "$sub" in
                 list)   cmd_calendar_list "$@" ;;
                 show)   cmd_calendar_show "$@" ;;
-                add)    cmd_calendar_add "$@" ;;
-                done)   cmd_calendar_done "$@" ;;
-                cancel) cmd_calendar_cancel "$@" ;;
-                *)      die "Unknown calendar subcommand: ${sub}. Try: list, show, add, done, cancel" ;;
+                pin)    cmd_calendar_pin "$@" ;;
+                *)      die "Unknown calendar subcommand: ${sub}. Try: list, show, pin" ;;
             esac
             ;;
         commitment)
