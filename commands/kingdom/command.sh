@@ -17,6 +17,10 @@
 #   koad-io kingdom link <project> <goal>
 #   koad-io kingdom acl <slug> [--add <cid> | --remove <cid>]
 #   koad-io kingdom forge ...
+#   koad-io kingdom packages list
+#   koad-io kingdom packages clone <name> [--from=<path>]
+#   koad-io kingdom packages status <name>
+#   koad-io kingdom packages diff <name>
 #   koad-io kingdom contacts list
 #   koad-io kingdom contacts show <handle>
 #   koad-io kingdom contacts add <url> [--org=<org>]
@@ -31,6 +35,8 @@ KINGDOM_ROOT="/kingdom"
 GOALS_DIR="${KINGDOM_ROOT}/goals"
 PROJECTS_DIR="${KINGDOM_ROOT}/projects"
 CONTACTS_DIR="${KINGDOM_ROOT}/contacts"
+PACKAGES_DIR="${KINGDOM_ROOT}/packages"
+FRAMEWORK_PACKAGES_DIR="/home/koad/.koad-io/packages"
 FM_PARSER="$(dirname "$0")/fm.py"
 COMMAND_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -43,7 +49,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 usage() {
-    sed -n '2,21p' "$0" | sed 's/^# //'
+    sed -n '2,28p' "$0" | sed 's/^# //'
     exit 0
 }
 
@@ -625,6 +631,110 @@ cmd_contacts_sync() {
     echo -e "${GREEN}✓${NC} Sync complete for ${handle}"
 }
 
+# --- Packages subcommands ---
+
+cmd_packages_list() {
+    [ ! -d "$PACKAGES_DIR" ] && { echo "No packages directory"; exit 0; }
+
+    printf "${BOLD}%-25s %-10s %s${NC}\n" "SLUG" "GIT" "LAST MODIFIED"
+    printf "%s\n" "-----------------------------------------------------"
+
+    for dir in "$PACKAGES_DIR"/*/; do
+        [ ! -d "$dir" ] && continue
+        local slug=$(basename "$dir")
+        local git_status="no"
+        [ -d "${dir}.git" ] && git_status="yes"
+        local mtime
+        mtime=$(stat -c '%y' "$dir" 2>/dev/null | cut -d. -f1 || echo "-")
+
+        printf "%-25s %-10s %s\n" "$slug" "$git_status" "$mtime"
+    done
+}
+
+cmd_packages_clone() {
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom packages clone <name> [--from=<path>]"
+    local name="" source_dir=""
+    for arg in "$@"; do
+        if [[ "$arg" =~ ^--from=(.*)$ ]]; then
+            source_dir="${BASH_REMATCH[1]}"
+        else
+            name="$arg"
+        fi
+    done
+
+    [ -z "$name" ] && die "Usage: koad-io kingdom packages clone <name> [--from=<path>]"
+
+    local target="${PACKAGES_DIR}/${name}"
+    [ -d "$target" ] && die "Package '${name}' already exists in overrides at ${target}"
+
+    # Default source is framework packages
+    [ -z "$source_dir" ] && source_dir="${FRAMEWORK_PACKAGES_DIR}/${name}"
+    [ ! -d "$source_dir" ] && die "Source '${source_dir}' not found — specify --from=<path> to clone from a different location"
+
+    echo -e "→ Cloning ${name} from ${source_dir} → ${target}"
+    mkdir -p "$target"
+    # Copy all contents except .git — we want a fresh history
+    rsync -a --exclude='.git' "${source_dir}/" "$target/"
+
+    cd "$target"
+    git init
+    git add -A
+    git commit -m "feat(packages): clone ${name} from framework" 2>/dev/null || true
+
+    echo -e "${GREEN}✓${NC} Package '${name}' cloned to ${target}"
+    echo -e "  Git repo initialized with initial commit"
+}
+
+cmd_packages_status() {
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom packages status <name>"
+    local name="$1"
+    local override="${PACKAGES_DIR}/${name}"
+    local framework="${FRAMEWORK_PACKAGES_DIR}/${name}"
+
+    [ ! -d "$override" ] && die "Override package '${name}' not found at ${override}"
+    [ ! -d "$framework" ] && die "Framework package '${name}' not found at ${framework} — nothing to compare against"
+
+    echo -e "${BOLD}=== ${name}: override vs framework ===${NC}"
+    echo ""
+
+    local diff_output
+    diff_output=$(diff -rq -x '.git' "$override" "$framework" 2>/dev/null || true)
+
+    if [ -z "$diff_output" ]; then
+        echo -e "${GREEN}No differences — override matches framework${NC}"
+        return
+    fi
+
+    local differs=0 only_override=0 only_framework=0
+    while IFS= read -r line; do
+        if echo "$line" | grep -q "differ$"; then
+            differs=$((differs + 1))
+        elif echo "$line" | grep -q "Only in ${override}/"; then
+            only_override=$((only_override + 1))
+        elif echo "$line" | grep -q "Only in ${framework}/"; then
+            only_framework=$((only_framework + 1))
+        fi
+    done <<< "$diff_output"
+
+    echo -e "${YELLOW}Files that differ:${NC}  ${differs}"
+    echo -e "${YELLOW}Files only in override:${NC} ${only_override}"
+    echo -e "${YELLOW}Files only in framework:${NC} ${only_framework}"
+    echo ""
+    echo "$diff_output"
+}
+
+cmd_packages_diff() {
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom packages diff <name>"
+    local name="$1"
+    local override="${PACKAGES_DIR}/${name}"
+    local framework="${FRAMEWORK_PACKAGES_DIR}/${name}"
+
+    [ ! -d "$override" ] && die "Override package '${name}' not found at ${override}"
+    [ ! -d "$framework" ] && die "Framework package '${name}' not found at ${framework} — nothing to diff against"
+
+    diff -ruN -x '.git' "$framework" "$override" 2>/dev/null || true
+}
+
 # --- Router ---
 main() {
     [ $# -eq 0 ] && { usage; exit 0; }
@@ -669,8 +779,19 @@ main() {
                 *)    die "Unknown contacts subcommand: ${sub}. Try: list, show, add, sync" ;;
             esac
             ;;
+        packages)
+            [ $# -eq 0 ] && die "Usage: koad-io kingdom packages <list|clone|status|diff>"
+            local sub="$1"; shift
+            case "$sub" in
+                list)   cmd_packages_list "$@" ;;
+                clone)  cmd_packages_clone "$@" ;;
+                status) cmd_packages_status "$@" ;;
+                diff)   cmd_packages_diff "$@" ;;
+                *)      die "Unknown packages subcommand: ${sub}. Try: list, clone, status, diff" ;;
+            esac
+            ;;
         help|--help|-h) usage ;;
-        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, contacts, forge" ;;
+        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, contacts, packages, forge" ;;
     esac
 }
 
