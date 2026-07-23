@@ -1,6 +1,6 @@
-const fs = Npm.require('fs');
-const path = Npm.require('path');
-const kbpgp = Npm.require('kbpgp');
+const fs = require('fs');
+const path = require('path');
+const kbpgp = require('kbpgp');
 
 const HOME_DIR = process.env.HOME || '';
 const FINGERPRINT_RE = /^[0-9A-F]{40}$/;
@@ -171,7 +171,15 @@ const FingerprintEntityIndex = {
 globalThis.FingerprintEntityIndex = FingerprintEntityIndex;
 
 Meteor.startup(() => {
-  FingerprintEntityIndex.refresh().catch((err) => {
+  FingerprintEntityIndex.refresh().then(() => {
+    // Register on koad.indexes.fingerprints — VESTA-SPEC-185 v2.0 §5.2.1
+    // This makes the fingerprint index discoverable via koad.indexes namespace.
+    // Guard: only set if not already set (allows override patterns).
+    if (!koad.indexes.fingerprints) {
+      koad.indexes.fingerprints = globalThis.FingerprintEntityIndex;
+      log.success('[FingerprintEntityIndex] registered as koad.indexes.fingerprints');
+    }
+  }).catch((err) => {
     log.error('[FingerprintEntityIndex] initial refresh failed', err.message);
   });
 
