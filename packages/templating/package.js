@@ -1,6 +1,6 @@
 Package.describe({
   name: 'koad:io-templating',
-  version: '3.6.9',
+  version: '3.6.10',
   summary: 'Reactive layout/window manager for Meteor + Blaze, with helpers',
   documentation: 'README.md'
 });
@@ -14,6 +14,7 @@ Package.onUse(function(api) {
     'meteor-base',
     'blaze-html-templates',
     'reactive-var',
+    'tracker',
     'mizzao:timesync',
     'momentjs:moment',
     'koad:io-session'
@@ -47,6 +48,7 @@ Package.onUse(function(api) {
     'client/layout/engine.js',
     'client/layout/gestures.js',
     'client/layout/history.js',
+    'client/layout/scroll-memory.js',
 
   ], 'client');
 
