@@ -7,16 +7,17 @@ Permissioned proxy for `/kingdom/` — goals, projects, and forge.
 ```
 koad-io kingdom goal list [--horizon=<level>]
 koad-io kingdom goal show <slug>
-koad-io kingdom goal context <slug> [--update]
-koad-io kingdom goal status <slug> <state>
+koad-io kingdom goal context <slug> [--update] [--commit]
+koad-io kingdom goal status <slug> <state> [--commit]
 koad-io kingdom goal create <slug>
 
 koad-io kingdom project list [--horizon=<level>]
 koad-io kingdom project show <slug>
-koad-io kingdom project context <slug> [--update]
-koad-io kingdom project status <slug> <state>
+koad-io kingdom project context <slug> [--update] [--commit]
+koad-io kingdom project status <slug> <state> [--commit]
 koad-io kingdom project create <slug>
 
+koad-io kingdom commit <slug> [-m <message>]
 koad-io kingdom tree [--horizon=<level>]
 koad-io kingdom link <project> <goal>
 koad-io kingdom acl <slug> [--add <cid> | --remove <cid>]

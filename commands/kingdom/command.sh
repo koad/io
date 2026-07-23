@@ -4,14 +4,15 @@
 # Usage:
 #   koad-io kingdom goal list [--horizon=<level>]
 #   koad-io kingdom goal show <slug>
-#   koad-io kingdom goal context <slug>
-#   koad-io kingdom goal status <slug> <state>
+#   koad-io kingdom goal context <slug> [--update] [--commit]
+#   koad-io kingdom goal status <slug> <state> [--commit]
 #   koad-io kingdom goal create <slug>
 #   koad-io kingdom project list [--horizon=<level>]
 #   koad-io kingdom project show <slug>
-#   koad-io kingdom project context <slug>
-#   koad-io kingdom project status <slug> <state>
+#   koad-io kingdom project context <slug> [--update] [--commit]
+#   koad-io kingdom project status <slug> <state> [--commit]
 #   koad-io kingdom project create <slug>
+#   koad-io kingdom commit <slug> [-m <message>]
 #   koad-io kingdom tree [--horizon=<level>]
 #   koad-io kingdom link <project> <goal>
 #   koad-io kingdom acl <slug> [--add <cid> | --remove <cid>]
@@ -68,6 +69,21 @@ slug_exists() {
     [ -d "${KINGDOM_ROOT}/${type}/${slug}" ] && [ -f "${KINGDOM_ROOT}/${type}/${slug}/${filetype}.md" ]
 }
 
+# --- Git commit helper ---
+commit_bubble() {
+    local type="$1" slug="$2" summary="$3"
+    local dir
+    [ "$type" = "goal" ] && dir="${GOALS_DIR}/${slug}" || dir="${PROJECTS_DIR}/${slug}"
+    if [ ! -d "${dir}/.git" ]; then
+        echo -e "${YELLOW}⚠${NC} ${dir} is not a git repository — skipping commit" >&2
+        return
+    fi
+    cd "$dir"
+    git add -A
+    git commit -m "${type}(${slug}): ${summary}" 2>/dev/null || echo -e "${YELLOW}⚠${NC} nothing to commit"
+    echo -e "${GREEN}✓${NC} committed: ${type}(${slug}): ${summary}"
+}
+
 # --- Subcommands ---
 
 cmd_goal_list() {
@@ -120,10 +136,19 @@ cmd_goal_show() {
 }
 
 cmd_goal_context() {
-    [ $# -lt 1 ] && die "Usage: koad-io kingdom goal context <slug> [--update]"
+    local commit=false update=false
+    local args=()
+    for arg in "$@"; do
+        case "$arg" in
+            --commit) commit=true ;;
+            --update) update=true ;;
+            *) args+=("$arg") ;;
+        esac
+    done
+    set -- "${args[@]}"
+
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom goal context <slug> [--update] [--commit]"
     local slug="$1"
-    local update=false
-    [ "${2:-}" = "--update" ] && update=true
 
     slug_exists "goals" "$slug" || die "Goal '${slug}' not found"
     local context_file="${GOALS_DIR}/${slug}/context.md"
@@ -135,13 +160,21 @@ cmd_goal_context() {
         cp "$tmp" "$context_file"
         rm "$tmp"
         echo -e "${GREEN}✓${NC} context updated for ${slug}"
+        $commit && commit_bubble "goal" "$slug" "update context"
     else
         [ -f "$context_file" ] && cat "$context_file" || echo "(no context yet)"
     fi
 }
 
 cmd_goal_status() {
-    [ $# -lt 2 ] && die "Usage: koad-io kingdom goal status <slug> <state>"
+    local commit=false
+    local args=()
+    for arg in "$@"; do
+        [ "$arg" = "--commit" ] && commit=true || args+=("$arg")
+    done
+    set -- "${args[@]}"
+
+    [ $# -lt 2 ] && die "Usage: koad-io kingdom goal status <slug> <state> [--commit]"
     local slug="$1" state="$2"
     slug_exists "goals" "$slug" || die "Goal '${slug}' not found"
     case "$state" in
@@ -150,6 +183,7 @@ cmd_goal_status() {
     esac
     fm_set "${GOALS_DIR}/${slug}/goal.md" "status" "$state"
     echo -e "${GREEN}✓${NC} ${slug} status → ${state}"
+    $commit && commit_bubble "goal" "$slug" "status → ${state}"
 }
 
 cmd_goal_create() {
@@ -237,10 +271,19 @@ cmd_project_show() {
 }
 
 cmd_project_context() {
-    [ $# -lt 1 ] && die "Usage: koad-io kingdom project context <slug> [--update]"
+    local commit=false update=false
+    local args=()
+    for arg in "$@"; do
+        case "$arg" in
+            --commit) commit=true ;;
+            --update) update=true ;;
+            *) args+=("$arg") ;;
+        esac
+    done
+    set -- "${args[@]}"
+
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom project context <slug> [--update] [--commit]"
     local slug="$1"
-    local update=false
-    [ "${2:-}" = "--update" ] && update=true
     slug_exists "projects" "$slug" || die "Project '${slug}' not found"
     local context_file="${PROJECTS_DIR}/${slug}/context.md"
     if $update; then
@@ -250,13 +293,21 @@ cmd_project_context() {
         cp "$tmp" "$context_file"
         rm "$tmp"
         echo -e "${GREEN}✓${NC} context updated for ${slug}"
+        $commit && commit_bubble "project" "$slug" "update context"
     else
         [ -f "$context_file" ] && cat "$context_file" || echo "(no context yet)"
     fi
 }
 
 cmd_project_status() {
-    [ $# -lt 2 ] && die "Usage: koad-io kingdom project status <slug> <state>"
+    local commit=false
+    local args=()
+    for arg in "$@"; do
+        [ "$arg" = "--commit" ] && commit=true || args+=("$arg")
+    done
+    set -- "${args[@]}"
+
+    [ $# -lt 2 ] && die "Usage: koad-io kingdom project status <slug> <state> [--commit]"
     local slug="$1" state="$2"
     slug_exists "projects" "$slug" || die "Project '${slug}' not found"
     case "$state" in
@@ -265,6 +316,7 @@ cmd_project_status() {
     esac
     fm_set "${PROJECTS_DIR}/${slug}/project.md" "status" "$state"
     echo -e "${GREEN}✓${NC} ${slug} status → ${state}"
+    $commit && commit_bubble "project" "$slug" "status → ${state}"
 }
 
 cmd_project_create() {
@@ -396,6 +448,31 @@ cmd_acl() {
     fi
 }
 
+# --- Standalone commit ---
+
+cmd_commit() {
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom commit <slug> [-m <message>]"
+    local slug="" message=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -m|--message) message="$2"; shift 2 ;;
+            *) slug="$1"; shift ;;
+        esac
+    done
+    [ -z "$slug" ] && die "Usage: koad-io kingdom commit <slug> [-m <message>]"
+
+    local type=""
+    slug_exists "goals" "$slug" && type="goal"
+    slug_exists "projects" "$slug" && type="project"
+    [ -z "$type" ] && die "No goal or project found for '${slug}'"
+
+    local dir
+    [ "$type" = "goal" ] && dir="${GOALS_DIR}/${slug}" || dir="${PROJECTS_DIR}/${slug}"
+    [ -z "$message" ] && message="update"
+
+    commit_bubble "$type" "$slug" "$message"
+}
+
 # --- Router ---
 main() {
     [ $# -eq 0 ] && { usage; exit 0; }
@@ -425,11 +502,12 @@ main() {
                 *)       die "Unknown project subcommand: ${sub}" ;;
             esac
             ;;
-        tree)  cmd_tree "$@" ;;
-        link)  cmd_link "$@" ;;
-        acl)   cmd_acl "$@" ;;
+        tree)   cmd_tree "$@" ;;
+        link)   cmd_link "$@" ;;
+        acl)    cmd_acl "$@" ;;
+        commit) cmd_commit "$@" ;;
         help|--help|-h) usage ;;
-        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, forge" ;;
+        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, forge" ;;
     esac
 }
 
