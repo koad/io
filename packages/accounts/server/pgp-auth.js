@@ -19,10 +19,10 @@
 //   3. keys.openpgp.org keyserver fetch by fingerprint
 //   4. Error — ask visitor to include publicKey field
 
-const kbpgp = Npm.require('kbpgp');
-const crypto = Npm.require('crypto');
-const fs = Npm.require('fs');
-const path = Npm.require('path');
+const kbpgp = require('kbpgp');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -322,6 +322,14 @@ Meteor.methods({
   /**
    * auth.verify — Verify a clearsigned nonce and tag the DDP session.
    *
+   * This is the SOVEREIGN-NATIVE auth path (VESTA-SPEC-185 v2.0 §4.3).
+   * It does NOT create a Meteor.user record. The session's fingerprint
+   * is set directly on ApplicationSessions. After calling auth.verify,
+   * clients should call sovereign.resolve to retrieve identity info.
+   *
+   * Use auth.entityLogin (deprecated) only if you need a legacy portal
+   * login token that creates a Meteor.user record.
+   *
    * Input: { fingerprint, nonce, clearsign, publicKey? }
    * Returns: { fingerprint }
    * Throws: Meteor.Error on verification failure
@@ -442,6 +450,13 @@ Meteor.methods({
    * Returns: { id, token, tokenExpires }
    */
   'auth.entityLogin': async function ({ fingerprint, clearsigned, publicKey, bond_path } = {}) {
+    log.warning(
+      '[auth.entityLogin] DEPRECATED: Use sovereign.resolve for sovereign-only flows. ' +
+      'This method creates a Meteor user via findOrCreatePortalUser, which is the legacy ' +
+      'portal compatibility path. Sovereign sessions (fingerprint only, no Meteor.user) ' +
+      'should use auth.verify + sovereign.resolve instead. (VESTA-SPEC-185 v2.0 §7.1)'
+    );
+
     const fp = normalizeFingerprint(fingerprint);
     if (!fp) {
       throw new Meteor.Error('invalid-fingerprint', 'fingerprint must be 40 hex characters');
