@@ -32,6 +32,12 @@
 #   koad-io kingdom calendar done <slug> [--date=<ISO>]
 #   koad-io kingdom calendar cancel <slug> [--date=<ISO>]
 #
+#   koad-io kingdom commitment list [--type=expense|meeting]
+#   koad-io kingdom commitment show <slug>
+#   koad-io kingdom commitment add <slug> <title> [--type=expense|meeting] [--amount=<N>] [--currency=<C>] [--frequency=<Nd>] [--schedule=<weekly|monthly>] [--day=<Monday>] [--time=<HH:MM>] [--timezone=<zone>] [--participants=<list>]
+#   koad-io kingdom commitment tick <slug>
+#   koad-io kingdom commitment cancel <slug>
+#
 # See: ~/.juno/briefs/2026-07-23-kingdom-tooling.md
 
 set -euo pipefail
@@ -43,6 +49,7 @@ PROJECTS_DIR="${KINGDOM_ROOT}/projects"
 CONTACTS_DIR="${KINGDOM_ROOT}/contacts"
 PACKAGES_DIR="${KINGDOM_ROOT}/packages"
 CALENDAR_DIR="${KINGDOM_ROOT}/calendar"
+COMMITMENTS_DIR="${KINGDOM_ROOT}/commitments"
 FRAMEWORK_PACKAGES_DIR="/home/koad/.koad-io/packages"
 FM_PARSER="$(dirname "$0")/fm.py"
 COMMAND_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -56,7 +63,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 usage() {
-    sed -n '2,28p' "$0" | sed 's/^# //'
+    sed -n '2,41p' "$0" | sed 's/^# //'
     exit 0
 }
 
@@ -989,6 +996,199 @@ cmd_calendar_cancel() {
     echo -e "${GREEN}✓${NC} '${slug}' marked as cancelled"
 }
 
+# --- Commitment subcommands ---
+
+cmd_commitment_list() {
+    local type_filter=""
+    for arg in "$@"; do
+        case "$arg" in
+            --type=*) type_filter="${arg#*=}" ;;
+        esac
+    done
+
+    [ ! -d "$COMMITMENTS_DIR" ] && { echo "No commitments directory"; exit 0; }
+
+    printf "${BOLD}%-25s %-12s %-10s %s${NC}\n" "SLUG" "TYPE" "AMOUNT" "TITLE"
+    printf "%s\n" "----------------------------------------------------------------"
+
+    local any=false
+    for f in "$COMMITMENTS_DIR/"*.md; do
+        [ ! -f "$f" ] && continue
+        any=true
+        local slug title type amount
+        slug=$(basename "$f" .md)
+        title=$(fm_get "$f" "title")
+        type=$(fm_get "$f" "type")
+        amount=$(fm_get "$f" "amount")
+        [ "$amount" = "null" ] || [ "$amount" = "?" ] && amount=""
+        [ -z "$amount" ] && amount="-"
+
+        [ -n "$type_filter" ] && [ "$type" != "$type_filter" ] && continue
+
+        local sc=""
+        case "$type" in
+            expense) sc="${YELLOW}" ;;
+            meeting) sc="${CYAN}" ;;
+        esac
+
+        printf "${sc}%-25s %-12s %-10s %s${NC}\n" "$slug" "$type" "$amount" "$title"
+    done
+    $any || echo "No commitments found"
+}
+
+cmd_commitment_show() {
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom commitment show <slug>"
+    local slug="$1"
+    local file="${COMMITMENTS_DIR}/${slug}.md"
+    [ ! -f "$file" ] && die "Commitment '${slug}' not found"
+    echo -e "${BOLD}=== ${slug} ===${NC}"
+    echo ""
+    python3 "${COMMAND_DIR}/fm.py" show "$file"
+}
+
+cmd_commitment_add() {
+    local slug="" title="" type="" amount="" currency="CAD" frequency=""
+    local tax_flag=false schedule="" day="" time="" timezone="" duration="" participants="" rule=""
+    local payer="koad" payee="" method="auto-deduct"
+
+    local positional=()
+    for arg in "$@"; do
+        case "$arg" in
+            --type=*)         type="${arg#*=}" ;;
+            --amount=*)       amount="${arg#*=}" ;;
+            --currency=*)     currency="${arg#*=}" ;;
+            --frequency=*)    frequency="${arg#*=}" ;;
+            --tax)            tax_flag=true ;;
+            --schedule=*)     schedule="${arg#*=}" ;;
+            --day=*)          day="${arg#*=}" ;;
+            --time=*)         time="${arg#*=}" ;;
+            --timezone=*)     timezone="${arg#*=}" ;;
+            --duration=*)     duration="${arg#*=}" ;;
+            --participants=*) participants="${arg#*=}" ;;
+            --rule=*)         rule="${arg#*=}" ;;
+            --payer=*)        payer="${arg#*=}" ;;
+            --payee=*)        payee="${arg#*=}" ;;
+            --method=*)       method="${arg#*=}" ;;
+            *)                positional+=("$arg") ;;
+        esac
+    done
+
+    slug="${positional[0]:-}"
+    title="${positional[1]:-}"
+
+    [ -z "$slug" ] && die "Usage: koad-io kingdom commitment add <slug> <title> [--type=expense|meeting] [--amount=<N>] [--currency=<C>] [--frequency=<Nd>] [--schedule=<...>] [--day=<Monday>] [--time=<HH:MM>] [--timezone=<zone>] [--participants=<list>]"
+    [ -z "$title" ] && die "Title is required"
+
+    # Infer type if not specified
+    if [ -z "$type" ]; then
+        if [ -n "$amount" ]; then
+            type="expense"
+        elif [ -n "$schedule" ]; then
+            type="meeting"
+        else
+            die "Could not infer commitment type. Specify --type=expense or --type=meeting"
+        fi
+    fi
+
+    case "$type" in
+        expense|meeting) ;;
+        *) die "Invalid type: ${type}. Use expense or meeting" ;;
+    esac
+
+    local file="${COMMITMENTS_DIR}/${slug}.md"
+    [ -f "$file" ] && die "Commitment '${slug}' already exists"
+
+    if [ "$type" = "expense" ]; then
+        [ -z "$amount" ] && die "Expense commitments require --amount=<N>"
+        [ -z "$payee" ] && payee="$slug"
+        local next_due
+        next_due=$(date -d "+1 day" +%Y-%m-%d 2>/dev/null || date -v+1d +%Y-%m-%d)
+
+        cat > "$file" << COMMITEOF
+---
+slug: ${slug}
+title: ${title}
+type: expense
+amount: ${amount}
+currency: ${currency}
+tax: ${tax_flag}
+frequency: ${frequency}
+next_due: ${next_due}
+payer: ${payer}
+payee: ${payee}
+method: ${method}
+status: active
+---
+
+# ${title}
+
+COMMITEOF
+    else
+        # meeting
+        local participants_yaml="[]"
+        if [ -n "$participants" ]; then
+            participants_yaml="[${participants}]"
+        fi
+
+        {
+            echo "---"
+            echo "slug: ${slug}"
+            echo "title: ${title}"
+            echo "type: meeting"
+            echo "participants: ${participants_yaml}"
+            echo "schedule: ${schedule}"
+            echo "day: ${day:-null}"
+            echo "time: ${time:-null}"
+            echo "timezone: ${timezone:-null}"
+            echo "duration: ${duration:-null}"
+            [ -n "$rule" ] && echo "rule: ${rule}"
+            echo "status: active"
+            echo "---"
+            echo ""
+            echo "# ${title}"
+            echo ""
+        } > "$file"
+    fi
+
+    echo -e "${GREEN}✓${NC} Commitment '${slug}' created"
+    echo -e "  File: ${file}"
+}
+
+cmd_commitment_tick() {
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom commitment tick <slug>"
+    local slug="$1"
+    local file="${COMMITMENTS_DIR}/${slug}.md"
+    [ ! -f "$file" ] && die "Commitment '${slug}' not found"
+
+    local type; type=$(fm_get "$file" "type")
+    if [ "$type" != "expense" ] && [ "$type" != "null" ]; then
+        echo -e "${YELLOW}⚠${NC} '${slug}' is a meeting — schedule is fixed, no tick action needed"
+        return
+    fi
+
+    local frequency; frequency=$(fm_get "$file" "frequency")
+    local next_due; next_due=$(fm_get "$file" "next_due")
+    [ -z "$frequency" ] || [ "$frequency" = "null" ] && die "No frequency set for '${slug}'"
+    [ -z "$next_due" ] || [ "$next_due" = "null" ] && die "No next_due set for '${slug}'"
+
+    # Advance next_due by frequency days
+    local days="${frequency%d}"
+    local new_due
+    new_due=$(date -d "${next_due}+${days} days" +%Y-%m-%d 2>/dev/null || date -v+${days}d -j -f "%Y-%m-%d" "$next_due" +%Y-%m-%d)
+
+    fm_set "$file" "next_due" "$new_due"
+    echo -e "${GREEN}✓${NC} '${slug}' next_due advanced: ${next_due} → ${new_due}"
+}
+
+cmd_commitment_cancel() {
+    [ $# -lt 1 ] && die "Usage: koad-io kingdom commitment cancel <slug>"
+    local slug="$1"
+    local file="${COMMITMENTS_DIR}/${slug}.md"
+    [ ! -f "$file" ] && die "Commitment '${slug}' not found"
+    fm_set "$file" "status" "cancelled"
+    echo -e "${GREEN}✓${NC} Commitment '${slug}' cancelled"
+}
+
 # --- Router ---
 main() {
     [ $# -eq 0 ] && { usage; exit 0; }
@@ -1056,8 +1256,20 @@ main() {
                 *)      die "Unknown calendar subcommand: ${sub}. Try: list, show, add, done, cancel" ;;
             esac
             ;;
+        commitment)
+            [ $# -eq 0 ] && die "Usage: koad-io kingdom commitment <list|show|add|tick|cancel>"
+            local sub="$1"; shift
+            case "$sub" in
+                list)   cmd_commitment_list "$@" ;;
+                show)   cmd_commitment_show "$@" ;;
+                add)    cmd_commitment_add "$@" ;;
+                tick)   cmd_commitment_tick "$@" ;;
+                cancel) cmd_commitment_cancel "$@" ;;
+                *)      die "Unknown commitment subcommand: ${sub}. Try: list, show, add, tick, cancel" ;;
+            esac
+            ;;
         help|--help|-h) usage ;;
-        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, contacts, packages, calendar, forge" ;;
+        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, contacts, packages, calendar, commitment, forge" ;;
     esac
 }
 
