@@ -803,30 +803,20 @@ cmd_calendar_list() {
             exit 0
         fi
 
-        printf "${BOLD}%-30s %-8s %-8s %-12s %s${NC}\n" "TITLE" "TIME" "DUR" "KIND" "STATUS"
-        printf "%s\n" "--------------------------------------------------------------------------------"
+        printf "${BOLD}%-30s %-12s %s${NC}\n" "TITLE" "KIND" "TAGS"
+        printf "%s\n" "------------------------------------------------------------"
 
         local any=false
         for f in "$dir/${day}-"*.md; do
             [ ! -f "$f" ] && continue
             any=true
-            local title time duration kind status
+            local title kind tags
             title=$(fm_get "$f" "title")
-            time=$(fm_get "$f" "time")
-            duration=$(fm_get "$f" "duration")
             kind=$(fm_get "$f" "kind")
-            status=$(fm_get "$f" "status")
-            [ "$time" = "null" ] && time=""
-            [ "$duration" = "null" ] && duration=""
-            [ "$status" = "null" ] && status="scheduled"
-
-            local sc=""
-            case "$status" in
-                done)      sc="${GREEN}" ;;
-                cancelled) sc="${YELLOW}" ;;
-            esac
-
-            printf "${sc}%-30s %-8s %-8s %-12s %s${NC}\n" "$title" "$time" "$duration" "$kind" "$status"
+            tags=$(fm_get "$f" "tags")
+            [ "$kind" = "null" ] && kind="note"
+            [ "$tags" = "null" ] && tags="-"
+            printf "%-30s %-12s %s\n" "$title" "$kind" "$tags"
         done
         $any || echo "No entries for ${date}"
 
@@ -838,35 +828,26 @@ cmd_calendar_list() {
 
         [ ! -d "$dir" ] && { echo "No entries for ${month}"; exit 0; }
 
-        printf "${BOLD}%-12s %-30s %-8s %-8s %-12s %s${NC}\n" "DATE" "TITLE" "TIME" "DUR" "KIND" "STATUS"
-        printf "%s\n" "----------------------------------------------------------------------------------------------------"
+        printf "${BOLD}%-12s %-30s %-12s %s${NC}\n" "DATE" "TITLE" "KIND" "TAGS"
+        printf "%s\n" "------------------------------------------------------------------------------"
 
         local any=false
         for f in "$dir/"*.md; do
             [ ! -f "$f" ] && continue
             any=true
-            local fname title time duration kind status
+            local fname title kind tags
             fname=$(basename "$f" .md)
             title=$(fm_get "$f" "title")
-            time=$(fm_get "$f" "time")
-            duration=$(fm_get "$f" "duration")
             kind=$(fm_get "$f" "kind")
-            status=$(fm_get "$f" "status")
-            [ "$time" = "null" ] && time=""
-            [ "$duration" = "null" ] && duration=""
-            [ "$status" = "null" ] && status="scheduled"
+            tags=$(fm_get "$f" "tags")
+            [ "$kind" = "null" ] && kind="note"
+            [ "$tags" = "null" ] && tags="-"
 
             local day slug_part
             day=$(echo "$fname" | cut -d- -f1)
             slug_part=$(echo "$fname" | cut -d- -f2-)
 
-            local sc=""
-            case "$status" in
-                done)      sc="${GREEN}" ;;
-                cancelled) sc="${YELLOW}" ;;
-            esac
-
-            printf "${sc}%-12s %-30s %-8s %-8s %-12s %s${NC}\n" "${year}-${month_num}-${day}" "$title" "$time" "$duration" "$kind" "$status"
+            printf "%-12s %-30s %-12s %s\n" "${year}-${month_num}-${day}" "$title" "$kind" "$tags"
         done
         $any || echo "No entries for ${month}"
     fi
