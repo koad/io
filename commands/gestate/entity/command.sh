@@ -109,11 +109,17 @@ HOST=$(hostname -s)
 
 if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
     # Authorized-agent mode: skip sovereign checks
-    # Entity context (ENTITY) is informational — the caller knows what they're doing
+    # ENTITY must be set — the caller must run via entity launcher
     if [ -z "${ENTITY:-}" ]; then
-        warn "--as-authorized-agent specified but ENTITY is not set. Proceeding without entity context."
+        die "--as-authorized-agent requires ENTITY context.
+
+  Run via entity launcher, e.g.:
+    juno gestate entity $ENTITY_NAME --as-authorized-agent
+
+  Or set ENTITY explicitly in the environment.
+  Do not gestate entities with unknown authority."
     fi
-    say "Authorized-agent mode — gestating under authority of: ${ENTITY:-unnamed}"
+    say "Authorized-agent mode — gestating under authority of: $ENTITY"
     say ""
 else
     # Local sovereign path: require ~/.koad-io/me/
@@ -555,7 +561,7 @@ if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
         --arg name "$DISPLAY_NAME" \
         --arg role "${ROLE:-}" \
         --arg created "$NOW_ISO_JSON" \
-        --arg authorizedBy "${ENTITY:-unknown}" \
+        --arg authorizedBy "$ENTITY" \
         '{
             handle: $handle,
             name: $name,
@@ -706,7 +712,7 @@ if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
 
 Gestated by Vulcan per VESTA-SPEC-002 v1.3.
 Authorized-agent path (provisional) — not yet signed into sovereign sigchain.
-Authorized by: ${ENTITY:-unknown}
+Authorized by: $ENTITY
 
 Entity:         $ENTITY_NAME
 Display name:   $DISPLAY_NAME
@@ -743,14 +749,24 @@ say ""
 trap - EXIT
 
 # ---------------------------------------------------------------------------
-# Step 8: Register entity launcher via koad-io init
+# Step 8: Register entity launcher (write directly — init routing unreliable here)
 # ---------------------------------------------------------------------------
 
 say "Registering entity launcher..."
 
-koad-io init "$ENTITY_NAME" --forceful 2>/dev/null || warn "koad-io init $ENTITY_NAME failed — register manually with: koad-io init $ENTITY_NAME"
+LAUNCHER_PATH="$HOME/.koad-io/bin/$ENTITY_NAME"
 
-say "  registered: ~/.koad-io/bin/$ENTITY_NAME"
+# Write launcher using the established template (matches init/entity/command.sh pattern)
+if [ ! -f "$LAUNCHER_PATH" ] || [ ! -x "$LAUNCHER_PATH" ]; then
+    printf '#!/usr/bin/env bash\n\nexport ENTITY="%s"\nexport KOAD_IO_VIA_LAUNCHER=1\nkoad-io "$@";\n' "$ENTITY_NAME" > "$LAUNCHER_PATH"
+    chmod +x "$LAUNCHER_PATH"
+fi
+
+if [ -f "$LAUNCHER_PATH" ] && [ -x "$LAUNCHER_PATH" ]; then
+    say "  launcher: $LAUNCHER_PATH"
+else
+    warn "Failed to create launcher at $LAUNCHER_PATH — register manually: koad-io init entity $ENTITY_NAME"
+fi
 say ""
 
 # ---------------------------------------------------------------------------
@@ -770,10 +786,14 @@ say "   fingerprint:      $LEAF_FINGERPRINT"
 say " Device key:         $ENTITY_DIR/id/devices/$HOST/device.key (gitignored)"
 say ""
 say " Gestation mode:     authorized-agent (provisional)"
-say " Authorized by:      ${ENTITY:-unknown}"
+say " Authorized by:      $ENTITY"
 say ""
 say " Genesis commit: $GENESIS_SHA"
-say " Launcher: ~/.koad-io/bin/$ENTITY_NAME"
+if [ -f "$HOME/.koad-io/bin/$ENTITY_NAME" ] && [ -x "$HOME/.koad-io/bin/$ENTITY_NAME" ]; then
+    say " Launcher:       ~/.koad-io/bin/$ENTITY_NAME"
+else
+    warn " Launcher:       NOT CREATED — run: koad-io init entity $ENTITY_NAME"
+fi
 say ""
 say " Next steps:"
 say "   1. git -C $ENTITY_DIR remote add origin <remote-url>"
@@ -804,7 +824,11 @@ say "   koad.entity.genesis:       $GENESIS_CID"
 say "   koad.entity.leaf-authorize: $LEAF_CID"
 say ""
 say " Genesis commit: $GENESIS_SHA"
-say " Launcher: ~/.koad-io/bin/$ENTITY_NAME"
+if [ -f "$HOME/.koad-io/bin/$ENTITY_NAME" ] && [ -x "$HOME/.koad-io/bin/$ENTITY_NAME" ]; then
+    say " Launcher:       ~/.koad-io/bin/$ENTITY_NAME"
+else
+    warn " Launcher:       NOT CREATED — run: koad-io init entity $ENTITY_NAME"
+fi
 say ""
 say " Next steps:"
 say "   1. git -C $ENTITY_DIR remote add origin <remote-url>"
