@@ -1,22 +1,34 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# koad-io gestate <name> — create a new entity using the SPEC-175 sovereign-signed model
+# koad-io gestate <name> — create a new entity
 #
-# Usage:
-#   koad-io gestate <name>
+# Two gestation paths:
 #
-# Pre-conditions:
-#   - ~/.koad-io/me/ must exist (run 'koad-io init sovereign' first)
-#   - Sovereign device leaf must exist at ~/.koad-io/me/id/devices/$HOSTNAME/leaf.private.asc
-#   - ~/.<name>/ must NOT already exist
+#   Local sovereign path (default):
+#     koad-io gestate <name>
+#     Pre-conditions:
+#       - ~/.koad-io/me/ must exist (run 'koad-io init sovereign' first)
+#       - Sovereign device leaf must exist at ~/.koad-io/me/id/devices/$HOSTNAME/leaf.private.asc
+#       - ~/.<name>/ must NOT already exist
+#     Signs koad.entity.genesis + koad.entity.leaf-authorize in sovereign's sigchain
+#
+#   Authorized-agent path (provisional):
+#     koad-io gestate <name> --as-authorized-agent
+#     Pre-conditions:
+#       - ENTITY must be set (running from entity context like Juno)
+#       - ~/.<name>/ must NOT already exist
+#     Generates entity keys, creates directory, marks as provisional.
+#     Does NOT sign sovereign sigchain — entity gestated under authorized-agent
+#     authority, pending sovereign countersignature.
 #
 # What this does:
-#   1. Validates pre-flight conditions (sovereign, name, no existing dir)
+#   1. Validates pre-flight conditions (name, no existing dir, sovereign or authorized-agent)
 #   2. Asks conversational questions (display name, domain, home machine, role, mother)
 #   3. Creates entity dir with SPEC-175 id/ layout
 #   4. Generates entity public keypair + first device leaf via ceremony.mjs
-#   5. Signs koad.entity.genesis + koad.entity.leaf-authorize in sovereign's sigchain
+#   5. [sovereign path] Signs koad.entity.genesis + koad.entity.leaf-authorize in sovereign's sigchain
+#      [authorized-agent path] Marks entity as provisional, pending sovereign countersign
 #   6. Writes entity artifacts (.env, .gitignore, KOAD_IO_VERSION, passenger.json, CLAUDE.md, ENTITY.md stub, memory stub)
 #   7. Initializes git repo and creates genesis commit (authored as the new entity)
 #   8. Registers entity launcher via 'koad-io init <name>'
@@ -66,6 +78,22 @@ fi
 ENTITY_DIR="$HOME/.${ENTITY_NAME}"
 
 # ---------------------------------------------------------------------------
+# Pre-flight: parse flags
+# ---------------------------------------------------------------------------
+
+AUTHORIZED_AGENT_MODE=0
+for arg in "$@"; do
+    case "$arg" in
+        --as-authorized-agent)
+            AUTHORIZED_AGENT_MODE=1
+            ;;
+        --help|-h)
+            die "Usage: koad-io gestate <name> [--as-authorized-agent]"
+            ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------
 # Pre-flight: entity dir must not already exist
 # ---------------------------------------------------------------------------
 
@@ -74,40 +102,56 @@ if [ -d "$ENTITY_DIR" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Pre-flight: sovereign must exist
-# ---------------------------------------------------------------------------
-
-SOVEREIGN_DIR="$HOME/.koad-io/me"
-SOVEREIGN_ID_DIR="$SOVEREIGN_DIR/id"
-
-if [ ! -d "$SOVEREIGN_DIR" ]; then
-    die "No sovereign found at $SOVEREIGN_DIR. Run 'koad-io init sovereign' first."
-fi
-
-if [ ! -f "$SOVEREIGN_ID_DIR/gpg.public.asc" ] && [ ! -f "$SOVEREIGN_ID_DIR/entity.public.asc" ]; then
-    die "Sovereign exists but has no master public key. Run 'koad-io init sovereign' first."
-fi
-
-MASTER_FINGERPRINT_FILE="$SOVEREIGN_ID_DIR/master.fingerprint"
-if [ ! -f "$MASTER_FINGERPRINT_FILE" ]; then
-    die "Sovereign id/master.fingerprint is missing. Run 'koad-io init sovereign' to repair."
-fi
-
-# ---------------------------------------------------------------------------
-# Pre-flight: sovereign device leaf must exist on this machine
+# Pre-flight: local sovereign (default) OR authorized-agent mode
 # ---------------------------------------------------------------------------
 
 HOST=$(hostname -s)
-SOVEREIGN_LEAF_DIR="$SOVEREIGN_ID_DIR/devices/$HOST"
-SOVEREIGN_LEAF_PRIVATE="$SOVEREIGN_LEAF_DIR/leaf.private.asc"
-SOVEREIGN_DEVICE_KEY="$SOVEREIGN_LEAF_DIR/device.key"
 
-if [ ! -f "$SOVEREIGN_LEAF_PRIVATE" ]; then
-    die "Sovereign device leaf not found at $SOVEREIGN_LEAF_PRIVATE. Run 'koad-io init sovereign' to provision this device's leaf."
-fi
+if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
+    # Authorized-agent mode: skip sovereign checks
+    # Entity context (ENTITY) is informational — the caller knows what they're doing
+    if [ -z "${ENTITY:-}" ]; then
+        warn "--as-authorized-agent specified but ENTITY is not set. Proceeding without entity context."
+    fi
+    say "Authorized-agent mode — gestating under authority of: ${ENTITY:-unnamed}"
+    say ""
+else
+    # Local sovereign path: require ~/.koad-io/me/
+    SOVEREIGN_DIR="$HOME/.koad-io/me"
+    SOVEREIGN_ID_DIR="$SOVEREIGN_DIR/id"
 
-if [ ! -f "$SOVEREIGN_DEVICE_KEY" ]; then
-    die "Sovereign device key not found at $SOVEREIGN_DEVICE_KEY. Run 'koad-io init sovereign' to provision this device's leaf."
+    if [ ! -d "$SOVEREIGN_DIR" ]; then
+        die "No sovereign found at $SOVEREIGN_DIR.
+
+The sovereign dir $SOVEREIGN_DIR does not exist on this machine. To gestate an entity you need one of:
+  1. Local sovereign: run 'koad-io init sovereign' first
+  2. Authorized-agent: run 'koad-io gestate $ENTITY_NAME --as-authorized-agent' (requires ENTITY context, e.g. Juno)"
+    fi
+
+    if [ ! -f "$SOVEREIGN_ID_DIR/gpg.public.asc" ] && [ ! -f "$SOVEREIGN_ID_DIR/entity.public.asc" ]; then
+        die "Sovereign exists but has no master public key. Run 'koad-io init sovereign' first."
+    fi
+
+    MASTER_FINGERPRINT_FILE="$SOVEREIGN_ID_DIR/master.fingerprint"
+    if [ ! -f "$MASTER_FINGERPRINT_FILE" ]; then
+        die "Sovereign id/master.fingerprint is missing. Run 'koad-io init sovereign' to repair."
+    fi
+
+    # ---------------------------------------------------------------------------
+    # Pre-flight: sovereign device leaf must exist on this machine
+    # ---------------------------------------------------------------------------
+
+    SOVEREIGN_LEAF_DIR="$SOVEREIGN_ID_DIR/devices/$HOST"
+    SOVEREIGN_LEAF_PRIVATE="$SOVEREIGN_LEAF_DIR/leaf.private.asc"
+    SOVEREIGN_DEVICE_KEY="$SOVEREIGN_LEAF_DIR/device.key"
+
+    if [ ! -f "$SOVEREIGN_LEAF_PRIVATE" ]; then
+        die "Sovereign device leaf not found at $SOVEREIGN_LEAF_PRIVATE. Run 'koad-io init sovereign' to provision this device's leaf."
+    fi
+
+    if [ ! -f "$SOVEREIGN_DEVICE_KEY" ]; then
+        die "Sovereign device key not found at $SOVEREIGN_DEVICE_KEY. Run 'koad-io init sovereign' to provision this device's leaf."
+    fi
 fi
 
 # Check for required tooling
@@ -128,10 +172,10 @@ say ""
 say "Gestating new entity: $ENTITY_NAME"
 say ""
 
-# Read sovereign env for defaults
+# Read sovereign env for defaults (authorized-agent mode skips this)
 SOVEREIGN_DOMAIN=""
 SOVEREIGN_HANDLE=""
-if [ -f "$SOVEREIGN_DIR/.env" ]; then
+if [ "$AUTHORIZED_AGENT_MODE" != "1" ] && [ -n "${SOVEREIGN_DIR:-}" ] && [ -f "$SOVEREIGN_DIR/.env" ]; then
     SOVEREIGN_DOMAIN=$(grep "^SOVEREIGN_DOMAIN=" "$SOVEREIGN_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
     SOVEREIGN_HANDLE=$(grep "^SOVEREIGN_HANDLE=" "$SOVEREIGN_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
 fi
@@ -158,24 +202,30 @@ say "  Home machine:  $HOME_MACHINE"
 say ""
 
 # ---------------------------------------------------------------------------
-# Step 1: Verify sovereign device leaf is decryptable
+# Step 1: Verify sovereign device leaf is decryptable (sovereign path only)
 # ---------------------------------------------------------------------------
 
-say "Verifying sovereign device leaf..."
+if [ "$AUTHORIZED_AGENT_MODE" != "1" ]; then
+    say "Verifying sovereign device leaf..."
 
-LEAF_VERIFY_JSON=$(node "$CEREMONY_SCRIPT" verify-leaf \
-    --sovereign-leaf-encrypted-path "$SOVEREIGN_LEAF_PRIVATE" \
-    --sovereign-device-key-path "$SOVEREIGN_DEVICE_KEY") || die "Sovereign leaf verification failed"
+    LEAF_VERIFY_JSON=$(node "$CEREMONY_SCRIPT" verify-leaf \
+        --sovereign-leaf-encrypted-path "$SOVEREIGN_LEAF_PRIVATE" \
+        --sovereign-device-key-path "$SOVEREIGN_DEVICE_KEY") || die "Sovereign leaf verification failed"
 
-LEAF_VERIFY_VALID=$(echo "$LEAF_VERIFY_JSON" | jq -r '.valid')
-if [ "$LEAF_VERIFY_VALID" != "true" ]; then
-    LEAF_VERIFY_ERR=$(echo "$LEAF_VERIFY_JSON" | jq -r '.error // "unknown error"')
-    die "Sovereign device leaf could not be decrypted: $LEAF_VERIFY_ERR"
+    LEAF_VERIFY_VALID=$(echo "$LEAF_VERIFY_JSON" | jq -r '.valid')
+    if [ "$LEAF_VERIFY_VALID" != "true" ]; then
+        LEAF_VERIFY_ERR=$(echo "$LEAF_VERIFY_JSON" | jq -r '.error // "unknown error"')
+        die "Sovereign device leaf could not be decrypted: $LEAF_VERIFY_ERR"
+    fi
+
+    SOVEREIGN_LEAF_FINGERPRINT=$(echo "$LEAF_VERIFY_JSON" | jq -r '.leafFingerprint')
+    say "  Leaf verified — fingerprint: ${SOVEREIGN_LEAF_FINGERPRINT: -16}"
+    say ""
+else
+    say "Skipping sovereign leaf verification (authorized-agent mode)..."
+    SOVEREIGN_LEAF_FINGERPRINT=""
+    say ""
 fi
-
-SOVEREIGN_LEAF_FINGERPRINT=$(echo "$LEAF_VERIFY_JSON" | jq -r '.leafFingerprint')
-say "  Leaf verified — fingerprint: ${SOVEREIGN_LEAF_FINGERPRINT: -16}"
-say ""
 
 # ---------------------------------------------------------------------------
 # Step 2: Create entity directory structure (SPEC-002 §4 Step 1 + SPEC-175 §3.1)
@@ -249,94 +299,111 @@ unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR
 say ""
 
 # ---------------------------------------------------------------------------
-# Step 4: Sign sigchain entries in sovereign's chain
+# Step 4: Sign sigchain entries (sovereign path) or mark provisional (authorized-agent)
 # ---------------------------------------------------------------------------
 
-SOVEREIGN_SIGCHAIN_DIR="$SOVEREIGN_DIR/sigchain"
-SOVEREIGN_SIGCHAIN_HEAD_FILE="$SOVEREIGN_SIGCHAIN_DIR/head.cid"
-SOVEREIGN_SIGCHAIN_META_FILE="$SOVEREIGN_SIGCHAIN_DIR/metadata.json"
-SOVEREIGN_SIGCHAIN_ENTRIES_DIR="$SOVEREIGN_SIGCHAIN_DIR/entries"
+if [ "$AUTHORIZED_AGENT_MODE" != "1" ]; then
+    # ---- Sovereign path: sign in sovereign's sigchain ----
+    SOVEREIGN_SIGCHAIN_DIR="$SOVEREIGN_DIR/sigchain"
+    SOVEREIGN_SIGCHAIN_HEAD_FILE="$SOVEREIGN_SIGCHAIN_DIR/head.cid"
+    SOVEREIGN_SIGCHAIN_META_FILE="$SOVEREIGN_SIGCHAIN_DIR/metadata.json"
+    SOVEREIGN_SIGCHAIN_ENTRIES_DIR="$SOVEREIGN_SIGCHAIN_DIR/entries"
 
-CURRENT_HEAD=""
-if [ -f "$SOVEREIGN_SIGCHAIN_HEAD_FILE" ]; then
-    CURRENT_HEAD=$(cat "$SOVEREIGN_SIGCHAIN_HEAD_FILE" | tr -d '[:space:]')
-fi
+    CURRENT_HEAD=""
+    if [ -f "$SOVEREIGN_SIGCHAIN_HEAD_FILE" ]; then
+        CURRENT_HEAD=$(cat "$SOVEREIGN_SIGCHAIN_HEAD_FILE" | tr -d '[:space:]')
+    fi
 
-EXPECTED_MASTER_FPR=$(cat "$MASTER_FINGERPRINT_FILE")
+    EXPECTED_MASTER_FPR=$(cat "$MASTER_FINGERPRINT_FILE")
 
-say "Signing sigchain entries in sovereign's chain (using device leaf)..."
-say "  Current sovereign chain head: ${CURRENT_HEAD:-'(none — first entity entry)'}"
-say "  Signing leaf: ${SOVEREIGN_LEAF_FINGERPRINT: -16}"
+    say "Signing sigchain entries in sovereign's chain (using device leaf)..."
+    say "  Current sovereign chain head: ${CURRENT_HEAD:-'(none — first entity entry)'}"
+    say "  Signing leaf: ${SOVEREIGN_LEAF_FINGERPRINT: -16}"
 
-# Pass entity public armor via a temp file to avoid argv quoting issues
-ENTITY_ARMOR_TMPFILE=$(mktemp /tmp/koad-entity-armor.XXXXXX)
-cp "$ENTITY_DIR/id/entity.public.asc" "$ENTITY_ARMOR_TMPFILE"
+    # Pass entity public armor via a temp file to avoid argv quoting issues
+    ENTITY_ARMOR_TMPFILE=$(mktemp /tmp/koad-entity-armor.XXXXXX)
+    cp "$ENTITY_DIR/id/entity.public.asc" "$ENTITY_ARMOR_TMPFILE"
 
-ENTITY_SIGNING_JSON=$(node "$CEREMONY_SCRIPT" sign-entity-entries \
-    --sovereign-leaf-encrypted-path "$SOVEREIGN_LEAF_PRIVATE" \
-    --sovereign-device-key-path "$SOVEREIGN_DEVICE_KEY" \
-    --sovereign-leaf-fingerprint "$SOVEREIGN_LEAF_FINGERPRINT" \
-    --entity-handle "$ENTITY_NAME" \
-    --entity-fingerprint "$ENTITY_FINGERPRINT" \
-    --entity-public-armor "$(cat "$ENTITY_ARMOR_TMPFILE")" \
-    --leaf-fingerprint "$LEAF_FINGERPRINT" \
-    --host "$HOST" \
-    --sigchain-head "$CURRENT_HEAD") \
-    || { rm -f "$ENTITY_ARMOR_TMPFILE"; die "Sigchain signing ceremony failed"; }
+    ENTITY_SIGNING_JSON=$(node "$CEREMONY_SCRIPT" sign-entity-entries \
+        --sovereign-leaf-encrypted-path "$SOVEREIGN_LEAF_PRIVATE" \
+        --sovereign-device-key-path "$SOVEREIGN_DEVICE_KEY" \
+        --sovereign-leaf-fingerprint "$SOVEREIGN_LEAF_FINGERPRINT" \
+        --entity-handle "$ENTITY_NAME" \
+        --entity-fingerprint "$ENTITY_FINGERPRINT" \
+        --entity-public-armor "$(cat "$ENTITY_ARMOR_TMPFILE")" \
+        --leaf-fingerprint "$LEAF_FINGERPRINT" \
+        --host "$HOST" \
+        --sigchain-head "$CURRENT_HEAD") \
+        || { rm -f "$ENTITY_ARMOR_TMPFILE"; die "Sigchain signing ceremony failed"; }
 
-rm -f "$ENTITY_ARMOR_TMPFILE"
+    rm -f "$ENTITY_ARMOR_TMPFILE"
 
-GENESIS_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.genesisCid')
-LEAF_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.leafCid')
-NEW_HEAD_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.newHeadCid')
+    GENESIS_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.genesisCid')
+    LEAF_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.leafCid')
+    NEW_HEAD_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.newHeadCid')
 
-if [ -z "$GENESIS_CID" ] || [ "$GENESIS_CID" = "null" ]; then
-    die "Sigchain signing returned no genesisCid — check ceremony output"
-fi
-if [ -z "$LEAF_CID" ] || [ "$LEAF_CID" = "null" ]; then
-    die "Sigchain signing returned no leafCid — check ceremony output"
-fi
+    if [ -z "$GENESIS_CID" ] || [ "$GENESIS_CID" = "null" ]; then
+        die "Sigchain signing returned no genesisCid — check ceremony output"
+    fi
+    if [ -z "$LEAF_CID" ] || [ "$LEAF_CID" = "null" ]; then
+        die "Sigchain signing returned no leafCid — check ceremony output"
+    fi
 
-# Write entries to sovereign's sigchain (append-only)
-mkdir -p "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR"
+    # Write entries to sovereign's sigchain (append-only)
+    mkdir -p "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR"
 
-echo "$ENTITY_SIGNING_JSON" | jq '.genesisEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$GENESIS_CID.json"
-echo "$ENTITY_SIGNING_JSON" | jq '.leafEntry'    > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$LEAF_CID.json"
+    echo "$ENTITY_SIGNING_JSON" | jq '.genesisEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$GENESIS_CID.json"
+    echo "$ENTITY_SIGNING_JSON" | jq '.leafEntry'    > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$LEAF_CID.json"
 
-# Update head pointer
-printf '%s' "$NEW_HEAD_CID" > "$SOVEREIGN_SIGCHAIN_HEAD_FILE"
+    # Update head pointer
+    printf '%s' "$NEW_HEAD_CID" > "$SOVEREIGN_SIGCHAIN_HEAD_FILE"
 
-# Update metadata.json
-NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-if [ -f "$SOVEREIGN_SIGCHAIN_META_FILE" ]; then
-    EXISTING_META=$(cat "$SOVEREIGN_SIGCHAIN_META_FILE")
-    echo "$EXISTING_META" | jq \
-        --arg cid "$NEW_HEAD_CID" \
-        --arg updated "$NOW_ISO" \
-        '.sigchainHeadCID = $cid | .sigchainHeadUpdated = $updated' \
-        > "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" && mv "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" "$SOVEREIGN_SIGCHAIN_META_FILE"
+    # Update metadata.json
+    NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [ -f "$SOVEREIGN_SIGCHAIN_META_FILE" ]; then
+        EXISTING_META=$(cat "$SOVEREIGN_SIGCHAIN_META_FILE")
+        echo "$EXISTING_META" | jq \
+            --arg cid "$NEW_HEAD_CID" \
+            --arg updated "$NOW_ISO" \
+            '.sigchainHeadCID = $cid | .sigchainHeadUpdated = $updated' \
+            > "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" && mv "$SOVEREIGN_SIGCHAIN_META_FILE.tmp" "$SOVEREIGN_SIGCHAIN_META_FILE"
+    else
+        jq -n \
+            --arg handle "koad" \
+            --arg fpr "$EXPECTED_MASTER_FPR" \
+            --arg cid "$NEW_HEAD_CID" \
+            --arg created "$NOW_ISO" \
+            --arg updated "$NOW_ISO" \
+            '{
+                handle: $handle,
+                masterFingerprint: $fpr,
+                sigchainHeadCID: $cid,
+                status: "active",
+                created: $created,
+                sigchainHeadUpdated: $updated
+            }' > "$SOVEREIGN_SIGCHAIN_META_FILE"
+    fi
+
+    say "  signed: koad.entity.genesis (CID: ${GENESIS_CID:0:20}...)"
+    say "  signed: koad.entity.leaf-authorize (CID: ${LEAF_CID:0:20}...)"
+    say "  updated: me/sigchain/head.cid → ${NEW_HEAD_CID:0:20}..."
+
+    unset ENTITY_SIGNING_JSON
 else
-    jq -n \
-        --arg handle "koad" \
-        --arg fpr "$EXPECTED_MASTER_FPR" \
-        --arg cid "$NEW_HEAD_CID" \
-        --arg created "$NOW_ISO" \
-        --arg updated "$NOW_ISO" \
-        '{
-            handle: $handle,
-            masterFingerprint: $fpr,
-            sigchainHeadCID: $cid,
-            status: "active",
-            created: $created,
-            sigchainHeadUpdated: $updated
-        }' > "$SOVEREIGN_SIGCHAIN_META_FILE"
+    # ---- Authorized-agent path: provisional gestation, no sovereign sigchain ----
+    say "Authorized-agent mode — entity gestated provisionally under authority of: ${ENTITY:-unnamed}"
+    say ""
+    say "  Sovereign sigchain entries NOT signed (sovereign "$HOME/.koad-io/me" not present on this machine)."
+    say "  Entity is fully functional but not yet linked into the sovereign's sigchain."
+    say "  To complete the chain of custody, the sovereign must countersign later:"
+    say "    koad-io countersign $ENTITY_NAME"
+    say ""
+
+    # Mark as provisional — no sigchain entries created
+    GENESIS_CID=""
+    LEAF_CID=""
+    NEW_HEAD_CID=""
 fi
-
-say "  signed: koad.entity.genesis (CID: ${GENESIS_CID:0:20}...)"
-say "  signed: koad.entity.leaf-authorize (CID: ${LEAF_CID:0:20}...)"
-say "  updated: me/sigchain/head.cid → ${NEW_HEAD_CID:0:20}..."
-
-unset ENTITY_SIGNING_JSON
 
 say ""
 
@@ -482,23 +549,46 @@ say "  wrote: .env"
 
 # --- passenger.json ---
 NOW_ISO_JSON=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-jq -n \
-    --arg handle "$ENTITY_NAME" \
-    --arg name "$DISPLAY_NAME" \
-    --arg role "${ROLE:-}" \
-    --arg created "$NOW_ISO_JSON" \
-    '{
-        handle: $handle,
-        name: $name,
-        role: $role,
-        status: "gestated",
-        created_at: $created,
-        created_by: "vulcan",
-        avatar: null,
-        buttons: []
-    }' > "$ENTITY_DIR/passenger.json"
-
-say "  wrote: passenger.json"
+if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
+    jq -n \
+        --arg handle "$ENTITY_NAME" \
+        --arg name "$DISPLAY_NAME" \
+        --arg role "${ROLE:-}" \
+        --arg created "$NOW_ISO_JSON" \
+        --arg authorizedBy "${ENTITY:-unknown}" \
+        '{
+            handle: $handle,
+            name: $name,
+            role: $role,
+            status: "provisional",
+            gestation_mode: "authorized-agent",
+            authorized_by: $authorizedBy,
+            created_at: $created,
+            created_by: "vulcan",
+            provisional: true,
+            sovereign_countersign_required: true,
+            avatar: null,
+            buttons: []
+        }' > "$ENTITY_DIR/passenger.json"
+    say "  wrote: passenger.json (provisional — authorized-agent gestation)"
+else
+    jq -n \
+        --arg handle "$ENTITY_NAME" \
+        --arg name "$DISPLAY_NAME" \
+        --arg role "${ROLE:-}" \
+        --arg created "$NOW_ISO_JSON" \
+        '{
+            handle: $handle,
+            name: $name,
+            role: $role,
+            status: "gestated",
+            created_at: $created,
+            created_by: "vulcan",
+            avatar: null,
+            buttons: []
+        }' > "$ENTITY_DIR/passenger.json"
+    say "  wrote: passenger.json"
+fi
 
 # --- CLAUDE.md ---
 cat > "$ENTITY_DIR/CLAUDE.md" << CLAUDEEOF
@@ -611,7 +701,20 @@ if git -C "$ENTITY_DIR" ls-files | grep -qE "leaf\.private\.asc|device\.key|\.en
 fi
 
 # Create genesis commit authored as the new entity
-GENESIS_COMMIT_MSG="kingdom genesis — entity created and signed by sovereign on $HOST
+if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
+    GENESIS_COMMIT_MSG="kingdom genesis — entity gestated by authorized-agent on $HOST
+
+Gestated by Vulcan per VESTA-SPEC-002 v1.3.
+Authorized-agent path (provisional) — not yet signed into sovereign sigchain.
+Authorized by: ${ENTITY:-unknown}
+
+Entity:         $ENTITY_NAME
+Display name:   $DISPLAY_NAME
+Home machine:   $HOME_MACHINE
+Entity fingerprint: $ENTITY_FINGERPRINT
+Leaf fingerprint:   $LEAF_FINGERPRINT"
+else
+    GENESIS_COMMIT_MSG="kingdom genesis — entity created and signed by sovereign on $HOST
 
 Gestated by Vulcan per VESTA-SPEC-002 v1.3.
 Sovereign-signed per VESTA-SPEC-175 §7.
@@ -623,6 +726,7 @@ Entity fingerprint: $ENTITY_FINGERPRINT
 Leaf fingerprint:   $LEAF_FINGERPRINT
 Genesis CID:    $GENESIS_CID
 Leaf CID:       $LEAF_CID"
+fi
 
 GIT_AUTHOR_NAME="$DISPLAY_NAME" \
 GIT_AUTHOR_EMAIL="${ENTITY_NAME}@${EMAIL_DOMAIN}" \
@@ -653,6 +757,37 @@ say ""
 # Step 9: Genesis confirmation
 # ---------------------------------------------------------------------------
 
+if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
+say "================================================================================"
+say " Genesis complete (provisional): $ENTITY_NAME"
+say "================================================================================"
+say ""
+say " Entity dir:         $ENTITY_DIR"
+say " Entity public key:  $ENTITY_DIR/id/entity.public.asc"
+say "   fingerprint:      $ENTITY_FINGERPRINT"
+say " Device leaf:        $ENTITY_DIR/id/devices/$HOST/leaf.public.asc"
+say "   fingerprint:      $LEAF_FINGERPRINT"
+say " Device key:         $ENTITY_DIR/id/devices/$HOST/device.key (gitignored)"
+say ""
+say " Gestation mode:     authorized-agent (provisional)"
+say " Authorized by:      ${ENTITY:-unknown}"
+say ""
+say " Genesis commit: $GENESIS_SHA"
+say " Launcher: ~/.koad-io/bin/$ENTITY_NAME"
+say ""
+say " Next steps:"
+say "   1. git -C $ENTITY_DIR remote add origin <remote-url>"
+say "   2. Dispatch $DISPLAY_NAME for first-flight obligations (SPEC-002 §7):"
+say "      - Author ENTITY.md in $DISPLAY_NAME's own voice"
+say "      - Author PRIMER.md with current state"
+say "      - Replace memories/001-identity.md stub with canonical identity"
+say "   3. Sovereign countersignature (required for full chain of custody):"
+say "      Have the sovereign (koad) run on their machine:"
+say "        cd ~/.koad-io && koad-io gestate countersign <entity>"
+say "      This will sign koad.entity.genesis + leaf-authorize entries"
+say "      into the sovereign's sigchain."
+say ""
+else
 say "================================================================================"
 say " Genesis complete: $ENTITY_NAME"
 say "================================================================================"
@@ -679,5 +814,6 @@ say "      - Author ENTITY.md in $DISPLAY_NAME's own voice"
 say "      - Author PRIMER.md with current state"
 say "      - Replace memories/001-identity.md stub with canonical identity"
 say ""
+fi
 
 source "$HOME/.koad-io/helpers/discovery.sh" 2>/dev/null && _koad_io_hint
