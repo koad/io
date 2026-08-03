@@ -67,10 +67,16 @@ if [[ "$KOAD_IO_VIA_LAUNCHER" != "1" ]]; then
   set +a
 else
   unset KOAD_IO_VIA_LAUNCHER
-  # Entity launcher path — wipe everything except ENTITY, re-established by cascade
+  # Entity launcher path — wipe everything except ENTITY, re-established by cascade.
+  # EXCEPTION: KOAD_IO_MODEL_CEILING is a per-dispatch runtime var exported by
+  # `dispatch open` (never present in any .env). Wiping it here is the reason
+  # model_ceiling never reached the harness — every dispatch ran the flat .env
+  # default regardless of ceiling (tickler 2026-08-01 dispatch-model-routing).
+  # Preserve it so the harness can resolve the model via route.js.
   while IFS= read -r _v; do
     case "$_v" in
-      ENTITY) ;;  # set by launcher — preserve
+      ENTITY) ;;                    # set by launcher — preserve
+      KOAD_IO_MODEL_CEILING) ;;     # per-dispatch runtime var — preserve
       *)      unset "$_v" ;;
     esac
   done < <(compgen -v | grep -E '^(KOAD_IO_|ENTITY)' || true)
