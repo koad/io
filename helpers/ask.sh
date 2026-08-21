@@ -23,6 +23,8 @@
 #   persist VAR_NAME=answer to the specified .env file so future runs skip the prompt.
 #   - If the .env file doesn't exist, it is created with a comment header.
 #   - If VAR_NAME already exists in the file, its value is updated in place.
+#   - The written line is always terminated with a newline (unterminated files
+#     are repaired first, so the answer never glues onto a previous line).
 #   - If the answer came from ENV (second arg non-empty), nothing is written.
 
 # _ask_write_env ENVFILE VARNAME VALUE
@@ -50,7 +52,12 @@ HEADER
         # Update in place — portable sed (works on GNU + BSD)
         sed -i.bak "s|^${varname}=.*|${varname}=\"${escaped}\"|" "$envfile"
         rm -f "${envfile}.bak"
+        # Ensure the updated line still ends with a newline
+        [ -n "$(tail -c 1 "$envfile")" ] && echo >> "$envfile"
     else
+        # Ensure the file ends with a newline so the answer line is never
+        # glued onto a previous unterminated line
+        [ -n "$(tail -c 1 "$envfile")" ] && echo >> "$envfile"
         echo "${varname}=\"${escaped}\"" >> "$envfile"
     fi
 }
