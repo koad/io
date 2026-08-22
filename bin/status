@@ -137,32 +137,225 @@ probe_http() {
 # ── probe: electrum (JSON-RPC server.version over TCP, TLS optional) ──
 probe_electrum() {
   local host_port="$1" label="$2" t="$3" tls="$4"
-  local hp host port req out ms server_ver proto enddate exp_epoch now_epoch cert_days frag
+  local hp host port req out line ms server_ver proto certbuf cln enddate exp_epoch now_epoch cert_days frag
   hp=$(host_port_of "$host_port")
   host="${hp%:*}"; port="${hp##*:}"
   req='{"id":0,"method":"server.version","params":["koad-io-status","1.4"]}'
   ms=$(now_ms)
+  server_ver=""; proto=""; cert_days=""
 
   if [ "$tls" = "true" ]; then
-    out=$(printf '%s\n' "$req" | timeout "$t" openssl s_client -connect "$hp" -servername "$host" -quiet 2>/dev/null | head -1 || true)
+    # TLS: coproc + read -t so we can kill s_client right after the response.
+    # Electrum servers hold connections open and s_client would otherwise
+    # block in read() until --timeout (5s per connection).
+    if coproc EC { exec timeout "$t" openssl s_client -connect "$hp" -servername "$host" -quiet 2>/dev/null; }; then
+      printf '%s\n' "$req" >&"${EC[1]}" 2>/dev/null || true
+      IFS= read -r -t "$t" line <&"${EC[0]}" || true
+      exec {EC[1]}>&- 2>/dev/null || true
+      exec {EC[0]}<&- 2>/dev/null || true
+      kill "$EC_PID" 2>/dev/null || true
+      wait "$EC_PID" 2>/dev/null || true
+      server_ver=$(printf '%s' "$line" | jqget '.result[0] // empty')
+      proto=$(printf '%s' "$line" | jqget '.result[1] // empty')
+    fi
   else
     out=$(printf '%s\n' "$req" | timeout "$t" bash -c "exec 3<>/dev/tcp/$host/$port; cat >&3; IFS= read -r line <&3; printf '%s' \"\$line\"" 2>/dev/null || true)
+    server_ver=$(printf '%s' "$out" | jqget '.result[0] // empty')
+    proto=$(printf '%s' "$out" | jqget '.result[1] // empty')
   fi
-  ms=$(( $(now_ms) - ms )); [ "$ms" -lt 0 ] && ms=0
 
-  server_ver=$(printf '%s' "$out" | jqget '.result[0] // empty')
-  proto=$(printf '%s' "$out" | jqget '.result[1] // empty')
-
-  # TLS cert days-to-expiry
-  cert_days=""
+  # TLS cert days-to-expiry (separate handshake; cert arrives during it)
   if [ "$tls" = "true" ]; then
-    enddate=$(timeout "$t" openssl s_client -connect "$hp" -servername "$host" < /dev/null 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2- || true)
-    if [ -n "$enddate" ]; then
-      exp_epoch=$(date -d "$enddate" +%s 2>/dev/null || echo 0)
-      now_epoch=$(date +%s)
-      [ "$exp_epoch" -gt 0 ] && cert_days=$(( (exp_epoch - now_epoch) / 86400 ))
+    if coproc CERT { exec timeout "$t" openssl s_client -connect "$hp" -servername "$host" < /dev/null 2>/dev/null; }; then
+      certbuf=""
+      while IFS= read -r -t "$t" cln <&"${CERT[0]}"; do
+        certbuf="${certbuf}${cln}
+"
+        case "$cln" in *END\ CERTIFICATE*) break;; esac
+      done || true
+      exec {CERT[1]}>&- 2>/dev/null || true
+      exec {CERT[0]}<&- 2>/dev/null || true
+      kill "$CERT_PID" 2>/dev/null || true
+      wait "$CERT_PID" 2>/dev/null || true
+      if [ -n "$certbuf" ]; then
+        enddate=$(printf '%s' "$certbuf" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2- || true)
+        if [ -n "$enddate" ]; then
+          exp_epoch=$(date -d "$enddate" +%s 2>/dev/null || echo 0)
+          now_epoch=$(date +%s)
+          [ "$exp_epoch" -gt 0 ] && cert_days=$(( (exp_epoch - now_epoch) / 86400 ))
+        fi
+      fi
     fi
   fi
+
+  ms=$(( $(now_ms) - ms )); [ "$ms" -lt 0 ] && ms=0
+
+  if [ -n "$server_ver" ]; then
+    frag=$(jq -nc --arg label "$label" --arg url "$host_port" --arg hp "$hp" --argjson ms "$ms" \
+      --arg ver "$server_ver" --arg proto "$proto" \
+      '{label:$label,url:$url,host_port:$hp,type:"electrum",status:1,ms:$ms,alive:true,entity:"",version:$ver,protocol:$proto}')
+  else
+    frag=$(jq -nc --arg label "$label" --arg url "$host_port" --arg hp "$hp" --argjson ms "$ms" \
+      '{label:$label,url:$url,host_port:$hp,type:"electrum",status:0,ms:$ms,alive:false,error:"no server.version response"}')
+  fi
+  if [ -n "$cert_days" ]; then
+    frag=$(printf '%s' "$frag" | jq -c --argjson d "$cert_days" \
+      '. + {cert_days_left:$d} + (if $d < 14 then {degraded:true,degraded_reason:("TLS cert expires in \($d) days")} else {} end)')
+  fi
+  printf '%s' "$frag"
+}
+
+# ── probe: tcp (generic port open check — also the unknown-type fallback) ──
+probe_tcp() {
+  local host_port="$1" label="$2" t="$3"
+  local hp host port ms
+  hp=$(host_port_of "$host_port")
+  host="${hp%:*}"; port="${hp##*:}"
+  ms=$(now_ms)
+
+  if [ -n "$host" ] && [ -n "$port" ] && timeout "$t" bash -c "exec 3<>/dev/tcp/$host/$port" < /dev/null 2>/dev/null; then
+    ms=$(( $(now_ms) - ms )); [ "$ms" -lt 0 ] && ms=0
+    jq -nc --arg label "$label" --arg url "$host_port" --arg hp "$hp" --argjson ms "$ms" \
+      '{label:$label,url:$url,host_port:$hp,type:"tcp",status:1,ms:$ms,alive:true,entity:""}'
+  else
+    ms=$(( $(now_ms) - ms )); [ "$ms" -lt 0 ] && ms=0
+    jq -nc --arg label "$label" --arg url "$host_port" --arg hp "$hp" --argjson ms "$ms" \
+      '{label:$label,url:$url,host_port:$hp,type:"tcp",status:0,ms:$ms,alive:false,error:"port closed/unreachable"}'
+  fi
+}
+
+# ── probe all ──
+t_start=$(now_ms)
+parts=""
+alive=0 dead=0
+
+while IFS= read -r line <&3; do
+  label=$(printf '%s' "$line" | jqget '.label // empty')
+  url=$(printf '%s' "$line" | jqget '.url // empty')
+  [ -n "$label" ] && [ -n "$url" ] || continue
+  expected=$(printf '%s' "$line" | jqget '.expected_status // empty')
+  type=$(printf '%s' "$line" | jqget '.type // ""')
+  tls=$(printf '%s' "$line" | jqget '.tls // ""')
+  [ -n "$type" ] || type="koad-io"
+
+  case "$type" in
+    koad-io|koadio) fragment=$(probe_koad_io "$url" "$label" "$TIMEOUT") ;;
+    http|mkdocs|https|web|site) fragment=$(probe_http "$url" "$label" "$TIMEOUT" "$type") ;;
+    electrum|electrumx|electrs) fragment=$(probe_electrum "$url" "$label" "$TIMEOUT" "$tls") ;;
+    *) fragment=$(probe_tcp "$url" "$label" "$TIMEOUT") ;;
+  esac
+
+  if [ -n "$expected" ] && printf '%s' "$fragment" | grep -q '"alive":true'; then
+    actual=$(printf '%s' "$fragment" | jqget '.status')
+    if [ "$actual" != "$expected" ]; then
+      fragment=$(printf '%s' "$fragment" | jq -c ".degraded = true | .expected_status = $expected | .degraded_reason = \"HTTP $actual (expected $expected)\"" 2>/dev/null || printf '%s' "$fragment")
+    fi
+  fi
+  parts="${parts}${fragment},"
+  if printf '%s' "$fragment" | grep -q '"degraded":true'; then
+    dead=$((dead + 1))
+  elif printf '%s' "$fragment" | grep -q '"alive":true'; then
+    alive=$((alive + 1))
+  else
+    dead=$((dead + 1))
+  fi
+done 3< "$INDEX_FILE"
+parts="${parts%,}"
+
+t_end=$(now_ms)
+total_ms=$(( t_end - t_start ))
+[ "$total_ms" -lt 0 ] && total_ms=0
+
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+rec=$(printf '{"ts":"%s","timeout_s":%s,"total_ms":%s,"alive":%s,"dead":%s,"targets":[%s]}\n' \
+  "$ts" "$TIMEOUT" "$total_ms" "$alive" "$dead" "$parts")
+
+# ── log ──
+printf '%s\n' "$rec" >> "$LOG_FILE"
+
+# ── json ──
+if [ -n "$JSON" ]; then
+  printf '%s\n' "$rec"
+  exit 0
+fi
+
+# ── render ──
+printf '%s── koad:io status (%s%sms%s) ──%s\n' "$D" "$B" "$total_ms" "$D" "$R"
+
+echo "$rec" | jq -r '.targets[] | [
+  (.host_port // .label),
+  .label,
+  (if .alive then .status else 0 end),
+  .ms,
+  .alive,
+  (if (.entity // "") != "" and .entity != .label then .entity else "-" end),
+  (.error // "-"),
+  (.degraded // false),
+  (.expected_status // "-"),
+  (.degraded_reason // "-"),
+  (.type // "-"),
+  (.cert_days_left // -1),
+  (.health_status // "-"),
+  (.version // "-")
+] | @tsv' | while IFS=$'\t' read -r host_port label status ms alive entity err degraded expected reason type cert hs ver; do
+  if [ "$alive" = "true" ]; then
+    info="$label"
+    [ "$entity" != "-" ] && info="${info} (${entity})"
+    case "$type" in
+      electrum) word="ELECTRUM"; [ "$ver" != "-" ] && status="$ver" ;;
+      tcp) word="TCP" ;;
+      *) word="HTTP" ;;
+    esac
+    extra=""
+    [ "$cert" != "-1" ] && extra=" cert:${cert}d"
+    [ "$hs" != "-" ] && extra="${extra} health:${hs}"
+    if [ "$degraded" = "true" ]; then
+      [ "$reason" != "-" ] && extra="${extra} [${reason}]"
+      printf '  %s○%s %s%s%s  %s%s%s  %sDOWN %s%s %s %4sms%s%s\n' \
+        "$RED" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$RED" "$D" "$word" "$status" "$ms" "$R" "$extra"
+    else
+      printf '  %s●%s %s%s%s  %s%s%s  %s%s %s %4sms%s%s\n' \
+        "$GREEN" "$R" "$B" "$host_port" "$R" "$D" "$info" "$R" "$GREEN" "$word" "$status" "$ms" "$R" "$extra"
+    fi
+  else
+    printf '  %s○%s %s%s%s  %s%s%s  %sDOWN %s (%sms)%s\n' \
+      "$RED" "$R" "$B" "$host_port" "$R" "$D" "$label" "$R" "$RED" "$err" "$ms" "$R"
+  fi
+done
+
+# ── summary ──
+if [ "$dead" -eq 0 ]; then
+  printf '  %sall %s alive%s\n' "$GREEN" "$alive" "$R"
+elif [ "$alive" -eq 0 ]; then
+  printf '  %sall %s dead%s\n' "$RED" "$dead" "$R"
+else
+  printf '  %s%s alive, %s dead%s\n' "$Y" "$alive" "$dead" "$R"
+fi
+
+# ── exit ──
+[ -n "$QUIET" ] && { [ "$dead" -eq 0 ] && exit 0; [ "$alive" -eq 0 ] && exit 2; exit 1; }
+[ "$dead" -eq 0 ] && exit 0
+[ "$alive" -eq 0 ] && exit 2
+exit 1
+\n'
+        case "$cln" in *END\ CERTIFICATE*) break;; esac
+      done || true
+      exec {CERT[1]}>&- 2>/dev/null || true
+      exec {CERT[0]}<&- 2>/dev/null || true
+      kill "$CERT_PID" 2>/dev/null || true
+      wait "$CERT_PID" 2>/dev/null || true
+      if [ -n "$certbuf" ]; then
+        enddate=$(printf '%s' "$certbuf" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2- || true)
+        if [ -n "$enddate" ]; then
+          exp_epoch=$(date -d "$enddate" +%s 2>/dev/null || echo 0)
+          now_epoch=$(date +%s)
+          [ "$exp_epoch" -gt 0 ] && cert_days=$(( (exp_epoch - now_epoch) / 86400 ))
+        fi
+      fi
+    fi
+  fi
+
+  ms=$(( $(now_ms) - ms )); [ "$ms" -lt 0 ] && ms=0
 
   if [ -n "$server_ver" ]; then
     frag=$(jq -nc --arg label "$label" --arg url "$host_port" --arg hp "$hp" --argjson ms "$ms" \
