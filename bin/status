@@ -8,8 +8,12 @@
 #   koad-io status --timeout=N      Per-probe timeout (default 5s)
 #   koad-io status --history [N]    Last N probe records (default 20)
 #
-# Targets: read from $_INDEX_FILE (JSONL, one {"label","url",...} per line).
-# Override path with KOAD_IO_STATUS_INDEX.
+# Targets: read from an index file (JSONL, one {"label","url",...} per line).
+# Resolution order:
+#   1. $KOAD_IO_STATUS_INDEX          explicit override
+#   2. ~/.$ENTITY/services.jsonl      entity-scoped — when ENTITY is set and the file exists
+#   3. ~/.local/share/koad-io/services/index.jsonl   default runtime index
+# The resolved index filename is printed with every overview render.
 #
 # The "type" key on each entry selects the probe:
 #   koad-io (default)  GET /.well-known/koad-io.json — expect HTTP 316 + JSON
@@ -25,7 +29,19 @@
 
 set -euo pipefail
 
-INDEX_FILE="${KOAD_IO_STATUS_INDEX:-$HOME/.local/share/koad-io/services/index.jsonl}"
+# ── index resolution: explicit override > entity-scoped > default ──
+resolve_index() {
+  local ent
+  if [ -n "${KOAD_IO_STATUS_INDEX:-}" ]; then
+    printf '%s' "$KOAD_IO_STATUS_INDEX"; return
+  fi
+  ent="${ENTITY:-}"
+  if [ -n "$ent" ] && [ -d "$HOME/.$ent" ] && [ -f "$HOME/.$ent/services.jsonl" ]; then
+    printf '%s' "$HOME/.$ent/services.jsonl"; return
+  fi
+  printf '%s' "$HOME/.local/share/koad-io/services/index.jsonl"
+}
+INDEX_FILE=$(resolve_index)
 if [ ! -f "$INDEX_FILE" ]; then
   cat >&2 <<EOF
 status: no service index found at $INDEX_FILE
@@ -267,8 +283,9 @@ total_ms=$(( t_end - t_start ))
 [ "$total_ms" -lt 0 ] && total_ms=0
 
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-rec=$(printf '{"ts":"%s","timeout_s":%s,"total_ms":%s,"alive":%s,"dead":%s,"targets":[%s]}\n' \
-  "$ts" "$TIMEOUT" "$total_ms" "$alive" "$dead" "$parts")
+src=$(printf '%s' "$INDEX_FILE" | jq -Rs .)
+rec=$(printf '{"ts":"%s","timeout_s":%s,"total_ms":%s,"alive":%s,"dead":%s,"source":%s,"targets":[%s]}\n' \
+  "$ts" "$TIMEOUT" "$total_ms" "$alive" "$dead" "$src" "$parts")
 
 # ── log ──
 printf '%s\n' "$rec" >> "$LOG_FILE"
@@ -281,6 +298,7 @@ fi
 
 # ── render ──
 printf '%s── koad:io status (%s%sms%s) ──%s\n' "$D" "$B" "$total_ms" "$D" "$R"
+printf '  %sindex: %s%s\n' "$D" "$INDEX_FILE" "$R"
 
 echo "$rec" | jq -r '.targets[] | [
   (.host_port // .label),
