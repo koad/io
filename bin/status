@@ -8,12 +8,13 @@
 #   koad-io status --timeout=N      Per-probe timeout (default 5s)
 #   koad-io status --history [N]    Last N probe records (default 20)
 #
-# Targets: read from an index file (JSONL, one {"label","url",...} per line).
-# Resolution order:
-#   1. $KOAD_IO_STATUS_INDEX          explicit override
-#   2. ~/.$ENTITY/services.jsonl      entity-scoped — when ENTITY is set and the file exists
-#   3. ~/.local/share/koad-io/services/index.jsonl   default runtime index
-# The resolved index filename is printed with every overview render.
+# Targets: read from one or more index files (JSONL, one {"label","url",...} per line).
+# Index resolution:
+#   $KOAD_IO_STATUS_INDEX            explicit override — that file only
+#   ~/.$ENTITY/services.jsonl        entity-scoped — when ENTITY is set and the file exists
+#   otherwise                        runtime index + every existing ~/.<entity>/services.jsonl
+# The resolved index filename(s) are printed with every overview render, and each
+# JSON target record carries its source file.
 #
 # The "type" key on each entry selects the probe:
 #   koad-io (default)  GET /.well-known/koad-io.json — expect HTTP 316 + JSON
@@ -29,20 +30,28 @@
 
 set -euo pipefail
 
-# ── index resolution: explicit override > entity-scoped > default ──
-resolve_index() {
-  local ent
+# ── index resolution ──
+#   $KOAD_IO_STATUS_INDEX       → that file only
+#   ~/.$ENTITY/services.jsonl   → that file only (ENTITY set + file exists)
+#   otherwise                   → runtime index + every ~/.<entity>/services.jsonl found
+resolve_index_files() {
+  local ent f
   if [ -n "${KOAD_IO_STATUS_INDEX:-}" ]; then
-    printf '%s' "$KOAD_IO_STATUS_INDEX"; return
+    printf '%s\n' "$KOAD_IO_STATUS_INDEX"; return
   fi
   ent="${ENTITY:-}"
   if [ -n "$ent" ] && [ -d "$HOME/.$ent" ] && [ -f "$HOME/.$ent/services.jsonl" ]; then
-    printf '%s' "$HOME/.$ent/services.jsonl"; return
+    printf '%s\n' "$HOME/.$ent/services.jsonl"; return
   fi
-  printf '%s' "$HOME/.local/share/koad-io/services/index.jsonl"
+  printf '%s\n' "$HOME/.local/share/koad-io/services/index.jsonl"
+  for f in "$HOME"/.*/services.jsonl; do
+    [ -f "$f" ] && printf '%s\n' "$f"
+  done
 }
-INDEX_FILE=$(resolve_index)
-if [ ! -f "$INDEX_FILE" ]; then
+mapfile -t INDEX_FILES < <(resolve_index_files)
+INDEX_FILE="${INDEX_FILES[0]:-}"
+if [ "${#INDEX_FILES[@]}" -eq 0 ] || [ ! -f "$INDEX_FILE" ]; then
+  INDEX_FILE="${INDEX_FILE:-$HOME/.local/share/koad-io/services/index.jsonl}"
   cat >&2 <<EOF
 status: no service index found at $INDEX_FILE
 
@@ -240,42 +249,47 @@ probe_tcp() {
   fi
 }
 
-# ── probe all ──
+# ── probe all (every resolved index file, in order) ──
 t_start=$(now_ms)
 parts=""
 alive=0 dead=0
+PRIMARY_INDEX="${INDEX_FILES[0]}"
 
-while IFS= read -r line <&3; do
-  label=$(printf '%s' "$line" | jqget '.label // empty')
-  url=$(printf '%s' "$line" | jqget '.url // empty')
-  [ -n "$label" ] && [ -n "$url" ] || continue
-  expected=$(printf '%s' "$line" | jqget '.expected_status // empty')
-  type=$(printf '%s' "$line" | jqget '.type // ""')
-  tls=$(printf '%s' "$line" | jqget '.tls // ""')
-  [ -n "$type" ] || type="koad-io"
+for INDEX_FILE in "${INDEX_FILES[@]}"; do
+  [ -f "$INDEX_FILE" ] || continue
+  while IFS= read -r line <&3; do
+    label=$(printf '%s' "$line" | jqget '.label // empty')
+    url=$(printf '%s' "$line" | jqget '.url // empty')
+    [ -n "$label" ] && [ -n "$url" ] || continue
+    expected=$(printf '%s' "$line" | jqget '.expected_status // empty')
+    type=$(printf '%s' "$line" | jqget '.type // ""')
+    tls=$(printf '%s' "$line" | jqget '.tls // ""')
+    [ -n "$type" ] || type="koad-io"
 
-  case "$type" in
-    koad-io|koadio) fragment=$(probe_koad_io "$url" "$label" "$TIMEOUT") ;;
-    http|mkdocs|https|web|site) fragment=$(probe_http "$url" "$label" "$TIMEOUT" "$type") ;;
-    electrum|electrumx|electrs) fragment=$(probe_electrum "$url" "$label" "$TIMEOUT" "$tls") ;;
-    *) fragment=$(probe_tcp "$url" "$label" "$TIMEOUT") ;;
-  esac
+    case "$type" in
+      koad-io|koadio) fragment=$(probe_koad_io "$url" "$label" "$TIMEOUT") ;;
+      http|mkdocs|https|web|site) fragment=$(probe_http "$url" "$label" "$TIMEOUT" "$type") ;;
+      electrum|electrumx|electrs) fragment=$(probe_electrum "$url" "$label" "$TIMEOUT" "$tls") ;;
+      *) fragment=$(probe_tcp "$url" "$label" "$TIMEOUT") ;;
+    esac
 
-  if [ -n "$expected" ] && printf '%s' "$fragment" | grep -q '"alive":true'; then
-    actual=$(printf '%s' "$fragment" | jqget '.status')
-    if [ "$actual" != "$expected" ]; then
-      fragment=$(printf '%s' "$fragment" | jq -c ".degraded = true | .expected_status = $expected | .degraded_reason = \"HTTP $actual (expected $expected)\"" 2>/dev/null || printf '%s' "$fragment")
+    if [ -n "$expected" ] && printf '%s' "$fragment" | grep -q '"alive":true'; then
+      actual=$(printf '%s' "$fragment" | jqget '.status')
+      if [ "$actual" != "$expected" ]; then
+        fragment=$(printf '%s' "$fragment" | jq -c ".degraded = true | .expected_status = $expected | .degraded_reason = \"HTTP $actual (expected $expected)\"" 2>/dev/null || printf '%s' "$fragment")
+      fi
     fi
-  fi
-  parts="${parts}${fragment},"
-  if printf '%s' "$fragment" | grep -q '"degraded":true'; then
-    dead=$((dead + 1))
-  elif printf '%s' "$fragment" | grep -q '"alive":true'; then
-    alive=$((alive + 1))
-  else
-    dead=$((dead + 1))
-  fi
-done 3< "$INDEX_FILE"
+    fragment=$(printf '%s' "$fragment" | jq -c --arg s "$INDEX_FILE" '. + {source:$s}')
+    parts="${parts}${fragment},"
+    if printf '%s' "$fragment" | grep -q '"degraded":true'; then
+      dead=$((dead + 1))
+    elif printf '%s' "$fragment" | grep -q '"alive":true'; then
+      alive=$((alive + 1))
+    else
+      dead=$((dead + 1))
+    fi
+  done 3< "$INDEX_FILE"
+done
 parts="${parts%,}"
 
 t_end=$(now_ms)
@@ -283,9 +297,10 @@ total_ms=$(( t_end - t_start ))
 [ "$total_ms" -lt 0 ] && total_ms=0
 
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-src=$(printf '%s' "$INDEX_FILE" | jq -Rs .)
-rec=$(printf '{"ts":"%s","timeout_s":%s,"total_ms":%s,"alive":%s,"dead":%s,"source":%s,"targets":[%s]}\n' \
-  "$ts" "$TIMEOUT" "$total_ms" "$alive" "$dead" "$src" "$parts")
+src=$(printf '%s' "$PRIMARY_INDEX" | jq -Rs .)
+sources=$(printf '%s\n' "${INDEX_FILES[@]}" | jq -R . | jq -sc .)
+rec=$(printf '{"ts":"%s","timeout_s":%s,"total_ms":%s,"alive":%s,"dead":%s,"source":%s,"sources":%s,"targets":[%s]}\n' \
+  "$ts" "$TIMEOUT" "$total_ms" "$alive" "$dead" "$src" "$sources" "$parts")
 
 # ── log ──
 printf '%s\n' "$rec" >> "$LOG_FILE"
@@ -298,7 +313,9 @@ fi
 
 # ── render ──
 printf '%s── koad:io status (%s%sms%s) ──%s\n' "$D" "$B" "$total_ms" "$D" "$R"
-printf '  %sindex: %s%s\n' "$D" "$INDEX_FILE" "$R"
+for f in "${INDEX_FILES[@]}"; do
+  printf '  %sindex: %s%s\n' "$D" "$f" "$R"
+done
 
 echo "$rec" | jq -r '.targets[] | [
   (.host_port // .label),
