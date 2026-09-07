@@ -363,12 +363,36 @@ if [[ "$KOAD_IO_FLAGS" == *"--dry-run"* ]]; then
   export DRY_RUN=true
 fi
 
-echo "--exec $EXEC_FILE $EXEC_ARGS $KOAD_IO_FLAGS" >&2
+# Reconstruct the trailing arguments as a proper array from the ORIGINAL
+# positional tokens ($@ — set once, never shifted). The old EXEC_ARGS
+# string + unquoted exec flattened free-text bodies: `message`/`tickle`/
+# `announce` bodies containing newlines arrived at command.sh word-split,
+# so multi-line notes were written as one space-joined line (rooty's note,
+# 2026-09-07). Resolution consumed COMMAND_DEPTH positional tokens for the
+# command directory, +1 when a named <command>.sh file was chosen (its name
+# was one of the positionals), and the harness fallbacks consume 1-2.
+_REST_ARGS=()
+if [[ -n "${EXEC_FILE:-}" ]]; then
+  _CONSUMED=$COMMAND_DEPTH
+  if [[ "$EXEC_FILE" == "$HOME/.koad-io/commands/harness/command.sh" ]]; then
+    _CONSUMED=1
+  elif [[ "$EXEC_FILE" == "$HOME/.koad-io/commands/harness/"*"/command.sh" ]]; then
+    _CONSUMED=2
+  elif [[ "$EXEC_FILE" == "$COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh" && -n "$POTENTIAL_NAMED_COMMAND" ]]; then
+    _CONSUMED=$((COMMAND_DEPTH + 1))
+  elif [[ "$EXEC_FILE" == "$CWD/$1.sh" ]]; then
+    _CONSUMED=1
+  fi
+  # Slice from the first unconsumed token: each original argv element stays
+  # intact (quoted expansion below preserves spaces AND newlines).
+  _REST_ARGS=("${@:$((_CONSUMED + 1))}")
+fi
+
+echo "--exec $EXEC_FILE ${_REST_ARGS[*]} $KOAD_IO_FLAGS" >&2
 
 # All is well, lets go!
-# EXEC_ARGS is a space-separated string built from positional $N vars — word-split
-# intentionally (these are sub-command names, never contain spaces).
-# _flag_args is the bash array from the separation loop above; quoted expansion
-# preserves whitespace inside flag values (Fix B).
-# shellcheck disable=SC2086
-exec $EXEC_FILE $EXEC_ARGS "${_flag_args[@]}"
+# _REST_ARGS is the array of trailing positional tokens (each original argv
+# element intact — spaces/newlines preserved). _flag_args is the bash array
+# from the flag-separation loop above; quoted expansion preserves whitespace
+# inside flag values (Fix B).
+exec "$EXEC_FILE" "${_REST_ARGS[@]}" "${_flag_args[@]}"
