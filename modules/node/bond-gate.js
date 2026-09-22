@@ -241,7 +241,23 @@ function readFingerprintFile(filePath) {
   }
 }
 
+function isSovereignIssuer(from) {
+  return String(from ?? '').toLowerCase().trim() === 'koad';
+}
+
 function expectedFingerprintForIssuer(from, fromFingerprint) {
+  // ── Sovereign tier ─────────────────────────────────────────────────────────
+  // A bond that claims to be from the sovereign must be signed by the
+  // sovereign's key. Resolved ONLY from the environment — never from the bond's
+  // own frontmatter, which is attacker-controlled. Without this tier, any entity
+  // can write `from: koad` with a `from_fingerprint` of its own choosing and sign
+  // it with its own key, forging full kingdom scope. (Found 2026-09-22; this is
+  // the logic the harness extension's parse.ts already had.)
+  if (isSovereignIssuer(from)) {
+    return normalizeFingerprint(process.env.SOVEREIGN_FINGERPRINT);
+  }
+
+  // ── Entity tier ────────────────────────────────────────────────────────────
   const explicit = normalizeFingerprint(fromFingerprint);
   if (explicit) return explicit;
   const entityPaths = [
@@ -279,6 +295,21 @@ export function verifyBondSignature(filePath, declaredFrom, fromFingerprint) {
 
   if (verify.status !== 0 || !fingerprint) {
     return { valid: false, signer, keyId, fingerprint, expectedFingerprint, reason: describeVerifyFailure(output, verify.status) };
+  }
+
+  // Fail closed. A sovereign bond whose sovereign fingerprint cannot be resolved
+  // must never validate. Checked before the comparison below, because that
+  // comparison is skipped when `expectedFingerprint` is falsy — so an unset
+  // SOVEREIGN_FINGERPRINT would otherwise let ANY signature pass as sovereign.
+  if (isSovereignIssuer(declaredFrom) && !expectedFingerprint) {
+    return {
+      valid: false,
+      signer,
+      keyId,
+      fingerprint,
+      expectedFingerprint,
+      reason: 'SOVEREIGN_FINGERPRINT is not set — cannot verify a sovereign bond (failing closed; set it in ~/.koad-io/.env)',
+    };
   }
 
   if (expectedFingerprint && fingerprint !== expectedFingerprint) {
