@@ -1,0 +1,22 @@
+# ~/.koad-io/harness — framework loading layer (core / kindergarten segment).
+#
+# This directory is TRACKED framework content: startup.sh (context assembly) and
+# the role primers that ~/.koad-io/commands/harness/* consume. It does not
+# relocate — see HARNESS_LOCATION in commands/harness/pi/command.sh.
+#
+# Only runtime artifacts are ignored. They are written here at session time and
+# are per-machine state, never framework content.
+#
+# Divergence note: hooks/ and bin/ use a default-deny allowlist (`*` + `!lines`).
+# This segment uses a denylist instead, per koad 2026-09-22 — the loading layer is
+# fixed framework content, so new files here are meant to ship by default.
+
+# Bond-gate audit trail (extension/bond-gate/types.ts DEBUG_LOG)
+bond-gate.log
+
+# Extension load + runtime errors (extension/live-prompt.ts fallback when
+# KOAD_IO_HARNESS_LOCATION is unset)
+debug.log
+
+# Any other per-session log
+*.log
