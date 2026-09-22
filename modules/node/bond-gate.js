@@ -263,6 +263,35 @@ function describeVerifyFailure(output, status) {
   return `gpg verify exited ${status ?? 'unknown'}`;
 }
 
+// ---------------------------------------------------------------------------
+// VALIDSIG parsing
+// ---------------------------------------------------------------------------
+// VALIDSIG's args, per gpg's DETAILS:
+//   <fingerprint_in_hex> <sig_creation_date> <sig-timestamp> <expire-timestamp>
+//   <sig-version> <reserved> <pubkey-algo> <hash-algo> <sig-class>
+//   [ <primary-key-fpr> ]
+//
+// Field 1 is the fingerprint of the key that MADE the signature — normally a
+// SIGNING SUBKEY, because a primary key is frequently certify-only ([C]) with
+// signing delegated to an [S] subkey. Field 10 (optional, OpenPGP-only) is the
+// PRIMARY key's fingerprint; the doc describes it as "the fingerprint of the
+// primary key or identical to the first argument".
+//
+// We must compare against the PRIMARY, because declared identities — entity
+// fingerprints, SOVEREIGN_FINGERPRINT — are always primary fingerprints.
+// Comparing field 1 rejects every correctly signed bond from a key that uses a
+// signing subkey, and it can never match: such a signature cannot carry the
+// primary in field 1. That is silent, total, and was live until 2026-09-22.
+//
+// Field 10 is absent for CMS signatures and older gpg, hence the fallback.
+function parseValidsig(output) {
+  const raw = output.match(/\[GNUPG:\]\s+VALIDSIG\s+(.+)/)?.[1]?.trim();
+  const args = raw ? raw.split(/\s+/) : [];
+  const signing = normalizeFingerprint(args[0]);
+  const primary = normalizeFingerprint(args[9]) ?? signing;
+  return { signing, primary };
+}
+
 /**
  * Verify a bond signature.
  *
@@ -278,9 +307,13 @@ export function verifyBondSignature(filePath, declaredFrom, fromFingerprint) {
     timeout: 5000,
   });
   const output = `${verify.stdout ?? ''}\n${verify.stderr ?? ''}`;
-  const fingerprint = normalizeFingerprint(output.match(/\[GNUPG:\]\s+VALIDSIG\s+(\S+)/)?.[1]);
+  const { signing, primary } = parseValidsig(output);
+  // Compare on the primary; keep the signing key for diagnostics. They differ
+  // whenever the signature was made by a subkey.
+  const fingerprint = primary;
+  const signingFingerprint = signing;
   const goodSig = output.match(/\[GNUPG:\]\s+GOODSIG\s+(\S+)\s+(.+)/);
-  const keyId = normalizeFingerprint(goodSig?.[1]) ?? fingerprint?.slice(-16);
+  const keyId = normalizeFingerprint(goodSig?.[1]) ?? signingFingerprint?.slice(-16);
   const signer = goodSig?.[2]?.trim() || declaredFrom;
   const expectedFingerprint = sovereignFingerprint();
 
@@ -299,23 +332,30 @@ export function verifyBondSignature(filePath, declaredFrom, fromFingerprint) {
       signer,
       keyId,
       fingerprint,
+      signingFingerprint,
       expectedFingerprint,
       reason: 'SOVEREIGN_FINGERPRINT is not set — cannot verify any bond (failing closed; set it in ~/.koad-io/.env)',
     };
   }
 
-  if (expectedFingerprint && fingerprint !== expectedFingerprint) {
+  if (fingerprint !== expectedFingerprint) {
+    // Report both fingerprints when they differ: a mismatch with a distinct
+    // signing key usually means a subkey signed (normal) rather than a wrong key.
+    const subkeyNote = signingFingerprint && signingFingerprint !== fingerprint
+      ? ` (signed with subkey ${signingFingerprint.slice(0, 16)}…)`
+      : '';
     return {
       valid: false,
       signer,
       keyId,
       fingerprint,
+      signingFingerprint,
       expectedFingerprint,
-      reason: `signed by ${fingerprint.slice(0, 16)}… but ${declaredFrom} expects ${expectedFingerprint.slice(0, 16)}…`,
+      reason: `not signed by the sovereign — signer's primary key is ${fingerprint.slice(0, 16)}…, sovereign is ${expectedFingerprint.slice(0, 16)}…${subkeyNote}`,
     };
   }
 
-  return { valid: true, signer, keyId, fingerprint, expectedFingerprint };
+  return { valid: true, signer, keyId, fingerprint, signingFingerprint, expectedFingerprint };
 }
 
 export function parseBonds(entity) {

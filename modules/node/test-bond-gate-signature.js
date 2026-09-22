@@ -21,6 +21,8 @@
 //       REJECTED (an entity may not sign its own access, at any tier)
 //   6.  sovereign-signed bond declaring `from: <entity>` still ACCEPTED —
 //       `from` describes who a bond is about, not who may sign it
+//   7.  subkey-signed bond resolves to its PRIMARY (VALIDSIG field 10) →
+//       ACCEPTED — vulcan's real key shape, silently rejected before 2026-09-22
 //
 // Hermetic: generates its own throwaway key in a temp GNUPGHOME. Does not touch
 // real kingdom keyrings.
@@ -69,6 +71,26 @@ function makeKeyring() {
   return { home, fpr: fpr.toLowerCase() };
 }
 
+// vulcan's real key shape: a certify-only primary [C] with signing delegated to
+// an [S] subkey. Signatures then carry the SUBKEY fingerprint in VALIDSIG field 1
+// and the primary in field 10 — which is the case the gate used to reject.
+function makeKeyringWithSigningSubkey() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'bond-gate-subkey-'));
+  fs.chmodSync(home, 0o700);
+  const gen = gpg(home, ['--quick-generate-key', 'subkey signer <sub@test.invalid>', 'ed25519', 'cert', '0']);
+  if (gen.status !== 0) throw new Error(`primary generation failed: ${gen.stderr}`);
+  const listing = gpg(home, ['--with-colons', '--list-keys']);
+  const primary = listing.stdout.split('\n').filter(l => l.startsWith('fpr:'))[0]?.split(':')[9];
+  if (!primary) throw new Error('could not read primary fingerprint');
+  const add = gpg(home, ['--quick-add-key', primary, 'ed25519', 'sign', '0']);
+  if (add.status !== 0) throw new Error(`subkey generation failed: ${add.stderr}`);
+  const after = gpg(home, ['--with-colons', '--list-keys']);
+  const fprs = after.stdout.split('\n').filter(l => l.startsWith('fpr:')).map(l => l.split(':')[9]);
+  const sub = fprs.find(f => f !== primary);
+  if (!sub) throw new Error('signing subkey was not created');
+  return { home, fpr: primary.toLowerCase(), subFpr: sub.toLowerCase() };
+}
+
 function signBond(dir, home, fingerprint, frontmatter, body = '# probe') {
   const mdPath = path.join(dir, `${Math.random().toString(36).slice(2)}.md`);
   fs.writeFileSync(mdPath, `---\n${frontmatter}\n---\n${body}\n`);
@@ -111,7 +133,7 @@ async function run() {
       process.env.SOVEREIGN_FINGERPRINT = SOVEREIGN_FPR;
       const r = verifyBondSignature(asc, 'koad', keyring.fpr);
       assert(r.valid === false, 'rejected');
-      assert(/koad expects/.test(r.reason ?? ''), 'reason names the sovereign expectation');
+      assert(/not signed by the sovereign/.test(r.reason ?? ''), 'reason names the sovereign as the authority');
     }
 
     // ── 2. Sovereign-signed bond accepted ───────────────────────────────────
@@ -162,6 +184,24 @@ async function run() {
       const r = verifyBondSignature(asc, 'somentity', keyring.fpr);
       assert(r.valid === true, 'accepted - the sovereign signature is what counts');
     }
+    // -- 7. Subkey-signed bond resolves to its primary ------------------------
+    // The regression this locks: VALIDSIG field 1 is the SIGNING key, which is a
+    // subkey whenever the primary is certify-only. Comparing field 1 against a
+    // primary fingerprint rejects every such bond, silently and always.
+    console.log('\n7. subkey-signed bond -> resolves to its PRIMARY');
+    {
+      const sub = makeKeyringWithSigningSubkey();
+      process.env.GNUPGHOME = sub.home;
+      const asc = signBond(work, sub.home, sub.fpr, forgedFm);
+      process.env.SOVEREIGN_FINGERPRINT = sub.fpr; // stand-in sovereign = the PRIMARY
+      const r = verifyBondSignature(asc, 'koad');
+      assert(r.valid === true, 'accepted when signed by a subkey of the sovereign');
+      assert(r.fingerprint === sub.fpr, 'compared on the primary fingerprint');
+      assert(r.signingFingerprint === sub.subFpr, 'signing fingerprint is the subkey');
+      process.env.GNUPGHOME = keyring.home; // restore for any later use
+      fs.rmSync(sub.home, { recursive: true, force: true });
+    }
+
   } catch (err) {
     console.error('\nUnhandled test error:', err);
     failed++;
