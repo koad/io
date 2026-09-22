@@ -17,7 +17,10 @@
 //   3.  `from: koad` with SOVEREIGN_FINGERPRINT unset → REJECTED (fails closed)
 //   4.  forged bond declaring the sovereign fingerprint in frontmatter, signed by
 //       another key → REJECTED (frontmatter cannot name the sovereign)
-//   5.  entity tier unchanged: `from: <entity>` signed by that entity's key → ACCEPTED
+//   5.  entity tier REMOVED: `from: <entity>` signed by that entity's own key →
+//       REJECTED (an entity may not sign its own access, at any tier)
+//   6.  sovereign-signed bond declaring `from: <entity>` still ACCEPTED —
+//       `from` describes who a bond is about, not who may sign it
 //
 // Hermetic: generates its own throwaway key in a temp GNUPGHOME. Does not touch
 // real kingdom keyrings.
@@ -140,15 +143,24 @@ async function run() {
       assert(r.valid === false, 'rejected — frontmatter claim is ignored for the sovereign');
     }
 
-    // ── 5. Entity tier unchanged ────────────────────────────────────────────
-    console.log('\n5. entity tier: `from: <entity>` signed by that entity key');
+    // -- 5. Entity tier removed: entity-signed self-declaration rejected -------
+    console.log('\n5. entity tier removed: `from: <entity>` signed by that entity key');
     {
-      const fm = forgedFm
-        .replace('from: koad', 'from: somentity')
-        .replace(`from_fingerprint: ${keyring.fpr}`, `from_fingerprint: ${keyring.fpr}`);
+      const fm = forgedFm.replace('from: koad', 'from: somentity');
       const asc = signBond(work, keyring.home, keyring.fpr, fm);
+      process.env.SOVEREIGN_FINGERPRINT = SOVEREIGN_FPR;
       const r = verifyBondSignature(asc, 'somentity', keyring.fpr);
-      assert(r.valid === true, 'accepted — entity tier behaviour preserved');
+      assert(r.valid === false, 'rejected - an entity cannot sign its own access');
+    }
+
+    // -- 6. `from` no longer gates who may sign -------------------------------
+    console.log('\n6. sovereign-signed bond declaring `from: <entity>`');
+    {
+      const fm = forgedFm.replace('from: koad', 'from: somentity');
+      const asc = signBond(work, keyring.home, keyring.fpr, fm);
+      process.env.SOVEREIGN_FINGERPRINT = keyring.fpr; // stand-in sovereign
+      const r = verifyBondSignature(asc, 'somentity', keyring.fpr);
+      assert(r.valid === true, 'accepted - the sovereign signature is what counts');
     }
   } catch (err) {
     console.error('\nUnhandled test error:', err);

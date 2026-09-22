@@ -233,42 +233,25 @@ function extractFrontmatter(body) {
   return body.match(/^---\s*\n([\s\S]*?)\n---/)?.[1];
 }
 
-function readFingerprintFile(filePath) {
-  try {
-    return normalizeFingerprint(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return undefined;
-  }
-}
-
-function isSovereignIssuer(from) {
-  return String(from ?? '').toLowerCase().trim() === 'koad';
-}
-
-function expectedFingerprintForIssuer(from, fromFingerprint) {
-  // ── Sovereign tier ─────────────────────────────────────────────────────────
-  // A bond that claims to be from the sovereign must be signed by the
-  // sovereign's key. Resolved ONLY from the environment — never from the bond's
-  // own frontmatter, which is attacker-controlled. Without this tier, any entity
-  // can write `from: koad` with a `from_fingerprint` of its own choosing and sign
-  // it with its own key, forging full kingdom scope. (Found 2026-09-22; this is
-  // the logic the harness extension's parse.ts already had.)
-  if (isSovereignIssuer(from)) {
-    return normalizeFingerprint(process.env.SOVEREIGN_FINGERPRINT);
-  }
-
-  // ── Entity tier ────────────────────────────────────────────────────────────
-  const explicit = normalizeFingerprint(fromFingerprint);
-  if (explicit) return explicit;
-  const entityPaths = [
-    path.join(HOME, `.${from}`, 'id', 'entity.fingerprint'),
-    path.join(HOME, `.${from}`, 'id', 'master.fingerprint'),
-  ];
-  for (const candidate of entityPaths) {
-    const fingerprint = readFingerprintFile(candidate);
-    if (fingerprint) return fingerprint;
-  }
-  return undefined;
+// ---------------------------------------------------------------------------
+// Who may sign — sovereign only
+// ---------------------------------------------------------------------------
+// Only the sovereign's signature authorizes harness access. Entity keys exist
+// for their own purposes — publishing their own declarations, bonds to third
+// parties, provenance — never for self-authorization.
+//
+// There is deliberately NO entity tier: a bond is authority if and only if the
+// sovereign signed it. The expected signer is resolved ONLY from the
+// environment. A bond's own `from_fingerprint` is attacker-controlled and must
+// never be consulted.
+//
+// History: this module previously resolved the expected signer from the bond's
+// own frontmatter for every issuer, so any entity could write `from: koad`,
+// declare a fingerprint of its choosing, sign with its own key, and forge
+// kingdom scope (demonstrated `valid: true`, 2026-09-22). A sovereign tier was
+// added, then the entity tier removed entirely on koad's call.
+function sovereignFingerprint() {
+  return normalizeFingerprint(process.env.SOVEREIGN_FINGERPRINT);
 }
 
 function describeVerifyFailure(output, status) {
@@ -280,6 +263,14 @@ function describeVerifyFailure(output, status) {
   return `gpg verify exited ${status ?? 'unknown'}`;
 }
 
+/**
+ * Verify a bond signature.
+ *
+ * Only the sovereign's signature confers authority. `declaredFrom` is used
+ * solely for reporting; `fromFingerprint` is retained for call-site
+ * compatibility and is **no longer consulted** — a bond's self-declared
+ * fingerprint must never determine who is allowed to sign it.
+ */
 export function verifyBondSignature(filePath, declaredFrom, fromFingerprint) {
   const verify = spawnSync('gpg', ['--no-tty', '--status-fd=1', '--verify', filePath], {
     env: process.env,
@@ -291,24 +282,25 @@ export function verifyBondSignature(filePath, declaredFrom, fromFingerprint) {
   const goodSig = output.match(/\[GNUPG:\]\s+GOODSIG\s+(\S+)\s+(.+)/);
   const keyId = normalizeFingerprint(goodSig?.[1]) ?? fingerprint?.slice(-16);
   const signer = goodSig?.[2]?.trim() || declaredFrom;
-  const expectedFingerprint = expectedFingerprintForIssuer(declaredFrom, fromFingerprint);
+  const expectedFingerprint = sovereignFingerprint();
 
   if (verify.status !== 0 || !fingerprint) {
     return { valid: false, signer, keyId, fingerprint, expectedFingerprint, reason: describeVerifyFailure(output, verify.status) };
   }
 
-  // Fail closed. A sovereign bond whose sovereign fingerprint cannot be resolved
-  // must never validate. Checked before the comparison below, because that
-  // comparison is skipped when `expectedFingerprint` is falsy — so an unset
-  // SOVEREIGN_FINGERPRINT would otherwise let ANY signature pass as sovereign.
-  if (isSovereignIssuer(declaredFrom) && !expectedFingerprint) {
+  // Fail closed. A bond must be sovereign-signed, so if the sovereign
+  // fingerprint cannot be resolved nothing can be verified. Checked before the
+  // comparison below, because that comparison is skipped when
+  // `expectedFingerprint` is falsy — so an unset SOVEREIGN_FINGERPRINT would
+  // otherwise let ANY signature pass as sovereign authority.
+  if (!expectedFingerprint) {
     return {
       valid: false,
       signer,
       keyId,
       fingerprint,
       expectedFingerprint,
-      reason: 'SOVEREIGN_FINGERPRINT is not set — cannot verify a sovereign bond (failing closed; set it in ~/.koad-io/.env)',
+      reason: 'SOVEREIGN_FINGERPRINT is not set — cannot verify any bond (failing closed; set it in ~/.koad-io/.env)',
     };
   }
 
