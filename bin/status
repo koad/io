@@ -7,6 +7,13 @@
 #   koad-io status --quiet          No render; exit 0/1/2 by health
 #   koad-io status --timeout=N      Per-probe timeout (default 5s)
 #   koad-io status --history [N]    Last N probe records (default 20)
+#   koad-io status --check          Monitor: diff vs ledger, alert on CHANGE only
+#                                   exit 0 all green / 1 some / 2 all down
+#     --no-alert                    --check without firing alerts/messages
+#     --ledger=PATH                 last-known-state ledger override
+#     --cert-warn-days=N            TLS cert warn threshold (default 30)
+#     --cert-crit-days=N            TLS cert crit threshold (default 14)
+#     --reset-ledger                forget prior state (treat as first run)
 #
 # Targets: read from one or more index files (JSONL, one {"label","url",...} per line).
 # Index resolution:
@@ -25,6 +32,9 @@
 #   electrum           electrum JSON-RPC server.version over TCP. TLS when
 #                      "tls":true — also parses the TLS cert and reports
 #                      days-to-expiry; degrades when < 14 days.
+#   dns                UDP DNS A-query — alive on a valid response (ID echoed,
+#                      QR set). Optional "query" field picks the name to ask
+#                      for (default example.com).
 #   tcp                TCP connect — port open/responding check.
 #   anything else      falls back to the tcp probe.
 
@@ -72,6 +82,12 @@ JSON=""
 QUIET=""
 HISTORY=""
 HISTORY_LAST=20
+CHECK=""
+NOALERT=""
+LEDGER_FILE=""
+CERT_WARN_DAYS=30
+CERT_CRIT_DAYS=14
+RESET_LEDGER=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -79,10 +95,19 @@ while [ $# -gt 0 ]; do
     --quiet)      QUIET=1; shift ;;
     --timeout)    TIMEOUT="$2"; shift 2 ;;
     --timeout=*)  TIMEOUT="${1#*=}"; shift ;;
+    --check)          CHECK=1; shift ;;
+    --no-alert)       NOALERT=1; shift ;;
+    --reset-ledger)   RESET_LEDGER=1; shift ;;
+    --ledger)         LEDGER_FILE="$2"; shift 2 ;;
+    --ledger=*)       LEDGER_FILE="${1#*=}"; shift ;;
+    --cert-warn-days)    CERT_WARN_DAYS="$2"; shift 2 ;;
+    --cert-warn-days=*)  CERT_WARN_DAYS="${1#*=}"; shift ;;
+    --cert-crit-days)    CERT_CRIT_DAYS="$2"; shift 2 ;;
+    --cert-crit-days=*)  CERT_CRIT_DAYS="${1#*=}"; shift ;;
     --history)    HISTORY=1
                   [[ "${2:-}" =~ ^[0-9]+$ ]] && { HISTORY_LAST="$2"; shift; }
                   shift ;;
-    -h|--help)    sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)            shift ;;
   esac
 done
@@ -101,6 +126,18 @@ mkdir -p "$(dirname "$LOG_FILE")"
 now_ms() { date +%s%3N 2>/dev/null || echo 0; }
 jqget() { jq -r "$1" 2>/dev/null || true; }
 host_port_of() { local u="$1"; u="${u#*://}"; u="${u%%/*}"; printf '%s' "$u"; }
+
+# tls_days_left <host> <port> <servername> → integer days-to-expiry, or empty.
+tls_days_left() {
+  local host="$1" port="${2:-443}" sni="${3:-$1}" enddate exp now
+  enddate=$(timeout 5 openssl s_client -connect "$host:$port" -servername "$sni" </dev/null 2>/dev/null \
+    | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2- || true)
+  [ -n "$enddate" ] || return 0
+  exp=$(date -d "$enddate" +%s 2>/dev/null || echo 0)
+  [ "$exp" -gt 0 ] || return 0
+  now=$(date +%s)
+  printf '%s' $(( (exp - now) / 86400 ))
+}
 
 # ── history ──
 if [ -n "$HISTORY" ]; then
@@ -231,6 +268,48 @@ probe_electrum() {
 }
 
 # ── probe: tcp (generic port open check — also the unknown-type fallback) ──
+probe_dns() {
+  local host_port="$1" label="$2" t="$3" query="${4:-example.com}"
+  local hp host port ms res err
+  hp=$(host_port_of "$host_port")
+  host="${hp%:*}"; port="${hp##*:}"
+  [ -n "$port" ] && [ "$port" != "$host" ] || port=53
+  ms=$(now_ms)
+  # UDP DNS A-query via python3 (bash /dev/udp read is unreliable + xxd absent).
+  # Alive = response header echoes id 0xABCD with the QR (response) bit set.
+  res=$(PY_DNS_TIMEOUT="$t" python3 - "$host" "$port" "$query" <<'PYEOF' 2>/dev/null
+import socket, struct, os, sys
+host, port, query = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+def qname(n):
+    return b''.join(bytes([len(p)]) + p.encode() for p in n.split('.')) + b'\x00'
+pkt = struct.pack('>HHHHHH', 0xABCD, 0x0100, 1, 0, 0, 0) + qname(query) + struct.pack('>HH', 1, 1)
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(float(os.environ.get('PY_DNS_TIMEOUT', '3')))
+try:
+    s.sendto(pkt, (host, port))
+    data, _ = s.recvfrom(512)
+    if len(data) >= 12 and data[0] == 0xAB and data[1] == 0xCD and (data[2] & 0x80):
+        print('OK')
+    else:
+        print('FAIL bad-response')
+except Exception as e:
+    print('FAIL ' + type(e).__name__)
+finally:
+    s.close()
+PYEOF
+)
+  if [ "$res" = "OK" ]; then
+    ms=$(( $(now_ms) - ms )); [ "$ms" -lt 0 ] && ms=0
+    jq -nc --arg label "$label" --arg url "$host_port" --arg hp "$hp" --argjson ms "$ms" \
+      '{label:$label,url:$url,host_port:$hp,type:"dns",status:1,ms:$ms,alive:true,entity:""}'
+  else
+    ms=$(( $(now_ms) - ms )); [ "$ms" -lt 0 ] && ms=0
+    err="no dns response"; [ "$res" != "FAIL" ] && err="dns: ${res#FAIL }"
+    jq -nc --arg label "$label" --arg url "$host_port" --arg hp "$hp" --argjson ms "$ms" --arg err "$err" \
+      '{label:$label,url:$url,host_port:$hp,type:"dns",status:0,ms:$ms,alive:false,error:$err}'
+  fi
+}
+
 probe_tcp() {
   local host_port="$1" label="$2" t="$3"
   local hp host port ms
@@ -264,12 +343,14 @@ for INDEX_FILE in "${INDEX_FILES[@]}"; do
     expected=$(printf '%s' "$line" | jqget '.expected_status // empty')
     type=$(printf '%s' "$line" | jqget '.type // ""')
     tls=$(printf '%s' "$line" | jqget '.tls // ""')
+    query=$(printf '%s' "$line" | jqget '.query // empty')
     [ -n "$type" ] || type="koad-io"
 
     case "$type" in
       koad-io|koadio) fragment=$(probe_koad_io "$url" "$label" "$TIMEOUT") ;;
       http|mkdocs|https|web|site) fragment=$(probe_http "$url" "$label" "$TIMEOUT" "$type") ;;
       electrum|electrumx|electrs) fragment=$(probe_electrum "$url" "$label" "$TIMEOUT" "$tls") ;;
+      dns|dnsseed|dnsserver) fragment=$(probe_dns "$url" "$label" "$TIMEOUT" "$query") ;;
       *) fragment=$(probe_tcp "$url" "$label" "$TIMEOUT") ;;
     esac
 
@@ -279,6 +360,20 @@ for INDEX_FILE in "${INDEX_FILES[@]}"; do
         fragment=$(printf '%s' "$fragment" | jq -c ".degraded = true | .expected_status = $expected | .degraded_reason = \"HTTP $actual (expected $expected)\"" 2>/dev/null || printf '%s' "$fragment")
       fi
     fi
+    # HTTPS website/TLS cert days. The electrum probe already reports cert days
+    # for TLS electrum; this covers the https website properties (relay.koad.sh,
+    # www.yoshilivo.com, …) which previously had no expiry signal at all.
+    case "$url" in
+      https://*)
+        _hp=$(host_port_of "$url"); _h="${_hp%:*}"; _p="${_hp##*:}"
+        [ "$_p" = "$_h" ] && _p=443
+        _d=$(tls_days_left "$_h" "$_p" "$_h")
+        if [ -n "$_d" ]; then
+          fragment=$(printf '%s' "$fragment" | jq -c --argjson d "$_d" \
+            '. + {cert_days_left:$d} + (if $d < 14 then {degraded:true,degraded_reason:("TLS cert expires in \($d) days")} else {} end)')
+        fi
+        ;;
+    esac
     fragment=$(printf '%s' "$fragment" | jq -c --arg s "$INDEX_FILE" '. + {source:$s}')
     parts="${parts}${fragment},"
     if printf '%s' "$fragment" | grep -q '"degraded":true'; then
@@ -304,6 +399,20 @@ rec=$(printf '{"ts":"%s","timeout_s":%s,"total_ms":%s,"alive":%s,"dead":%s,"sour
 
 # ── log ──
 printf '%s\n' "$rec" >> "$LOG_FILE"
+
+# ── monitor (--check): diff vs ledger, report/alert on change only ──
+# Heavy lifting lives in the sourced helper so this file stays a probe.
+if [ -n "$CHECK" ]; then
+  set +e
+  # shellcheck disable=SC1090
+  . "$HOME/.koad-io/helpers/status-check.sh" 2>/dev/null
+  if command -v koad_status_check_run >/dev/null 2>&1; then
+    koad_status_check_run
+    exit "${_CHECK_EXIT:-1}"
+  fi
+  echo "status: --check helper not found at \$HOME/.koad-io/helpers/status-check.sh" >&2
+  exit 69
+fi
 
 # ── json ──
 if [ -n "$JSON" ]; then
@@ -339,6 +448,7 @@ echo "$rec" | jq -r '.targets[] | [
     case "$type" in
       electrum) word="ELECTRUM"; [ "$ver" != "-" ] && status="$ver" ;;
       tcp) word="TCP" ;;
+      dns) word="DNS" ;;
       *) word="HTTP" ;;
     esac
     extra=""
