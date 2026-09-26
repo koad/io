@@ -328,64 +328,135 @@ probe_tcp() {
   fi
 }
 
-# ── probe all (every resolved index file, in order) ──
+# ── probe all (every resolved index file) — targets probed CONCURRENTLY ──
+#
+# Each target is one job: parse its line, run its probe, decorate, emit one
+# fragment. Total wall time is therefore the slowest single probe rather than
+# the sum of all of them.
+#
+# Two things made the sequential version slow. First, 48 targets each waiting
+# on their own socket in turn. Second, and larger, the jqget helper — it spawns
+# a fresh jq per field, so six processes just to parse one line, plus about ten
+# more per fragment. That is roughly 340 jq processes per run. Each line is now
+# parsed in a single jq call.
+#
+# Concurrency is bounded (KOAD_IO_STATUS_CONCURRENCY, default 12) so a large
+# index does not open every socket at once. Fragment order follows index order,
+# so output stays deterministic for ledger diffs.
 t_start=$(now_ms)
 parts=""
 alive=0 dead=0
 PRIMARY_INDEX="${INDEX_FILES[0]}"
+MAX_JOBS="${KOAD_IO_STATUS_CONCURRENCY:-12}"
+case "$MAX_JOBS" in ''|*[!0-9]*) MAX_JOBS=12 ;; esac
+[ "$MAX_JOBS" -lt 1 ] && MAX_JOBS=1
 
+WORKDIR=$(mktemp -d)
+cleanup_workdir() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR" 2>/dev/null; return 0; }
+trap cleanup_workdir EXIT
+
+# Emit the finished fragment JSON for one target.
+# args: src label url expected type tls query
+probe_one() {
+  local src="$1" label="$2" url="$3" expected="$4" type="$5" tls="$6" query="$7"
+  local fragment actual _hp _h _p _d
+
+  case "$type" in
+    koad-io|koadio) fragment=$(probe_koad_io "$url" "$label" "$TIMEOUT") ;;
+    http|mkdocs|https|web|site) fragment=$(probe_http "$url" "$label" "$TIMEOUT" "$type") ;;
+    electrum|electrumx|electrs) fragment=$(probe_electrum "$url" "$label" "$TIMEOUT" "$tls") ;;
+    dns|dnsseed|dnsserver) fragment=$(probe_dns "$url" "$label" "$TIMEOUT" "$query") ;;
+    *) fragment=$(probe_tcp "$url" "$label" "$TIMEOUT") ;;
+  esac
+
+  # A job that died must still report, or the target silently vanishes from the
+  # render and the counts.
+  [ -n "$fragment" ] || fragment=$(jq -nc --arg l "$label" --arg u "$url" \
+    '{label:$l,url:$u,type:"tcp",status:0,ms:0,alive:false,error:"probe produced no result"}')
+
+  if [ -n "$expected" ] && printf '%s' "$fragment" | grep -q '"alive":true'; then
+    actual=$(printf '%s' "$fragment" | jqget '.status')
+    if [ "$actual" != "$expected" ]; then
+      fragment=$(printf '%s' "$fragment" | jq -c ".degraded = true | .expected_status = $expected | .degraded_reason = \"HTTP $actual (expected $expected)\"" 2>/dev/null || printf '%s' "$fragment")
+    fi
+  fi
+
+  # HTTPS website/TLS cert days. The electrum probe already reports cert days
+  # for TLS electrum; this covers the https website properties (relay.koad.sh,
+  # www.yoshilivo.com, …) which previously had no expiry signal at all.
+  case "$url" in
+    https://*)
+      _hp=$(host_port_of "$url"); _h="${_hp%:*}"; _p="${_hp##*:}"
+      [ "$_p" = "$_h" ] && _p=443
+      _d=$(tls_days_left "$_h" "$_p" "$_h")
+      if [ -n "$_d" ]; then
+        fragment=$(printf '%s' "$fragment" | jq -c --argjson d "$_d" \
+          '. + {cert_days_left:$d} + (if $d < 14 then {degraded:true,degraded_reason:("TLS cert expires in \($d) days")} else {} end)')
+      fi
+      ;;
+  esac
+
+  printf '%s' "$fragment" | jq -c --arg s "$src" '. + {source:$s}'
+}
+
+# ── queue every target, parsing each line exactly once ──
+#
+# NOTE ON THE DELIMITER: it is a pipe, deliberately NOT a tab. Tab counts as
+# IFS-whitespace, and IFS-whitespace is collapsed on read, so empty fields lose
+# their position: a target with no expected_status shifts its type field into
+# expected, silently defaulting the probe to koad-io, and a dns query gets
+# dropped. A pipe is not IFS-whitespace, so empty fields keep their position.
+# No field parsed here (label, url, expected_status, type, tls, query) contains
+# a pipe — the only pipes in the index files sit inside comment lines, which
+# never reach this queue.
+queue="$WORKDIR/queue.txt"
+: > "$queue"
 for INDEX_FILE in "${INDEX_FILES[@]}"; do
   [ -f "$INDEX_FILE" ] || continue
-  while IFS= read -r line <&3; do
-    label=$(printf '%s' "$line" | jqget '.label // empty')
-    url=$(printf '%s' "$line" | jqget '.url // empty')
-    [ -n "$label" ] && [ -n "$url" ] || continue
-    expected=$(printf '%s' "$line" | jqget '.expected_status // empty')
-    type=$(printf '%s' "$line" | jqget '.type // ""')
-    tls=$(printf '%s' "$line" | jqget '.tls // ""')
-    query=$(printf '%s' "$line" | jqget '.query // empty')
-    [ -n "$type" ] || type="koad-io"
+  # One jq process per FILE, not per line. -R + fromjson? lets comment lines and
+  # any non-JSON garbage fall through untouched, exactly as the old per-field
+  # jqget did, while still emitting one queue row per valid object.
+  jq -Rr --arg s "$INDEX_FILE" \
+    '(fromjson? // empty) | [$s, (.label//""), (.url//""), (.expected_status//""), (.type//""), (.tls//""), (.query//"")] | join("|")' \
+    "$INDEX_FILE" 2>/dev/null >> "$queue" || true
+done
 
-    case "$type" in
-      koad-io|koadio) fragment=$(probe_koad_io "$url" "$label" "$TIMEOUT") ;;
-      http|mkdocs|https|web|site) fragment=$(probe_http "$url" "$label" "$TIMEOUT" "$type") ;;
-      electrum|electrumx|electrs) fragment=$(probe_electrum "$url" "$label" "$TIMEOUT" "$tls") ;;
-      dns|dnsseed|dnsserver) fragment=$(probe_dns "$url" "$label" "$TIMEOUT" "$query") ;;
-      *) fragment=$(probe_tcp "$url" "$label" "$TIMEOUT") ;;
-    esac
+# ── run them concurrently, bounded ──
+n_jobs=0
+running=0
+while IFS='|' read -r src label url expected type tls query; do
+  [ -n "$label" ] && [ -n "$url" ] || continue
+  [ -n "$type" ] || type="koad-io"
+  probe_one "$src" "$label" "$url" "$expected" "$type" "$tls" "$query" \
+    > "$WORKDIR/frag.$n_jobs.json" 2>/dev/null &
+  n_jobs=$((n_jobs + 1))
+  running=$((running + 1))
+  if [ "$running" -ge "$MAX_JOBS" ]; then
+    wait -n 2>/dev/null || true
+    running=$((running - 1))
+  fi
+done < "$queue"
+wait 2>/dev/null || true
 
-    if [ -n "$expected" ] && printf '%s' "$fragment" | grep -q '"alive":true'; then
-      actual=$(printf '%s' "$fragment" | jqget '.status')
-      if [ "$actual" != "$expected" ]; then
-        fragment=$(printf '%s' "$fragment" | jq -c ".degraded = true | .expected_status = $expected | .degraded_reason = \"HTTP $actual (expected $expected)\"" 2>/dev/null || printf '%s' "$fragment")
-      fi
-    fi
-    # HTTPS website/TLS cert days. The electrum probe already reports cert days
-    # for TLS electrum; this covers the https website properties (relay.koad.sh,
-    # www.yoshilivo.com, …) which previously had no expiry signal at all.
-    case "$url" in
-      https://*)
-        _hp=$(host_port_of "$url"); _h="${_hp%:*}"; _p="${_hp##*:}"
-        [ "$_p" = "$_h" ] && _p=443
-        _d=$(tls_days_left "$_h" "$_p" "$_h")
-        if [ -n "$_d" ]; then
-          fragment=$(printf '%s' "$fragment" | jq -c --argjson d "$_d" \
-            '. + {cert_days_left:$d} + (if $d < 14 then {degraded:true,degraded_reason:("TLS cert expires in \($d) days")} else {} end)')
-        fi
-        ;;
-    esac
-    fragment=$(printf '%s' "$fragment" | jq -c --arg s "$INDEX_FILE" '. + {source:$s}')
-    parts="${parts}${fragment},"
-    if printf '%s' "$fragment" | grep -q '"degraded":true'; then
-      dead=$((dead + 1))
-    elif printf '%s' "$fragment" | grep -q '"alive":true'; then
-      alive=$((alive + 1))
-    else
-      dead=$((dead + 1))
-    fi
-  done 3< "$INDEX_FILE"
+# ── collect in index order ──
+# Substring tests are pure bash: the old version spawned grep twice per fragment
+# (~96 processes) just to classify it.
+i=0
+while [ "$i" -lt "$n_jobs" ]; do
+  fragment=$(<"$WORKDIR/frag.$i.json") || fragment=""
+  [ -n "$fragment" ] || fragment='{"label":"unknown","url":"","type":"tcp","status":0,"ms":0,"alive":false,"error":"probe failed"}'
+  parts="${parts}${fragment},"
+  if [[ "$fragment" == *'"degraded":true'* ]]; then
+    dead=$((dead + 1))
+  elif [[ "$fragment" == *'"alive":true'* ]]; then
+    alive=$((alive + 1))
+  else
+    dead=$((dead + 1))
+  fi
+  i=$((i + 1))
 done
 parts="${parts%,}"
+cleanup_workdir
 
 t_end=$(now_ms)
 total_ms=$(( t_end - t_start ))
