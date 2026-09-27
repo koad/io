@@ -248,7 +248,13 @@ cmd_goal_status() {
     local slug="$1" state="$2"
     slug_exists "goals" "$slug" || die "Goal '${slug}' not found"
     case "$state" in
-        proposed|active|parked|achieved|superseded) ;;
+        # Canon status vocabulary — ~/.juno/briefs/2026-07-23-kingdom-fs-convention.md,
+        # amended 2026-09-27 (koad directive). `standing` = a continuous capability
+        # rather than bounded work. Ten containers use it and this validator used to
+        # reject it, which made them untransitionable by the only tool that owns
+        # status. Health signals (degraded, broken) are NOT status — they belong in
+        # cockpit sitrep flags beside blocked/held/unassigned/overlooked.
+        proposed|active|standing|parked|achieved|superseded) ;;
         *) die "Invalid state '${state}'" ;;
     esac
     fm_set "${GOALS_DIR}/${slug}/goal.md" "status" "$state"
@@ -382,8 +388,10 @@ cmd_project_status() {
     local slug="$1" state="$2"
     slug_exists "projects" "$slug" || die "Project '${slug}' not found"
     case "$state" in
-        proposed|active|parked|achieved|superseded) ;;
-        *) die "Invalid state" ;;
+        # Canon status vocabulary — ~/.juno/briefs/2026-07-23-kingdom-fs-convention.md,
+        # amended 2026-09-27 (koad directive). See the goal validator for the full note.
+        proposed|active|standing|parked|achieved|superseded) ;;
+        *) die "Invalid state '${state}'" ;;
     esac
     fm_set "${PROJECTS_DIR}/${slug}/project.md" "status" "$state"
     echo -e "${GREEN}✓${NC} ${slug} status → ${state}"
