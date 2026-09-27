@@ -146,9 +146,13 @@ discover_entities() {
     [[ -d "$d" ]] || continue
     local entity_root="${d%/tickler}"
     local entity="${entity_root#$HOME/.}"
-    # Skip framework/meta dirs
+    # Skip framework/meta dirs. `koad` is here because koad is the SOVEREIGN, not
+    # an entity: all of koad's work is /kingdom, and its tickles live in the
+    # container that owns them. ~/.koad/ held a duplicate store that no container
+    # could own — migrated into /kingdom on 2026-09-26. Keep this list in sync with
+    # musium's server/indexers/tickler.js (NOT_AN_ENTITY).
     case "$entity" in
-      koad-io|claude|cache|config|local|nvm|npm|ssh|gnupg|\
+      koad|koad-io|claude|cache|config|local|nvm|npm|ssh|gnupg|\
       cargo|rustup|mozilla|thunderbird|docker|pki|icons|fonts|\
       java|aws|azure|gcloud|vscode*|subl*|kube)
         continue
