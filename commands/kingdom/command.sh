@@ -93,18 +93,65 @@ slug_exists() {
 }
 
 # --- Git commit helper ---
+# Initialise a fresh container's repo and land the scaffold commit.
+#
+# Never swallows a failure. The previous form was
+#     cd "$dir" && git init && git add -A && git commit -m "…" 2>/dev/null || true
+# where `2>/dev/null || true` made a broken `git init` indistinguishable from a
+# working one — which is how containers ended up with no history while the CLI
+# reported success. `git -C` replaces `cd` so the caller's cwd is never mutated.
+init_bubble() {
+    local type="$1" slug="$2"
+    local dir
+    [ "$type" = "goal" ] && dir="${GOALS_DIR}/${slug}" || dir="${PROJECTS_DIR}/${slug}"
+
+    if ! git -C "$dir" init -q; then
+        echo -e "${RED}✗${NC} git init failed: ${dir} — container created WITHOUT history" >&2
+        return 1
+    fi
+    if ! git -C "$dir" add -A; then
+        echo -e "${RED}✗${NC} git add failed: ${dir} — repo initialised, content unstaged" >&2
+        return 1
+    fi
+    if git -C "$dir" commit -q -m "scaffold: ${slug} ${type}"; then
+        echo -e "${GREEN}✓${NC} repo initialised: ${dir}"
+    else
+        echo -e "${YELLOW}⚠${NC} repo initialised but nothing committed: ${dir}" >&2
+    fi
+    return 0
+}
+
+# Commit one bubble. Reports what actually happened:
+#   0  committed, or nothing staged (nothing to commit is not a failure)
+#   1  no repo, or git add/commit genuinely failed
+#
+# Two live defects fixed here. (1) The success line printed unconditionally —
+# `kingdom commit counsel` announced "nothing to commit" and then claimed
+# "✓ committed" in the same breath. (2) `cd "$dir"` left the caller standing
+# inside the container for the rest of the script. `git -C` removes the side
+# effect; the explicit tests remove the false success.
 commit_bubble() {
     local type="$1" slug="$2" summary="$3"
     local dir
     [ "$type" = "goal" ] && dir="${GOALS_DIR}/${slug}" || dir="${PROJECTS_DIR}/${slug}"
     if [ ! -d "${dir}/.git" ]; then
         echo -e "${YELLOW}⚠${NC} ${dir} is not a git repository — skipping commit" >&2
-        return
+        return 1
     fi
-    cd "$dir"
-    git add -A
-    git commit -m "${type}(${slug}): ${summary}" 2>/dev/null || echo -e "${YELLOW}⚠${NC} nothing to commit"
-    echo -e "${GREEN}✓${NC} committed: ${type}(${slug}): ${summary}"
+    if ! git -C "$dir" add -A; then
+        echo -e "${RED}✗${NC} git add failed: ${type}(${slug})" >&2
+        return 1
+    fi
+    if git -C "$dir" diff --cached --quiet; then
+        echo -e "${YELLOW}⚠${NC} nothing to commit: ${type}(${slug})" >&2
+        return 0
+    fi
+    if git -C "$dir" commit -q -m "${type}(${slug}): ${summary}"; then
+        echo -e "${GREEN}✓${NC} committed: ${type}(${slug}): ${summary}"
+    else
+        echo -e "${RED}✗${NC} commit failed: ${type}(${slug}): ${summary}" >&2
+        return 1
+    fi
 }
 
 # --- Subcommands ---
@@ -220,6 +267,7 @@ cmd_goal_create() {
     cat > "${dir}/goal.md" << GOALEOF
 ---
 slug: ${slug}
+kind: goal
 title: ${slug}
 status: proposed
 horizon: 50k
@@ -242,7 +290,7 @@ success: []
 GOALEOF
 
     echo "# Context" > "${dir}/context.md"
-    cd "$dir" && git init && git add -A && git commit -m "scaffold: ${slug} goal" 2>/dev/null || true
+    init_bubble "goal" "$slug"
     echo -e "${GREEN}✓${NC} Goal '${slug}' created at ${dir}"
 }
 
@@ -353,6 +401,7 @@ cmd_project_create() {
     cat > "${dir}/project.md" << PROJEOF
 ---
 slug: ${slug}
+kind: project
 title: ${slug}
 status: proposed
 horizon: 40k
@@ -360,7 +409,6 @@ parents: []
 participants: [koad]
 contributors: []
 tags: []
-success: []
 ---
 
 # ${slug}
@@ -373,7 +421,7 @@ success: []
 PROJEOF
 
     echo "# Context" > "${dir}/context.md"
-    cd "$dir" && git init && git add -A && git commit -m "scaffold: ${slug} project" 2>/dev/null || true
+    init_bubble "project" "$slug"
     echo -e "${GREEN}✓${NC} Project '${slug}' created at ${dir}"
 }
 
