@@ -277,9 +277,12 @@ kind: goal
 title: ${slug}
 status: proposed
 horizon: 50k
-parents: []
 participants: [koad]
 contributors: []
+parents: []
+signed: false
+created: $(date +%F)
+updated: $(date +%F)
 tags: []
 success: []
 ---
@@ -413,9 +416,12 @@ kind: project
 title: ${slug}
 status: proposed
 horizon: 40k
-parents: []
 participants: [koad]
 contributors: []
+parents: []
+signed: false
+created: $(date +%F)
+updated: $(date +%F)
 tags: []
 ---
 
