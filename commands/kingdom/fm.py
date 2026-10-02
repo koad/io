@@ -188,7 +188,7 @@ def remove_from_list(fm_text, field, value):
     in_field = False
 
     for line in lines:
-        if re.match(r'^' + re.escape(field) + r':\s', line):
+        if re.match(r'^' + re.escape(field) + r':', line):
             # Inline list
             m = re.match(r'^' + re.escape(field) + r':\s*\[(.*?)\]\s*$', line)
             if m:
@@ -205,7 +205,8 @@ def remove_from_list(fm_text, field, value):
         if in_field:
             m = re.match(r'^\s{2}-\s+(.+?)\s*$', line)
             if m:
-                existing = m.group(1).strip()
+                # a trailing '# name' comment is not part of the value
+                existing = m.group(1).split('#')[0].strip()
                 if existing != value:
                     new_lines.append(line)
                 continue

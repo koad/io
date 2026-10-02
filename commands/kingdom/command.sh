@@ -9,6 +9,7 @@
 #   koad-io kingdom goal create <slug>
 #   koad-io kingdom goal field <slug> <key> <value>
 #   koad-io kingdom goal field-add <slug> <key> <value>
+#   koad-io kingdom goal field-remove <slug> <key> <value>
 #   koad-io kingdom goal body <slug>            (new body on stdin)
 #   koad-io kingdom project list [--horizon=<level>]
 #   koad-io kingdom project show <slug>
@@ -17,6 +18,7 @@
 #   koad-io kingdom project create <slug>
 #   koad-io kingdom project field <slug> <key> <value>
 #   koad-io kingdom project field-add <slug> <key> <value>
+#   koad-io kingdom project field-remove <slug> <key> <value>
 #   koad-io kingdom project body <slug>         (new body on stdin)
 #   koad-io kingdom commit <slug> [-m <message>]
 #   koad-io kingdom tree [--horizon=<level>]
@@ -67,7 +69,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 usage() {
-    sed -n '2,47p' "$0" | sed 's/^# //'
+    sed -n '2,49p' "$0" | sed 's/^# //'
     exit 0
 }
 
@@ -1252,6 +1254,15 @@ cmd_bubble_field_add() {  # type slug key value...
     echo -e "${GREEN}✓${NC} ${type}(${slug}) ${key} += $*"
 }
 
+cmd_bubble_field_remove() {  # type slug key value...
+    local type="${1:-goal}" slug="${2:-}" key="${3:-}"
+    [ $# -lt 4 ] && die "Usage: koad-io kingdom ${type} field-remove <slug> <key> <value>"
+    shift 3
+    local path; path=$(_bubble_path "$type" "$slug")
+    python3 "${COMMAND_DIR}/fm.py" remove-list "$path" "$key" "$*"
+    echo -e "${GREEN}✓${NC} ${type}(${slug}) ${key} -= $*"
+}
+
 cmd_bubble_body() {  # type slug  (new body on stdin)
     local type="${1:-goal}" slug="${2:-}"
     [ $# -lt 2 ] && die "Usage: koad-io kingdom ${type} body <slug>  (new body on stdin)"
@@ -1277,6 +1288,7 @@ main() {
                 create)    cmd_goal_create "$@" ;;
                 field)     cmd_bubble_field goal "$@" ;;
                 field-add) cmd_bubble_field_add goal "$@" ;;
+                field-remove) cmd_bubble_field_remove goal "$@" ;;
                 body)      cmd_bubble_body goal "$@" ;;
                 *)         die "Unknown goal subcommand: ${sub}" ;;
             esac
@@ -1292,6 +1304,7 @@ main() {
                 create)    cmd_project_create "$@" ;;
                 field)     cmd_bubble_field project "$@" ;;
                 field-add) cmd_bubble_field_add project "$@" ;;
+                field-remove) cmd_bubble_field_remove project "$@" ;;
                 body)      cmd_bubble_body project "$@" ;;
                 *)         die "Unknown project subcommand: ${sub}" ;;
             esac
