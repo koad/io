@@ -7,12 +7,45 @@ Usage:
   fm.py set <file> <field> <value>  — replace field value
   fm.py add-list <file> <field> <value>   — append to YAML list field
   fm.py remove-list <file> <field> <value> — remove from YAML list field
+  fm.py body <file>                 — replace body (new body on stdin)
   fm.py show <file>                 — print frontmatter + body
   fm.py show-acl <file>             — print ACL info
 """
 
 import re
 import sys
+
+# Canon key order — mirrors CANON_KEY_ORDER in the write adapter
+# (~/.forge/packages/koad-io-goals-projects-resources/server/resources.js).
+# New fields are inserted here, not after the first line.
+KEY_ORDER = [
+    'slug', 'kind', 'title', 'status', 'horizon',
+    'participants', 'contributors', 'parents',
+    'signed', 'created', 'updated',
+    'tags', 'success',
+]
+
+
+def _insert_index(lines, field):
+    """Index at which to insert a NEW field to preserve canon key order.
+
+    Unknown keys sort last; so do unknown existing keys (insert before them).
+    """
+    try:
+        rank = KEY_ORDER.index(field)
+    except ValueError:
+        rank = len(KEY_ORDER)
+    for i, line in enumerate(lines):
+        m = re.match(r'^([A-Za-z0-9_-]+):', line)
+        if not m:
+            continue
+        k = m.group(1)
+        try:
+            if KEY_ORDER.index(k) > rank:
+                return i
+        except ValueError:
+            return i
+    return len(lines)
 
 
 def parse_fm(content):
@@ -89,7 +122,7 @@ def set_field(fm_text, field, value):
         else:
             new_lines.append(line)
     if not replaced:
-        new_lines.insert(1, f'{field}: {value}')
+        new_lines.insert(_insert_index(new_lines, field), f'{field}: {value}')
     return '\n'.join(new_lines)
 
 
@@ -111,8 +144,8 @@ def add_to_list(fm_text, field, value):
             break
 
     if field_line is None:
-        # Field doesn't exist — add it as multiline list
-        lines.insert(1, f'{field}:\n  - {value}')
+        # Field doesn't exist — add it as multiline list, in canon key order
+        lines.insert(_insert_index(lines, field), f'{field}:\n  - {value}')
         return '\n'.join(lines)
 
     # Check if inline list: field: [item1, item2]
@@ -136,9 +169,15 @@ def add_to_list(fm_text, field, value):
         else:
             break
 
-    # Add to multiline list — insert after the field line
-    indent = 2
-    lines.insert(field_idx + 1, f"{' ' * indent}- {value}")
+    # Add to multiline list — append after the last existing item (the inline
+    # branch above appends; the two formats used to disagree on order).
+    last = field_idx
+    for i in range(field_idx + 1, len(lines)):
+        if re.match(r'^\s*-\s+', lines[i]):
+            last = i
+        else:
+            break
+    lines.insert(last + 1, f"  - {value}")
     return '\n'.join(lines)
 
 
@@ -238,6 +277,20 @@ def main():
         fm_text, body = parse_fm(content)
         new_fm = remove_from_list(fm_text, field, value)
         new_content = f"---\n{new_fm}\n---{body}"
+        with open(filepath, 'w') as f:
+            f.write(new_content)
+
+    elif cmd == 'body':
+        filepath = sys.argv[2]
+        new_body = sys.stdin.read()
+        with open(filepath) as f:
+            content = f.read()
+        fm_text, _ = parse_fm(content)
+        if not fm_text:
+            print("No frontmatter found", file=sys.stderr)
+            sys.exit(1)
+        body = new_body.strip('\n')
+        new_content = f"---\n{fm_text}\n---\n\n{body}\n"
         with open(filepath, 'w') as f:
             f.write(new_content)
 

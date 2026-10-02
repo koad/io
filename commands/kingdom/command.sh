@@ -7,11 +7,17 @@
 #   koad-io kingdom goal context <slug> [--update] [--commit]
 #   koad-io kingdom goal status <slug> <state> [--commit]
 #   koad-io kingdom goal create <slug>
+#   koad-io kingdom goal field <slug> <key> <value>
+#   koad-io kingdom goal field-add <slug> <key> <value>
+#   koad-io kingdom goal body <slug>            (new body on stdin)
 #   koad-io kingdom project list [--horizon=<level>]
 #   koad-io kingdom project show <slug>
 #   koad-io kingdom project context <slug> [--update] [--commit]
 #   koad-io kingdom project status <slug> <state> [--commit]
 #   koad-io kingdom project create <slug>
+#   koad-io kingdom project field <slug> <key> <value>
+#   koad-io kingdom project field-add <slug> <key> <value>
+#   koad-io kingdom project body <slug>         (new body on stdin)
 #   koad-io kingdom commit <slug> [-m <message>]
 #   koad-io kingdom tree [--horizon=<level>]
 #   koad-io kingdom link <project> <goal>
@@ -41,7 +47,7 @@
 set -euo pipefail
 
 # --- Config ---
-KINGDOM_ROOT="/kingdom"
+KINGDOM_ROOT="${KOAD_IO_KINGDOM_ROOT:-/kingdom}"
 GOALS_DIR="${KINGDOM_ROOT}/goals"
 PROJECTS_DIR="${KINGDOM_ROOT}/projects"
 CONTACTS_DIR="${KINGDOM_ROOT}/contacts"
@@ -61,7 +67,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 usage() {
-    sed -n '2,41p' "$0" | sed 's/^# //'
+    sed -n '2,47p' "$0" | sed 's/^# //'
     exit 0
 }
 
@@ -1213,33 +1219,81 @@ cmd_commitment_cancel() {
     echo -e "${GREEN}✓${NC} Commitment '${slug}' cancelled"
 }
 
+# --- Field / body edits (goal & project) ---
+# fm.py has always supported arbitrary field edits, but the CLI exposed no surface
+# for goal/project fields (success:, tags:, …) or for the body, so those writes had
+# to be hand-edited. These wrap the engine so they go through the CLI.
+# List fields (tags, success, participants, contributors, parents, relates-to) use
+# field-add, which appends one item.
+_bubble_path() {  # type slug → prints file path, or dies
+    local type="${1:-goal}" slug="${2:-}" dir file
+    if [ "$type" = "goal" ]; then dir="${GOALS_DIR}"; file="goal.md"; else dir="${PROJECTS_DIR}"; file="project.md"; fi
+    [ -n "$slug" ] || die "Usage: koad-io kingdom ${type} field <slug> <key> <value>"
+    local path="${dir}/${slug}/${file}"
+    [ -f "$path" ] || die "${type} '${slug}' not found"
+    printf '%s' "$path"
+}
+
+cmd_bubble_field() {  # type slug key value...
+    local type="${1:-goal}" slug="${2:-}" key="${3:-}"
+    [ $# -lt 4 ] && die "Usage: koad-io kingdom ${type} field <slug> <key> <value>"
+    shift 3
+    local path; path=$(_bubble_path "$type" "$slug")
+    fm_set "$path" "$key" "$*"
+    echo -e "${GREEN}✓${NC} ${type}(${slug}) ${key} = $*"
+}
+
+cmd_bubble_field_add() {  # type slug key value...
+    local type="${1:-goal}" slug="${2:-}" key="${3:-}"
+    [ $# -lt 4 ] && die "Usage: koad-io kingdom ${type} field-add <slug> <key> <value>"
+    shift 3
+    local path; path=$(_bubble_path "$type" "$slug")
+    python3 "${COMMAND_DIR}/fm.py" add-list "$path" "$key" "$*"
+    echo -e "${GREEN}✓${NC} ${type}(${slug}) ${key} += $*"
+}
+
+cmd_bubble_body() {  # type slug  (new body on stdin)
+    local type="${1:-goal}" slug="${2:-}"
+    [ $# -lt 2 ] && die "Usage: koad-io kingdom ${type} body <slug>  (new body on stdin)"
+    local path; path=$(_bubble_path "$type" "$slug")
+    [ -t 0 ] && die "Provide new body via stdin"
+    python3 "${COMMAND_DIR}/fm.py" body "$path"
+    echo -e "${GREEN}✓${NC} ${type}(${slug}) body replaced"
+}
+
 # --- Router ---
 main() {
     [ $# -eq 0 ] && { usage; exit 0; }
     local cmd="$1"; shift
     case "$cmd" in
         goal)
-            [ $# -eq 0 ] && die "Usage: koad-io kingdom goal <list|show|context|status|create>"
+            [ $# -eq 0 ] && die "Usage: koad-io kingdom goal <list|show|context|status|create|field|field-add|body>"
             local sub="$1"; shift
             case "$sub" in
-                list)    cmd_goal_list "$@" ;;
-                show)    cmd_goal_show "$@" ;;
-                context) cmd_goal_context "$@" ;;
-                status)  cmd_goal_status "$@" ;;
-                create)  cmd_goal_create "$@" ;;
-                *)       die "Unknown goal subcommand: ${sub}" ;;
+                list)      cmd_goal_list "$@" ;;
+                show)      cmd_goal_show "$@" ;;
+                context)   cmd_goal_context "$@" ;;
+                status)    cmd_goal_status "$@" ;;
+                create)    cmd_goal_create "$@" ;;
+                field)     cmd_bubble_field goal "$@" ;;
+                field-add) cmd_bubble_field_add goal "$@" ;;
+                body)      cmd_bubble_body goal "$@" ;;
+                *)         die "Unknown goal subcommand: ${sub}" ;;
             esac
             ;;
         project)
-            [ $# -eq 0 ] && die "Usage: koad-io kingdom project <list|show|context|status|create>"
+            [ $# -eq 0 ] && die "Usage: koad-io kingdom project <list|show|context|status|create|field|field-add|body>"
             local sub="$1"; shift
             case "$sub" in
-                list)    cmd_project_list "$@" ;;
-                show)    cmd_project_show "$@" ;;
-                context) cmd_project_context "$@" ;;
-                status)  cmd_project_status "$@" ;;
-                create)  cmd_project_create "$@" ;;
-                *)       die "Unknown project subcommand: ${sub}" ;;
+                list)      cmd_project_list "$@" ;;
+                show)      cmd_project_show "$@" ;;
+                context)   cmd_project_context "$@" ;;
+                status)    cmd_project_status "$@" ;;
+                create)    cmd_project_create "$@" ;;
+                field)     cmd_bubble_field project "$@" ;;
+                field-add) cmd_bubble_field_add project "$@" ;;
+                body)      cmd_bubble_body project "$@" ;;
+                *)         die "Unknown project subcommand: ${sub}" ;;
             esac
             ;;
         tree)   cmd_tree "$@" ;;
