@@ -20,7 +20,12 @@ def parse_fm(content):
     parts = content.split('---', 2)
     if len(parts) < 3:
         return '', content
-    return parts[1], parts[2]
+    # Normalise the frontmatter block: strip the newlines that sit between the
+    # opening fence and the first key, and between the last key and the closing
+    # fence. Every writer re-emits "---\n{fm}\n---{body}"; without this strip
+    # those newlines are re-prepended on each write and the block accretes one
+    # blank line per write (not idempotent).
+    return parts[1].strip('\n'), parts[2]
 
 
 def get_field(fm_text, field):
@@ -205,7 +210,7 @@ def main():
             print("No frontmatter found", file=sys.stderr)
             sys.exit(1)
         new_fm = set_field(fm_text, field, value)
-        new_content = f"---\n{new_fm}---{body}"
+        new_content = f"---\n{new_fm}\n---{body}"
         with open(filepath, 'w') as f:
             f.write(new_content)
 

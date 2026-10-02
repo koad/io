@@ -230,7 +230,7 @@ cmd_goal_context() {
         cp "$tmp" "$context_file"
         rm "$tmp"
         echo -e "${GREEN}✓${NC} context updated for ${slug}"
-        $commit && commit_bubble "goal" "$slug" "update context"
+        if $commit; then commit_bubble "goal" "$slug" "update context"; fi
     else
         [ -f "$context_file" ] && cat "$context_file" || echo "(no context yet)"
     fi
@@ -259,7 +259,7 @@ cmd_goal_status() {
     esac
     fm_set "${GOALS_DIR}/${slug}/goal.md" "status" "$state"
     echo -e "${GREEN}✓${NC} ${slug} status → ${state}"
-    $commit && commit_bubble "goal" "$slug" "status → ${state}"
+    if $commit; then commit_bubble "goal" "$slug" "status → ${state}"; fi
 }
 
 cmd_goal_create() {
@@ -373,7 +373,7 @@ cmd_project_context() {
         cp "$tmp" "$context_file"
         rm "$tmp"
         echo -e "${GREEN}✓${NC} context updated for ${slug}"
-        $commit && commit_bubble "project" "$slug" "update context"
+        if $commit; then commit_bubble "project" "$slug" "update context"; fi
     else
         [ -f "$context_file" ] && cat "$context_file" || echo "(no context yet)"
     fi
@@ -398,7 +398,7 @@ cmd_project_status() {
     esac
     fm_set "${PROJECTS_DIR}/${slug}/project.md" "status" "$state"
     echo -e "${GREEN}✓${NC} ${slug} status → ${state}"
-    $commit && commit_bubble "project" "$slug" "status → ${state}"
+    if $commit; then commit_bubble "project" "$slug" "status → ${state}"; fi
 }
 
 cmd_project_create() {
