@@ -18,11 +18,16 @@ import sys
 # Canon key order — mirrors CANON_KEY_ORDER in the write adapter
 # (~/.forge/packages/koad-io-goals-projects-resources/server/resources.js).
 # New fields are inserted here, not after the first line.
+#
+# `relates-to` added 2026-10-09 (open-022). It was sanctioned by name in the
+# 6th amendment and 16 containers already carry it, always last — but it was in
+# neither order list, so it landed last by accident rather than by rule. The
+# adapter's CANON_KEY_ORDER still needs the same one line (owed to Vulcan).
 KEY_ORDER = [
     'slug', 'kind', 'title', 'status', 'horizon',
     'participants', 'contributors', 'parents',
     'signed', 'created', 'updated',
-    'tags', 'success',
+    'tags', 'success', 'relates-to',
 ]
 
 

@@ -516,6 +516,23 @@ cmd_check() {
                 echo "  [field]   ${kindDir}/${slug}: missing ${fld}"; issues=$((issues+1))
             fi
         done
+        # Non-standard keys. The sanctioned set is the canon key order
+        # (fm.py KEY_ORDER / the write adapter's CANON_KEY_ORDER) plus
+        # `relates-to`, which is the one cross-reference the convention
+        # sanctions by name (6th amendment) and which canon orders last.
+        # `success` is a goal field — it does not belong on a project.
+        # Added 2026-10-09 (open-022): the 6th amendment claimed this check
+        # existed; it did not, which is how HAA kept two keys the same
+        # amendment named.
+        local allowed=" slug kind title status horizon participants contributors parents signed created updated tags relates-to "
+        if [ "$kindDir" = goals ] || [ "$kindDir" = 100k ]; then allowed="$allowed success "; fi
+        while IFS= read -r k; do
+            [ -z "$k" ] && continue
+            case "$allowed" in
+                *" $k "*) ;;
+                *) echo "  [key]     ${kindDir}/${slug}: non-standard key '${k}'"; issues=$((issues+1)) ;;
+            esac
+        done < <(awk 'NR==1 && /^---[[:space:]]*$/{f=1;next} f && /^---[[:space:]]*$/{exit} f && /^[A-Za-z0-9_-]+:/{k=$0;sub(/:.*/,"",k);print k}' "$file")
         if [ ! -f "${dir}/context.md" ]; then
             echo "  [context] ${kindDir}/${slug}: no context.md"; issues=$((issues+1))
         else
