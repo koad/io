@@ -536,7 +536,10 @@ cmd_check() {
         if [ ! -f "${dir}/context.md" ]; then
             echo "  [context] ${kindDir}/${slug}: no context.md"; issues=$((issues+1))
         else
-            c=$(awk 'BEGIN{fm=0;c=0} /^---[[:space:]]*$/{fm++;next} {if((fm==0||fm>=2)&&NF)c++} END{print c+0}' "${dir}/context.md")
+            # Content lines only: blank lines and headings do not count. The
+            # heading was being counted as content, so a context with a title and
+            # one line passed the stub test (2026-10-09, canon walk).
+            c=$(awk 'BEGIN{fm=0;c=0} /^---[[:space:]]*$/{fm++;next} {if((fm==0||fm>=2)&&NF && $0 !~ /^[[:space:]]*#/)c++} END{print c+0}' "${dir}/context.md")
             if [ "$c" -lt 3 ]; then
                 echo "  [context] ${kindDir}/${slug}: context stub (${c} content lines)"; issues=$((issues+1))
             fi
@@ -554,7 +557,15 @@ cmd_check() {
         while IFS= read -r r; do
             case "$r" in
                 ""|'?') continue ;;
-                /kingdom/*) ;;
+                /kingdom/*)
+                    # It must also RESOLVE, as parents do. A path with the right
+                    # prefix but no container behind it was passing the test
+                    # (caught 2026-10-09: kingdom-fs -> /kingdom/.ignore, absent).
+                    rel="${r#/kingdom/}"; path="${KINGDOM_ROOT}/${rel}"
+                    if [ ! -f "${path}/goal.md" ] && [ ! -f "${path}/project.md" ]; then
+                        echo "  [relates] ${kindDir}/${slug}: relates-to does not resolve: ${r}"; issues=$((issues+1))
+                    fi
+                    ;;
                 *) echo "  [relates] ${kindDir}/${slug}: relates-to is not a container path: ${r}"; issues=$((issues+1)) ;;
             esac
         done < <(fm_get "$file" relates-to | tr ' ' '\n' || true)
