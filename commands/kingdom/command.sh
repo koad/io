@@ -22,6 +22,7 @@
 #   koad-io kingdom project body <slug>         (new body on stdin)
 #   koad-io kingdom commit <slug> [-m <message>]
 #   koad-io kingdom tree [--horizon=<level>]
+#   koad-io kingdom check
 #   koad-io kingdom link <project> <goal>
 #   koad-io kingdom acl <slug> [--add <cid> | --remove <cid>]
 #   koad-io kingdom forge ...
@@ -69,7 +70,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 usage() {
-    sed -n '2,49p' "$0" | sed 's/^# //'
+    sed -n '2,50p' "$0" | sed 's/^# //'
     exit 0
 }
 
@@ -494,6 +495,65 @@ PROJEOF
 }
 
 # --- Cross-cutting ---
+
+# Canon integrity check. Surfaces the drift hand-maintained canon accumulates
+# silently: a container missing `kind`; a context.md that is absent or a stub;
+# a parent path that does not resolve; a goal whose body "Projects serving this
+# goal" names a project that does not actually parent to it (informational and
+# structural relation drifting apart).
+cmd_check() {
+    local issues=0 dir sdir
+
+    _check_one() {  # kindDir slug
+        local kindDir="$1" slug="$2" dir file p rel path n pf c
+        dir="${KINGDOM_ROOT}/${kindDir}/${slug}"
+        if [ "$kindDir" = goals ]; then file="${dir}/goal.md"; else file="${dir}/project.md"; fi
+        if [ ! -f "$file" ]; then return 0; fi
+        if ! grep -q '^kind:' "$file"; then
+            echo "  [kind]    ${kindDir}/${slug}: missing kind"; issues=$((issues+1))
+        fi
+        if [ ! -f "${dir}/context.md" ]; then
+            echo "  [context] ${kindDir}/${slug}: no context.md"; issues=$((issues+1))
+        else
+            c=$(awk 'BEGIN{fm=0;c=0} /^---[[:space:]]*$/{fm++;next} {if((fm==0||fm>=2)&&NF)c++} END{print c+0}' "${dir}/context.md")
+            if [ "$c" -lt 3 ]; then
+                echo "  [context] ${kindDir}/${slug}: context stub (${c} content lines)"; issues=$((issues+1))
+            fi
+        fi
+        while IFS= read -r p; do
+            if [ -z "$p" ]; then continue; fi
+            rel="${p#/kingdom/}"; path="${KINGDOM_ROOT}/${rel}"
+            if [ ! -f "${path}/goal.md" ] && [ ! -f "${path}/project.md" ]; then
+                echo "  [parent]  ${kindDir}/${slug}: dangling parent ${p}"; issues=$((issues+1))
+            fi
+        done < <(fm_get "$file" parents | tr ' ' '\n' | grep -E '/kingdom/' || true)
+        if [ "$kindDir" = goals ]; then
+            for n in $(sed -n '/^## Projects serving/,/^## /p' "$file" | grep -oE '^- [a-z0-9-]+' | sed 's/^- //' | sort -u); do
+                pf="${KINGDOM_ROOT}/projects/${n}/project.md"
+                if [ ! -f "$pf" ]; then
+                    echo "  [serving] ${kindDir}/${slug}: body names '${n}' -> no such project"; issues=$((issues+1))
+                elif ! grep -q "goals/${slug}" "$pf"; then
+                    echo "  [serving] ${kindDir}/${slug}: body names '${n}' -> does not parent here"; issues=$((issues+1))
+                fi
+            done
+        fi
+    }
+
+    echo -e "${BOLD}Canon check${NC}"
+    for dir in "${GOALS_DIR}"/*/; do
+        if [ ! -d "$dir" ]; then continue; fi
+        _check_one goals "$(basename "${dir%/}")"
+    done
+    for dir in "${PROJECTS_DIR}"/*/; do
+        if [ ! -d "$dir" ]; then continue; fi
+        _check_one projects "$(basename "${dir%/}")"
+        for sdir in "${dir}"*/; do
+            if [ ! -f "${sdir}project.md" ]; then continue; fi
+            _check_one projects "$(fm_get "${sdir}project.md" slug)"
+        done
+    done
+    if [ "$issues" -eq 0 ]; then echo -e "  ${GREEN}clean${NC}"; else echo -e "  ${YELLOW}${issues} issue(s)${NC}"; fi
+}
 
 cmd_tree() {
     local horizon=""
@@ -1363,6 +1423,7 @@ main() {
             esac
             ;;
         tree)   cmd_tree "$@" ;;
+        check)  cmd_check "$@" ;;
         link)   cmd_link "$@" ;;
         acl)    cmd_acl "$@" ;;
         commit) cmd_commit "$@" ;;
