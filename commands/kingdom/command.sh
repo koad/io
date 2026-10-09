@@ -543,6 +543,15 @@ cmd_check() {
             if [ "$c" -lt 3 ]; then
                 echo "  [context] ${kindDir}/${slug}: context stub (${c} content lines)"; issues=$((issues+1))
             fi
+            # context.md frontmatter carries exactly two keys: slug, updated.
+            # It was unchecked, which is how a pre-migration `altitude:` field
+            # survived in 100k/oneness alone (found 2026-10-09, canon walk).
+            while IFS= read -r k; do
+                case "$k" in
+                    ""|slug|updated) ;;
+                    *) echo "  [key]     ${kindDir}/${slug}/context.md: non-standard key '${k}'"; issues=$((issues+1)) ;;
+                esac
+            done < <(awk 'NR==1 && /^---[[:space:]]*$/{f=1;next} f && /^---[[:space:]]*$/{exit} f && /^[A-Za-z0-9_-]+:/{k=$0;sub(/:.*/,"",k);print k}' "${dir}/context.md")
         fi
         while IFS= read -r p; do
             if [ -z "$p" ]; then continue; fi
