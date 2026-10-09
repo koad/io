@@ -548,6 +548,16 @@ cmd_check() {
                 echo "  [parent]  ${kindDir}/${slug}: dangling parent ${p}"; issues=$((issues+1))
             fi
         done < <(fm_get "$file" parents | tr ' ' '\n' | grep -E '/kingdom/' || true)
+        # relates-to is a cross-reference to another CONTAINER. A spec id, a slug
+        # or a bare note is a reference, and the 6th amendment sends references
+        # to the body. Added 2026-10-09 (canon walk, alice-onboarding).
+        while IFS= read -r r; do
+            case "$r" in
+                ""|'?') continue ;;
+                /kingdom/*) ;;
+                *) echo "  [relates] ${kindDir}/${slug}: relates-to is not a container path: ${r}"; issues=$((issues+1)) ;;
+            esac
+        done < <(fm_get "$file" relates-to | tr ' ' '\n' || true)
         if [ "$kindDir" = goals ]; then
             for n in $(sed -n '/^## Projects serving/,/^## /p' "$file" | grep -oE '^- [a-z0-9-]+' | sed 's/^- //' | sort -u); do
                 pf="${KINGDOM_ROOT}/projects/${n}/project.md"
@@ -623,8 +633,13 @@ cmd_tree() {
     done
 
     echo ""
-    echo -e "${YELLOW}Unlinked Projects${NC}"
-    echo "----------------"
+    echo -e "${YELLOW}Parented to a project (not to a goal)${NC}"
+    echo "------------------------------------"
+    # Rule 2 permits a project parent either to a goal or to a parent project.
+    # The flat project→project case (parent set, folder top-level) is legal, and
+    # calling it "Unlinked" was simply wrong — it is linked, to a project. The
+    # parent is named here (2026-10-09, canon walk: five containers sat under a
+    # label that read as a defect report).
     for pdir in "$PROJECTS_DIR"/*/; do
         [ ! -d "$pdir" ] && continue
         local pslug=$(basename "$pdir")
@@ -639,7 +654,7 @@ cmd_tree() {
         done
         if ! $linked; then
             local pstatus=$(fm_get "$pfile" "status")
-            echo -e "  ${BOLD}${pslug}${NC} [${pstatus}] (${phorizon})"
+            echo -e "  ${BOLD}${pslug}${NC} [${pstatus}] (${phorizon}) → ${parents:-none}"
         fi
     done
 }
