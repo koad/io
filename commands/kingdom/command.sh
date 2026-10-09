@@ -504,14 +504,16 @@ PROJEOF
 cmd_check() {
     local issues=0 dir sdir
 
-    _check_one() {  # kindDir slug
-        local kindDir="$1" slug="$2" dir file p rel path n pf c
-        dir="${KINGDOM_ROOT}/${kindDir}/${slug}"
-        if [ "$kindDir" = goals ]; then file="${dir}/goal.md"; else file="${dir}/project.md"; fi
+    _check_one() {  # containerDir label kindDir
+        local cdir="$1" slug="$2" kindDir="$3" dir file p rel path n pf c fld
+        dir="$cdir"
+        if [ "$kindDir" = goals ] || [ "$kindDir" = 100k ]; then file="${dir}/goal.md"; else file="${dir}/project.md"; fi
         if [ ! -f "$file" ]; then return 0; fi
-        if ! grep -q '^kind:' "$file"; then
-            echo "  [kind]    ${kindDir}/${slug}: missing kind"; issues=$((issues+1))
-        fi
+        for fld in kind signed created updated; do
+            if ! grep -q "^${fld}:" "$file"; then
+                echo "  [field]   ${kindDir}/${slug}: missing ${fld}"; issues=$((issues+1))
+            fi
+        done
         if [ ! -f "${dir}/context.md" ]; then
             echo "  [context] ${kindDir}/${slug}: no context.md"; issues=$((issues+1))
         else
@@ -542,15 +544,19 @@ cmd_check() {
     echo -e "${BOLD}Canon check${NC}"
     for dir in "${GOALS_DIR}"/*/; do
         if [ ! -d "$dir" ]; then continue; fi
-        _check_one goals "$(basename "${dir%/}")"
+        _check_one "${dir%/}" "$(basename "${dir%/}")" goals
     done
     for dir in "${PROJECTS_DIR}"/*/; do
         if [ ! -d "$dir" ]; then continue; fi
-        _check_one projects "$(basename "${dir%/}")"
+        _check_one "${dir%/}" "$(basename "${dir%/}")" projects
         for sdir in "${dir}"*/; do
             if [ ! -f "${sdir}project.md" ]; then continue; fi
-            _check_one projects "$(fm_get "${sdir}project.md" slug)"
+            _check_one "${sdir%/}" "$(fm_get "${sdir}project.md" slug)" projects
         done
+    done
+    for dir in "${KINGDOM_ROOT}/100k"/*/; do
+        if [ ! -d "$dir" ]; then continue; fi
+        _check_one "${dir%/}" "$(basename "${dir%/}")" 100k
     done
     if [ "$issues" -eq 0 ]; then echo -e "  ${GREEN}clean${NC}"; else echo -e "  ${YELLOW}${issues} issue(s)${NC}"; fi
 }
