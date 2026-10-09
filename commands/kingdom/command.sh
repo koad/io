@@ -91,13 +91,41 @@ fm_add_list() {
     python3 "${COMMAND_DIR}/fm.py" add-list "$file" "$field" "$value"
 }
 
+# --- Container resolution ---
+# A project may be a sub-container nested one level inside a parent project: the
+# folder is the local short name, the slug is `<parent-slug>-<short>` (convention,
+# sub-container rule). Resolve a slug to its directory by trying the top level
+# first, then one level of nesting.
+resolve_project_dir() {  # slug -> prints the container dir, nonzero if absent
+    local slug="$1" d parent child top
+    top="${PROJECTS_DIR}/${slug}"
+    if [ -f "${top}/project.md" ]; then printf '%s' "$top"; return 0; fi
+    for d in "${PROJECTS_DIR}"/*/*/; do
+        [ -f "${d}project.md" ] || continue
+        parent="$(basename "$(dirname "${d%/}")")"
+        child="$(basename "${d%/}")"
+        if [ "${parent}-${child}" = "$slug" ]; then printf '%s' "${d%/}"; return 0; fi
+    done
+    for d in "${PROJECTS_DIR}"/*/*/; do
+        [ -f "${d}project.md" ] || continue
+        if [ "$(fm_get "${d}project.md" slug)" = "$slug" ]; then printf '%s' "${d%/}"; return 0; fi
+    done
+    return 1
+}
+
+dir_of() {  # type(goal|project) slug -> prints the container dir
+    if [ "$1" = "goal" ]; then printf '%s' "${GOALS_DIR}/${2}"; return 0; fi
+    resolve_project_dir "$2"
+}
+
 slug_exists() {
-    local type="$1" slug="$2"
-    local filetype="${type}"
-    # 'goals' directory contains 'goal.md', 'projects' contains 'project.md'
-    [ "$type" = "goals" ] && filetype="goal"
-    [ "$type" = "projects" ] && filetype="project"
-    [ -d "${KINGDOM_ROOT}/${type}/${slug}" ] && [ -f "${KINGDOM_ROOT}/${type}/${slug}/${filetype}.md" ]
+    local type="$1" slug="$2" filetype d
+    if [ "$type" = "goals" ]; then
+        filetype="goal"; d="${GOALS_DIR}/${slug}"
+    else
+        filetype="project"; d=$(resolve_project_dir "$slug") || return 1
+    fi
+    [ -f "${d}/${filetype}.md" ]
 }
 
 # --- Git commit helper ---
@@ -111,7 +139,7 @@ slug_exists() {
 init_bubble() {
     local type="$1" slug="$2"
     local dir
-    [ "$type" = "goal" ] && dir="${GOALS_DIR}/${slug}" || dir="${PROJECTS_DIR}/${slug}"
+    dir=$(dir_of "$type" "$slug")
 
     if ! git -C "$dir" init -q; then
         echo -e "${RED}✗${NC} git init failed: ${dir} — container created WITHOUT history" >&2
@@ -141,7 +169,7 @@ init_bubble() {
 commit_bubble() {
     local type="$1" slug="$2" summary="$3"
     local dir
-    [ "$type" = "goal" ] && dir="${GOALS_DIR}/${slug}" || dir="${PROJECTS_DIR}/${slug}"
+    dir=$(dir_of "$type" "$slug")
     if [ ! -d "${dir}/.git" ]; then
         echo -e "${YELLOW}⚠${NC} ${dir} is not a git repository — skipping commit" >&2
         return 1
@@ -347,6 +375,24 @@ cmd_project_list() {
 
         printf "${sc}%-30s %-12s %-10s %s${NC}\n" "$slug" "$status" "$horizon_val" "$participants"
     done
+
+    # sub-containers (nested one level inside a parent project)
+    for dir in "$PROJECTS_DIR"/*/*/; do
+        local pfile="${dir}project.md"
+        [ ! -f "$pfile" ] && continue
+        local s_slug=$(fm_get "$pfile" "slug")
+        local s_status=$(fm_get "$pfile" "status")
+        local s_horizon=$(fm_get "$pfile" "horizon")
+        local s_parts=$(fm_get "$pfile" "participants")
+        [ -n "$horizon" ] && [ "$s_horizon" != "$horizon" ] && continue
+        local sc2=""
+        case "$s_status" in
+            active)   sc2="${GREEN}" ;;
+            proposed) sc2="${YELLOW}" ;;
+            achieved|superseded) sc2="${CYAN}" ;;
+        esac
+        printf "${sc2}%-30s %-12s %-10s %s${NC}\n" "  ↳ ${s_slug}" "$s_status" "$s_horizon" "$s_parts"
+    done
 }
 
 cmd_project_show() {
@@ -355,7 +401,7 @@ cmd_project_show() {
     slug_exists "projects" "$slug" || die "Project '${slug}' not found"
     echo -e "${BOLD}=== ${slug} ===${NC}"
     echo ""
-    python3 "${COMMAND_DIR}/fm.py" show "${PROJECTS_DIR}/${slug}/project.md"
+    python3 "${COMMAND_DIR}/fm.py" show "$(dir_of project "$slug")/project.md"
 }
 
 cmd_project_context() {
@@ -373,7 +419,7 @@ cmd_project_context() {
     [ $# -lt 1 ] && die "Usage: koad-io kingdom project context <slug> [--update] [--commit]"
     local slug="$1"
     slug_exists "projects" "$slug" || die "Project '${slug}' not found"
-    local context_file="${PROJECTS_DIR}/${slug}/context.md"
+    local context_file="$(dir_of project "$slug")/context.md"
     if $update; then
         [ -t 0 ] && die "Provide new context via stdin"
         local tmp; tmp=$(mktemp)
@@ -404,7 +450,7 @@ cmd_project_status() {
         proposed|active|standing|parked|achieved|superseded) ;;
         *) die "Invalid state '${state}'" ;;
     esac
-    fm_set "${PROJECTS_DIR}/${slug}/project.md" "status" "$state"
+    fm_set "$(dir_of project "$slug")/project.md" "status" "$state"
     echo -e "${GREEN}✓${NC} ${slug} status → ${state}"
     if $commit; then commit_bubble "project" "$slug" "status → ${state}"; fi
 }
@@ -480,6 +526,13 @@ cmd_tree() {
             if echo "$parents" | grep -q "${slug}"; then
                 local pstatus=$(fm_get "$pfile" "status")
                 echo -e "    └─ ${BOLD}${pslug}${NC} [${pstatus}] (${phorizon})"
+                for sdir in "${pdir}"/*/; do
+                    [ -f "${sdir}project.md" ] || continue
+                    local s_sslug=$(fm_get "${sdir}project.md" "slug")
+                    local s_sstatus=$(fm_get "${sdir}project.md" "status")
+                    local s_shorizon=$(fm_get "${sdir}project.md" "horizon")
+                    echo -e "         ↳ ${s_sslug} [${s_sstatus}] (${s_shorizon})"
+                done
             fi
         done
     done
@@ -511,7 +564,7 @@ cmd_link() {
     local project="$1" goal="$2"
     slug_exists "projects" "$project" || die "Project '${project}' not found"
     slug_exists "goals" "$goal" || die "Goal '${goal}' not found"
-    fm_add_list "${PROJECTS_DIR}/${project}/project.md" "parents" "/kingdom/goals/${goal}"
+    fm_add_list "$(dir_of project "$project")/project.md" "parents" "/kingdom/goals/${goal}"
     echo -e "${GREEN}✓${NC} Linked ${project} → ${goal}"
 }
 
@@ -527,7 +580,7 @@ cmd_acl() {
     slug_exists "goals" "$slug" && { type="goals"; filetype="goal"; }
     slug_exists "projects" "$slug" && { type="projects"; filetype="project"; }
     [ -z "$type" ] && die "No goal or project found for '${slug}'"
-    local file="${KINGDOM_ROOT}/${type}/${slug}/${filetype}.md"
+    local file="$(dir_of "$([ "$type" = "goals" ] && echo goal || echo project)" "$slug")/${filetype}.md"
 
     if [ "$action" = "add" ]; then
         fm_add_list "$file" "contributors" "$cid"
@@ -560,7 +613,7 @@ cmd_commit() {
     [ -z "$type" ] && die "No goal or project found for '${slug}'"
 
     local dir
-    [ "$type" = "goal" ] && dir="${GOALS_DIR}/${slug}" || dir="${PROJECTS_DIR}/${slug}"
+    dir=$(dir_of "$type" "$slug")
     [ -z "$message" ] && message="update"
 
     commit_bubble "$type" "$slug" "$message"
@@ -1228,12 +1281,12 @@ cmd_commitment_cancel() {
 # List fields (tags, success, participants, contributors, parents, relates-to) use
 # field-add, which appends one item.
 _bubble_path() {  # type slug → prints file path, or dies
-    local type="${1:-goal}" slug="${2:-}" dir file
-    if [ "$type" = "goal" ]; then dir="${GOALS_DIR}"; file="goal.md"; else dir="${PROJECTS_DIR}"; file="project.md"; fi
+    local type="${1:-goal}" slug="${2:-}" file dir
+    [ "$type" = "goal" ] && file="goal.md" || file="project.md"
     [ -n "$slug" ] || die "Usage: koad-io kingdom ${type} field <slug> <key> <value>"
-    local path="${dir}/${slug}/${file}"
-    [ -f "$path" ] || die "${type} '${slug}' not found"
-    printf '%s' "$path"
+    dir="$(dir_of "$type" "$slug")" || die "${type} '${slug}' not found"
+    [ -f "${dir}/${file}" ] || die "${type} '${slug}' not found"
+    printf '%s' "${dir}/${file}"
 }
 
 cmd_bubble_field() {  # type slug key value...
