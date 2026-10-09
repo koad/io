@@ -181,6 +181,23 @@ def add_to_list(fm_text, field, value):
     return '\n'.join(lines)
 
 
+def remove_field(fm_text, field):
+    """Remove a key entirely — scalar or block list — from frontmatter text."""
+    lines = fm_text.split('\n')
+    out = []
+    skipping = False
+    for line in lines:
+        if re.match(r'^' + re.escape(field) + r':', line):
+            skipping = True
+            continue
+        if skipping:
+            if re.match(r'^\s+', line):
+                continue
+            skipping = False
+        out.append(line)
+    return '\n'.join(out)
+
+
 def remove_from_list(fm_text, field, value):
     """Remove a value from a YAML list field."""
     lines = fm_text.split('\n')
@@ -277,6 +294,20 @@ def main():
             content = f.read()
         fm_text, body = parse_fm(content)
         new_fm = remove_from_list(fm_text, field, value)
+        new_content = f"---\n{new_fm}\n---{body}"
+        with open(filepath, 'w') as f:
+            f.write(new_content)
+
+    elif cmd == 'rm':
+        filepath = sys.argv[2]
+        field = sys.argv[3]
+        with open(filepath) as f:
+            content = f.read()
+        fm_text, body = parse_fm(content)
+        if not fm_text:
+            print("No frontmatter found", file=sys.stderr)
+            sys.exit(1)
+        new_fm = remove_field(fm_text, field)
         new_content = f"---\n{new_fm}\n---{body}"
         with open(filepath, 'w') as f:
             f.write(new_content)
