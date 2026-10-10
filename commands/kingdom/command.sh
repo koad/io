@@ -254,31 +254,40 @@ cmd_goal_list() {
         fi
     done
 
-    [ ! -d "$GOALS_DIR" ] && { echo "No goals directory"; exit 0; }
+    [ ! -d "$GOALS_DIR" ] && [ ! -d "${KINGDOM_ROOT}/100k" ] && { echo "No goals directory"; exit 0; }
 
     printf "${BOLD}%-30s %-12s %-10s %s${NC}\n" "SLUG" "STATUS" "HORIZON" "PARTICIPANTS"
     printf "%s\n" "----------------------------------------------------------------"
 
-    for dir in "$GOALS_DIR"/*/; do
-        local slug
-        slug=$(basename "$dir")
-        local gfile="${dir}goal.md"
-        [ ! -f "$gfile" ] && continue
+    # Two roots, one kind. /kingdom/100k/<slug>/goal.md IS a goal at horizon
+    # 100k (see resolve_goal_dir, which already reaches it) — so a list that
+    # reads only /kingdom/goals omits a goal the same command can `show`. The
+    # read model indexes both; this has to match or the page and the CLI
+    # disagree about how many goals exist.
+    local root dir slug gfile status horizon_val participants sc
+    for root in "$GOALS_DIR" "${KINGDOM_ROOT}/100k"; do
+        [ -d "$root" ] || continue
+        for dir in "$root"/*/; do
+            slug=$(basename "$dir")
+            gfile="${dir}goal.md"
+            [ ! -f "$gfile" ] && continue
 
-        local status=$(fm_get "$gfile" "status")
-        local horizon_val=$(fm_get "$gfile" "horizon")
-        local participants=$(fm_get "$gfile" "participants")
+            status=$(fm_get "$gfile" "status")
+            horizon_val=$(fm_get "$gfile" "horizon")
+            participants=$(fm_get "$gfile" "participants")
 
-        [ -n "$horizon" ] && [ "$horizon_val" != "$horizon" ] && continue
+            [ -n "$horizon" ] && [ "$horizon_val" != "$horizon" ] && continue
 
-        local sc=""
-        case "$status" in
-            active)   sc="${GREEN}" ;;
-            proposed) sc="${YELLOW}" ;;
-            achieved|superseded) sc="${CYAN}" ;;
-        esac
+            sc=""
+            case "$status" in
+                active)   sc="${GREEN}" ;;
+                standing) sc="${GREEN}" ;;
+                proposed) sc="${YELLOW}" ;;
+                achieved|superseded) sc="${CYAN}" ;;
+            esac
 
-        printf "${sc}%-30s %-12s %-10s %s${NC}\n" "$slug" "$status" "$horizon_val" "$participants"
+            printf "${sc}%-30s %-12s %-10s %s${NC}\n" "$slug" "$status" "$horizon_val" "$participants"
+        done
     done
 }
 
