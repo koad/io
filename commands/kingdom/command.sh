@@ -116,15 +116,27 @@ resolve_project_dir() {  # slug -> prints the container dir, nonzero if absent
     return 1
 }
 
+# A goal lives at /kingdom/goals/<slug> — or, for the source, at /kingdom/100k/<slug>.
+# A 100k container IS `kind: goal` at horizon 100k; it was simply the one container the
+# CLI could not reach ('Goal not found'), which blocked a real unit walk on 2026-10-09
+# and forced a hand-edit through fm.py — the path rule 5 exists to prevent (open-027).
+# Not a fourth type: a second root for the type it already is.
+resolve_goal_dir() {  # slug -> prints the container dir
+    local slug="$1"
+    if [ -f "${GOALS_DIR}/${slug}/goal.md" ]; then printf '%s' "${GOALS_DIR}/${slug}"; return 0; fi
+    if [ -f "${KINGDOM_ROOT}/100k/${slug}/goal.md" ]; then printf '%s' "${KINGDOM_ROOT}/100k/${slug}"; return 0; fi
+    printf '%s' "${GOALS_DIR}/${slug}"
+}
+
 dir_of() {  # type(goal|project) slug -> prints the container dir
-    if [ "$1" = "goal" ]; then printf '%s' "${GOALS_DIR}/${2}"; return 0; fi
+    if [ "$1" = "goal" ]; then resolve_goal_dir "$2"; return 0; fi
     resolve_project_dir "$2"
 }
 
 slug_exists() {
     local type="$1" slug="$2" filetype d
     if [ "$type" = "goals" ]; then
-        filetype="goal"; d="${GOALS_DIR}/${slug}"
+        filetype="goal"; d=$(resolve_goal_dir "$slug")
     else
         filetype="project"; d=$(resolve_project_dir "$slug") || return 1
     fi
@@ -238,7 +250,7 @@ cmd_goal_show() {
     [ $# -lt 1 ] && die "Usage: koad-io kingdom goal show <slug>"
     local slug="$1"
     slug_exists "goals" "$slug" || die "Goal '${slug}' not found"
-    local file="${GOALS_DIR}/${slug}/goal.md"
+    local file="$(dir_of goal "$slug")/goal.md"
     echo -e "${BOLD}=== ${slug} ===${NC}"
     echo ""
     python3 "${COMMAND_DIR}/fm.py" show "$file"
@@ -260,7 +272,7 @@ cmd_goal_context() {
     local slug="$1"
 
     slug_exists "goals" "$slug" || die "Goal '${slug}' not found"
-    local context_file="${GOALS_DIR}/${slug}/context.md"
+    local context_file="$(dir_of goal "$slug")/context.md"
 
     if $update; then
         [ -t 0 ] && die "Provide new context via stdin"
@@ -296,7 +308,7 @@ cmd_goal_status() {
         proposed|active|standing|parked|achieved|superseded) ;;
         *) die "Invalid state '${state}'" ;;
     esac
-    fm_set "${GOALS_DIR}/${slug}/goal.md" "status" "$state"
+    fm_set "$(dir_of goal "$slug")/goal.md" "status" "$state"
     echo -e "${GREEN}✓${NC} ${slug} status → ${state}"
     if $commit; then commit_bubble "goal" "$slug" "status → ${state}"; fi
 }
@@ -306,7 +318,7 @@ cmd_goal_create() {
     local slug="$1"
     slug_exists "goals" "$slug" && die "Goal '${slug}' already exists"
 
-    local dir="${GOALS_DIR}/${slug}"
+    local dir; dir="$(dir_of goal "$slug")"
     mkdir -p "$dir"/{tickler,briefs,specs,assets}
 
     cat > "${dir}/goal.md" << GOALEOF
