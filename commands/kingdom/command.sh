@@ -364,7 +364,7 @@ cmd_goal_create() {
     slug_exists "goals" "$slug" && die "Goal '${slug}' already exists"
 
     local dir; dir="$(dir_of goal "$slug")"
-    mkdir -p "$dir"/{tickler,briefs,specs,assets}
+    mkdir -p "$dir"/{questions,tickler,briefs,specs,assets}
 
     cat > "${dir}/goal.md" << GOALEOF
 ---
@@ -521,7 +521,7 @@ cmd_project_create() {
     slug_exists "projects" "$slug" && die "Project '${slug}' already exists"
 
     local dir="${PROJECTS_DIR}/${slug}"
-    mkdir -p "$dir"/{tickler,briefs,specs,assets}
+    mkdir -p "$dir"/{questions,tickler,briefs,specs,assets}
 
     cat > "${dir}/project.md" << PROJEOF
 ---
@@ -708,7 +708,7 @@ cmd_side_create() {  # kind slug [--repo=<path>] [--remote=<url>] [--for=<handle
     slug_exists "$kind" "$slug" && die "${kind} '${slug}' already exists"
 
     local dir; dir="$(dir_of "$kind" "$slug")"
-    mkdir -p "$dir"/{tickler,briefs,specs,assets}
+    mkdir -p "$dir"/{questions,tickler,briefs,specs,assets}
 
     if [ "$kind" = "component" ]; then
         {
