@@ -1030,7 +1030,12 @@ cmd_commit() {
     local type=""
     slug_exists "goals" "$slug" && type="goal"
     slug_exists "projects" "$slug" && type="project"
-    [ -z "$type" ] && die "No goal or project found for '${slug}'"
+    # components and cases gained their verbs 2026-10-09; commit was missed, which
+    # forced every component/case commit to be a hand-run git command — the exact
+    # path rule 5 exists to prevent. Found live on the echoplex walk, 2026-10-10.
+    slug_exists "components" "$slug" && type="component"
+    slug_exists "cases" "$slug" && type="case"
+    [ -z "$type" ] && die "No container found for '${slug}' (goal, project, component or case)"
 
     local dir
     dir=$(dir_of "$type" "$slug")
