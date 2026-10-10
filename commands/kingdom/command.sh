@@ -802,6 +802,26 @@ cmd_check() {
                 echo "  [field]   ${kindDir}/${slug}: missing ${fld}"; issues=$((issues+1))
             fi
         done
+        # A DUPLICATED frontmatter block. `fm.py` splits on the FIRST two `---`
+        # (content.split('---', 2)), so a second block lands inside the "body" and
+        # survives every read/write round-trip — and both `kingdom show` and this
+        # check read only the first block, so nothing saw it. Two containers
+        # carried one until 2026-10-10 (kingdom-fs/tooling, kingofalldata-pwa).
+        # A `---` line followed by a `slug:` line is a block, not a horizontal rule:
+        # pi-integration and chiron-curriculum-spec each carry a legitimate `---`
+        # rule in the body and must NOT be flagged.
+        if awk '
+            NR==1 && /^---[[:space:]]*$/ { fm=1; next }
+            fm==1 && /^---[[:space:]]*$/ { fm=2; next }
+            fm==2 && /^---[[:space:]]*$/ { pending=1; next }
+            fm==2 && pending {
+                if ($0 ~ /^[[:space:]]*$/) next
+                if ($0 ~ /^slug:/) { print "dup"; exit }
+                pending=0
+            }
+        ' "$file" | grep -q dup; then
+            echo "  [frontmatter] ${kindDir}/${slug}: duplicated frontmatter block"; issues=$((issues+1))
+        fi
         # Non-standard keys. The sanctioned set is the canon key order
         # (fm.py KEY_ORDER / the write adapter's CANON_KEY_ORDER) plus
         # `relates-to`, which is the one cross-reference the convention
