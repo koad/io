@@ -852,8 +852,11 @@ cmd_check() {
                     # It must also RESOLVE, as parents do. A path with the right
                     # prefix but no container behind it was passing the test
                     # (caught 2026-10-09: kingdom-fs -> /kingdom/.ignore, absent).
+                    # Five kinds now, not three — a case legitimately relates to a
+                    # component, and this test would have called that a defect.
                     rel="${r#/kingdom/}"; path="${KINGDOM_ROOT}/${rel}"
-                    if [ ! -f "${path}/goal.md" ] && [ ! -f "${path}/project.md" ]; then
+                    if [ ! -f "${path}/goal.md" ] && [ ! -f "${path}/project.md" ] \
+                       && [ ! -f "${path}/component.md" ] && [ ! -f "${path}/case.md" ]; then
                         echo "  [relates] ${kindDir}/${slug}: relates-to does not resolve: ${r}"; issues=$((issues+1))
                     fi
                     ;;
