@@ -280,7 +280,7 @@ cat <<'EOF'
 
 ### Skills
 
-Markdown files at `~/.<entity>/skills/<name>/SKILL.md` and `~/.koad-io/harness/skills/<name>/SKILL.md`. Each has YAML frontmatter (`description:`, `when_to_use:`) declaring when it applies. **Read the relevant SKILL.md before doing work that matches its description.** The names below are the menu — open the file to load the content.
+Markdown files at `~/.<entity>/skills/<name>/SKILL.md` and in the framework skills directory. Each has YAML frontmatter (`description:`, `when_to_use:`) declaring when it applies. **Read the relevant SKILL.md before doing work that matches its description.** The names below are the menu — open the file to load the content.
 
 #### Entity skills (`~/.<entity>/skills/`)
 EOF
@@ -288,9 +288,24 @@ _ls "$ENTITY_DIR/skills" | sed 's/^/- /'
 
 cat <<'EOF'
 
-#### Framework skills (`$KOAD_IO_DIR/harness/skills/`)
+#### Framework skills
 EOF
-_ls "$KOAD_IO_DIR/harness/skills" | sed 's/^/- /'
+# Which directory? `~/.koad-io/harness/skills` was named here and has NEVER existed —
+# `git -C ~/.koad-io log --all --name-only -- harness/skills` returns nothing, so it
+# was a dead pointer from the start, and this section of every entity's preamble
+# rendered empty for that entire time. The harness moved: `~/.forge/harness/` is
+# the pi agent directory, and that is where framework skills are. Resolve instead
+# of assuming, so this works on a machine at either stage of the move. (open-025)
+FRAMEWORK_SKILLS_DIR=""
+for _sk in "$HOME/.forge/harness/skills" "$KOAD_IO_DIR/harness/skills"; do
+    if [ -d "$_sk" ]; then FRAMEWORK_SKILLS_DIR="$_sk"; break; fi
+done
+if [ -n "$FRAMEWORK_SKILLS_DIR" ]; then
+    echo "(\`${FRAMEWORK_SKILLS_DIR}\`)"
+    _ls "$FRAMEWORK_SKILLS_DIR" | sed 's/^/- /'
+else
+    echo "_(no framework skills directory found — checked ~/.forge/harness/skills and \$KOAD_IO_DIR/harness/skills)_"
+fi
 
 # --- Daemon status -----------------------------------------------------------
 # Quick health check against the daemon. If reachable, splice a summary into
