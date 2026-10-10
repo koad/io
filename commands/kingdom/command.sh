@@ -794,6 +794,7 @@ cmd_check() {
             goals|100k) file="${dir}/goal.md" ;;
             components) file="${dir}/component.md" ;;
             cases)      file="${dir}/case.md" ;;
+            entities)   file="${dir}/entity.md" ;;
             *)          file="${dir}/project.md" ;;
         esac
         if [ ! -f "$file" ]; then return 0; fi
@@ -836,6 +837,7 @@ cmd_check() {
             projects)    allowed="$allowed horizon participants contributors parents " ;;
             components)  allowed="$allowed repo remote stack consumed-by contributors " ;;
             cases)       allowed="$allowed for opened contributors " ;;
+            entities)    allowed="$allowed handle home remote role contributors " ;;
         esac
         while IFS= read -r k; do
             [ -z "$k" ] && continue
@@ -921,7 +923,7 @@ cmd_check() {
         if [ ! -d "$dir" ]; then continue; fi
         _check_one "${dir%/}" "$(basename "${dir%/}")" 100k
     done
-    for kindDir in components cases; do
+    for kindDir in components cases entities; do
         for dir in "${KINGDOM_ROOT}/${kindDir}"/*/; do
             if [ ! -d "$dir" ]; then continue; fi
             _check_one "${dir%/}" "$(basename "${dir%/}")" "$kindDir"
