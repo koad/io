@@ -521,7 +521,18 @@ cmd_check() {
     _check_one() {  # containerDir label kindDir
         local cdir="$1" slug="$2" kindDir="$3" dir file p rel path n pf c fld
         dir="$cdir"
-        if [ "$kindDir" = goals ] || [ "$kindDir" = 100k ]; then file="${dir}/goal.md"; else file="${dir}/project.md"; fi
+        # Five container kinds now, not three. Components and cases were ratified
+        # 2026-09-27 and had NO containers until 2026-10-09 — the day canon's first
+        # two components were created by hand BECAUSE this linter could not see them.
+        # A check that reports clean over an incomplete universe is the open-019
+        # failure with a different subject (shape 10: name the universe before you
+        # name the result). They are inside it now.
+        case "$kindDir" in
+            goals|100k) file="${dir}/goal.md" ;;
+            components) file="${dir}/component.md" ;;
+            cases)      file="${dir}/case.md" ;;
+            *)          file="${dir}/project.md" ;;
+        esac
         if [ ! -f "$file" ]; then return 0; fi
         for fld in kind signed created updated; do
             if ! grep -q "^${fld}:" "$file"; then
@@ -536,8 +547,13 @@ cmd_check() {
         # Added 2026-10-09 (open-022): the 6th amendment claimed this check
         # existed; it did not, which is how HAA kept two keys the same
         # amendment named.
-        local allowed=" slug kind title status horizon participants contributors parents signed created updated tags relates-to "
-        if [ "$kindDir" = goals ] || [ "$kindDir" = 100k ]; then allowed="$allowed success "; fi
+        local allowed=" slug kind title status signed created updated tags relates-to "
+        case "$kindDir" in
+            goals|100k)  allowed="$allowed horizon participants contributors parents success " ;;
+            projects)    allowed="$allowed horizon participants contributors parents " ;;
+            components)  allowed="$allowed repo remote stack consumed-by contributors " ;;
+            cases)       allowed="$allowed for opened contributors " ;;
+        esac
         while IFS= read -r k; do
             [ -z "$k" ] && continue
             case "$allowed" in
@@ -618,6 +634,12 @@ cmd_check() {
     for dir in "${KINGDOM_ROOT}/100k"/*/; do
         if [ ! -d "$dir" ]; then continue; fi
         _check_one "${dir%/}" "$(basename "${dir%/}")" 100k
+    done
+    for kindDir in components cases; do
+        for dir in "${KINGDOM_ROOT}/${kindDir}"/*/; do
+            if [ ! -d "$dir" ]; then continue; fi
+            _check_one "${dir%/}" "$(basename "${dir%/}")" "$kindDir"
+        done
     done
     if [ "$issues" -eq 0 ]; then echo -e "  ${GREEN}clean${NC}"; else echo -e "  ${YELLOW}${issues} issue(s)${NC}"; fi
 }
