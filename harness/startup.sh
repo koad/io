@@ -145,14 +145,39 @@ cat <<EOF
 EOF
 
 # Entity repo status (always available, fast)
+#
+# Truth discipline (2026-10-10). Two defects lived in these four lines:
+#   1. `git status` refreshes the stat cache and takes .git/index.lock. This read
+#      is observational, so every git call here runs with GIT_OPTIONAL_LOCKS=0 —
+#      the same guard as ~/.forge/harness/extension/identity/git.ts (787f5af).
+#      Unguarded, the preamble collides with a concurrent entity add/commit.
+#   2. A FAILED git rendered as "working tree: clean": `$(... 2>/dev/null)` plus
+#      `[ -z "$_status" ] -> clean` meant a held lock, a corrupt repo, missing
+#      git, or an unavailable mount all read as clean. The inability to answer is
+#      not an answer — check the exit status: empty+success = clean, output =
+#      dirty, failure = unknown. Same discipline for ahead-count and last-commit.
 if [ -d "$ENTITY_DIR/.git" ]; then
-  _branch="$(git -C "$ENTITY_DIR" branch --show-current 2>/dev/null || echo unknown)"
-  _status="$(git -C "$ENTITY_DIR" status --porcelain 2>/dev/null)"
-  _ahead="$(git -C "$ENTITY_DIR" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 0)"
-  _last_commit="$(git -C "$ENTITY_DIR" log --oneline -1 2>/dev/null || echo 'no commits')"
+  _branch="$(GIT_OPTIONAL_LOCKS=0 git -C "$ENTITY_DIR" branch --show-current 2>/dev/null || echo unknown)"
+  if _status="$(GIT_OPTIONAL_LOCKS=0 git -C "$ENTITY_DIR" status --porcelain 2>/dev/null)"; then
+    _status_ok=1
+  else
+    _status_ok=0
+  fi
+  if _ahead="$(GIT_OPTIONAL_LOCKS=0 git -C "$ENTITY_DIR" rev-list --count '@{upstream}..HEAD' 2>/dev/null)"; then
+    :
+  else
+    _ahead="unknown"
+  fi
+  if _last_commit="$(GIT_OPTIONAL_LOCKS=0 git -C "$ENTITY_DIR" log --oneline -1 2>/dev/null)"; then
+    :
+  else
+    _last_commit="unknown"
+  fi
   echo "**Entity repo** (\`~/.$ENTITY\`):"
   echo "- branch: \`$_branch\`"
-  if [ -z "$_status" ]; then
+  if [ "$_status_ok" = "0" ]; then
+    echo "- working tree: unknown (git status failed)"
+  elif [ -z "$_status" ]; then
     echo "- working tree: clean"
   else
     echo "- working tree: dirty"
@@ -160,20 +185,38 @@ if [ -d "$ENTITY_DIR/.git" ]; then
     echo "$_status"
     echo '```'
   fi
-  [ "$_ahead" -gt 0 ] && echo "- **$_ahead commits ahead of origin** (unpushed)"
+  if [ "$_ahead" = "unknown" ]; then
+    echo "- commits ahead of origin: unknown (rev-list failed)"
+  elif [ "$_ahead" -gt 0 ]; then
+    echo "- **$_ahead commits ahead of origin** (unpushed)"
+  fi
   echo "- last commit: \`$_last_commit\`"
   echo
 fi
 
 # Working dir repo status (if different from entity dir and is a git repo)
 if [ "$HARNESS_WORK_DIR" != "$ENTITY_DIR" ] && [ -d "$HARNESS_WORK_DIR/.git" ]; then
-  _wbranch="$(git -C "$HARNESS_WORK_DIR" branch --show-current 2>/dev/null || echo unknown)"
-  _wstatus="$(git -C "$HARNESS_WORK_DIR" status --porcelain 2>/dev/null)"
-  _wahead="$(git -C "$HARNESS_WORK_DIR" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo 0)"
-  _wlast="$(git -C "$HARNESS_WORK_DIR" log --oneline -1 2>/dev/null || echo 'no commits')"
+  _wbranch="$(GIT_OPTIONAL_LOCKS=0 git -C "$HARNESS_WORK_DIR" branch --show-current 2>/dev/null || echo unknown)"
+  if _wstatus="$(GIT_OPTIONAL_LOCKS=0 git -C "$HARNESS_WORK_DIR" status --porcelain 2>/dev/null)"; then
+    _wstatus_ok=1
+  else
+    _wstatus_ok=0
+  fi
+  if _wahead="$(GIT_OPTIONAL_LOCKS=0 git -C "$HARNESS_WORK_DIR" rev-list --count '@{upstream}..HEAD' 2>/dev/null)"; then
+    :
+  else
+    _wahead="unknown"
+  fi
+  if _wlast="$(GIT_OPTIONAL_LOCKS=0 git -C "$HARNESS_WORK_DIR" log --oneline -1 2>/dev/null)"; then
+    :
+  else
+    _wlast="unknown"
+  fi
   echo "**Working dir** (\`$HARNESS_WORK_DIR\`):"
   echo "- branch: \`$_wbranch\`"
-  if [ -z "$_wstatus" ]; then
+  if [ "$_wstatus_ok" = "0" ]; then
+    echo "- working tree: unknown (git status failed)"
+  elif [ -z "$_wstatus" ]; then
     echo "- working tree: clean"
   else
     echo "- working tree: dirty"
@@ -181,7 +224,11 @@ if [ "$HARNESS_WORK_DIR" != "$ENTITY_DIR" ] && [ -d "$HARNESS_WORK_DIR/.git" ]; 
     echo "$_wstatus"
     echo '```'
   fi
-  [ "$_wahead" -gt 0 ] && echo "- **$_wahead commits ahead of origin** (unpushed)"
+  if [ "$_wahead" = "unknown" ]; then
+    echo "- commits ahead of origin: unknown (rev-list failed)"
+  elif [ "$_wahead" -gt 0 ]; then
+    echo "- **$_wahead commits ahead of origin** (unpushed)"
+  fi
   echo "- last commit: \`$_wlast\`"
   echo
 fi
