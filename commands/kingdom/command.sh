@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# koad-io kingdom — permissioned proxy for /kingdom/ goals and projects
+# koad-io kingdom — permissioned proxy for the /kingdom canon
+#
+# Four vantage points on one body of work (convention, 3rd amendment): a goal is
+# where it is going, a project the vehicle, a component what it is built out of,
+# a case whose need it serves. All four are mutated only through this command
+# (rule 5) — components and cases gained their verbs on 2026-10-09, having
+# previously been hand-edited.
 #
 # Usage:
 #   koad-io kingdom goal list [--horizon=<level>]
@@ -22,6 +28,26 @@
 #   koad-io kingdom project field-remove <slug> <key> <value>
 #   koad-io kingdom project key-rm <slug> <key>
 #   koad-io kingdom project body <slug>         (new body on stdin)
+#   koad-io kingdom component list
+#   koad-io kingdom component show <slug>
+#   koad-io kingdom component context <slug> [--update] [--commit]
+#   koad-io kingdom component status <slug> <state> [--commit]
+#   koad-io kingdom component create <slug> [--repo=<path>] [--remote=<url>]
+#   koad-io kingdom component field <slug> <key> <value>
+#   koad-io kingdom component field-add <slug> <key> <value>
+#   koad-io kingdom component field-remove <slug> <key> <value>
+#   koad-io kingdom component key-rm <slug> <key>
+#   koad-io kingdom component body <slug>       (new body on stdin)
+#   koad-io kingdom case list
+#   koad-io kingdom case show <slug>
+#   koad-io kingdom case context <slug> [--update] [--commit]
+#   koad-io kingdom case status <slug> <state> [--commit]
+#   koad-io kingdom case create <slug> [--for=<handle>]
+#   koad-io kingdom case field <slug> <key> <value>
+#   koad-io kingdom case field-add <slug> <key> <value>
+#   koad-io kingdom case field-remove <slug> <key> <value>
+#   koad-io kingdom case key-rm <slug> <key>
+#   koad-io kingdom case body <slug>            (new body on stdin)
 #   koad-io kingdom commit <slug> [-m <message>]
 #   koad-io kingdom tree [--horizon=<level>]
 #   koad-io kingdom check
@@ -55,6 +81,8 @@ set -euo pipefail
 KINGDOM_ROOT="${KOAD_IO_KINGDOM_ROOT:-/kingdom}"
 GOALS_DIR="${KINGDOM_ROOT}/goals"
 PROJECTS_DIR="${KINGDOM_ROOT}/projects"
+COMPONENTS_DIR="${KINGDOM_ROOT}/components"
+CASES_DIR="${KINGDOM_ROOT}/cases"
 CONTACTS_DIR="${KINGDOM_ROOT}/contacts"
 PACKAGES_DIR="${KINGDOM_ROOT}/packages"
 CALENDAR_DIR="${KINGDOM_ROOT}/calendar"
@@ -72,7 +100,10 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 usage() {
-    sed -n '2,52p' "$0" | sed 's/^# //'
+    # Print the header comment block: line 2 up to the first non-comment line.
+    # The old form hard-coded `sed -n '2,52p'`, which silently truncated help the
+    # moment a line was added to the header — and twenty just were.
+    awk 'NR==1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
     exit 0
 }
 
@@ -128,18 +159,23 @@ resolve_goal_dir() {  # slug -> prints the container dir
     printf '%s' "${GOALS_DIR}/${slug}"
 }
 
-dir_of() {  # type(goal|project) slug -> prints the container dir
-    if [ "$1" = "goal" ]; then resolve_goal_dir "$2"; return 0; fi
-    resolve_project_dir "$2"
+dir_of() {  # type(goal|project|component|case) slug -> prints the container dir
+    case "$1" in
+        goal)      resolve_goal_dir "$2" ;;
+        component) printf '%s' "${COMPONENTS_DIR}/${2}" ;;
+        case)      printf '%s' "${CASES_DIR}/${2}" ;;
+        *)         resolve_project_dir "$2" ;;
+    esac
 }
 
 slug_exists() {
     local type="$1" slug="$2" filetype d
-    if [ "$type" = "goals" ]; then
-        filetype="goal"; d=$(resolve_goal_dir "$slug")
-    else
-        filetype="project"; d=$(resolve_project_dir "$slug") || return 1
-    fi
+    case "$type" in
+        goals|goal)           filetype="goal";      d=$(resolve_goal_dir "$slug") ;;
+        components|component) filetype="component"; d="${COMPONENTS_DIR}/${slug}" ;;
+        cases|case)           filetype="case";      d="${CASES_DIR}/${slug}" ;;
+        *)                    filetype="project";   d=$(resolve_project_dir "$slug") || return 1 ;;
+    esac
     [ -f "${d}/${filetype}.md" ]
 }
 
@@ -506,6 +542,224 @@ PROJEOF
     echo "# Context" > "${dir}/context.md"
     init_bubble "project" "$slug"
     echo -e "${GREEN}✓${NC} Project '${slug}' created at ${dir}"
+}
+
+# --- Components & cases (references and needs — not altitude-ranked) ---
+#
+# Ratified 2026-09-27 (convention, 2nd amendment) and given NO tooling on
+# purpose: "building a CLI, a scanner arm and four resource adapters before a
+# single component or case exists is ceremony machinery without ceremony." This
+# is that tooling, added the moment the registry stopped being empty.
+#
+# Rule 5 says the `koad-io kingdom` command is the permissioned proxy for ALL
+# canon mutations. Two ratified kinds sat outside it, which is how the first two
+# components came to be hand-created through fm.py — the exact path rule 5
+# exists to prevent. These verbs close that.
+#
+# The two kinds share ONE shape: a flat container at /kingdom/<kindDir>/<slug>/
+# holding <file> + context.md + tickler/briefs/specs/assets, with no horizon
+# (neither is altitude-ranked) and no nesting. So they share one implementation
+# parameterised by kind, rather than being duplicated the way goal/project are.
+#
+# `create` writes the ratified frontmatter shape and nothing more. It does not
+# invent a repo, a consumer or a use-case — a component holds REFERENCES, never
+# code, and `consumed-by` is deliberately left empty rather than guessed.
+
+# kind (singular) → definition filename. The authority is cmd_check's case block.
+_kind_file() {
+    case "$1" in
+        goal)      printf 'goal.md' ;;
+        project)   printf 'project.md' ;;
+        component) printf 'component.md' ;;
+        case)      printf 'case.md' ;;
+        *)         die "unknown container kind '${1}'" ;;
+    esac
+}
+
+_kind_dir() {  # kind (singular) → kind dir
+    case "$1" in
+        component) printf 'components' ;;
+        case)      printf 'cases' ;;
+        *)         die "_kind_dir: '${1}' is not a flat kind" ;;
+    esac
+}
+
+cmd_side_list() {  # kind
+    local kind="$1"
+    local dir="${KINGDOM_ROOT}/$(_kind_dir "$kind")"
+    local file; file="$(_kind_file "$kind")"
+
+    if [ ! -d "$dir" ]; then
+        echo "No ${kind} containers yet (${dir} does not exist)"
+        return 0
+    fi
+
+    printf "${BOLD}%-28s %-10s %s${NC}\n" "SLUG" "STATUS" "TITLE"
+    printf "%s\n" "------------------------------------------------------------------------"
+
+    local d slug status title sc
+    for d in "$dir"/*/; do
+        [ -d "$d" ] || continue
+        slug=$(basename "$d")
+        [ -f "${d}${file}" ] || continue
+        status=$(fm_get "${d}${file}" "status")
+        title=$(fm_get "${d}${file}" "title")
+        sc=""
+        case "$status" in
+            active|standing)     sc="${GREEN}" ;;
+            proposed)            sc="${YELLOW}" ;;
+            achieved|superseded) sc="${CYAN}" ;;
+        esac
+        printf "${sc}%-28s %-10s %s${NC}\n" "$slug" "$status" "$title"
+    done
+}
+
+cmd_side_show() {  # kind slug
+    local kind="$1" slug="${2:-}"
+    [ -n "$slug" ] || die "Usage: koad-io kingdom ${kind} show <slug>"
+    slug_exists "$kind" "$slug" || die "${kind} '${slug}' not found"
+    local file; file="$(_bubble_path "$kind" "$slug")"
+    echo -e "${BOLD}=== ${slug} ===${NC}"
+    echo ""
+    python3 "${COMMAND_DIR}/fm.py" show "$file"
+}
+
+cmd_side_context() {  # kind slug [--update] [--commit]
+    local kind="$1"; shift
+    local commit=false update=false
+    local args=()
+    for arg in "$@"; do
+        case "$arg" in
+            --commit) commit=true ;;
+            --update) update=true ;;
+            *) args+=("$arg") ;;
+        esac
+    done
+    set -- "${args[@]}"
+
+    local slug="${1:-}"
+    [ -n "$slug" ] || die "Usage: koad-io kingdom ${kind} context <slug> [--update] [--commit]"
+    slug_exists "$kind" "$slug" || die "${kind} '${slug}' not found"
+
+    local context_file; context_file="$(dir_of "$kind" "$slug")/context.md"
+    if $update; then
+        [ -t 0 ] && die "Provide new context via stdin"
+        local tmp; tmp=$(mktemp)
+        cat > "$tmp"
+        cp "$tmp" "$context_file"
+        rm "$tmp"
+        echo -e "${GREEN}✓${NC} context updated for ${slug}"
+        if $commit; then commit_bubble "$kind" "$slug" "update context"; fi
+    else
+        if [ -f "$context_file" ]; then cat "$context_file"; else echo "(no context yet)"; fi
+    fi
+}
+
+cmd_side_status() {  # kind slug state [--commit]
+    local kind="$1"; shift
+    local commit=false
+    local args=()
+    for arg in "$@"; do
+        [ "$arg" = "--commit" ] && commit=true || args+=("$arg")
+    done
+    set -- "${args[@]}"
+
+    local slug="${1:-}" state="${2:-}"
+    [ -n "$slug" ] && [ -n "$state" ] || die "Usage: koad-io kingdom ${kind} status <slug> <state> [--commit]"
+    slug_exists "$kind" "$slug" || die "${kind} '${slug}' not found"
+    case "$state" in
+        # ONE status vocabulary, four sets of meanings (convention, 3rd
+        # amendment). At these two vantage points: proposed = planned-not-adopted
+        # / reported-not-triaged; achieved = settled into use / resolved;
+        # standing = stable-and-maintained / a recurring need. The vocabulary is
+        # shared on purpose — a second list for one field is the failure the
+        # convention already had to amend once.
+        proposed|active|standing|parked|achieved|superseded) ;;
+        *) die "Invalid state '${state}'" ;;
+    esac
+    fm_set "$(_bubble_path "$kind" "$slug")" "status" "$state"
+    echo -e "${GREEN}✓${NC} ${slug} status → ${state}"
+    if $commit; then commit_bubble "$kind" "$slug" "status → ${state}"; fi
+}
+
+cmd_side_create() {  # kind slug [--repo=<path>] [--remote=<url>] [--for=<handle>]
+    local kind="$1"; shift
+    local repo="" remote="" for_handle="" slug=""
+    local args=()
+    for arg in "$@"; do
+        case "$arg" in
+            --repo=*)   repo="${arg#--repo=}" ;;
+            --remote=*) remote="${arg#--remote=}" ;;
+            --for=*)    for_handle="${arg#--for=}" ;;
+            *)          args+=("$arg") ;;
+        esac
+    done
+    slug="${args[0]:-}"
+    [ -n "$slug" ] || die "Usage: koad-io kingdom ${kind} create <slug> [--repo=<path>] [--remote=<url>] [--for=<handle>]"
+    slug_exists "$kind" "$slug" && die "${kind} '${slug}' already exists"
+
+    local dir; dir="$(dir_of "$kind" "$slug")"
+    mkdir -p "$dir"/{tickler,briefs,specs,assets}
+
+    if [ "$kind" = "component" ]; then
+        {
+            echo "---"
+            echo "slug: ${slug}"
+            echo "kind: component"
+            echo "title: ${slug}"
+            echo "status: proposed"
+            # Emitted only when known. An empty `repo:` line parses as a block
+            # list, not an empty scalar — and a component with no repo yet is
+            # honestly "unknown", not "empty list".
+            if [ -n "$repo" ];   then echo "repo: ${repo}"; fi
+            if [ -n "$remote" ]; then echo "remote: ${remote}"; fi
+            echo "stack: []"
+            echo "consumed-by: []"
+            echo "contributors: []"
+            echo "signed: false"
+            echo "created: $(date +%F)"
+            echo "updated: $(date +%F)"
+            echo "tags: []"
+            echo "---"
+            echo ""
+            echo "# ${slug}"
+            echo ""
+            echo "## What it is"
+            echo ""
+            echo "## Where it lives"
+            echo ""
+            echo "## Who consumes it"
+        } > "${dir}/component.md"
+    else
+        {
+            echo "---"
+            echo "slug: ${slug}"
+            echo "kind: case"
+            echo "title: ${slug}"
+            echo "status: proposed"
+            if [ -n "$for_handle" ]; then echo "for: [${for_handle}]"; else echo "for: []"; fi
+            echo "relates-to: []"
+            echo "opened: $(date +%F)"
+            echo "contributors: []"
+            echo "signed: false"
+            echo "created: $(date +%F)"
+            echo "updated: $(date +%F)"
+            echo "tags: []"
+            echo "---"
+            echo ""
+            echo "# ${slug}"
+            echo ""
+            echo "## The need"
+            echo ""
+            echo "## What would resolve it"
+            echo ""
+            echo "## Notes"
+        } > "${dir}/case.md"
+    fi
+
+    echo "# Context" > "${dir}/context.md"
+    init_bubble "$kind" "$slug"
+    echo -e "${GREEN}✓${NC} ${kind} '${slug}' created at ${dir}"
 }
 
 # --- Cross-cutting ---
@@ -1428,15 +1682,18 @@ cmd_commitment_cancel() {
     echo -e "${GREEN}✓${NC} Commitment '${slug}' cancelled"
 }
 
-# --- Field / body edits (goal & project) ---
+# --- Field / body edits (every canon kind) ---
 # fm.py has always supported arbitrary field edits, but the CLI exposed no surface
 # for goal/project fields (success:, tags:, …) or for the body, so those writes had
 # to be hand-edited. These wrap the engine so they go through the CLI.
-# List fields (tags, success, participants, contributors, parents, relates-to) use
-# field-add, which appends one item.
+# List fields (tags, success, participants, contributors, parents, relates-to,
+# stack, consumed-by, for) use field-add, which appends one item.
+#
+# These take the SINGULAR kind (goal|project|component|case) — the same noun the
+# subcommands use — so `kingdom component field <slug> stack node` works.
 _bubble_path() {  # type slug → prints file path, or dies
     local type="${1:-goal}" slug="${2:-}" file dir
-    [ "$type" = "goal" ] && file="goal.md" || file="project.md"
+    file="$(_kind_file "$type")"
     [ -n "$slug" ] || die "Usage: koad-io kingdom ${type} field <slug> <key> <value>"
     dir="$(dir_of "$type" "$slug")" || die "${type} '${slug}' not found"
     [ -f "${dir}/${file}" ] || die "${type} '${slug}' not found"
@@ -1528,6 +1785,40 @@ main() {
             ;;
         tree)   cmd_tree "$@" ;;
         check)  cmd_check "$@" ;;
+        component)
+            [ $# -eq 0 ] && die "Usage: koad-io kingdom component <list|show|context|status|create|field|field-add|field-remove|key-rm|body>"
+            local sub="$1"; shift
+            case "$sub" in
+                list)         cmd_side_list component ;;
+                show)         cmd_side_show component "$@" ;;
+                context)      cmd_side_context component "$@" ;;
+                status)       cmd_side_status component "$@" ;;
+                create)       cmd_side_create component "$@" ;;
+                field)        cmd_bubble_field component "$@" ;;
+                field-add)    cmd_bubble_field_add component "$@" ;;
+                field-remove) cmd_bubble_field_remove component "$@" ;;
+                key-rm)       cmd_bubble_key_rm component "$@" ;;
+                body)         cmd_bubble_body component "$@" ;;
+                *)            die "Unknown component subcommand: ${sub}" ;;
+            esac
+            ;;
+        "case")
+            [ $# -eq 0 ] && die "Usage: koad-io kingdom case <list|show|context|status|create|field|field-add|field-remove|key-rm|body>"
+            local sub="$1"; shift
+            case "$sub" in
+                list)         cmd_side_list case ;;
+                show)         cmd_side_show case "$@" ;;
+                context)      cmd_side_context case "$@" ;;
+                status)       cmd_side_status case "$@" ;;
+                create)       cmd_side_create case "$@" ;;
+                field)        cmd_bubble_field case "$@" ;;
+                field-add)    cmd_bubble_field_add case "$@" ;;
+                field-remove) cmd_bubble_field_remove case "$@" ;;
+                key-rm)       cmd_bubble_key_rm case "$@" ;;
+                body)         cmd_bubble_body case "$@" ;;
+                *)            die "Unknown case subcommand: ${sub}" ;;
+            esac
+            ;;
         link)   cmd_link "$@" ;;
         acl)    cmd_acl "$@" ;;
         commit) cmd_commit "$@" ;;
@@ -1576,7 +1867,7 @@ main() {
             esac
             ;;
         help|--help|-h) usage ;;
-        *) die "Unknown: ${cmd}. Try: goal, project, tree, link, acl, commit, contacts, packages, calendar, commitment, forge" ;;
+        *) die "Unknown: ${cmd}. Try: goal, project, component, case, tree, link, acl, commit, contacts, packages, calendar, commitment, forge" ;;
     esac
 }
 
