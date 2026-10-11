@@ -795,6 +795,7 @@ cmd_check() {
             components) file="${dir}/component.md" ;;
             cases)      file="${dir}/case.md" ;;
             entities)   file="${dir}/entity.md" ;;
+            contacts)   file="${dir}/contact.md" ;;
             *)          file="${dir}/project.md" ;;
         esac
         if [ ! -f "$file" ]; then return 0; fi
@@ -838,6 +839,7 @@ cmd_check() {
             components)  allowed="$allowed repo remote stack consumed-by contributors " ;;
             cases)       allowed="$allowed for opened contributors " ;;
             entities)    allowed="$allowed handle home remote role contributors " ;;
+            contacts)    allowed="$allowed handle org role origins contributors " ;;
         esac
         while IFS= read -r k; do
             [ -z "$k" ] && continue
@@ -923,9 +925,12 @@ cmd_check() {
         if [ ! -d "$dir" ]; then continue; fi
         _check_one "${dir%/}" "$(basename "${dir%/}")" 100k
     done
-    for kindDir in components cases entities; do
+    for kindDir in components cases entities contacts; do
         for dir in "${KINGDOM_ROOT}/${kindDir}"/*/; do
             if [ ! -d "$dir" ]; then continue; fi
+            # A contact MIRROR is a snapshot of an external repo (origins.txt marks
+            # it). Canon lints what it authors, not what it mirrors.
+            if [ "$kindDir" = "contacts" ] && [ -f "${dir}origins.txt" ]; then continue; fi
             _check_one "${dir%/}" "$(basename "${dir%/}")" "$kindDir"
         done
     done
@@ -1107,7 +1112,13 @@ cmd_contacts_list() {
     for dir in "$CONTACTS_DIR"/*/; do
         [ ! -d "$dir" ] && continue
         local handle=$(basename "$dir")
-        [ ! -d "${dir}.git" ] && continue
+        # A contact is not required to be a git repo. Two of the five are MIRRORS
+        # of external repos (they carry origins.txt and a .git); the rest are
+        # AUTHORED canon containers. The old `[ ! -d "${dir}.git" ] && continue`
+        # made every authored party invisible to the one command that reads the
+        # lane — canada (125 files) and jim-balsillie among them. (koad 2026-10-11.)
+        local shape="authored"
+        [ -d "${dir}.git" ] && shape="mirror"
 
         local origin=$(cd "$dir" && git remote get-url origin 2>/dev/null || echo "-")
         local forge=$(cd "$dir" && git remote get-url forge 2>/dev/null || echo "-")
