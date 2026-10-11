@@ -160,8 +160,28 @@ def add_to_list(fm_text, field, value):
         items = [x.strip().strip("'").strip('"') for x in items_str.split(',') if x.strip()]
         if value not in items:
             items.append(value)
-        new_list = ', '.join(f'"{x}"' if ' ' in x else x for x in items)
-        lines[field_idx] = f'{field}: [{new_list}]'
+        # ENCODING — the rule the write adapter already enforces (its serialize():
+        # inline ONLY when the array is short and every item is a bare token).
+        # Inline is comma-delimited, so a value containing a comma cannot live in
+        # it without being split back apart on the NEXT add — which is how a goal's
+        # multi-clause `success` set could not be recorded at all, and how a second
+        # `field-add` silently re-split the first. Promote to a block list instead:
+        # each `  - item` is one YAML scalar and the reader does not comma-split it.
+        #
+        # Invariant kept: inline <=> comma-free. add_to_list never writes a
+        # comma-bearing item inline, so get_field's inline branch (which splits on
+        # commas, quote-unaware) is only ever asked to read comma-free items.
+        #
+        # DELIBERATELY MINIMAL. This decides nothing about WHICH fields are inline
+        # (tags/participants are, in canon, at any length; parents/contributors/
+        # relates-to are block once multi). That rule has no single source: the
+        # write adapter caps inline at 4 bare tokens (canon keeps 7-item tags
+        # inline), the convention standard blocks parents/success outright, and
+        # practice sits between. Filed as an encoding question — not decided here.
+        if all(re.fullmatch(r'[A-Za-z0-9_./-]+', x) for x in items):
+            lines[field_idx] = f'{field}: [{", ".join(items)}]'
+        else:
+            lines[field_idx:field_idx + 1] = [f'{field}:'] + [f'  - {x}' for x in items]
         return '\n'.join(lines)
 
     # Check if value already exists in multiline list
