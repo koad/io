@@ -1790,7 +1790,14 @@ cmd_bubble_body() {  # type slug  (new body on stdin)
     [ $# -lt 2 ] && die "Usage: koad-io kingdom ${type} body <slug>  (new body on stdin)"
     local path; path=$(_bubble_path "$type" "$slug")
     [ -t 0 ] && die "Provide new body via stdin"
-    python3 "${COMMAND_DIR}/fm.py" body "$path"
+    # The success line is a CLAIM. Only print it when fm.py actually replaced the
+    # body: it refuses a whole file, a container with no frontmatter, and any
+    # result that would carry a second block. Printing the tick unconditionally
+    # is how this defect stayed invisible - the message was the only signal, and
+    # it was wrong.
+    if ! python3 "${COMMAND_DIR}/fm.py" body "$path"; then
+        die "body NOT replaced - ${type}(${slug}) is unchanged"
+    fi
     echo -e "${GREEN}✓${NC} ${type}(${slug}) body replaced"
 }
 

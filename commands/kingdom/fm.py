@@ -66,6 +66,35 @@ def parse_fm(content):
     return parts[1].strip('\n'), parts[2]
 
 
+def looks_like_frontmatter_block(text):
+    """True when `text` opens with a well-formed `---` block of `key: value` lines.
+
+    `body` replaces the BODY ONLY. Fed a whole container - the obvious mistake -
+    it used to splice the entire file in as the body and produce a SECOND
+    frontmatter block. Every reader tolerated it, because they all stop at the
+    first block, and the write reported success. Two canon containers carried
+    one until 2026-10-10 (kingdom-fs/tooling, kingofalldata-pwa).
+
+    Every non-blank line inside the block must be a `key:` line, so a markdown
+    horizontal rule at the top of a body is not mistaken for frontmatter.
+    """
+    stripped = text.lstrip('\n')
+    if not stripped.startswith('---'):
+        return False
+    parts = stripped.split('---', 2)
+    if len(parts) < 3:
+        return False
+    keys = 0
+    for line in parts[1].split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if not re.match(r'^[A-Za-z_][A-Za-z0-9_.-]*:', line):
+            return False
+        keys += 1
+    return keys > 0
+
+
 def get_field(fm_text, field):
     """Get a field value from frontmatter text.
     Handles: key: value, key: [list], key:\n  - item\n  - item
@@ -340,6 +369,19 @@ def main():
     elif cmd == 'body':
         filepath = sys.argv[2]
         new_body = sys.stdin.read()
+
+        # Refuse a whole file. `body` takes the body ONLY; a leading frontmatter
+        # block means the caller piped a full container, which would produce a
+        # second frontmatter block and report success over it.
+        if looks_like_frontmatter_block(new_body):
+            print(
+                "Refusing: the input carries its own frontmatter block.\n"
+                "`body` replaces the BODY only - pipe the body, not the whole file.\n"
+                "The file is unchanged.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
         with open(filepath) as f:
             content = f.read()
         fm_text, _ = parse_fm(content)
@@ -348,6 +390,20 @@ def main():
             sys.exit(1)
         body = new_body.strip('\n')
         new_content = f"---\n{fm_text}\n---\n\n{body}\n"
+
+        # Post-condition: re-parse exactly what is about to be written, the way
+        # every reader will. Belt and braces against any other path that could
+        # introduce a second block. Refuse before touching the file, so this is
+        # atomic - a refusal never leaves a half-written container.
+        _, written_body = parse_fm(new_content)
+        if looks_like_frontmatter_block(written_body):
+            print(
+                "Refusing: the result would carry a second frontmatter block.\n"
+                "The file is unchanged.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
         with open(filepath, 'w') as f:
             f.write(new_content)
 

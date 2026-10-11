@@ -69,3 +69,18 @@ Per Juno's spec (`~/.juno/briefs/2026-07-23-kingdom-tooling.md`):
 ## Deployed
 
 2026-07-23 by Vulcan per Juno brief.
+
+## Tests
+
+    bash commands/kingdom/test/body-command.test.sh
+
+Pins the `body` command: it must refuse a whole file rather than splice in a
+second frontmatter block, and must only claim success when it actually replaced
+the body. The suite uses a scratch KOAD_IO_KINGDOM_ROOT, so canon is never
+touched.
+
+Fault-inject it against a pre-fix checkout to confirm the suite can fire — point
+KINGDOM_CMD_DIR at a copy of the command dir:
+
+    KINGDOM_CMD_DIR=/path/to/pre-fix/commands/kingdom \
+        bash commands/kingdom/test/body-command.test.sh
