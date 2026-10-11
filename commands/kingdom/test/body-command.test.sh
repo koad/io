@@ -18,10 +18,24 @@
 #      new behaviour. Same class as the `edit` dollar collapse in the harness: a
 #      write whose only signal is a success line.
 #
+#   3. The guard for (1) tested ONE shape of frontmatter and pronounced on the
+#      CLASS. It required every line inside the block to match `^key:`, so two
+#      shapes that exist in canon were judged not-frontmatter and the whole file
+#      was still spliced in — rc=0, two `slug:` lines, tick printed:
+#        - a BLOCK LIST under a key (contributors:/parents:/success: + `  - item`)
+#          — 76 of canon's containers carry one, including BOTH of the containers
+#          the original question names (kingdom-fs/tooling, kingofalldata-pwa);
+#        - an INDENTED CONTINUATION (a wrapped value or a `>` / `|` block scalar)
+#          — the rest of the gap. Between the two, ALL 374 of canon's containers
+#          are covered by the guard.
+#      T8/T9 cover the block-list shape; T11 covers the indented continuation.
+#      All three fail against the pre-fix code.
+#
 # Run:
 #   bash commands/kingdom/test/body-command.test.sh
 #
-# Fault injection (expect T1, T2, T5 and T7 to fail — the suite proving it fires):
+# Fault injection (measured: T1, T5, T6, T8, T9, T11 and T12 fail — 22 of 42
+# assertions — which is the suite proving it fires on the pre-fix code):
 #   KINGDOM_CMD_DIR=<pre-fix checkout>/commands/kingdom bash commands/kingdom/test/body-command.test.sh
 #
 # Canon is never touched: every run uses a scratch KOAD_IO_KINGDOM_ROOT.
@@ -107,6 +121,58 @@ This is the whole file, frontmatter and all.
 WHOLE
 }
 
+# A whole file whose frontmatter carries a BLOCK LIST — the shape 48 of canon's
+# containers have. The first guard required every line to be a `key:` line, so
+# this shape was judged not-frontmatter and the whole file was still spliced in.
+whole_file_blocklist() {
+    cat > "${WORK}/whole-blocklist.md" <<'WHOLE'
+---
+slug: other-container
+kind: project
+title: Piped Whole File With Block List
+status: draft
+contributors:
+  - aegis
+  - vulcan
+parents:
+  - /kingdom/projects/kingdom-fs
+success:
+  - one
+  - two
+created: 2026-10-11
+updated: 2026-10-11
+---
+
+# Piped
+
+Whole file, block-list frontmatter and all.
+WHOLE
+}
+
+# A whole file whose frontmatter carries an INDENTED CONTINUATION — a `>` block
+# scalar whose body lines are neither `key:` nor `- item`. The first guard judged
+# this shape not-frontmatter too.
+whole_file_scalar() {
+    cat > "${WORK}/whole-scalar.md" <<'WHOLE'
+---
+slug: other-container
+kind: project
+title: Piped Whole File With Block Scalar
+status: superseded
+superseded-by: /kingdom/projects/other
+superseded-note: >
+  Moved into canon 2026-10-11 (koad decision A). The operator
+  registry is retired; the kingdom holds the registry now.
+created: 2026-10-11
+updated: 2026-10-11
+---
+
+# Piped
+
+Whole file, folded block scalar and all.
+WHOLE
+}
+
 echo
 echo "== kingdom body: defect regression =="
 echo "   command dir: ${CMD_DIR}"
@@ -189,6 +255,83 @@ RC=$?
 check "T7a exit is zero" "$RC" "0"
 check "T7b exactly one frontmatter block" "$(fm_block_count "$CONTAINER")" "1"
 check "T7c body replaced" "$(grep -c '^# Direct' "$CONTAINER")" "1"
+
+# ---------------------------------------------------------------------------
+echo "T8  a whole file with BLOCK-LIST frontmatter is REFUSED"
+# ---------------------------------------------------------------------------
+seed; whole_file_blocklist
+RC="$(run_cli "${WORK}/whole-blocklist.md")"
+check "T8a exit is non-zero" "$([ "$RC" -ne 0 ] && echo yes || echo no)" "yes"
+check "T8b no success line printed" "$(grep -c 'body replaced' "${WORK}/out")" "0"
+check "T8c file byte-identical to before" "$(cmp -s "$CONTAINER" "${WORK}/pristine.md" && echo same || echo changed)" "same"
+check "T8d exactly one frontmatter block" "$(fm_block_count "$CONTAINER")" "1"
+check "T8e the block-list shape is named in the refusal" "$(grep -ci 'frontmatter' "${WORK}/err")" "1"
+
+# ---------------------------------------------------------------------------
+echo "T9  fm.py body, called directly, refuses the block-list shape too"
+# ---------------------------------------------------------------------------
+seed; whole_file_blocklist
+python3 "$FM_PY" body "$CONTAINER" < "${WORK}/whole-blocklist.md" > "${WORK}/out" 2> "${WORK}/err"
+RC=$?
+check "T9a exit is non-zero" "$([ "$RC" -ne 0 ] && echo yes || echo no)" "yes"
+check "T9b file byte-identical to before" "$(cmp -s "$CONTAINER" "${WORK}/pristine.md" && echo same || echo changed)" "same"
+check "T9c refusal names the reason" "$(grep -ci 'frontmatter' "${WORK}/err")" "1"
+
+# ---------------------------------------------------------------------------
+echo "T10 a body-only write still lands when the block-list GUARD passes"
+# ---------------------------------------------------------------------------
+seed
+printf '# Still fine\n\nPlain body, no frontmatter.\n' > "${WORK}/plain.md"
+RC="$(run_cli "${WORK}/plain.md")"
+check "T10a exit is zero" "$RC" "0"
+check "T10b exactly one frontmatter block" "$(fm_block_count "$CONTAINER")" "1"
+check "T10c body replaced" "$(grep -c 'Plain body, no frontmatter.' "$CONTAINER")" "1"
+
+# ---------------------------------------------------------------------------
+echo "T11 a whole file with an INDENTED CONTINUATION (block scalar) is REFUSED"
+# ---------------------------------------------------------------------------
+seed; whole_file_scalar
+RC="$(run_cli "${WORK}/whole-scalar.md")"
+check "T11a exit is non-zero" "$([ "$RC" -ne 0 ] && echo yes || echo no)" "yes"
+check "T11b no success line printed" "$(grep -c 'body replaced' "${WORK}/out")" "0"
+check "T11c file byte-identical to before" "$(cmp -s "$CONTAINER" "${WORK}/pristine.md" && echo same || echo changed)" "same"
+check "T11d exactly one frontmatter block" "$(fm_block_count "$CONTAINER")" "1"
+
+# ---------------------------------------------------------------------------
+echo "T12 every canon container shape is refused (census over the real tree)"
+# ---------------------------------------------------------------------------
+# Feed each real canon container to the guard directly. Every one must be judged
+# frontmatter — i.e. refusing a whole container is total, not shape-specific.
+CANON_ROOT="${KOAD_IO_KINGDOM_ROOT:-/kingdom}"
+if [ -d "$CANON_ROOT" ]; then
+    CENSUS=$(python3 - "$FM_PY" "$CANON_ROOT" <<'PY'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location('fm', sys.argv[1])
+fm = importlib.util.module_from_spec(spec); spec.loader.exec_module(fm)
+tot = miss = 0
+for r, d, fs in os.walk(sys.argv[2]):
+    if '/.git' in r: continue
+    for f in fs:
+        if not f.endswith('.md'): continue
+        p = os.path.join(r, f)
+        try: c = open(p, errors='replace').read()
+        except Exception: continue
+        if not c.lstrip().startswith('---'): continue
+        if len(c.lstrip().split('---', 2)) < 3: continue
+        tot += 1
+        if not fm.looks_like_frontmatter_block(c): miss += 1
+print(f'{tot} {miss}')
+PY
+)
+    case "$CENSUS" in
+        '') TOT=0; MISS=none ;;
+        *)  TOT="${CENSUS% *}"; MISS="${CENSUS#* }" ;;
+    esac
+    check "T12a the census found canon containers" "$([ "$TOT" -gt 0 ] && echo yes || echo no)" "yes"
+    check "T12b every container shape is judged frontmatter" "$MISS" "0"
+else
+    echo "  (skipped — no canon root at $CANON_ROOT)"
+fi
 
 echo
 echo "== ${PASS} passed, ${FAIL} failed =="

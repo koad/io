@@ -75,8 +75,19 @@ def looks_like_frontmatter_block(text):
     first block, and the write reported success. Two canon containers carried
     one until 2026-10-10 (kingdom-fs/tooling, kingofalldata-pwa).
 
-    Every non-blank line inside the block must be a `key:` line, so a markdown
-    horizontal rule at the top of a body is not mistaken for frontmatter.
+    A canon block is NOT only `key: value` lines. Two other line shapes are in
+    canon: a BLOCK LIST under a key (contributors:, parents:, success: followed
+    by `  - item` lines), and an INDENTED CONTINUATION (a wrapped value, or a
+    `>` / `|` block scalar body). Among canon's 374 containers, every single one
+    is composed only of these line shapes. The first version of this guard
+    required EVERY line to match `^key:`, so a container with a block list was
+    judged not-frontmatter and the whole file was STILL spliced in (rc=0, two
+    `slug:` lines, tick printed). It tested one shape and pronounced on a class.
+
+    The block is valid when every non-blank line is a key line, a block-list
+    item, an indented continuation, or a comment - and at least one key line is
+    present, so a body that merely opens with a markdown horizontal rule is not
+    over-refused.
     """
     stripped = text.lstrip('\n')
     if not stripped.startswith('---'):
@@ -86,12 +97,18 @@ def looks_like_frontmatter_block(text):
         return False
     keys = 0
     for line in parts[1].split('\n'):
-        line = line.strip()
-        if not line:
+        if not line.strip():
             continue
-        if not re.match(r'^[A-Za-z_][A-Za-z0-9_.-]*:', line):
-            return False
-        keys += 1
+        if re.match(r'^[A-Za-z_][A-Za-z0-9_.-]*:', line):
+            keys += 1
+        elif re.match(r'^\s*-\s', line):
+            continue          # block-list item under a key: contributors:/parents:/success:
+        elif line[:1].isspace():
+            continue          # indented continuation: wrapped value or > / | block scalar
+        elif line.lstrip().startswith('#'):
+            continue          # comment line inside the block
+        else:
+            return False      # prose at column 0 - this is a body, not frontmatter
     return keys > 0
 
 
