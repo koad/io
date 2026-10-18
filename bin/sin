@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  echo "Usage: sin <search_term> [path]" >&2
+  exit 1
+fi
+
+QUERY="$1"
+SEARCH_ROOT="${2:-.}"
+MAX_COLUMNS="${SIN_MAX_COLUMNS:-220}"
+
+# Dialect: ERE, declared rather than inherited. `sin <pattern>` is documented as
+# a text/regex search, and the wrapper under it defaults to ERE — say so at the
+# call site so the meaning survives a PATH that resolves grep to /usr/bin/grep.
+# An inexpressible pattern must fail loudly: the pipeline below races grep
+# through find and awk, which turns grep's exit 2 into a silent empty result.
+_rc=0
+/usr/bin/grep -E -e "$QUERY" /dev/null >/dev/null 2>&1 || _rc=$?
+if [ "$_rc" -eq 2 ]; then
+  echo "sin: invalid pattern: $QUERY" >&2
+  echo "sin: ERE dialect — an unclosed ( or ) is an error, not an empty result" >&2
+  _reason="$(/usr/bin/grep -E -e "$QUERY" /dev/null 2>&1 >/dev/null || true)"
+  echo "sin: ${_reason#*grep: }" >&2
+  exit 2
+fi
+
+IGNORE_DIRS=(
+  "node_modules"
+  ".npm"
+  ".meteor"
+  ".trash"
+  "trash"
+  ".local"
+  "isopacks"
+  ".archive"
+  "archive"
+  "builds"
+  ".git"
+)
+
+if command -v rg >/dev/null 2>&1; then
+  RG_ARGS=(
+    --hidden
+    --follow
+    --line-number
+    --with-filename
+    --color=never
+    --max-columns "$MAX_COLUMNS"
+    --max-columns-preview
+  )
+
+  for dir in "${IGNORE_DIRS[@]}"; do
+    RG_ARGS+=( -g "!**/$dir/**" )
+  done
+
+  exec rg "${RG_ARGS[@]}" -- "$QUERY" "$SEARCH_ROOT"
+fi
+
+FIND_EXPR=( "$SEARCH_ROOT" \( -type d \( )
+for i in "${!IGNORE_DIRS[@]}"; do
+  if [ "$i" -gt 0 ]; then
+    FIND_EXPR+=( -o )
+  fi
+  FIND_EXPR+=( -name "${IGNORE_DIRS[$i]}" )
+done
+FIND_EXPR+=( \) -prune \) -o -type f -exec grep -nHE -I -- "$QUERY" {} + )
+
+find -L "${FIND_EXPR[@]}" 2>/dev/null \
+  | awk -v max="$MAX_COLUMNS" '
+      length($0) > max { print substr($0, 1, max - 1) "…"; next }
+      { print }
+    '
