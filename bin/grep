@@ -8,20 +8,54 @@ source "$SELF_DIR/../helpers/kingdom-safe-search.sh"
 SYSTEM_GREP="/usr/bin/grep"
 SYSTEM_FIND="/usr/bin/find"
 
+# ── Dialect ───────────────────────────────────────────────────────────────────
+# The wrapper advertises "regex", so it speaks ERE (POSIX extended) by default.
+# BRE is still reachable, but only explicitly — see --kingdom-help.
+#
+# This default is a deliberate, documented semantic change: under BRE the
+# escapes \| \( \) \{ \} \+ \? change meaning. Call sites in the kingdom were
+# audited for that (see the migration note in the help text); the call sites
+# that relied on BRE alternation now say `-E` in their own arguments.
+KG_GREP_DIALECT="${KOAD_IO_GREP_DIALECT:-ere}"
+
 show_help() {
   cat <<'EOF'
 kingdom-safe grep
 
 Usage:
-  grep [--raw|--full] [--show-excludes] [grep args...]
+  grep [--raw|--full] [--show-excludes] [--kingdom-dialect=<d>] [grep args...]
   grep --kingdom-help
+
+Dialect (read this before writing a pattern):
+  default: ERE — POSIX extended regex.  `a|b`, `(x|y)`, `+`, `?`, `{n,m}`
+  mean what you expect from something labelled "Regex pattern".
+
+  Override one call:   --kingdom-dialect=ere|bre|fixed|perl
+  Override a session:  KOAD_IO_GREP_DIALECT=bre
+  Override in args:    pass -E / -F / -G / -P yourself — the wrapper then
+                       adds no dialect flag of its own.
+
+  Migration note (2026-10-18): the default flipped from BRE to ERE.
+  Under ERE these BRE escapes change meaning and must be rewritten:
+      \|  ->  |          \( \)  ->  ( )
+      \+  ->  +          \?  ->  ?
+      \{ \} -> { }       (literal braces: \{ becomes \{ … use -F or escape the
+                         brace as [{] to keep it literal)
+  Literal-pipe intent: use --kingdom-dialect=fixed, or escape it as [|].
+
+Invalid patterns are errors, never misses:
+  a pattern the dialect cannot compile exits 2 and prints the pattern and the
+  reason. It never prints "no matches". `grep 'foo('` is an error, not a
+  clean answer of absence.
 
 Behavior:
   - passes plain stdin/file grep through to /usr/bin/grep
   - when recursive grep flags are present (-r, -R, --recursive,
     --directories=recurse, --dereference-recursive), walks files through a
     kingdom-safe find layer that prunes noisy/generated trees by default
-  - use --raw or --full to bypass the safe layer entirely
+  - use --raw or --full to bypass the safe excludes entirely (the dialect
+    still applies — --raw is about which files are walked, not how patterns
+    are read)
 
 Notes:
   - wrapper help: grep --kingdom-help
@@ -29,24 +63,91 @@ Notes:
 EOF
 }
 
-exec_raw() {
-  exec "$SYSTEM_GREP" "$@"
+dialect_flag() {
+  case "$1" in
+    ere)   printf '%s' "-E" ;;
+    bre)   printf '%s' "-G" ;;
+    fixed) printf '%s' "-F" ;;
+    perl)  printf '%s' "-P" ;;
+  esac
 }
 
-if [[ $# -eq 0 ]]; then
-  exec_raw
-fi
+dialect_label() {
+  case "$1" in
+    ere)   printf '%s' "ERE (POSIX extended)" ;;
+    bre)   printf '%s' "BRE (POSIX basic)" ;;
+    fixed) printf '%s' "fixed strings (literal)" ;;
+    perl)  printf '%s' "PCRE (perl)" ;;
+  esac
+}
+
+# Compile every pattern against /dev/null before a single file is walked.
+# grep exit 2 on a batch target is swallowed by `find -exec ... {} +` (find
+# reports 1 for any failing -exec), so in the recursive path — the default
+# for the harness tool — an invalid pattern would otherwise degrade straight
+# into "No matches". Validate first, and fail loudly.
+validate_patterns() {
+  local flag="$1"
+  shift
+  [[ $# -gt 0 ]] || return 0
+  [[ -z "$flag" ]] && return 0
+  local pat reason rc
+  for pat in "$@"; do
+    set +e
+    reason="$("$SYSTEM_GREP" "$flag" -e "$pat" /dev/null 2>&1 >/dev/null)"
+    rc=$?
+    set -e
+    if [[ $rc -eq 2 ]]; then
+      # strip the "grep: " / "/usr/bin/grep: " prefix grep itself printed
+      reason="${reason#*grep: }"
+      printf 'grep: invalid pattern: %s\n' "$pat" >&2
+      printf 'grep: dialect: %s\n' "$DIALECT_LABEL" >&2
+      printf 'grep: reason: %s\n' "$reason" >&2
+      printf 'grep: this is an error, not a clean miss — nothing was searched.\n' >&2
+      printf 'grep: dialect defaults to ERE; `grep --kingdom-help` explains --kingdom-dialect\n' >&2
+      exit 2
+    fi
+  done
+}
+
+kg_print_dialect_banner() {
+  [[ -t 2 ]] || return 0
+  [[ "${KOAD_IO_QUIET:-}" == "1" ]] && return 0
+  printf '[grep:safe] dialect: %s\n' "$1" >&2
+}
+
+KG_GREP_INJECT=""
+
+exec_raw() {
+  if [[ -n "$KG_GREP_INJECT" ]]; then
+    exec "$SYSTEM_GREP" "$KG_GREP_INJECT" "$@"
+  fi
+  exec "$SYSTEM_GREP" "$@"
+}
 
 passthrough=()
 raw_mode=0
 show_excludes=0
+dialect_override=""
+expect_dialect=0
 for arg in "$@"; do
+  if [[ $expect_dialect -eq 1 ]]; then
+    dialect_override="$arg"
+    expect_dialect=0
+    continue
+  fi
   case "$arg" in
     --raw|--full)
       raw_mode=1
       ;;
     --show-excludes)
       show_excludes=1
+      ;;
+    --kingdom-dialect=*)
+      dialect_override="${arg#--kingdom-dialect=}"
+      ;;
+    --kingdom-dialect)
+      expect_dialect=1
       ;;
     --kingdom-help)
       show_help
@@ -58,13 +159,33 @@ for arg in "$@"; do
   esac
 done
 
+if [[ $expect_dialect -eq 1 ]]; then
+  printf 'grep: --kingdom-dialect needs a value (ere|bre|fixed|perl)\n' >&2
+  exit 2
+fi
+
+if [[ -n "$dialect_override" ]]; then
+  KG_GREP_DIALECT="$dialect_override"
+fi
+
+case "$KG_GREP_DIALECT" in
+  ere|bre|fixed|perl) ;;
+  *)
+    printf 'grep: unknown dialect "%s" — expected ere, bre, fixed, or perl\n' "$KG_GREP_DIALECT" >&2
+    exit 2
+    ;;
+esac
+
+DIALECT_LABEL="$(dialect_label "$KG_GREP_DIALECT")"
+
 if [[ $show_excludes -eq 1 && ${#passthrough[@]} -eq 0 ]]; then
   kg_safe_show_excludes "grep"
   exit 0
 fi
 
-if [[ $raw_mode -eq 1 ]]; then
-  exec_raw "${passthrough[@]}"
+if [[ ${#passthrough[@]} -eq 0 ]]; then
+  KG_GREP_INJECT="$(dialect_flag "$KG_GREP_DIALECT")"
+  exec_raw
 fi
 
 if [[ ${#passthrough[@]} -eq 1 && "${passthrough[0]}" == "--version" ]]; then
@@ -77,13 +198,17 @@ user_binary_mode=0
 pattern_set=0
 expect_value=0
 expect_kind=""
+expect_patkind=""
 after_ddash=0
+user_dialect=0
+patterns=()
 paths=()
 
 for arg in "${passthrough[@]}"; do
   if [[ $after_ddash -eq 1 ]]; then
     if [[ $pattern_set -eq 0 ]]; then
       pattern_set=1
+      patterns+=("$arg")
     else
       paths+=("$arg")
     fi
@@ -94,6 +219,7 @@ for arg in "${passthrough[@]}"; do
     case "$expect_kind" in
       pattern)
         pattern_set=1
+        [[ "$expect_patkind" == "e" ]] && patterns+=("$arg")
         ;;
       recursive-dir)
         [[ "$arg" == "recurse" ]] && recursive=1
@@ -104,6 +230,7 @@ for arg in "${passthrough[@]}"; do
     esac
     expect_value=0
     expect_kind=""
+    expect_patkind=""
     continue
   fi
 
@@ -130,13 +257,29 @@ for arg in "${passthrough[@]}"; do
       expect_kind="recursive-dir"
       continue
       ;;
-    --regexp=*|--file=*)
+    --extended-regexp|--basic-regexp|--fixed-strings|--perl-regexp)
+      user_dialect=1
+      continue
+      ;;
+    --regexp=*)
+      pattern_set=1
+      patterns+=("${arg#--regexp=}")
+      continue
+      ;;
+    --file=*)
       pattern_set=1
       continue
       ;;
-    --regexp|--file)
+    --regexp)
       expect_value=1
       expect_kind="pattern"
+      expect_patkind="e"
+      continue
+      ;;
+    --file)
+      expect_value=1
+      expect_kind="pattern"
+      expect_patkind="f"
       continue
       ;;
     --include=*|--exclude=*|--exclude-dir=*|--label=*)
@@ -185,12 +328,20 @@ for arg in "${passthrough[@]}"; do
         a|I)
           user_binary_mode=1
           ;;
+        E|F|G|P)
+          user_dialect=1
+          ;;
         e|f)
           pattern_set=1
-          if [[ $((i + 1)) -eq $short_len ]]; then
-            expect_value=1
-            expect_kind="pattern"
+          if [[ $((i + 1)) -lt $short_len ]]; then
+            # attached value: -epattern
+            [[ "$ch" == "e" ]] && patterns+=("${short:$((i + 1))}")
+            i=$short_len
+            continue
           fi
+          expect_value=1
+          expect_kind="pattern"
+          expect_patkind="$ch"
           i=$short_len
           continue
           ;;
@@ -210,10 +361,24 @@ for arg in "${passthrough[@]}"; do
 
   if [[ $pattern_set -eq 0 ]]; then
     pattern_set=1
+    patterns+=("$arg")
   else
     paths+=("$arg")
   fi
 done
+
+# A caller that declared its own dialect (in args) keeps control; we add
+# nothing and validate nothing on its behalf.
+if [[ $user_dialect -eq 0 ]]; then
+  KG_GREP_INJECT="$(dialect_flag "$KG_GREP_DIALECT")"
+  validate_patterns "$KG_GREP_INJECT" "${patterns[@]}"
+else
+  DIALECT_LABEL="caller-specified (-E/-F/-G/-P in args)"
+fi
+
+if [[ $raw_mode -eq 1 ]]; then
+  exec_raw "${passthrough[@]}"
+fi
 
 if [[ $recursive -eq 0 ]]; then
   exec_raw "${passthrough[@]}"
@@ -226,15 +391,21 @@ fi
 
 if [[ $parsed_path_count -gt 0 ]]; then
   arg_limit=$(( ${#passthrough[@]} - parsed_path_count ))
-  final_grep_args=("${passthrough[@]:0:arg_limit}")
+  final_grep_args=("${passthrough[@]:0:$arg_limit}")
 else
   final_grep_args=("${passthrough[@]}")
 fi
+
+if [[ -n "$KG_GREP_INJECT" ]]; then
+  final_grep_args=("$KG_GREP_INJECT" "${final_grep_args[@]}")
+fi
+
 if [[ $user_binary_mode -eq 0 ]]; then
   final_grep_args+=("-I")
 fi
 
 kg_safe_print_banner "grep"
+kg_print_dialect_banner "$DIALECT_LABEL"
 if [[ $show_excludes -eq 1 ]]; then
   kg_safe_show_excludes "grep" >&2
 fi
