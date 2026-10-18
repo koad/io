@@ -428,6 +428,25 @@ if [[ ! -n $EXEC_FILE ]]; then
         echo "  no command directory matched under: ${_koad_io_resolver_sources[*]:-<none>}" >&2
     fi
     echo "EXEC_FILE: ${EXEC_FILE:-<unset>}" >&2
+
+    # A first-class command must either work or explain itself. If the resolved
+    # directory is a real command tree that simply ships no shim of its own,
+    # name its sub-commands instead of dying silently — the umbrella shape
+    # (`commands/<verb>/<sub>/command.sh` with nothing at `commands/<verb>/`) is
+    # common enough that a bare invocation deserves directions, not exit 66.
+    if [[ -n "${COMMAND_LOCATION:-}" ]] && [[ -d "$COMMAND_LOCATION" ]]; then
+        _subs=()
+        for _p in "$COMMAND_LOCATION"/*/; do
+            [[ -d "$_p" ]] && [[ -f "$_p/command.sh" ]] && _subs+=("$(basename "$_p")")
+        done
+        if [[ ${#_subs[@]} -gt 0 ]]; then
+            echo "  '$1' has sub-commands: ${_subs[*]}" >&2
+            echo "  try: koad-io $1 ${_subs[0]} ..." >&2
+        else
+            echo "  '$COMMAND_LOCATION' exists but holds no command.sh and no sub-commands" >&2
+        fi
+        unset _subs _p
+    fi
     exit 66
 fi
 
