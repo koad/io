@@ -345,8 +345,91 @@ if [[ ! -n $EXEC_FILE ]] && [[ "$1" == "harness" ]]; then
     unset _framework_harness_cmd
 fi
 
-# Make sure we have a valid command file to run, else crash 66
-[[ ! -n $EXEC_FILE ]] && echo "Could not find command file to execute, sorry." >&2 && echo "EXEC_FILE: $EXEC_FILE" >&2 && exit 66;
+# Resolution safety net — generalized 2026-10-18.
+#
+# A command directory with nothing executable in it is not a command. The scan
+# above picks the deepest match and, at equal depth, the highest-priority one;
+# if that directory ships no shim it used to terminate resolution outright and
+# exit 66, even when a perfectly good lower-priority candidate existed.
+#
+# Live failure (wonderland, 2026-10-17): KOAD_IO_COMMANDS_DIRS lists
+# ~/.dotfiles/commands after ~/.forge/commands, so at equal depth the later
+# scan won and `koad-io inspect` resolved to ~/.dotfiles/commands/inspect —
+# a directory whose only child is another directory — while
+# ~/.forge/commands/inspect/command.sh sat there unused.
+#
+# So: keep walking the remaining candidates and take the first that actually
+# ships a shim (`command.sh` or `<sub-command>.sh`). Walk order is the same rule
+# the scan uses — deepest first, then priority order within a depth, because a
+# deeper command still beats a shallower one.
+#
+# Priority order at equal depth (highest first) mirrors the scan below:
+# CWD/commands > entity commands > KOAD_IO_COMMANDS_DIRS in listed order.
+_koad_io_resolver_sources=()
+[[ -d "$CWD/commands" ]]        && _koad_io_resolver_sources+=("$CWD/commands")
+[[ -n "$ENTITY_COMMANDS_DIR" ]] && [[ -d "$ENTITY_COMMANDS_DIR" ]] && _koad_io_resolver_sources+=("$ENTITY_COMMANDS_DIR")
+for _rs in "${_KOAD_IO_CMD_DIRS[@]}"; do
+    [[ -n $_rs ]] && [[ -d $_rs ]] && _koad_io_resolver_sources+=("$_rs")
+done
+
+# Paths the resolver actually considered — named in the exit-66 message so the
+# failure is diagnosable without DEBUG=1.
+_RESOLVER_TRIED=()
+[[ -n "${COMMAND_LOCATION:-}" ]] && _RESOLVER_TRIED+=("$COMMAND_LOCATION")
+
+if [[ ! -n $EXEC_FILE ]]; then
+    for ((_fd=5; _fd>=1; _fd--)); do
+        for _src in "${_koad_io_resolver_sources[@]}"; do
+            # Assemble <source>/<arg1>/<arg2>/… out to _fd depth segments.
+            _cand="$_src"
+            _have_all=1
+            for ((_k=1; _k<=_fd; _k++)); do
+                _tok="${!_k}"
+                [[ -z "$_tok" ]] && _have_all=0 && break
+                _cand="$_cand/$_tok"
+            done
+            (( _have_all )) || continue
+            [[ -d "$_cand" ]] || continue
+            [[ "$_cand" == "${COMMAND_LOCATION:-}" ]] && continue
+
+            _named_i=$((_fd + 1))
+            _named_tok="${!_named_i}"
+            if [[ -f "$_cand/command.sh" ]] || { [[ -n "$_named_tok" ]] && [[ -f "$_cand/$_named_tok.sh" ]]; }; then
+                COMMAND_DEPTH=$_fd
+                COMMAND_LOCATION="$_cand"
+                COMMAND_NAME="${!_fd}"
+                POTENTIAL_NAMED_COMMAND="$_named_tok"
+                POTENTIAL_REMAINDER_ARGUMENTS=("${@:$((_fd + 2))}")
+                EXEC_ARGS=("${@:$((_fd + 1))}")
+                # Same precedence as the shim check above: a named
+                # <sub-command>.sh wins over command.sh when both exist.
+                if [[ -n "$_named_tok" ]] && [[ -f "$_cand/$_named_tok.sh" ]]; then
+                    EXEC_FILE="$_cand/$_named_tok.sh"
+                else
+                    EXEC_FILE="$_cand/command.sh"
+                fi
+                echo "resolver fallback: '${_RESOLVER_TRIED[0]:-no command directory}' has no shim — using $EXEC_FILE (depth $_fd)" >&2
+                break 2
+            fi
+            _RESOLVER_TRIED+=("$_cand")
+        done
+    done
+fi
+unset _cand _tok _src _rs _fd _k _have_all _named_i _named_tok
+
+# Make sure we have a valid command file to run, else crash 66.
+# Name what was tried — a bare "could not find command file" hid a shimless
+# directory shadowing a working one for a full day of debugging.
+if [[ ! -n $EXEC_FILE ]]; then
+    echo "Could not find command file for '${1:-<none>}' — checked:" >&2
+    if [[ ${#_RESOLVER_TRIED[@]} -gt 0 ]]; then
+        for _t in "${_RESOLVER_TRIED[@]}"; do echo "  $_t" >&2; done
+    else
+        echo "  no command directory matched under: ${_koad_io_resolver_sources[*]:-<none>}" >&2
+    fi
+    echo "EXEC_FILE: ${EXEC_FILE:-<unset>}" >&2
+    exit 66
+fi
 
 # If the working directory contains environment and credentials, load them
 [ -f $COMMAND_LOCATION/.env ]         && echo "loading $COMMAND_LOCATION/.env" >&2         && set -a && source $COMMAND_LOCATION/.env 
