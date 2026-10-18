@@ -709,7 +709,9 @@ if [ -d "$TRUST_STORE" ]; then
   for bond_file in "$TRUST_STORE"/*.md "$TRUST_STORE"/*.md.asc "$TRUST_STORE"/*.asc; do
     [ -f "$bond_file" ] || continue
     # Check if bond references our kingdom_id
-    if grep -q "kingdom_id.*$KINGDOM_ID\|kingdom_id: $KINGDOM_ID" "$bond_file" 2>/dev/null; then
+    # -E is explicit: the alternation below is ERE. Under BRE (the wrapper's
+    # old default) `\|` was the alternation and a bare `|` was a literal.
+    if grep -qE "kingdom_id.*${KINGDOM_ID}|kingdom_id: ${KINGDOM_ID}" "$bond_file" 2>/dev/null; then
       BOND_FROM_STORE="$bond_file"
       break
     fi

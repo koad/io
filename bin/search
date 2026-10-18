@@ -152,7 +152,10 @@ if command -v rg &>/dev/null; then
   }
 else
   _search_raw() {
-    local _args=(-rn --color=always)
+    # -E explicit: `search` takes a user pattern and advertises regex. The
+    # wrapper defaults to ERE now, but declare it here so this stays true if
+    # PATH ever resolves `grep` to /usr/bin/grep instead of the wrapper.
+    local _args=(-rnE --color=always)
     for _d in "${_NOISE_DIRS[@]}"; do _args+=(--exclude-dir="$_d"); done
     for _f in "${_NOISE_FILES[@]}"; do _args+=(--exclude="$_f"); done
     grep "${_args[@]}" "$PATTERN" "$@" 2>/dev/null || true
@@ -651,7 +654,7 @@ _mode_related() {
     local _result
     _result="$(_search_entity "$_name" "$HOME/.$_name")" || { _related_any=1; true; }
     if [[ -n "$_result" ]]; then
-      echo "$_result" | { grep -v "$_src_clean" || true; }
+      echo "$_result" | { grep -vF "$_src_clean" || true; }
     fi
   done
 
