@@ -41,5 +41,11 @@ cache/
 skeletons/
 
 desktop/
-harness/
 passenger/
+
+# Sovereign operator credentials — never commit (was untracked, not ignored)
+.credentials
+
+# Lighthouse service runtime — builds/, logs/, .env (~1GB). Infrastructure, not
+# framework; lives in the forge layer.
+lighthouse/
