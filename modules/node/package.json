@@ -54,7 +54,8 @@
   },
   "main": "./index.cjs",
   "scripts": {
-    "build:browser": "browserify -i sodium -s kbpgp ./browser/kbpgp-with-internals.js -o ./browser/kbpgp.bundle.js && npx uglify-js ./browser/kbpgp.bundle.js -o ./browser/kbpgp.bundle.min.js --compress --mangle && echo 'Bundle built. Copy to forge/websites/kingofalldata.com/src/public/ manually or via sync script.'"
+    "build:browser": "browserify -i sodium -s kbpgp ./browser/kbpgp-with-internals.js -o ./browser/kbpgp.bundle.js && npx uglify-js ./browser/kbpgp.bundle.js -o ./browser/kbpgp.bundle.min.js --compress --mangle && echo 'Bundle built. Copy to forge/websites/kingofalldata.com/src/public/ manually or via sync script.'",
+    "build:browser-deps": "npx esbuild browser/koad-deps-entry.js --bundle --minify --format=iife --outfile=browser/koad-deps.bundle.min.js && echo \"Deps bundle built. Copy to app public/ dirs + add script tag to head.\""
   },
   "dependencies": {
     "@ipld/dag-json": "10.2.7",
