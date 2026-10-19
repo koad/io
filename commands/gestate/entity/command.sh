@@ -5,7 +5,7 @@
 #
 # Two gestation paths:
 #
-#   Local sovereign path (default):
+#   Local sovereign path (default, when sovereign present on this device):
 #     koad-io gestate <name>
 #     Pre-conditions:
 #       - ~/.koad-io/me/ must exist (run 'koad-io init sovereign' first)
@@ -15,12 +15,15 @@
 #
 #   Authorized-agent path (provisional):
 #     koad-io gestate <name> --as-authorized-agent
+#     OR automatic fallback when no sovereign exists on this device
 #     Pre-conditions:
-#       - ENTITY must be set (running from entity context like Juno)
 #       - ~/.<name>/ must NOT already exist
+#     ENTITY defaults to 'mary' when none is set (immaculate conception —
+#     no initial genome, legacy gestate behavior)
 #     Generates entity keys, creates directory, marks as provisional.
 #     Does NOT sign sovereign sigchain — entity gestated under authorized-agent
-#     authority, pending sovereign countersignature.
+#     authority, pending sovereign countersignature. Sovereign keys are NEVER
+#     forced onto a device that doesn't have them.
 #
 # What this does:
 #   1. Validates pre-flight conditions (name, no existing dir, sovereign or authorized-agent)
@@ -107,56 +110,56 @@ fi
 
 HOST=$(hostname -s)
 
+# Default authority when none is set: mary (immaculate conception — no initial genome)
+if [ -z "${ENTITY:-}" ]; then
+    ENTITY='mary'
+    say "No ENTITY context — defaulting to 'mary' (immaculate conception, no initial genome)"
+    say ""
+fi
+
 if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
     # Authorized-agent mode: skip sovereign checks
-    # ENTITY must be set — the caller must run via entity launcher
-    if [ -z "${ENTITY:-}" ]; then
-        die "--as-authorized-agent requires ENTITY context.
-
-  Run via entity launcher, e.g.:
-    juno gestate entity $ENTITY_NAME --as-authorized-agent
-
-  Or set ENTITY explicitly in the environment.
-  Do not gestate entities with unknown authority."
-    fi
+    # ENTITY defaults to 'mary' above when no context is set
     say "Authorized-agent mode — gestating under authority of: $ENTITY"
     say ""
 else
-    # Local sovereign path: require ~/.koad-io/me/
+    # Local sovereign path: use ~/.koad-io/me/ when present — but NEVER force
+    # sovereign keys onto a device that doesn't have them. Fall back to
+    # authorized-agent mode (provisional) when no sovereign exists here.
     SOVEREIGN_DIR="$HOME/.koad-io/me"
     SOVEREIGN_ID_DIR="$SOVEREIGN_DIR/id"
 
     if [ ! -d "$SOVEREIGN_DIR" ]; then
-        die "No sovereign found at $SOVEREIGN_DIR.
-
-The sovereign dir $SOVEREIGN_DIR does not exist on this machine. To gestate an entity you need one of:
-  1. Local sovereign: run 'koad-io init sovereign' first
-  2. Authorized-agent: run 'koad-io gestate $ENTITY_NAME --as-authorized-agent' (requires ENTITY context, e.g. Juno)"
+        warn "No sovereign found at $SOVEREIGN_DIR — falling back to authorized-agent mode."
+        warn "No sovereign keys will be forced onto this device. Entity is provisional until the sovereign countersigns."
+        AUTHORIZED_AGENT_MODE=1
     fi
 
-    if [ ! -f "$SOVEREIGN_ID_DIR/gpg.public.asc" ] && [ ! -f "$SOVEREIGN_ID_DIR/entity.public.asc" ]; then
-        die "Sovereign exists but has no master public key. Run 'koad-io init sovereign' first."
-    fi
+    if [ "$AUTHORIZED_AGENT_MODE" != "1" ]; then
+        if [ ! -f "$SOVEREIGN_ID_DIR/gpg.public.asc" ] && [ ! -f "$SOVEREIGN_ID_DIR/entity.public.asc" ]; then
+            die "Sovereign exists but has no master public key. Run 'koad-io init sovereign' first."
+        fi
 
-    MASTER_FINGERPRINT_FILE="$SOVEREIGN_ID_DIR/master.fingerprint"
-    if [ ! -f "$MASTER_FINGERPRINT_FILE" ]; then
-        die "Sovereign id/master.fingerprint is missing. Run 'koad-io init sovereign' to repair."
-    fi
+        MASTER_FINGERPRINT_FILE="$SOVEREIGN_ID_DIR/master.fingerprint"
+        if [ ! -f "$MASTER_FINGERPRINT_FILE" ]; then
+            die "Sovereign id/master.fingerprint is missing. Run 'koad-io init sovereign' to repair."
+        fi
 
-    # ---------------------------------------------------------------------------
-    # Pre-flight: sovereign device leaf must exist on this machine
-    # ---------------------------------------------------------------------------
+        # ---------------------------------------------------------------------------
+        # Pre-flight: sovereign device leaf must exist on this machine
+        # ---------------------------------------------------------------------------
 
-    SOVEREIGN_LEAF_DIR="$SOVEREIGN_ID_DIR/devices/$HOST"
-    SOVEREIGN_LEAF_PRIVATE="$SOVEREIGN_LEAF_DIR/leaf.private.asc"
-    SOVEREIGN_DEVICE_KEY="$SOVEREIGN_LEAF_DIR/device.key"
+        SOVEREIGN_LEAF_DIR="$SOVEREIGN_ID_DIR/devices/$HOST"
+        SOVEREIGN_LEAF_PRIVATE="$SOVEREIGN_LEAF_DIR/leaf.private.asc"
+        SOVEREIGN_DEVICE_KEY="$SOVEREIGN_LEAF_DIR/device.key"
 
-    if [ ! -f "$SOVEREIGN_LEAF_PRIVATE" ]; then
-        die "Sovereign device leaf not found at $SOVEREIGN_LEAF_PRIVATE. Run 'koad-io init sovereign' to provision this device's leaf."
-    fi
+        if [ ! -f "$SOVEREIGN_LEAF_PRIVATE" ]; then
+            die "Sovereign device leaf not found at $SOVEREIGN_LEAF_PRIVATE. Run 'koad-io init sovereign' to provision this device's leaf."
+        fi
 
-    if [ ! -f "$SOVEREIGN_DEVICE_KEY" ]; then
-        die "Sovereign device key not found at $SOVEREIGN_DEVICE_KEY. Run 'koad-io init sovereign' to provision this device's leaf."
+        if [ ! -f "$SOVEREIGN_DEVICE_KEY" ]; then
+            die "Sovereign device key not found at $SOVEREIGN_DEVICE_KEY. Run 'koad-io init sovereign' to provision this device's leaf."
+        fi
     fi
 fi
 
