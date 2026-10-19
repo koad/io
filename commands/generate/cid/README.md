@@ -13,4 +13,4 @@ echo "koad" | koad-io generate cid
 # → TysPFWq8Nr5LZQQnM
 ```
 
-Source of truth: `~/.koad-io/packages/core/both/global-helpers.js` — `koad.generate.cid()`. This CLI is a byte-identical mirror of that function, safe to call offline when filing trust bonds without a running Meteor instance.
+Source of truth: `~/.forge/packages/core/both/global-helpers.js` — `koad.generate.cid()`. This CLI is a byte-identical mirror of that function, safe to call offline when filing trust bonds without a running Meteor instance.

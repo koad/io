@@ -26,7 +26,7 @@ Usage:
   echo "input" | koad-io generate cid
 
 Normalization: lowercases, strips non-alphanumeric chars.
-Source of truth: ~/.koad-io/packages/core/both/global-helpers.js (koad.generate.cid)
+Source of truth: ~/.forge/packages/core/both/global-helpers.js (koad.generate.cid)
 EOF
 }
 

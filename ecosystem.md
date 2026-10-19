@@ -158,12 +158,15 @@ Deeper paths win at equal-or-greater depth. New commands = `mkdir` + `command.sh
 ## Package Ecosystem (Meteor.js monorepo)
 
 ```
-~/.koad-io/packages/     (13 packages)   Framework core
-~/.forge/packages/       (92 packages)   Kingdom business layer
-~/.ecoincore/packages/   (42 packages)   Crypto-economic layer
+~/.forge/packages/       (13 core + 92 business)   koad:io-* and kingdom business
+~/.ecoincore/packages/   (42 packages)             Crypto-economic layer
 ```
 
-### Framework Core (`~/.koad-io/packages/`)
+Packages left the framework tree on 2026-10. Each package is now its own repo
+under `~/.forge/packages/`, so the framework skeleton carries none of the
+kingdom's product code.
+
+### Framework Core (`~/.forge/packages/`)
 
 `core`, `router`, `session`, `accounts`, `entities`, `templating`, `workers`, `logger`, `head-js`, `koad-io-merkle-tree`, `koad-io`
 
@@ -358,8 +361,7 @@ The extension **never holds private keys**. Signing and identity always delegate
 | `~/.koad-io/bin/<entity>` | Entity launcher — 4-line wrapper setting ENTITY |
 | `~/.koad-io/commands/` | Framework command tree (19 commands) |
 | `~/.forge/commands/` | Kingdom business command tree (56 commands, git) |
-| `~/.koad-io/packages/` | Framework core Meteor packages (13) |
-| `~/.forge/packages/` | Kingdom business Meteor packages (92) |
+| `~/.forge/packages/` | koad:io-* framework core (13) + kingdom business Meteor packages (92) |
 | `~/.ecoincore/packages/` | Crypto-economic Meteor packages (42) |
 | `~/.forge/passenger/` | Dark Passenger Chrome MV3 extension |
 | `~/.koad-io/harness/` | Pi harness — extension, startup.sh, settings, primers |

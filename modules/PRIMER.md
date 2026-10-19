@@ -13,7 +13,7 @@ features:
     location: ~/.koad-io/modules/node/package.json
 relates-to:
   - ~/.koad-io/KOAD_IO.md
-  - ~/.koad-io/packages/core/PRIMER.md
+  - ~/.forge/packages/core/PRIMER.md
   - ~/.livy/features/koad-io-node-package.md
 entities:
   - vulcan
@@ -41,7 +41,7 @@ The Meteor package build system is isolated from npm. For a long time, crypto an
 
 ## Relationship to Meteor packages
 
-`~/.koad-io/packages/` contains Meteor packages. `~/.koad-io/modules/` contains plain npm packages. They are siblings, not nested. The Meteor package `koad:io-core` maintains a parallel implementation (`both/identity-factory.js`) that mirrors `@koad-io/node/identity` for the `api.addFiles()` context — a planned migration will replace the copy with a direct Npm.require import.
+`~/.forge/packages/` contains Meteor packages. `~/.koad-io/modules/` contains plain npm packages. They are siblings, not nested. The Meteor package `koad:io-core` maintains a parallel implementation (`both/identity-factory.js`) that mirrors `@koad-io/node/identity` for the `api.addFiles()` context — a planned migration will replace the copy with a direct Npm.require import.
 
 ---
 

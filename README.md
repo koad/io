@@ -31,10 +31,13 @@ Everything in koad:io is a **named shard** at a different scale:
 The apps themselves are **thin shells**. The real system lives in packages:
 
 ```
-~/.koad-io/packages/     ← framework packages
-~/.forge/packages/        ← business packages
+~/.forge/packages/        ← koad:io-* packages and kingdom business, independent repos
 ~/.ecoincore/packages/    ← domain packages
 ```
+
+The framework tree ships no Meteor packages of its own. Each package is an
+independent repository, so the skeleton you clone contains structure and
+runtime — never someone else's product code.
 
 Each package declares its own scope. Each command declares its own contract. Each entity declares its own identity. And the system wires them together automatically through a deterministic cascade.
 
@@ -177,14 +180,13 @@ And because every utterance becomes part of the substrate's permanent record, **
 koad:io supports local Meteor packages via `KOAD_IO_PACKAGE_DIRS`:
 
 ```bash
-KOAD_IO_PACKAGE_DIRS=$HOME/.ecoincore/packages:$HOME/.koad-io/packages
+KOAD_IO_PACKAGE_DIRS=$HOME/.forge/packages:$HOME/.ecoincore/packages
 ```
 
 This allows:
 
-- Custom packages in `~/.koad-io/packages/`
+- koad:io-* framework packages and kingdom business packages in `~/.forge/packages/` (each its own repo)
 - Domain packages in `~/.ecoincore/packages/`
-- Business packages in `~/.forge/packages/`
 - Entity-specific packages in `~/.<entity>/packages/`
 
 Each package is a **named, scoped component** that declares what it provides. The app shell consumes packages — it doesn't own the logic. This makes the system:

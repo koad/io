@@ -218,10 +218,13 @@ fi
 
 # Package resolution — single source of truth. After all .env files have
 # had a chance to set or override KOAD_IO_PACKAGE_DIRS, enforce a floor of
-# ~/.koad-io/packages and sync Meteor's expected env var to match. Anything
+# ~/.forge/packages and sync Meteor's expected env var to match. Anything
 # downstream (Meteor builds, harness shells, sub-processes) inherits the
 # canonical cascade without needing the deprecated shim in .env.
-export KOAD_IO_PACKAGE_DIRS="${KOAD_IO_PACKAGE_DIRS:-$HOME/.koad-io/packages}"
+#
+# The framework tree ships no Meteor packages of its own: each koad:io-*
+# package is an independent repository under ~/.forge/packages/.
+export KOAD_IO_PACKAGE_DIRS="${KOAD_IO_PACKAGE_DIRS:-$HOME/.forge/packages}"
 export METEOR_PACKAGE_DIRS="$KOAD_IO_PACKAGE_DIRS"
 
 set +a

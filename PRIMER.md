@@ -161,10 +161,12 @@ By the time a command runs, every variable is resolved. **The cascade is the con
 Apps are thin shells. The real logic lives in packages:
 
 ```
-~/.koad-io/packages/     ← framework packages
-~/.forge/packages/        ← business packages
+~/.forge/packages/        ← koad:io-* packages and kingdom business, independent repos
 ~/.ecoincore/packages/    ← domain packages
 ```
+
+The framework tree ships no Meteor packages of its own. Each package is an
+independent repository.
 
 Each package declares its own scope. The app shell consumes packages — it doesn't own the logic. This makes the system portable, auditable, replaceable, and LLM-comprehensible.
 

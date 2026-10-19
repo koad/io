@@ -87,7 +87,7 @@ CONTACTS_DIR="${KINGDOM_ROOT}/contacts"
 PACKAGES_DIR="${KINGDOM_ROOT}/packages"
 CALENDAR_DIR="${KINGDOM_ROOT}/calendar"
 COMMITMENTS_DIR="${KINGDOM_ROOT}/commitments"
-FRAMEWORK_PACKAGES_DIR="/home/koad/.koad-io/packages"
+FRAMEWORK_PACKAGES_DIR="${KOAD_IO_FRAMEWORK_PACKAGES:-$HOME/.forge/packages}"
 FM_PARSER="$(dirname "$0")/fm.py"
 COMMAND_DIR="$(cd "$(dirname "$0")" && pwd)"
 

@@ -57,9 +57,9 @@ relates-to:
   - ~/.vesta/specs/VESTA-SPEC-111-sigchain.md
   - ~/.vesta/specs/VESTA-SPEC-148-pgp.md
   - ~/.vesta/specs/VESTA-SPEC-024-entity-registry.md
-  - ~/.koad-io/packages/core/PRIMER.md
-  - ~/.koad-io/packages/accounts/PRIMER.md
-  - ~/.koad-io/packages/daemon-api/PRIMER.md
+  - ~/.forge/packages/core/PRIMER.md
+  - ~/.forge/packages/accounts/PRIMER.md
+  - ~/.forge/packages/daemon-api/PRIMER.md
   - ~/.livy/features/INDEX.md
 entities:
   - vulcan
@@ -204,8 +204,8 @@ Tests are plain ESM scripts — no test runner framework. Run with `node test-<n
 
 ## Who consumes this package
 
-- `~/.koad-io/packages/accounts/server/auth.js` — imports `./auth` to wrap SovereignAuth
-- `~/.koad-io/packages/daemon-api/server/api.js` — lazy-imports `./identity-receiver` via Npm.require
+- `~/.forge/packages/accounts/server/auth.js` — imports `./auth` to wrap SovereignAuth
+- `~/.forge/packages/daemon-api/server/api.js` — lazy-imports `./identity-receiver` via Npm.require
 - `~/.forge/packages/sovereign-profiles/server/auth.js` — re-exports from `./auth` (bridge shim)
 - `koad:io-core/both/identity-factory.js` — **parallel implementation** (not yet importing from here — migration planned)
 
@@ -245,7 +245,7 @@ If you see `Cannot find module '@koad-io/node/auth'` at runtime, the build-level
 | `~/.forge/control-tower/` (business) | ✓ | ✓ |
 | `~/.ecoincore/daemon/` (app) | ✓ | ✓ |
 
-This is not automated — new Meteor projects that pull in `koad:io-accounts` need this set up manually. See `~/.koad-io/packages/accounts/PRIMER.md` for the consumer-side docs.
+This is not automated — new Meteor projects that pull in `koad:io-accounts` need this set up manually. See `~/.forge/packages/accounts/PRIMER.md` for the consumer-side docs.
 
 ## Known drift
 
