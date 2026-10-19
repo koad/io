@@ -109,12 +109,13 @@ fi
 # consumes SYSTEM_PROMPT in its own native way. default/ just routes.
 #
 # Harness directory resolution:
-#   $KOAD_IO_HARNESS               — business-layer override (e.g. ~/.forge/commands/harness)
-#                                  — bash is framework default (minimal, kindergarten)
-#                                  — see https://github.com/koad/dotfiles for 
-#                                          example harness command structures
+#   default/ (meta-router) ALWAYS comes from the framework tree — it is
+#   standard equipment and never business-overridden.
+#   $KOAD_IO_HARNESS — business-layer override for LEAF harnesses
+#                  (e.g. ~/.forge/commands/harness holding throne/).
+#                  default/ then cascade-resolves the leaf across both trees.
 
-HARNESS_ROOT="${KOAD_IO_HARNESS:-$HOME/.koad-io/commands/harness}"
+HARNESS_ROOT="$HOME/.koad-io/commands/harness"
 HARNESS_CMD="$HARNESS_ROOT/default/command.sh"
 if [ ! -f "$HARNESS_CMD" ]; then
   exec bash --rcfile <(cat <<'RCEOF'
