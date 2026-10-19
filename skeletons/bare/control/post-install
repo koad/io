@@ -6,6 +6,40 @@ if [ -z "$DATADIR" ]; then
 fi
 
 
+# The framework packages (koad:io-core, koad:io, koad:io-router, ...) require() npm
+# modules that they do NOT declare in Npm.depends(). By the ecosystem constraint those
+# are APP-OWNED: every koad:io app must supply them in its own package.json. This overlay
+# happens before this hook runs, so the app is fully assembled here.
+#
+# Without these the app cannot boot: "Error: Cannot find module 'signale'"
+# (koad:io-core/server/logger.js:1) and a chain of further MODULE_NOT_FOUNDs.
+# Pins match the live reference app (~/.forge/websites/kingofalldata.com/src/package.json).
+#
+# NOTE: this is only the *server-side native* half of the contract. The client-side
+# ESM-only crypto deps (@ipld/dag-json, multiformats) are sourced separately via
+# modules/node/browser/koad-deps.bundle.min.js -> app public/. See
+# ~/.forge/packages/core/client/deps.js (LAYER 1 / LAYER 2).
+Koad_io_app_deps="
+	signale@1.4.0
+	ssh2@1.14.0
+	systeminformation@5.11.14
+	node-machine-id@1.1.12
+	path-to-regexp@6.2.1
+	useragent@2.3.0
+	ua-parser-js@1.0.35
+	geoip-lite@1.2.1
+	body-parser@1.12.4
+	web-vitals@3.0.4
+"
+
+echo -e "\e[32mInstalling koad:io app-owned npm dependencies...\e[0m"
+if ! ( cd "$DATADIR/src" && meteor npm install --save $Koad_io_app_deps ) >> "$DATADIR/logs/meteor-init.log" 2>&1; then
+  echo -e "\e[31mERROR: failed to install koad:io app-owned npm dependencies.\e[0m"
+  echo -e "\e[31mThe app will not boot without them. See $DATADIR/logs/meteor-init.log\e[0m"
+  exit 1
+fi
+echo -e "\e[32mApp dependencies installed.\e[0m"
+
 echo "----"
 echo -e "\e[92mSUCCESS: Creation complete!\e[0m"
 echo "You can bring up your new site (in development mode) by issuing the following command"
