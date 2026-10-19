@@ -52,12 +52,15 @@ HEADER
         # Update in place — portable sed (works on GNU + BSD)
         sed -i.bak "s|^${varname}=.*|${varname}=\"${escaped}\"|" "$envfile"
         rm -f "${envfile}.bak"
-        # Ensure the updated line still ends with a newline
-        [ -n "$(tail -c 1 "$envfile")" ] && echo >> "$envfile"
+        # Ensure the updated line still ends with a newline.
+        # (|| true: the guard short-circuits false when the file already ends
+        #  with a newline — $(...) strips it — so without it, this compound as
+        #  the function's last statement returns 1 and kills `set -e` callers)
+        [ -n "$(tail -c 1 "$envfile")" ] && echo >> "$envfile" || true
     else
         # Ensure the file ends with a newline so the answer line is never
         # glued onto a previous unterminated line
-        [ -n "$(tail -c 1 "$envfile")" ] && echo >> "$envfile"
+        [ -n "$(tail -c 1 "$envfile")" ] && echo >> "$envfile" || true
         echo "${varname}=\"${escaped}\"" >> "$envfile"
     fi
 }
