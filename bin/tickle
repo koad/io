@@ -67,7 +67,19 @@ CURRENT_YM="${TODAY_Y}${TODAY_M}"
 # Frontmatter helpers
 # ---------------------------------------------------------------------------
 
-# is_open FILE — returns 0 if no non-empty completion: field
+# is_open FILE — returns 0 if the tickle is still open.
+#
+# TWO ways a tickle is closed, and both are honoured here (2026-10-19):
+#   1. `completion:` carries a value  — the original rule
+#   2. `status:` is terminal         — added because this scanner ignored status
+#      entirely while `obligation digest` skipped a terminal set. A tickle koad
+#      parked deliberately still surfaced at every session start, reading as an
+#      open obligation, while the digest considered it answered.
+#
+# The terminal set below is IDENTICAL to the one in
+# ~/.forge/commands/obligation/digest/command.sh. If you change one, change both —
+# two readers disagreeing about "closed" is how the parked items surfaced for two
+# days after they were decided.
 is_open() {
   awk '
     BEGIN { fm=0; closed=0 }
@@ -77,21 +89,34 @@ is_open() {
       next
     }
     fm == 1 && /^completion:[[:space:]]*[^[:space:]]/ { closed=1; exit }
+    fm == 1 && /^status:[[:space:]]*(landed|shipped|archived|canonical|complete|completed|delivered|closed|merged|resolved|deferred|dropped|in-progress|done|parked|paused)[[:space:]]*(#.*)?$/ { closed=1; exit }
     END { exit closed }
   ' "$1"
 }
 
-# get_subject FILE — prints subject: value, or filename stem
+# get_subject FILE — prints the tickle's name.
+#
+# Prefers `title:` over `subject:`, then falls back to the filename stem.
+# Before 2026-10-19 this read `subject:` ONLY, while `koad-io tickle` writes
+# `title:` — so every tickle that command has ever written displayed as its
+# filename stem in the session preamble ("component-inventory-portfolio-page",
+# not "koad:io component inventory — the portfolio page"). `obligation digest`
+# already preferred title; this scanner was the odd one out.
 get_subject() {
   local subject
   subject=$(awk '
-    BEGIN { fm=0 }
+    BEGIN { fm=0; title=""; subject="" }
     /^---[[:space:]]*$/ { fm++; if (fm == 2) exit; next }
-    fm == 1 && /^subject:[[:space:]]*/ {
-      sub(/^subject:[[:space:]]*/, "")
-      gsub(/^["'\''`]|["'\''`]$/, "")
-      print
-      exit
+    fm == 1 && /^title:/ {
+      t=$0; sub(/^title:[[:space:]]*/, "", t); title=t; next
+    }
+    fm == 1 && /^subject:/ {
+      s=$0; sub(/^subject:[[:space:]]*/, "", s); subject=s; next
+    }
+    END {
+      v = (title != "") ? title : subject
+      gsub(/^["`]|["`]$/, "", v)
+      print v
     }
   ' "$1")
   if [[ -z "$subject" ]]; then
@@ -102,6 +127,11 @@ get_subject() {
 
 # ---------------------------------------------------------------------------
 # scan_entity ENTITY_DIR — print due tickle paths, one per line
+#
+# Skips .archive/ and .dropped/ subtrees. `obligation digest` has always skipped
+# them; this scanner did not, so closing a tickle by moving it to .archive/ made
+# it disappear from the digest and keep surfacing here — juno reported 35 due on
+# 2026-10-19, of which 32 were archived months ago. Archive is closed.
 # ---------------------------------------------------------------------------
 
 scan_entity() {
@@ -112,7 +142,8 @@ scan_entity() {
   if [[ -d "$tickler_dir/space/$HOST" ]]; then
     while IFS= read -r -d '' f; do
       is_open "$f" && echo "$f"
-    done < <(find "$tickler_dir/space/$HOST" -name '*.md' -type f -print0 2>/dev/null)
+    done < <(find "$tickler_dir/space/$HOST" -name '*.md' -type f \
+               -not -path '*/.archive/*' -not -path '*/.dropped/*' -print0 2>/dev/null)
   fi
 
   # Time dimension
@@ -144,7 +175,8 @@ scan_entity() {
           is_open "$f" && echo "$f"
           ;;
       esac
-    done < <(find "$tickler_dir/time" -name '*.md' -type f -print0 2>/dev/null)
+    done < <(find "$tickler_dir/time" -name '*.md' -type f \
+               -not -path '*/.archive/*' -not -path '*/.dropped/*' -print0 2>/dev/null)
   fi
 }
 
