@@ -44,12 +44,23 @@ fi
 # ---------------------------------------------------------------------------
 
 HOST="$(hostname -s)"
-TODAY_Y=$(date +%Y)
-TODAY_M=$(date +%m)
-TODAY_D=$(date +%d)
+
+# Test seam: KOAD_IO_TICKLE_TODAY=YYYY-MM-DD pins the reference day so the
+# time-axis comparison can be exercised against a fixed clock (e.g. a year
+# boundary, which only comes around once a year). Defaults to the real clock.
+# A test seam, not a feature. Matched in obligation/digest/command.sh.
+_REF_DAY="${KOAD_IO_TICKLE_TODAY:-}"
+_date_ref() { if [[ -n "$_REF_DAY" ]]; then date -d "$_REF_DAY" "$@"; else date "$@"; fi; }
+
+TODAY_Y=$(_date_ref +%Y)
+TODAY_M=$(_date_ref +%m)
+TODAY_D=$(_date_ref +%d)
 TODAY_YMD="${TODAY_Y}${TODAY_M}${TODAY_D}"
-CURRENT_WEEK=$(date +%V)
-CURRENT_YW="${TODAY_Y}${CURRENT_WEEK}"
+CURRENT_WEEK=$(_date_ref +%V)
+# weeks/ paths are labelled by ISO week-year (%G), not calendar year (%Y). They
+# differ for a few days around New Year: on 2027-01-01 %Y=2027 but %G=2026, and
+# 2027-W01 (Mon 2027-01-04) compared as 202701 vs 202753 read as *already due*.
+CURRENT_YW="$(_date_ref +%G)${CURRENT_WEEK}"
 CURRENT_YM="${TODAY_Y}${TODAY_M}"
 
 # ---------------------------------------------------------------------------
