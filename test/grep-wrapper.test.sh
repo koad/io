@@ -85,16 +85,34 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# A fixture with a FIXED hit count. The suite originally counted hits in
+# helpers/kingdom-safe-search.sh — a live file this same working tree edits —
+# so every time that file grew, five assertions went red for a reason that had
+# nothing to do with the wrapper. Pin the content, not the corpus.
+#
+#   'runtime|dispatches'  -> lines 1,2,3,5,7 = 5
+#   'runtime'             -> lines 1,3,5     = 3
+FIXTURE="$WORK/fixture.txt"
+cat > "$FIXTURE" <<'EOF'
+runtime dispatches alpha
+dispatches alone
+runtime alone
+alpha only
+dispatches and runtime
+plain text
+dispatches final
+EOF
+
 # The harness tool's invocation shape: recursive, line-numbered, filename.
 run_recursive() { "$GREP_BIN" -r -n -H -I "$@" 2>"$WORK/err"; }
 
 # ── T1: alternation — the exact repro from the brief ─────────────────────────
-out="$(run_recursive -e 'runtime|dispatches' -- "$TARGET")"; rc=$?
+out="$(run_recursive -e 'runtime|dispatches' -- "$FIXTURE")"; rc=$?
 check "T1a alternation exit code" "0" "$rc"
 check "T1b alternation hit count" "5" "$(printf '%s\n' "$out" | /usr/bin/grep -c .)"
 
 # ── T2: a group ──────────────────────────────────────────────────────────────
-out="$(run_recursive -e '(runtime|dispatches)' -- "$TARGET")"; rc=$?
+out="$(run_recursive -e '(runtime|dispatches)' -- "$FIXTURE")"; rc=$?
 check "T2a group exit code" "0" "$rc"
 check "T2b group hit count" "5" "$(printf '%s\n' "$out" | /usr/bin/grep -c .)"
 
@@ -110,35 +128,46 @@ check_contains "T3d error names the reason" "Unmatched" "$err"
 check_contains "T3e error says it is not a miss" "not a clean miss" "$err"
 check_not_contains "T3f error never says 'No matches'" "No matches" "$err"
 
+# ── T3g: a pattern the engine can only REINTERPRET is also not a miss ───────
+# GNU grep does not exit 2 on ERE lookahead. It prints "warning: ? at start of
+# expression", treats '?' as a literal, and answers "no matches" with rc 1.
+# The warning IS the engine saying it could not read the pattern as written —
+# so the wrapper must fail loudly here too, not report emptiness.
+out="$(run_recursive -e 'a(?=b)' -- "$KOAD_IO_DIR/helpers")"; rc=$?
+err="$(cat "$WORK/err")"
+check "T3g reinterpreted pattern exit code is 2" "2" "$rc"
+check_contains "T3g error calls it inexpressible" "inexpressible" "$err"
+check_not_contains "T3g error never says 'No matches'" "No matches" "$err"
+
 # ── T4: plain text still plain ──────────────────────────────────────────────
-out="$(run_recursive -e 'runtime' -- "$TARGET")"; rc=$?
+out="$(run_recursive -e 'runtime' -- "$FIXTURE")"; rc=$?
 check "T4a plain text exit code" "0" "$rc"
-check "T4b plain text hit count" "5" "$(printf '%s\n' "$out" | /usr/bin/grep -c .)"
+check "T4b plain text hit count" "3" "$(printf '%s\n' "$out" | /usr/bin/grep -c .)"
 
 # ── T5: the migrated semantics — BRE-escaped pipe is now a literal ───────────
 # This is the behaviour change the migration note documents. A pattern the
 # wrapper can express, that simply does not occur — a clean miss, exit 1.
-out="$(run_recursive -e 'runtime\|dispatches' -- "$TARGET")"; rc=$?
+out="$(run_recursive -e 'runtime\|dispatches' -- "$FIXTURE")"; rc=$?
 check "T5a BRE-escaped pipe is literal under ERE (clean miss)" "1" "$rc"
 check "T5b BRE-escaped pipe returns no hits" "" "$out"
 
 # ── T6: the explicit dialect switch restores BRE for that caller ────────────
-out="$(KOAD_IO_QUIET=1 "$GREP_BIN" --kingdom-dialect=bre -r -n -H -I -e 'runtime\|dispatches' -- "$TARGET" 2>"$WORK/err")"; rc=$?
+out="$(KOAD_IO_QUIET=1 "$GREP_BIN" --kingdom-dialect=bre -r -n -H -I -e 'runtime\|dispatches' -- "$FIXTURE" 2>"$WORK/err")"; rc=$?
 check "T6a explicit BRE dialect exit code" "0" "$rc"
 check "T6b explicit BRE dialect hit count" "5" "$(printf '%s\n' "$out" | /usr/bin/grep -c .)"
 
 # ── T7: fixed-string dialect ─────────────────────────────────────────────────
-"$GREP_BIN" --kingdom-dialect=fixed -r -n -H -I -e 'runtime|dispatches' -- "$TARGET" >/dev/null 2>"$WORK/err"; rc=$?
+"$GREP_BIN" --kingdom-dialect=fixed -r -n -H -I -e 'runtime|dispatches' -- "$FIXTURE" >/dev/null 2>"$WORK/err"; rc=$?
 check "T7 fixed dialect treats the pipe literally" "1" "$rc"
 
 # ── T8: a caller that declares its own dialect keeps control ────────────────
-"$GREP_BIN" -F -r -n -H -I -e 'runtime|dispatches' -- "$TARGET" >/dev/null 2>"$WORK/err"; rc=$?
+"$GREP_BIN" -F -r -n -H -I -e 'runtime|dispatches' -- "$FIXTURE" >/dev/null 2>"$WORK/err"; rc=$?
 check "T8a caller -F is not overridden by the wrapper default" "1" "$rc"
-"$GREP_BIN" -oP 'run\w+' "$TARGET" >/dev/null 2>"$WORK/err"; rc=$?
+"$GREP_BIN" -oP 'run\w+' "$FIXTURE" >/dev/null 2>"$WORK/err"; rc=$?
 check "T8b caller -P still works" "0" "$rc"
 
 # ── T9: --raw bypasses excludes, not the dialect ────────────────────────────
-out="$("$GREP_BIN" --raw -r -n -e 'runtime|dispatches' -- "$TARGET" 2>"$WORK/err")"; rc=$?
+out="$("$GREP_BIN" --raw -r -n -e 'runtime|dispatches' -- "$FIXTURE" 2>"$WORK/err")"; rc=$?
 check "T9a raw mode keeps ERE (exit code)" "0" "$rc"
 check "T9b raw mode keeps ERE (hit count)" "5" "$(printf '%s\n' "$out" | /usr/bin/grep -c .)"
 

@@ -52,10 +52,28 @@ Behavior:
   - passes plain stdin/file grep through to /usr/bin/grep
   - when recursive grep flags are present (-r, -R, --recursive,
     --directories=recurse, --dereference-recursive), walks files through a
-    kingdom-safe find layer that prunes noisy/generated trees by default
+    kingdom-safe layer that prunes whole classes of tree by path BEFORE
+    traversal: generated/cached directories, agent scratch trees, session and
+    transcript archives, and live runtime substrate
   - use --raw or --full to bypass the safe excludes entirely (the dialect
     still applies — --raw is about which files are walked, not how patterns
     are read)
+
+Why exclusion and not a timeout:
+  a process in uninterruptible disk wait (STAT D) ignores signals until its I/O
+  completes, so a timeout cannot rescue a walk that has already opened the
+  wrong tree. Not opening it is the fix. On 2026-10-18 a recursive grep walked
+  ~/.sibyl/work/ and the calling harness wrote nothing for 9m05s. The policy
+  lives in helpers/kingdom-safe-search.sh and is printed by --show-excludes.
+
+Nothing is made unreachable:
+  name an excluded tree as the search root and it IS searched, with a notice on
+  stderr. --raw bypasses the whole policy.
+
+Walk budget:
+  a recursive walk that would touch more than KOAD_IO_SAFE_MAX_FILES files
+  (default 5000000) is refused before a single file is read — with the count,
+  the reason, and the ways out. Never a silent, truncated answer.
 
 Notes:
   - wrapper help: grep --kingdom-help
@@ -86,6 +104,15 @@ dialect_label() {
 # reports 1 for any failing -exec), so in the recursive path — the default
 # for the harness tool — an invalid pattern would otherwise degrade straight
 # into "No matches". Validate first, and fail loudly.
+#
+# There are TWO ways an engine declines to read a pattern as written, and only
+# one of them is exit 2:
+#   rc 2                     — it does not compile at all, e.g. `foo(`
+#   rc 0/1 with stderr       — it compiles by REINTERPRETING the syntax, e.g.
+#                              `a(?=b)` -> "warning: ? at start of expression"
+#                              (ERE has no lookahead; '?' becomes a literal)
+# Both are patterns the caller did not write. Answering "no matches" for
+# either is the same class of lie, so both are hard failures.
 validate_patterns() {
   local flag="$1"
   shift
@@ -97,10 +124,14 @@ validate_patterns() {
     reason="$("$SYSTEM_GREP" "$flag" -e "$pat" /dev/null 2>&1 >/dev/null)"
     rc=$?
     set -e
-    if [[ $rc -eq 2 ]]; then
+    if [[ $rc -eq 2 || -n "$reason" ]]; then
       # strip the "grep: " / "/usr/bin/grep: " prefix grep itself printed
       reason="${reason#*grep: }"
-      printf 'grep: invalid pattern: %s\n' "$pat" >&2
+      if [[ $rc -eq 2 ]]; then
+        printf 'grep: invalid pattern: %s\n' "$pat" >&2
+      else
+        printf 'grep: inexpressible pattern: %s\n' "$pat" >&2
+      fi
       printf 'grep: dialect: %s\n' "$DIALECT_LABEL" >&2
       printf 'grep: reason: %s\n' "$reason" >&2
       printf 'grep: this is an error, not a clean miss — nothing was searched.\n' >&2
@@ -429,67 +460,82 @@ run_file_batch() {
   update_rc "$rc"
 }
 
-run_find_root() {
+# ── The walk ────────────────────────────────────────────────────────────
+# One traversal collects the file list; the budget is checked against that
+# list; only then does grep open anything. The ordering is deliberate — the
+# budget decision has to be made before any output exists, or refusing would
+# itself be a truncation.
+
+SAFE_MAX_FILES="${KOAD_IO_SAFE_MAX_FILES:-5000000}"
+case "$SAFE_MAX_FILES" in
+  ''|*[!0-9]*)
+    printf 'grep: KOAD_IO_SAFE_MAX_FILES must be a non-negative integer, got "%s"\n' "$SAFE_MAX_FILES" >&2
+    exit 2
+    ;;
+esac
+export KOAD_IO_SAFE_MAX_FILES="$SAFE_MAX_FILES"
+
+KG_LIST_FILE=""
+kg_grep_cleanup() {
+  [[ -n "$KG_LIST_FILE" && -f "$KG_LIST_FILE" ]] && rm -f "$KG_LIST_FILE"
+  return 0
+}
+trap kg_grep_cleanup EXIT
+
+KG_TRAVERSAL_FATAL=0
+
+enumerate_root() {
   local root="$1"
-  local find_cmd=("$SYSTEM_FIND")
+  local out="$2"
+  local -a cmd=("$SYSTEM_FIND")
+
   if [[ $follow_symlinks -eq 1 ]]; then
-    find_cmd+=("-L")
+    cmd+=("-L")
   fi
-  find_cmd+=("$root")
-  find_cmd+=(
-    '('
-      -type d
-      '('
-  )
 
-  local first=1
-  local name
-  for name in "${KG_SAFE_DIR_NAMES[@]}"; do
-    if [[ $first -eq 0 ]]; then
-      find_cmd+=( -o )
-    fi
-    first=0
-    find_cmd+=( -name "$name" )
-  done
-  local pattern
-  for pattern in "${KG_SAFE_PATH_PATTERNS[@]}"; do
-    if [[ $first -eq 0 ]]; then
-      find_cmd+=( -o )
-    fi
-    first=0
-    find_cmd+=( -path "$pattern" )
-  done
-  local abs_path
-  for abs_path in "${KG_SAFE_ABS_PATHS[@]}"; do
-    if [[ $first -eq 0 ]]; then
-      find_cmd+=( -o )
-    fi
-    first=0
-    find_cmd+=( -path "$abs_path" -o -path "$abs_path/*" )
-  done
+  kg_safe_prune_args "$root"
+  cmd+=("$root")
 
-  find_cmd+=(
-      ')'
-      -prune
-    ')'
-    -o
-    -type f
-    -exec
-    "$SYSTEM_GREP"
-  )
-
-  local arg
-  for arg in "${final_grep_args[@]}"; do
-    find_cmd+=("$arg")
-  done
-  find_cmd+=( {} + )
+  if [[ $KG_ROOT_EXCLUDED -eq 1 ]]; then
+    # The caller named an excluded tree as the root. Search it — a silent empty
+    # answer here would be the same class of lie as a false "No matches" — but
+    # say so, because every broad walk will skip it.
+    kg_safe_note_explicit_root "grep" "$root" "$KG_ROOT_ZONE"
+    cmd+=(-type f -print0)
+  else
+    cmd+=("${KG_PRUNE_ARGS[@]}" -o -type f -print0)
+  fi
 
   local rc
   set +e
-  "${find_cmd[@]}"
+  "${cmd[@]}" >> "$out"
   rc=$?
   set -e
-  update_rc "$rc"
+  # GNU find: 1 = minor problems (a path could not be stat'ed), 2 = serious.
+  if [[ $rc -ge 2 ]]; then
+    printf 'grep: traversal of %s failed (find exit %d) — the walk is incomplete\n' "$root" "$rc" >&2
+    KG_TRAVERSAL_FATAL=1
+  elif [[ $rc -ne 0 ]]; then
+    printf 'grep: note: traversal of %s reported skipped paths (find exit %d)\n' "$root" "$rc" >&2
+  fi
+  return 0
+}
+
+grep_enumerated() {
+  local list="$1"
+  local -a batch=()
+  local path
+  while IFS= read -r -d '' path; do
+    batch+=("$path")
+    if [[ ${#batch[@]} -ge 2000 ]]; then
+      run_file_batch "${batch[@]}"
+      batch=()
+    fi
+  done < "$list"
+  if [[ ${#batch[@]} -gt 0 ]]; then
+    run_file_batch "${batch[@]}"
+  fi
+  return 0
 }
 
 file_targets=()
@@ -508,8 +554,38 @@ if [[ ${#file_targets[@]} -gt 0 ]]; then
   run_file_batch "${file_targets[@]}"
 fi
 
-for path in "${dir_targets[@]}"; do
-  run_find_root "$path"
-done
+if [[ ${#dir_targets[@]} -gt 0 ]]; then
+  KG_LIST_FILE="$(mktemp "${TMPDIR:-/tmp}/kg-grep-files.XXXXXXXX")"
+  for path in "${dir_targets[@]}"; do
+    enumerate_root "$path" "$KG_LIST_FILE"
+  done
+
+  file_total="$(tr -cd '\0' < "$KG_LIST_FILE" | wc -c)"
+  file_total="${file_total//[!0-9]/}"
+  [[ -n "$file_total" ]] || file_total=0
+
+  if [[ $KG_TRAVERSAL_FATAL -eq 1 ]]; then
+    printf 'grep: refusing to answer from an incomplete walk — nothing was searched\n' >&2
+    exit 2
+  fi
+
+  if [[ $file_total -gt $SAFE_MAX_FILES ]]; then
+    printf 'grep: refusing to walk %s files (budget %s, KOAD_IO_SAFE_MAX_FILES)\n' \
+      "$file_total" "$SAFE_MAX_FILES" >&2
+    printf 'grep: roots: %s\n' "$(kg_safe_join_by ' ' "${dir_targets[@]}")" >&2
+    printf 'grep: reason: a walk this wide is a D-state risk, not a search — a process\n' >&2
+    printf 'grep:         in uninterruptible disk wait cannot be interrupted by a timeout.\n' >&2
+    printf 'grep: this is an error, not a short answer — nothing was searched.\n' >&2
+    printf 'grep: narrow the root, raise KOAD_IO_SAFE_MAX_FILES, or pass --raw.\n' >&2
+    exit 2
+  fi
+
+  if [[ $file_total -eq 0 ]]; then
+    printf 'grep: note: 0 files remained after the safe excludes — nothing was searched\n' >&2
+    printf 'grep: note: --show-excludes lists what was pruned; --raw bypasses it\n' >&2
+  fi
+
+  grep_enumerated "$KG_LIST_FILE"
+fi
 
 exit "$overall_rc"

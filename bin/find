@@ -17,7 +17,10 @@ Usage:
 
 Behavior:
   - preserves standard find path + expression shape
-  - injects a default prune layer for noisy/generated/runtime trees
+  - injects a default prune layer built from the shared kingdom-safe policy:
+    generated/cached dirs, agent scratch trees, session and transcript
+    archives, and live runtime substrate — pruned by path BEFORE traversal
+  - naming an excluded tree as a root searches it anyway, with a notice
   - use --raw or --full to bypass the prune layer entirely
 
 Notes:
@@ -143,55 +146,41 @@ if [[ $expr_has_action -eq 0 ]]; then
 fi
 
 cmd=("$SYSTEM_FIND")
-for arg in "${leading_opts[@]}"; do
-  cmd+=("$arg")
-done
-for arg in "${roots[@]}"; do
-  cmd+=("$arg")
-done
-
-cmd+=(
-  '('
-    -type d
-    '('
-)
-
-first=1
-for arg in "${KG_SAFE_DIR_NAMES[@]}"; do
-  if [[ $first -eq 0 ]]; then
-    cmd+=( -o )
-  fi
-  first=0
-  cmd+=( -name "$arg" )
-done
-for arg in "${KG_SAFE_PATH_PATTERNS[@]}"; do
-  if [[ $first -eq 0 ]]; then
-    cmd+=( -o )
-  fi
-  first=0
-  cmd+=( -path "$arg" )
-done
-for arg in "${KG_SAFE_ABS_PATHS[@]}"; do
-  if [[ $first -eq 0 ]]; then
-    cmd+=( -o )
-  fi
-  first=0
-  cmd+=( -path "$arg" -o -path "$arg/*" )
-done
-
-cmd+=(
-    ')'
-    -prune
-  ')'
-  -o
-)
-for arg in "${expr[@]}"; do
-  cmd+=("$arg")
-done
+# The prune expression is built per root, because a relative root (`.`) makes
+# absolute `-path` exclusions inert unless they are re-expressed relative to it.
+# The policy itself lives in helpers/kingdom-safe-search.sh.
 
 kg_safe_print_banner "find"
 if [[ $show_excludes -eq 1 ]]; then
   kg_safe_show_excludes "find" >&2
 fi
 
-exec "${cmd[@]}"
+overall=0
+for root in "${roots[@]}"; do
+  kg_safe_prune_args "$root"
+  cmd=("$SYSTEM_FIND")
+  for arg in "${leading_opts[@]}"; do
+    cmd+=("$arg")
+  done
+  cmd+=("$root")
+  if [[ $KG_ROOT_EXCLUDED -eq 1 ]]; then
+    # Named an excluded tree as the root: search it, but say so.
+    kg_safe_note_explicit_root "find" "$root" "$KG_ROOT_ZONE"
+  else
+    cmd+=("${KG_PRUNE_ARGS[@]}" -o)
+  fi
+  for arg in "${expr[@]}"; do
+    cmd+=("$arg")
+  done
+
+  rc=0
+  set +e
+  "${cmd[@]}"
+  rc=$?
+  set -e
+  if [[ $rc -ne 0 ]]; then
+    overall=$rc
+  fi
+done
+
+exit "$overall"
