@@ -20,7 +20,7 @@ import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const KOAD_IO_ROOT = path.resolve(__dirname, '..', '..');
+const KOAD_IO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const CEREMONY_PATH = path.join(KOAD_IO_ROOT, 'modules', 'node', 'ceremony.js');
 const SIGCHAIN_PATH = path.join(KOAD_IO_ROOT, 'modules', 'node', 'sigchain.js');
 
