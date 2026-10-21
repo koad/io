@@ -140,23 +140,49 @@ If `which koad-io` prints nothing, the PATH step did not take. Open a new shell 
 ## 5. Install the module dependencies
 
 ```bash
-cd ~/.koad-io/modules/node && npm ci
+koad-io install deps
 ```
 
-**✓ Verified 2026-10-21** against a clean clone of `koad/io` at `HEAD`. Skip this and
-`koad-io init sovereign` dies at its first import:
+**✓ Verified 2026-10-21** on a clean clone, and as the remedy on a box where the condition was
+first detected. `modules/node` is the shared `@koad-io/node` module (crypto, identity, ceremony,
+bond gate). Its `package.json` and `package-lock.json` are committed; `node_modules/` is gitignored
+— 63 packages, correctly not in git. It has to be installed once per machine.
+
+Skip it and every command that touches identity dies at its first import:
 
 ```
 Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@scure/bip39'
-  imported from /home/koad/.koad-io/modules/node/ceremony.js
+  imported from /home/<user>/.koad-io/modules/node/index.js
   ...
   at ModuleLoader._link (node:internal/modules/esm/loader:182:49)
 ```
 
-`@scure/bip39` is declared in `modules/node/package.json` and pinned in `package-lock.json`, but
-`modules/node/node_modules/` is gitignored and **nothing in `commands/` or `bin/` runs
-`npm install`** — so a fresh clone has no dependencies and the ceremony cannot start. `npm ci`
-finishes in about a second, after which the module imports cleanly.
+**This bites machines that have been running koad:io for months, not just fresh clones.** Seen on
+`citadel` on 2026-10-21: `koad-io generate cid 'skatefish'` produced that stack trace, because the
+dependencies had never been installed on that box. A stack trace is the wrong answer to "one
+directory is missing", so the framework now detects the condition and says so instead — see below.
+
+`koad-io install deps --daemon` does the daemon's 16 dependencies too. `--check` reports without
+changing anything.
+
+**Detection.** Before any command runs, `bin/koad-io` checks whether `modules/node/node_modules`
+exists. If it does not, and the command being run (or the helper scripts beside it) references
+`modules/node` or `@koad-io/node`, it stops with the remedy rather than letting the import fail:
+
+```
+[koad-io] This command needs the @koad-io/node dependencies, and they are not installed.
+[koad-io]   missing: /home/<user>/.koad-io/modules/node/node_modules
+[koad-io]   fix:     koad-io install deps
+```
+
+Commands that do not need the module are unaffected — the check only fires on a command that
+actually imports it.
+
+**Manual equivalent** (if you prefer to see npm's own output, or the command is unavailable):
+
+```bash
+cd ~/.koad-io/modules/node && npm ci
+```
 
 Run this as the same normal user — **not** `sudo`. `sudo npm install` leaves a root-owned
 `node_modules` that you cannot overwrite later; if that has already happened,
