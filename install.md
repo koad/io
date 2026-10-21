@@ -492,9 +492,26 @@ models — there is no API-key step between this command and your first reply fr
 user fails with `EACCES` against `/usr/local`. The adapter offers it second, with that caveat, for
 people who do have a writable global prefix.
 
-**Why opencode is the default:** it asks for confirmation on essentially all filesystem and bash
-tooling. In kindergarten nothing is bond-gated — you have no bonds yet — so the confirmation prompt
-*is* the safety net. Do not point a newcomer at a harness that edits files unprompted.
+**Why opencode is the default — and the correction (2026-10-21).** The original reasoning was:
+*opencode asks for confirmation on essentially all filesystem and bash tooling, and in kindergarten
+nothing is bond-gated, so the confirmation prompt is the safety net.* **That claim is false as of
+opencode 2.0** — it was a property we were renting from upstream and never checked.
+
+The reason a newcomer is safe now is ours, not a vendor's:
+
+1. **The kingdom ships a permission config that asks.** On 2.x the adapter writes
+   `~/.<entity>/opencode/opencode.json` with `ask` for `bash`, `edit`, `webfetch`, `websearch`,
+   `external_directory` and `doom_loop`. Anything not explicitly allowed asks.
+2. **The adapter never passes `--auto`** ("auto-approve permissions that are not explicitly
+   denied"). The reason is in a comment in the adapter so nobody optimises it back in.
+3. **The adapter asserts the version at launch.** 1.x and 2.x speak different flags; anything else
+   exits 69 with one line naming what is supported. Without that check, 2.0 passing 1.x flags has
+   opencode print its own help and exit — a failure that looks like documentation, and cost a
+   machine a harness until someone read the notice.
+
+Keep the original reasoning visible: it is the paragraph that caught this. The choice of opencode
+was right for the wrong reason, and when upstream changed, the reason evaporated while the choice
+stayed.
 
 The framework prefers a kingdom-managed binary at `~/.koad-io/bin/opencode` if one exists, and falls
 back to `PATH`.
