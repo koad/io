@@ -620,7 +620,10 @@ fi
 
 _OC_VERSION_RAW="$("$OPENCODE_BIN" --version 2>/dev/null | head -1)"
 _OC_VERSION="${_OC_VERSION_RAW#v}"
-_OC_MAJOR="${_OC_VERSION%%.*}"
+# 2.x prints 'opencode v2.1.2', 1.x prints '1.19.3'. Take the first number followed
+# by a dot, whatever wraps it — a version check that misparses its own input is
+# worse than none, because it fails loudly on a version we do support.
+_OC_MAJOR="$(printf '%s' "$_OC_VERSION_RAW" | sed -n 's/[^0-9]*\([0-9][0-9]*\)\..*/\1/p' | head -1)"
 
 case "$_OC_MAJOR" in
   1|2) : ;;
@@ -659,10 +662,24 @@ JSONEOF
     echo "[opencode] wrote $_oc_cfg (model + ask-by-default permissions)" >&2
   fi
 
-  _args+=(--standalone)
   if [ -n "$PROMPT" ]; then
-    _args+=(--prompt "$PROMPT")
+    # One-shot is the `run` subcommand — and `run` still has --model/--agent even
+    # though the TOP-LEVEL command lost them. `--prompt` is not the one-shot form:
+    # it pre-fills the interactive TUI, so using it here would insert a prompt AND
+    # leave an interactive session waiting for a human who is not there.
+    _args=(run --model "$MODEL_RESOLVED")
+    if [ -n "$OPENCODE_CONFIG_CONTENT" ]; then
+      _args+=(--agent "$ENTITY")
+    fi
+    [ "$CONTINUE" = "1" ] && _args+=(--continue)
+    if [ -n "${RESUME_ID:-}" ]; then
+      _args+=(--session "$RESUME_ID")
+    fi
+    _args+=(--standalone "$PROMPT")
+    exec "$OPENCODE_BIN" "${_args[@]}"
   fi
+
+  _args+=(--standalone)
   [ "$CONTINUE" = "1" ] && _args+=(--continue)
   if [ -n "${RESUME_ID:-}" ]; then
     _args+=(--session "$RESUME_ID")
