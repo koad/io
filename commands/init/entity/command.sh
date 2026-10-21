@@ -326,7 +326,9 @@ ensure_spec175_gitignore() {
         changed=1
     fi
 
-    [ "$changed" -eq 1 ] && say "  updated: .gitignore (added SPEC-175 rules)"
+    if [ "$changed" -eq 1 ]; then
+        say "  updated: .gitignore (added SPEC-175 rules)"
+    fi
 }
 
 ensure_spec175_id_gitignore() {
