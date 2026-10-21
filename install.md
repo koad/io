@@ -242,9 +242,40 @@ git clone https://github.com/koad/alice.git ~/.alice
 koad-io init alice
 ```
 
-**✓ Verified:** the README's own `Learn More` section links `github.com/koad/alice` as *"a complete,
-working entity."* Alice is the intended first entity — she is the tour guide, and she walks with you
-while you explore.
+**✓ Verified 2026-10-21:** `koad/alice` is now a **template**, not a snapshot of a live entity's
+home. The clone contains no identity material — no `.env`, no `id/`, no `devices/`, no keyring,
+no trust bonds, no wallets — and no `/home/koad/` paths anywhere in the tree. It ships
+`.env.example` (portable, documented) instead of `.env`, so the identity this entity ends up
+with is **yours**, generated on your device.
+
+**⚠ Run §6 first.** `koad-io init alice` scaffolds `~/.alice`, generates the entity keypair and
+this device's leaf key, signs the sigchain entries, writes the launcher, and builds `AGENTS.md`.
+If no sovereign exists at `~/.koad-io/me/`, it stops with:
+
+```
+[init] State:  entity.public.asc=missing  leaf/<host>=missing  legacy_keys=0
+[init] Action: re-seed
+[init] ERROR: Sovereign required for entity key seeding. Run 'koad-io init sovereign' first.
+```
+
+That is the correct failure — one clear instruction, exit 1, nothing half-written.
+
+`koad-io init alice` and `koad-io init entity alice` are the same command; the second names the
+sub-command explicitly. Both are idempotent: re-running on a fully initialized entity reports
+`Action: all-set` and changes nothing.
+
+**What the clone gives you:** `ENTITY.md` (an example entity's identity), `PRIMER.md`,
+`README.md`, `passenger.json` (the entity manifest), `.env.example`, `.gitignore`, `LICENSE`,
+`origins.txt`, plus the avatar and outfit the manifest references. Nothing from anybody else's
+memories, keys, wallets, or bonds.
+
+**? Unverified:** the re-seed path itself has not been walked end-to-end on a clean box
+(wonderland has no sovereign, so the run stops at the gate above by design). `testy003` should
+walk §7 with a real `init sovereign` in front of it.
+
+**✓ Verified:** the README's own `Learn More` section links `github.com/koad/alice` as *"the
+koad:io starting entity."* Alice is the intended first entity — she is the tour guide, and she
+walks with you while you explore.
 
 ### Option 2 — Gestate from scratch
 
@@ -262,7 +293,10 @@ alice gestate newentity
 
 Copies skeletons, commands, and packages from the mother entity.
 
-**? Unverified:** all three options — none has been run on a clean box.
+**✓ Verified:** Option 1 — `git clone` + `koad-io init alice` resolves the framework `init`
+verb, detects state, and stops cleanly at the sovereign gate on a box without a sovereign.
+
+**? Unverified:** Options 2 and 3 — neither has been run on a clean box.
 
 ---
 
