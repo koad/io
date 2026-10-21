@@ -239,7 +239,7 @@ An "entity" is a directory with its own identity, commands, memories, and keys.
 
 ```bash
 git clone https://github.com/koad/alice.git ~/.alice
-koad-io init alice
+koad-io init entity alice
 ```
 
 **✓ Verified 2026-10-21** by reading the tree at `5630ace` (12 files): `koad/alice` is a
@@ -260,7 +260,7 @@ that can sign in its name. One is meant to be generated on your device:
 
 ```bash
 koad-io init sovereign        # master identity + this device's leaf key (see §6)
-koad-io init alice            # entity keypair, sigchain entries, launcher, AGENTS.md
+koad-io init entity alice     # entity keypair, sigchain entries, launcher, AGENTS.md
 ```
 
 When that runs as intended, `id/` in your tree holds *your* key and no longer matches the published
@@ -268,8 +268,13 @@ one. That divergence is the expected outcome — it is the sign the template bec
 safe to commit to your own repo. Do not sign with Alice's key: your signatures would verify against
 the wrong author. Borrowed keys are worse than no keys.
 
-**⚠ It does not run as intended yet.** As of 2026-10-21 the second command adopts the published key
-instead of generating one. Read the box below before you run it.
+**✓ It runs as intended as of 2026-10-21.** The second command no longer adopts the published key
+— it proves paternity first and refuses to adopt a key it did not mint. Read the box below for the
+mechanism and the message you will see.
+
+Alice's own README carries a stopgap — *clear `id/` before `init`, or you inherit my key*. That
+workaround is no longer needed: `init` now archives displaced key material instead of adopting it,
+and tells you which branch it took.
 
 It also ships `.env.example` (portable, documented) instead of `.env`, so the configuration this
 entity ends up with is **yours** too.
@@ -279,32 +284,71 @@ entity ends up with is **yours** too.
 locally — so if this section and those ever disagree, hers is the voice to trust and this file is
 the one to correct.
 
-**⚠ Run §6 first.** `koad-io init alice` scaffolds `~/.alice`, writes the launcher, builds
+**⚠ Run §6 first.** `koad-io init entity alice` scaffolds `~/.alice`, writes the launcher, builds
 `AGENTS.md`, and performs whichever identity action its state machine selects — which depends on
-what is already in `~/.alice/id/`.
+what is already in `~/.alice/id/` *and* on whether your sovereign's sigchain can account for it.
 
-> ### ⚠⚠ Do not run `init alice` on a fresh template clone until this is fixed (2026-10-21)
+> ### The paternity gate (shipped 2026-10-21)
 >
-> `init` picks its action from **file presence alone** (`entity/command.sh` lines 145–171). A clone
-> of the template at `62730fa` had no `id/`, so it read as `entity.public.asc=missing` →
-> `Action: re-seed`, which is the path that generates *your* entity keypair. **Alice's `5630ace`
-> publishes `id/entity.public.asc`, so the same clone now reads differently.** Verified 2026-10-21
-> by running the script's own detection block against a fresh clone:
+> `init` used to pick its action from **file presence alone**
+> (`[ -f id/entity.public.asc ]`). That test cannot tell an entity key *your* sovereign created
+> from one a template published about itself — so Alice's `5630ace` (which publishes
+> `id/entity.public.asc`, by design) read on a fresh clone as `Action: secondary-device`: mint a
+> device leaf, import **Alice's** key as the entity key, and, with a sovereign present, sign a
+> `koad.entity.leaf-authorize` binding your device to `04ED…C869`. Your entity ended up with no
+> keypair of its own — exactly what Alice's README tells you never to do.
+>
+> Presence is not paternity. `secondary-device` is now selected only when your own sigchain holds a
+> `koad.entity.genesis` naming this handle **and this entity key fingerprint** (SPEC-175 §4). The
+> check runs *ahead of* state selection rather than patching the presence test, and it has three
+> outcomes:
+>
+> | paternity | when | what `init` does |
+> |---|---|---|
+> | **proven** | your sigchain records a genesis for this handle with this exact key | `Action: secondary-device` — mints this device's leaf. Unchanged, and this is the normal second-device path. |
+> | **disproven** | your sigchain knows the handle with a different key, or has never gestated it at all | Does **not** adopt. `Action: re-seed` — generates a fresh entity keypair and device leaf for this directory, archives the displaced material under `id/archive/foreign-key-<ts>/` (archived, never deleted), and says so plainly. |
+> | **unverifiable** | no sovereign at `~/.koad-io/me/`, or its sigchain is absent/empty/unreadable | Generates **nothing**. Prints the state, the key on disk, the reason, and three explicit choices. **Exits 2.** |
+>
+> *Unverifiable* is deliberately not the same as *disproven*: a chain that has recorded nothing
+> cannot testify that a key is foreign, and absence must never license a key rotation.
+>
+> **What you will actually see.** On a box with no sovereign — a fresh clone of the template, before
+> §6 — `koad-io init entity alice` stops:
 >
 > ```
-> State:  entity.public.asc=present  leaf/<host>=missing  legacy_keys=0
-> Action: secondary-device
+> [init] State:  entity.public.asc=present  leaf/<host>=missing  legacy_keys=0
+> [init] Paternity: UNVERIFIABLE — no sovereign at ~/.koad-io/me on this device — there is no chain to prove anything against
+> [init]
+> [init]   Nothing was generated. This is not a refusal to work; it is a
+> [init]   refusal to guess. Paternity cannot be assumed from a file.
+> [init]
+> [init]   Entity:      alice (~/.alice)
+> [init]   Entity key:  04ED15A3B056C900140BBB84C462E4DF7E7DC869 (id/entity.public.asc)
+> [init]   This device: <host> — no leaf in id/devices/<host>/
+> [init]   Sovereign:   ~/.koad-io/me (absent)
+> [init]
+> [init]   Choose one, explicitly:
+> [init]     koad-io init sovereign                 establish a sovereign, then re-run
+> [init]     koad-io init entity alice --adopt      adopt the key in id/ as yours
+> [init]     koad-io init entity alice --re-seed    ignore it; mint a fresh keypair
 > ```
 >
-> `secondary-device` (State 7) means *“this entity key already exists; add a leaf for this
-> machine”*. It generates **only a device leaf**, imports **Alice's** key as the entity key, and —
-> if a sovereign is present — signs a `koad.entity.leaf-authorize` binding your new device leaf to
-> fingerprint `04ED…C869`. Your entity ends up with **no keypair of its own**, which is precisely
-> what Alice's README tells you never to do (*“Do not sign with Alice's key”*).
+> exit status **2**, `id/` untouched, no leaf, no keyring. `init sovereign` is unaffected.
 >
-> So the flow below is broken for the template until the state machine learns to tell “the key the
-> template shipped” from “the key my entity already has”. Filed to Juno and Alice 2026-10-21. In
-> the meantime: `init sovereign` is unaffected; **stop before `init alice`** on a fresh clone.
+> **Once §6 is done** the same command resolves to *disproven* — your own chain has never gestated
+> `alice` — and lands on `re-seed`: **you get your own keypair**, which is the whole point of §7.
+> If you genuinely want the key the template shipped, that is `--adopt`, spelled out, never a silent
+> default.
+>
+> **✓ Verified 2026-10-21** against fixture trees on wonderland (real sigchain as fixture, `HOME`
+> overridden): fresh alice clone with no sovereign → exit 2 and `id/` byte-identical before and
+> after; matching genesis → `PROVEN` → `secondary-device`; differing fingerprint → `DISPROVEN` →
+> `re-seed`; handle never gestated → `DISPROVEN`; genesis signed by another sovereign → *not*
+> adopted; `--adopt` with no sovereign → proceeds with a loud warning; `--re-seed` with no sovereign
+> → stops at the sovereign gate with the directory untouched.
+>
+> **? Unverified:** the full re-seed ceremony (key generation, sigchain genesis + leaf-authorize,
+> commit) still needs a real sovereign. `testy003` walks it.
 
 For the record, this is the gate a **keyless** clone (no `id/` at all — any entity other than
 Alice, or Alice at `62730fa`) hits when no sovereign exists at `~/.koad-io/me/`:
@@ -317,8 +361,9 @@ Alice, or Alice at `62730fa`) hits when no sovereign exists at `~/.koad-io/me/`:
 
 That is the correct failure — one clear instruction, exit 1, nothing half-written.
 
-`koad-io init alice` and `koad-io init entity alice` are the same command; the second names the
-sub-command explicitly. Both are idempotent: re-running on a fully initialized entity reports
+`koad-io init entity alice` and `koad-io init alice` run the same state machine — `init` is a
+namespace (`init sovereign` | `init entity` | `init kingdom`) and the bare-name form is the
+compatibility reading, not the documented one. Re-running on a fully initialized entity reports
 `Action: all-set` and changes nothing.
 
 **What the clone gives you** — twelve files, ✓ verified against the tree: `ENTITY.md` (an example
@@ -331,9 +376,9 @@ clone; `init` builds it.
 
 **? Unverified:** the re-seed path itself has not been walked end-to-end on a clean box
 (wonderland has no sovereign, so the run stops at the gate above by design). `testy003` should
-walk §7 with a real `init sovereign` in front of it. **As of 2026-10-21 the gate is unreachable on
-Alice's own template** — see the box above; the clone now reads as `secondary-device` rather than
-`re-seed`, so the re-seed path first has to be reachable before it can be walked.
+walk §7 with a real `init sovereign` in front of it. The path is now *reachable* on Alice's own
+template — a sovereign that has never gestated `alice` resolves to `re-seed` — but reaching it and
+completing it are different things.
 
 **✓ Verified:** the README's own `Learn More` section links `github.com/koad/alice` as *"the
 koad:io starting entity."* Alice is the intended first entity — she is the tour guide, and she
@@ -342,7 +387,7 @@ walks with you while you explore.
 ### Option 2 — Gestate from scratch
 
 ```bash
-koad-io gestate myentity
+koad-io gestate entity myentity
 ```
 
 Creates an entity with keys, directories, and launcher.
@@ -355,12 +400,11 @@ alice gestate newentity
 
 Copies skeletons, commands, and packages from the mother entity.
 
-**✓ Verified:** Option 1 — `git clone` + `koad-io init alice` resolves the framework `init`
-verb and runs its state detection without error. **⚠ It no longer *stops* at the sovereign gate on
-a box without a sovereign** — since Alice's `5630ace` the clone ships `id/entity.public.asc`, so
-detection selects `secondary-device` instead of the gated `re-seed` (see the box in §7). This line
-was true against the keyless template at `62730fa` and will be true again once the state machine
-can tell a template's shipped key from an entity's own.
+**✓ Verified:** Option 1 — `git clone` + `koad-io init entity alice` resolves the framework `init`
+verb, runs its state detection, and — since the paternity gate landed on 2026-10-21 — **stops with
+exit 2 on a box without a sovereign** instead of silently adopting Alice's published key (see the
+box in §7). Before Alice's `5630ace` the same clone was keyless and stopped at the sovereign gate on
+the `re-seed` path; the gate is now asked one step earlier, where the decision actually is.
 
 **? Unverified:** Options 2 and 3 — neither has been run on a clean box.
 
