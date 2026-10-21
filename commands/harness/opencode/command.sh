@@ -640,26 +640,56 @@ _args=()
 
 if [ "$_OC_MAJOR" -ge 2 ]; then
   # --- 2.x dialect ---------------------------------------------------------
-  # Model and permissions are configuration, not flags. Write ours once, and
-  # never overwrite a config the entity or the operator already owns.
+  # Model, identity and permissions are configuration, not flags.
+  #
+  # This file is DERIVED STATE and is rewritten every launch: the system prompt
+  # carries the assembled identity (KOAD_IO.md → ENTITY.md → role primers →
+  # state), which changes per session. Writing it once and leaving it was the
+  # first version of this branch, and the symptom was subtle and total: opencode
+  # started with its built-in `build` agent and no identity at all.
+  #
+  # 2.x renamed both concepts: `agent` → `agents`, `prompt` → `system`, and the
+  # selected agent comes from `default_agent` rather than --agent.
   _oc_cfg_dir="$ENTITY_DIR/opencode"
   _oc_cfg="$_oc_cfg_dir/opencode.json"
-  if [ ! -f "$_oc_cfg" ] && [ ! -f "$ENTITY_DIR/opencode.json" ] && [ ! -f "$ENTITY_DIR/opencode.jsonc" ]; then
+  _oc_operator_cfg=""
+  for _cand in "$ENTITY_DIR/opencode.jsonc" "$ENTITY_DIR/opencode.json"; do
+    [ -f "$_cand" ] && { _oc_operator_cfg="$_cand"; break; }
+  done
+
+  if [ -z "$_oc_operator_cfg" ]; then
     mkdir -p "$_oc_cfg_dir"
-    cat > "$_oc_cfg" <<JSONEOF
-{
-  "model": "$MODEL_RESOLVED",
-  "permission": {
-    "bash": "ask",
-    "edit": "ask",
-    "webfetch": "ask",
-    "websearch": "ask",
-    "external_directory": "ask",
-    "doom_loop": "ask"
-  }
-}
-JSONEOF
-    echo "[opencode] wrote $_oc_cfg (model + ask-by-default permissions)" >&2
+    jq -n \
+      --arg entity "$ENTITY" \
+      --arg desc "${PURPOSE:-$ENTITY entity}" \
+      --arg prompt "${SYSTEM_PROMPT:-}" \
+      --arg model "$MODEL_RESOLVED" \
+      --arg color "$OUTFIT_COLOR" \
+      '{
+        model: $model,
+        default_agent: $entity,
+        agents: {
+          ($entity): {
+            description: $desc,
+            mode: "primary",
+            system: $prompt,
+            model: $model
+          }
+        },
+        permission: {
+          bash: "ask",
+          edit: "ask",
+          webfetch: "ask",
+          websearch: "ask",
+          external_directory: "ask",
+          doom_loop: "ask"
+        }
+      }
+      | if $color != "" then .agents[$entity].color = $color else . end
+      ' > "$_oc_cfg"
+    echo "[opencode] wrote $_oc_cfg (agent $ENTITY · system prompt ${#SYSTEM_PROMPT} bytes · ask-by-default permissions)" >&2
+  else
+    echo "[opencode] operator config in use: $_oc_operator_cfg (identity comes from it, not from this adapter)" >&2
   fi
 
   if [ -n "$PROMPT" ]; then
