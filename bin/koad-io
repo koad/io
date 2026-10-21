@@ -562,6 +562,55 @@ fi
 
 echo "--exec $EXEC_FILE ${_REST_ARGS[*]} $KOAD_IO_FLAGS" >&2
 
+# ---------------------------------------------------------------------------
+# Module dependency preflight (2026-10-21)
+#
+# modules/node is the shared @koad-io/node module. Its package.json and lockfile
+# are committed; node_modules is not (60+ packages). Nothing ever installed it.
+#
+# On a machine where `npm ci` was never run — a fresh clone, or a box that has
+# been running koad:io for months (citadel, 2026-10-21) — every command that
+# imports the module dies with a raw Node stack trace:
+#
+#   Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@scure/bip39'
+#     imported from /home/koad/.koad-io/modules/node/index.js
+#
+# A stack trace is the wrong answer to "one directory is missing". Detect the
+# condition before the import can fail and name the fix. Detection is by
+# reference, not by a hardcoded command list: if the resolved script mentions
+# modules/node, it needs the module.
+# ---------------------------------------------------------------------------
+_MODULE_DIR="$HOME/.koad-io/modules/node"
+if [[ -n "${EXEC_FILE:-}" ]] && [[ -d "$_MODULE_DIR" ]] && [[ ! -d "$_MODULE_DIR/node_modules" ]]; then
+  case "$EXEC_FILE" in
+    "$HOME/.koad-io/commands/install/"*)
+      : ;;  # the remedy must be able to run
+    *)
+      _needs_mod=0
+      if /usr/bin/grep -qs 'modules/node\|@koad-io/node' "$EXEC_FILE" 2>/dev/null; then
+        _needs_mod=1
+      elif /usr/bin/grep -rqs --include='*.mjs' --include='*.js' \
+             'modules/node\|@koad-io/node' "$(dirname "$EXEC_FILE")" 2>/dev/null; then
+        # sibling helper scripts (ceremony.mjs and friends) may be what imports it
+        _needs_mod=1
+      fi
+      if [[ "$_needs_mod" -eq 1 ]]; then
+        {
+          echo ""
+          echo "[koad-io] This command needs the @koad-io/node dependencies, and they are not installed."
+          echo "[koad-io]   missing: $_MODULE_DIR/node_modules"
+          echo "[koad-io]   fix:     koad-io install deps"
+          echo "[koad-io]"
+          echo "[koad-io] Running it now would fail with ERR_MODULE_NOT_FOUND on '@scure/bip39'."
+          echo "[koad-io] Run as your normal user — never with sudo."
+          echo ""
+        } >&2
+        exit 1
+      fi
+      ;;
+  esac
+fi
+
 # All is well, lets go!
 # _REST_ARGS is the array of trailing positional tokens (each original argv
 # element intact — spaces/newlines preserved). _flag_args is the bash array
