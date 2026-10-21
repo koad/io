@@ -325,6 +325,16 @@ ensure_env_line "$SOVEREIGN_DIR/.env" "GIT_AUTHOR_EMAIL" "${SOVEREIGN_HANDLE}@${
 ensure_env_line "$SOVEREIGN_DIR/.env" "GIT_COMMITTER_NAME" "$SOVEREIGN_HANDLE"
 ensure_env_line "$SOVEREIGN_DIR/.env" "GIT_COMMITTER_EMAIL" "${SOVEREIGN_HANDLE}@${SOVEREIGN_DOMAIN}"
 
+# Export them into THIS process. ensure_env_line writes the file but does not touch
+# the running shell, so the genesis commit further down ran with no identity at all
+# on a fresh box: git exited 128, stderr was suppressed, and `set -e` killed the
+# command mid-genesis. Every fresh install therefore needed two runs — the second
+# one picked the identity up when the .env was sourced at startup.
+export GIT_AUTHOR_NAME="$SOVEREIGN_HANDLE"
+export GIT_AUTHOR_EMAIL="${SOVEREIGN_HANDLE}@${SOVEREIGN_DOMAIN}"
+export GIT_COMMITTER_NAME="$SOVEREIGN_HANDLE"
+export GIT_COMMITTER_EMAIL="${SOVEREIGN_HANDLE}@${SOVEREIGN_DOMAIN}"
+
 # ---------------------------------------------------------------------------
 # Generate crypto suite — VESTA-SPEC-174 §4.2 + VESTA-SPEC-149 §8.1
 # Uses @koad-io/node ceremony.mjs — same key lineage as storefront + daemon.
@@ -837,7 +847,11 @@ git -C "$SOVEREIGN_DIR" add \
 [ -f "$SOVEREIGN_SIGCHAIN_META_FILE" ]      && git -C "$SOVEREIGN_DIR" add "$SOVEREIGN_SIGCHAIN_META_FILE" 2>/dev/null || true
 
 if ! git -C "$SOVEREIGN_DIR" diff --cached --quiet 2>/dev/null; then
-    git -C "$SOVEREIGN_DIR" commit -m "kingdom genesis — $HOSTNAME device leaf registered" 2>/dev/null
+    # Surface git's own error instead of swallowing it — a failed commit here used to
+    # kill the command under `set -e` with no output whatsoever.
+    if ! git -C "$SOVEREIGN_DIR" commit -m "kingdom genesis — $HOSTNAME device leaf registered"; then
+        die "git commit failed in $SOVEREIGN_DIR — set a git identity (git config --global user.email/user.name) and re-run; the command is idempotent"
+    fi
     say "committed staged files"
 else
     skip "git commit (nothing new to stage)"
