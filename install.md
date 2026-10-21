@@ -44,12 +44,15 @@ you. Guard this yourself by being a normal user.
 | **gnupg** | identity, signing, leaf keys, trust bonds | `apt install gnupg` |
 | **openssl** | key material generation during gestation | `apt install openssl` |
 | **jq** | **hard requirement** — the gestate script parses JSON with `jq -r` and dies without it | `apt install jq` |
-| **Node.js** | the ceremony module (`commands/gestate/entity/ceremony.mjs`), the daemon, packages | ? exact version unverified — **Node 24** is what the last guide used |
+| **Node.js + npm** | the ceremony module (`modules/node/ceremony.js`), the daemon, packages | `apt install nodejs npm` — **verified working on Node v22.23.1** |
 | **starship** | the prompt; cascades across the framework | `koad-io install starship` (see below) |
 
 **✓ Verified by reading the script** (2026-09-24): `gnupg`, `openssl`, `jq`, and `node` are all
 required by `~/.koad-io/commands/gestate/entity/command.sh` and its `ceremony.mjs` companion.
 **`jq` and `node` are the easy ones to miss.**
+
+**✓ Verified 2026-10-21:** `modules/node/ceremony.js` loads and exports 15 symbols on **Node
+v22.23.1** (Debian's `nodejs` package) once its dependencies are installed — see §5.
 
 **? Unverified:** whether Node has a minimum version enforced anywhere. The current README states
 no prerequisites at all, so this list is reconstructed from the recovered guide, the gestate
@@ -121,7 +124,44 @@ If `which koad-io` prints nothing, the PATH step did not take. Open a new shell 
 
 ---
 
-## 5. Establish your sovereign identity
+## 5. Install the module dependencies
+
+```bash
+cd ~/.koad-io/modules/node && npm ci
+```
+
+**✓ Verified 2026-10-21** against a clean clone of `koad/io` at `HEAD`. Skip this and
+`koad-io init sovereign` dies at its first import:
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@scure/bip39'
+  imported from /home/koad/.koad-io/modules/node/ceremony.js
+  ...
+  at ModuleLoader._link (node:internal/modules/esm/loader:182:49)
+```
+
+`@scure/bip39` is declared in `modules/node/package.json` and pinned in `package-lock.json`, but
+`modules/node/node_modules/` is gitignored and **nothing in `commands/` or `bin/` runs
+`npm install`** — so a fresh clone has no dependencies and the ceremony cannot start. `npm ci`
+finishes in about a second, after which the module imports cleanly.
+
+Run this as the same normal user — **not** `sudo`. `sudo npm install` leaves a root-owned
+`node_modules` that you cannot overwrite later; if that has already happened,
+`sudo chown -R $USER:$USER ~/.koad-io/modules/node` first.
+
+**⚠ The failure mode is misleading — read this before troubleshooting.** The crash happens at
+module *link* time: Node resolves the whole import graph before executing a single statement. No
+code in the ceremony has run, so a recovery phrase typed at that prompt was **never read or
+validated**, and the attempt was not consumed. It is not a bad mnemonic. Do not re-derive anything;
+install the dependencies and run it again.
+
+**? Unverified:** `daemon/src/package.json` declares 16 dependencies and likewise has no install
+step anywhere. The daemon is not needed for the steps below, but a box that later runs it will hit
+this same class of failure. Run `npm ci` in `~/.koad-io/daemon/src` as well if you intend to run it.
+
+---
+
+## 6. Establish your sovereign identity
 
 > ### ⚠ This step is being renamed, and the flow around it is unsettled
 >
@@ -161,7 +201,7 @@ path's preconditions are not met even on the operator's own machine.
 
 ---
 
-## 6. Create your first entity
+## 7. Create your first entity
 
 An "entity" is a directory with its own identity, commands, memories, and keys.
 
@@ -196,7 +236,7 @@ Copies skeletons, commands, and packages from the mother entity.
 
 ---
 
-## 7. Run it
+## 8. Run it
 
 ```bash
 alice
