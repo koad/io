@@ -954,18 +954,36 @@ elif [ "$ACTION" = "re-seed" ]; then
     #            — also the landing place for a disproven paternity check
     # -----------------------------------------------------------------------
 
+    # -----------------------------------------------------------------------
+    # Creation needs no sovereign (2026-10-21, Juno ruling on koad's objection)
+    #
+    # Paternity governs ADOPTION, not CREATION. A cold box with no key on disk has
+    # nothing that can be misattributed, so there is nothing to prove — and
+    # refusing to *create* because we cannot *adopt* was over-broad. `gestate
+    # entity` has always minted keys with no sovereign present; `init entity` now
+    # does the same, including the provisional marking, so an unsigned entity is
+    # visibly unsigned rather than silently invalid.
+    # -----------------------------------------------------------------------
+    ENTITY_PROVISIONAL=0
     if [ "$HAVE_SOVEREIGN" -eq 0 ]; then
-        die "Sovereign required for entity key seeding. Run 'koad-io init sovereign' first."
+        say "No sovereign on this device — minting $ENTITY_NAME's own key provisionally."
+        say ""
+        say "  The entity will be fully functional. It is not linked into any sovereign"
+        say "  sigchain yet, and it says so about itself (id/provisional.json)."
+        say "  A sovereign countersigns later, on a machine that holds one:"
+        say "    koad-io init entity $ENTITY_NAME"
+        say ""
+        ENTITY_PROVISIONAL=1
+    else
+        # Nothing on disk is moved until the ceremony is proven able to run: the
+        # sovereign leaf is verified FIRST. A failure there must leave the directory
+        # exactly as it was found.
+        verify_sovereign_leaf
     fi
 
     say "Entity '$ENTITY_NAME' has no key material of its own — re-seeding from scratch..."
     say "This generates a new entity keypair and device leaf for this machine."
     say ""
-
-    # Nothing on disk is moved until the ceremony is proven able to run: the
-    # sovereign leaf is verified FIRST. A failure there must leave the directory
-    # exactly as it was found.
-    verify_sovereign_leaf
 
     # If a key was already on disk, it is somebody else's (paternity disproven,
     # or --re-seed given). Overwrite-by-write is not this script's business:
@@ -1026,12 +1044,32 @@ elif [ "$ACTION" = "re-seed" ]; then
     bootstrap_keyring "$ENTITY_DIR" "$ENTITY_ID_DIR" "$DEVICE_DIR" "$ENTITY_NAME"
 
     say ""
-    say "Signing sigchain entries..."
-    sign_entity_sigchain_entries 0
+    if [ "$ENTITY_PROVISIONAL" -eq 1 ]; then
+        # Same shape gestate writes for an authorized-agent entity, so a consumer
+        # can tell "unsigned" from "invalid" without reading bash.
+        jq -n \
+            --arg handle "$ENTITY_NAME" \
+            --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg host "$HOST" \
+            '{
+                handle: $handle,
+                status: "provisional",
+                gestation_mode: "init-entity-no-sovereign",
+                provisional: true,
+                sovereign_countersign_required: true,
+                created_at: $created,
+                device: $host
+            }' > "$ENTITY_ID_DIR/provisional.json"
+        say "  wrote: id/provisional.json (unsigned — sovereign countersignature pending)"
+        say "  sovereign sigchain entries NOT signed (no sovereign on this device)"
+    else
+        say "Signing sigchain entries..."
+        sign_entity_sigchain_entries 0
 
-    say ""
-    say "Committing sovereign sigchain..."
-    commit_push_sovereign_sigchain "$ENTITY_NAME"
+        say ""
+        say "Committing sovereign sigchain..."
+        commit_push_sovereign_sigchain "$ENTITY_NAME"
+    fi
 
     printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ENTITY_ID_DIR/migrated-at"
 
