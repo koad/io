@@ -58,6 +58,8 @@ elif command -v opencode >/dev/null 2>&1; then
   OPENCODE_BIN="$(command -v opencode)"
 else
   echo "Error: 'opencode' CLI not found at ~/.koad-io/bin/opencode or on PATH." >&2
+  echo "  Install: npm install -g opencode-ai" >&2
+  echo "  Upstream: https://github.com/sst/opencode" >&2
   exit 69
 fi
 
