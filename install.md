@@ -20,13 +20,20 @@ machine this will fail on if you skip this.
 Create a normal user and run everything below as that user:
 
 ```bash
-adduser --gecos "" koad
+adduser --gecos "" koad        # set a password when prompted
+usermod -aG sudo koad        # needed for the apt step in §1
 su - koad
 ```
 
 **Why it matters:** the framework writes to `~/.koad-io/`, `~/.<entity>/`, and later `~/.forge/`.
 Installed as root, those become root-owned, your keys land in `/root`, and you will hit permission
-problems later that are painful to unpick. Nothing here needs elevation.
+problems later that are painful to unpick.
+
+**⚠ «Nothing here needs elevation» was wrong — corrected 2026-10-21.** §1 is `apt install`, which
+requires root. `adduser` does **not** put the new user in `sudo` on Debian, so a literal walk of this
+document hard-stops at §1 with `Permission denied … dpkg frontend lock`. Hence the `usermod -aG sudo`
+line above. Everything from §2 onward genuinely needs no elevation — do **not** use `sudo` there;
+`sudo npm install` in §5 in particular leaves a root-owned `node_modules` you cannot overwrite.
 
 **? Unverified:** whether `init` currently refuses to run as root. As of 2026-09-24 there is **no
 `EUID` guard** anywhere in `~/.koad-io/commands/` or `~/.forge/commands/` — so it will *not* stop
@@ -103,6 +110,12 @@ source ~/.bashrc
 
 **✓ Verified:** `bin/PRIMER.md` states plainly — *"Adding `~/.koad-io/bin` to `PATH` is the standard
 install step; the entity launchers only work after this."*
+
+**✓ Verified:** this works in an **interactive** shell only — `bash -ic` resolves `koad-io`, plain
+`bash -c` does not. Debian's stock `~/.bashrc` opens with a `case $- in *i*) ;; *) return;; esac`
+guard, so the line below never runs for non-interactive bash: harnesses, cron, systemd units, and
+`ssh host 'command'` will not see the framework on `PATH`. If you invoke koad:io from automation,
+export the path explicitly in that context too.
 
 This is what gives you `koad-io` and one command per entity.
 
@@ -187,6 +200,22 @@ prerequisite in **four** separate error messages (missing sovereign dir, missing
 **? Unverified:** the exact interactive flow, what it asks, how long it takes, whether it needs
 network access, and what it writes where.
 
+**Once genesis finishes:** it commits the identity repo itself, so you do **not** need to configure
+`git config --global user.name` first — `init sovereign` exports `GIT_AUTHOR_*`/
+`GIT_COMMITTER_*` from your handle and kingdom domain.
+
+**✓ Verified 2026-10-21** end-to-end on a clean Debian 13 box: master keypair, device leaf,
+`master.fingerprint`, a two-entry sigchain (`koad.identity.genesis` + `koad.identity.leaf-authorize`),
+and a single genesis commit. Note the command is **interactive** — it reads answers from `/dev/tty`,
+so piping a file into it does nothing.
+
+**⚠ Non-interactive runs are a silent no-op.** With stdin not a terminal and no answer in env, it
+prints one `{"KOAD_IO_ASK":{...}}` line and exits **0** having built nothing. Treat a zero exit as
+meaningless unless `~/.koad-io/me/id/master.fingerprint` exists afterwards. (The `KOAD_IO_*` env
+escape hatch is also currently unusable from the calling shell: `bin/koad-io` wipes every
+`KOAD_IO_*` variable from the caller's environment before the command runs. Only unprefixed ones —
+`SOVEREIGN_HANDLE`, `SOVEREIGN_DOMAIN` — survive.)
+
 **Back up what it produces.** Store the recovery material somewhere *ridiculously safe* — this is
 the one step where losing the output is unrecoverable.
 
@@ -196,8 +225,9 @@ the one step where losing the output is unrecoverable.
 **`me` is a reserved name.** The gestate script refuses it with: *"'me' is reserved —
 `~/.koad-io/me/` is the sovereign. Use another name."* Do not call an entity `me`.
 
-**⚠ Note:** `~/.koad-io/me/` **does not exist on wonderland** as of 2026-09-24 — so the sovereign
-path's preconditions are not met even on the operator's own machine.
+**⚠ Note:** `~/.koad-io/me/` does not exist on a box until this command creates it, and the
+recovery phrase quiz (3 random positions out of 24) must be passed before anything is written to
+`id/`. Get it wrong and it re-displays the words and asks again — it does not abort.
 
 ---
 
