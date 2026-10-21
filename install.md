@@ -413,15 +413,65 @@ the `re-seed` path; the gate is now asked one step earlier, where the decision a
 ## 8. Run it
 
 ```bash
-alice
+cd ~/.alice && alice
 ```
 
-Launches the entity's harness as an interactive session. The harness is resolved from
-`ENTITY_DEFAULT_HARNESS` in the entity's `.env`, falling back through `KOAD_IO_*` and finally a
-hardcoded default.
+**✓ Verified 2026-10-21** — cold Debian 13 box, no global git config, no sovereign until §6, no
+harness preinstalled:
 
-**? Unverified:** the current fallback default, and whether the harness launches cleanly on a fresh
-Debian box.
+```
+harness       : default → opencode
+entity        : alice
+mode          : interactive
+```
+
+Bare `alice` launches the entity's harness as an interactive session. The harness is resolved from
+`ENTITY_DEFAULT_HARNESS` in the entity's `.env`, falling back through `KOAD_IO_*`, and finally to a
+hardcoded `opencode`. Prompt mode is the same command with text after it:
+
+```bash
+cd ~/.alice && alice harness default "say hello in five words"
+#   > alice · big-pickle
+#   Hello how are you today.
+```
+
+**⚠ `alice "some sentence"` is not a prompt.** The launcher reads its first argument as a command
+name, so a bare sentence answers `Could not find command file for 'say hello in five words'`. Use
+`alice harness default "…"` for one-shot prompts.
+
+**⚠ Run from a project directory, not `$HOME`.** Harnesses refuse the home directory outright —
+`Error: WORK_DIR '<home>' is the home directory.` — and name the fix. The entity's own directory
+(`~/.alice`, which carries a `.env`) is a valid working folder.
+
+### No harness CLI ships with the framework
+
+The **adapters** ship — `commands/harness/` carries `opencode`, `pi`, `claude`, `codex`, `gemini`,
+`ollama`, `bash`, `zsh` — but not the underlying binary. A bare install therefore has a working
+entity and nothing to run it with, and the error is the only thing that tells you:
+
+```
+Error: 'opencode' CLI not found at ~/.koad-io/bin/opencode or on PATH.
+  Install: curl -fsSL https://opencode.ai/install | bash
+```
+
+```bash
+curl -fsSL https://opencode.ai/install | bash     # → ~/.opencode/bin, no sudo
+```
+
+**✓ Verified 2026-10-21:** the installer is user-scoped (no elevation), and opencode ships free
+models — there is no API-key step between this command and your first reply from her.
+
+**⚠ Do not document `npm install -g opencode-ai` as the path.** It is correct about the package
+(`opencode-ai` ships the `opencode` bin) and wrong for a newcomer: on Debian, `npm i -g` as a normal
+user fails with `EACCES` against `/usr/local`. The adapter offers it second, with that caveat, for
+people who do have a writable global prefix.
+
+**Why opencode is the default:** it asks for confirmation on essentially all filesystem and bash
+tooling. In kindergarten nothing is bond-gated — you have no bonds yet — so the confirmation prompt
+*is* the safety net. Do not point a newcomer at a harness that edits files unprompted.
+
+The framework prefers a kingdom-managed binary at `~/.koad-io/bin/opencode` if one exists, and falls
+back to `PATH`.
 
 ---
 
