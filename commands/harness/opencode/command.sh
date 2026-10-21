@@ -523,6 +523,25 @@ if [ -n "${KOAD_IO_CWD_PRIMER:-}" ]; then
 }$KOAD_IO_CWD_PRIMER"
 fi
 
+# --- Permission posture (2026-10-21) ---------------------------------------
+#
+# Ask when a human is at the keyboard; allow when nobody is.
+#
+# The prompt is the only enforced layer a person has, so interactive sessions
+# ask. But a dispatched flight runs the harness one-shot with no one to answer
+# an approval — asking there does not make the system safer, it makes the
+# flight hang until it times out. Dispatched work is bounded by the bond gate
+# and the flight's own lane instead, which is the layer that actually sees it.
+#
+# So the posture follows the mode, deliberately and visibly, rather than one
+# blanket answer for both. If this is ever changed to ask in both modes, flights
+# must first learn to answer prompts.
+if [ -n "$PROMPT" ]; then
+  OC_PERM_POSTURE="allow"   # one-shot: no human present
+else
+  OC_PERM_POSTURE="ask"     # interactive: the human is the enforcement
+fi
+
 # Read outfit color from passenger.json (if present)
 OUTFIT_COLOR=""
 if [ -f "$ENTITY_DIR/passenger.json" ] && command -v jq >/dev/null 2>&1; then
@@ -574,6 +593,7 @@ if [ -n "$SYSTEM_PROMPT" ] && [ -z "$OPENCODE_CONFIG_CONTENT" ]; then
       --arg prompt "$SYSTEM_PROMPT" \
       --arg entity_dir "$ENTITY_DIR" \
       --arg color "$OUTFIT_COLOR" \
+      --arg posture "$OC_PERM_POSTURE" \
       '{
         agent: {
           ($entity): {
@@ -584,8 +604,8 @@ if [ -n "$SYSTEM_PROMPT" ] && [ -z "$OPENCODE_CONFIG_CONTENT" ]; then
               external_directory: { ($entity_dir + "/**"): "allow" },
               read:  { ($entity_dir + "/**"): "allow" },
               write: { ($entity_dir + "/**"): "allow" },
-              bash: "allow", glob: "allow", grep: "allow",
-              edit: "allow", skill: "allow", task: "allow"
+              bash: $posture, glob: $posture, grep: $posture,
+              edit: $posture, skill: $posture, task: $posture
             }
           }
         }
@@ -665,6 +685,7 @@ if [ "$_OC_MAJOR" -ge 2 ]; then
       --arg prompt "${SYSTEM_PROMPT:-}" \
       --arg model "$MODEL_RESOLVED" \
       --arg color "$OUTFIT_COLOR" \
+      --arg posture "$OC_PERM_POSTURE" \
       '{
         model: $model,
         default_agent: $entity,
@@ -677,17 +698,17 @@ if [ "$_OC_MAJOR" -ge 2 ]; then
           }
         },
         permission: {
-          bash: "ask",
-          edit: "ask",
-          webfetch: "ask",
-          websearch: "ask",
-          external_directory: "ask",
-          doom_loop: "ask"
+          bash: $posture,
+          edit: $posture,
+          webfetch: $posture,
+          websearch: $posture,
+          external_directory: $posture,
+          doom_loop: $posture
         }
       }
       | if $color != "" then .agents[$entity].color = $color else . end
       ' > "$_oc_cfg"
-    echo "[opencode] wrote $_oc_cfg (agent $ENTITY · system prompt ${#SYSTEM_PROMPT} bytes · ask-by-default permissions)" >&2
+    echo "[opencode] wrote $_oc_cfg (agent $ENTITY · system prompt ${#SYSTEM_PROMPT} bytes · permissions: $OC_PERM_POSTURE)" >&2
   else
     echo "[opencode] operator config in use: $_oc_operator_cfg (identity comes from it, not from this adapter)" >&2
   fi

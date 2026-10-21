@@ -315,12 +315,27 @@ opencode 2.0** — it was a property we were renting from upstream and never che
 
 What makes a newcomer safe now is ours, not a vendor's:
 
-1. **The kingdom ships a permission config that asks** — `~/.<entity>/opencode/opencode.json` with
-   `ask` for `bash`, `edit`, `webfetch`, `websearch`, `external_directory`, `doom_loop`.
-2. **The adapter never passes `--auto`.**
+1. **The adapter writes a permission config that asks** — `~/.<entity>/opencode/opencode.json`, with
+   `ask` for `bash`, `edit`, `webfetch`, `websearch`, `external_directory` and `doom_loop` **when the
+   session is interactive**. It flips to `allow` for one-shot runs, because a dispatched flight has
+   nobody at the keyboard to answer an approval: asking there does not make the system safer, it
+   makes the flight hang until it times out. Dispatched work is bounded by the bond gate and the
+   flight's lane instead — the layer that can actually see it.
+
+   **✓ Verified 2026-10-21** on both postures: `alice harness default "…"` writes
+   `permission.bash: allow`; bare `alice` writes `permission.bash: ask`. Same file, same agent.
+2. **The adapter never passes `--auto`.** Its meaning — *auto-approve permissions that are not
+   explicitly denied* — is the whole posture in one flag, and it would silently override the mode
+   split above.
 3. **The adapter asserts the harness version at launch.** 1.x and 2.x speak different flags;
    anything else exits with one line naming what is supported. Before this check, a 2.x binary
    receiving 1.x flags printed its own help and exited — a failure that looks like documentation.
+
+**⚠ This was never a rented guarantee — it was ours, and it was generous.** The 1.x adapter
+*generated* its permission block inline, and it allowed `bash`, `edit`, `glob`, `grep`, `skill` and
+`task` outright for the entity agent. That is what auto-approved, not an upstream default: the
+kingdom never shipped a config file, but the adapter always wrote one in memory. If you want to know
+why an agent acted without asking, that block is the answer.
 
 The original reasoning stays visible: it is the paragraph that caught the change.
 
