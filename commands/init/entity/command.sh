@@ -698,10 +698,28 @@ commit_push_sovereign_sigchain() {
         return 0
     }
 
-    # Use the sovereign operator's own git identity (global config), not the entity's.
-    # Unset any entity-scoped author vars so git falls back to its global config.
+    # Use the sovereign operator's own git identity when the operator has one.
+    # On a fresh box git has none: the commit exits 128 with "Author identity unknown"
+    # and `set -e` kills the whole command mid-flow. So: prefer global config, and when
+    # there is none, fall back to the identity `init sovereign` already wrote into the
+    # sovereign's .env — never assume a machine-wide git identity exists.
     (
-        unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+        if git config --global user.email >/dev/null 2>&1 || \
+           git -C "$SOVEREIGN_DIR" config user.email >/dev/null 2>&1; then
+            # Operator has a git identity — let git use it, not the entity's.
+            unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+        else
+            if [ -f "$SOVEREIGN_DIR/.env" ]; then
+                set -a
+                # shellcheck disable=SC1090
+                . "$SOVEREIGN_DIR/.env"
+                set +a
+            fi
+            export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-${SOVEREIGN_HANDLE:-sovereign}}"
+            export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-${SOVEREIGN_HANDLE:-sovereign}@${SOVEREIGN_DOMAIN:-kingdom}}"
+            export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+            export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+        fi
 
         if ! git -C "$SOVEREIGN_DIR" diff --quiet -- sigchain/ 2>/dev/null || \
            ! git -C "$SOVEREIGN_DIR" diff --cached --quiet -- sigchain/ 2>/dev/null; then
