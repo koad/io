@@ -6,9 +6,12 @@
 #
 # Usage:
 #   koad-io init sovereign              # Kingdom genesis — see init/sovereign/command.sh
-#   koad-io init <name>                 # State-detect + init/migrate/re-seed as needed
+#   koad-io init entity <name>          # Canonical form — state-detect + init/migrate/re-seed
+#   koad-io init <name>                 # Compatibility form of the above (same code path)
 #   koad-io init <name> <url>           # Clone entity repo then state-detect
 #   koad-io init <name> --forceful      # Force re-run even if already initialized
+#   koad-io init <name> --adopt         # Explicitly adopt the on-disk entity key (see below)
+#   koad-io init <name> --re-seed       # Ignore the on-disk entity key; mint a fresh one
 #
 # State machine (entity path):
 #   1. Dir missing + URL given     → git clone → fall through to state detection
@@ -19,9 +22,31 @@
 #   6. Dir present, full SPEC-175  → "all set", optionally backfill leaf-authorize
 #   7. Dir present, SPEC-175 entity key but no leaf for THIS device → secondary device adoption
 #
+# Paternity gate (2026-10-21, koad's ruling — fork A) — applies to state 7:
+#
+#   State 7 may only be selected when THIS sovereign's sigchain holds a
+#   koad.entity.genesis for the entity handle whose entity_key_fingerprint equals
+#   the key in id/. Proof of paternity, not proof of file presence: a template can
+#   ship somebody else's public key (github.com/koad/alice does, on purpose), and
+#   `[ -f id/entity.public.asc ]` cannot tell that apart from "my own entity key".
+#
+#     proven        → secondary-device (unchanged). A new device mints its own leaf.
+#     disproven     → not adopted. Falls through to re-seed: fresh entity keypair,
+#                     displaced material archived under id/archive/foreign-key-<ts>/.
+#     unverifiable  → nothing is generated. Prints state + reason, exits 2, and
+#                     requires an explicit choice: --adopt, or `init sovereign` first.
+#
+#   --adopt is the explicit escape hatch ("yes, this key"). It is never implicit.
+#
+# Exit codes:
+#   0  success / already set
+#   1  error
+#   2  entity key present but paternity unverifiable — a human must choose
+#
 # Pre-flight checks (entity path):
 #   - Sovereign must exist at ~/.koad-io/me/
 #   - Sovereign device leaf must exist at ~/.koad-io/me/id/devices/$HOSTNAME/
+#   - State 7 additionally requires a matching koad.entity.genesis in the sigchain
 #
 # After state resolution:
 #   - Launcher at ~/.koad-io/bin/<entity> is always ensured
@@ -35,14 +60,22 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Route: sovereign subcommand
+# Route: namespace words
 # ---------------------------------------------------------------------------
+# `koad-io init entity <name>` is the canonical form the framework documents. The
+# umbrella shim routes it here already; this guard makes the subcommand behave the
+# same when invoked directly, and stops a stray `entity` from being read as an
+# entity named "entity" (which would aim at ~/.entity).
 
 _INIT_CMD_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
 if [ "${1:-}" = "sovereign" ]; then
     shift
-    exec "$_INIT_CMD_DIR/sovereign/command.sh" "$@"
+    exec "$_INIT_CMD_DIR/../sovereign/command.sh" "$@"
+fi
+
+if [ "${1:-}" = "entity" ]; then
+    shift
 fi
 
 # ---------------------------------------------------------------------------
@@ -54,18 +87,180 @@ warn() { echo "[init] WARNING: $*" >&2; }
 die()  { echo "[init] ERROR: $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
+# Paternity helpers — is the entity key in id/ one THIS sovereign created?
+# ---------------------------------------------------------------------------
+#
+# WHY (2026-10-21, koad's ruling — fork A, the paternity check)
+# ------------------------------------------------------------
+# init and gestate are two halves of the same ceremony: gestate mints an entity
+# keypair and records it; init re-establishes it on another device. The record is
+# a koad.entity.genesis entry in the sovereign's sigchain (SPEC-175 §4) naming
+# the handle and the entity key fingerprint. That entry — not a file on disk — is
+# the only proof that an entity key is mine to add devices to.
+#
+# Until this gate existed the state machine keyed on `[ -f entity.public.asc ]`.
+# A template that publishes its author's public key (github.com/koad/alice does,
+# deliberately) therefore read as "my entity key", and a newcomer's very first
+# command minted a device leaf bound to a key they do not control. koad's ruling:
+# a new device should create a new key for itself — that is desirable — but only
+# for an entity this sovereign actually created.
+#
+# Outcomes: proven → secondary-device; disproven → re-seed (archive, don't
+# destroy); unverifiable → generate nothing, ask the human.
+
+_jget_first() {
+    # _jget_first FILE KEY → first value for KEY, works on pretty or minified JSON.
+    # Reads the payload copy, never the escaped copy inside "signature".
+    # The trailing `|| true` matters: this script runs under `set -euo pipefail`,
+    # and a key that is absent is a normal answer, not an error.
+    { tr -d '\n\r' < "$1" | sed 's/[[:space:]]\{1,\}/ /g' \
+        | grep -o "$2 *: *\"[^\"]*\"" | head -1 | sed 's/^[^:]*: *"//; s/"$//' ; } || true
+}
+
+_jget_all() {
+    { tr -d '\n\r' < "$1" | sed 's/[[:space:]]\{1,\}/ /g' \
+        | grep -o "$2 *: *\"[^\"]*\"" | sed 's/^[^:]*: *"//; s/"$//' ; } || true
+}
+
+entity_fingerprint_on_disk() {
+    # id/entity.fingerprint if present, else derived from id/entity.public.asc
+    # in a throwaway keyring. Prints uppercase hex; prints nothing if unknowable.
+    local file="$ENTITY_ID_DIR/entity.fingerprint"
+    if [ -f "$file" ]; then
+        tr -d '[:space:]' < "$file" | tr 'abcdef' 'ABCDEF'
+        return 0
+    fi
+    if [ -f "$ENTITY_ID_DIR/entity.public.asc" ] && command -v gpg >/dev/null 2>&1; then
+        local probe_home
+        probe_home=$(mktemp -d "${TMPDIR:-/tmp}/koad-fpr.XXXXXX")
+        GNUPGHOME="$probe_home" gpg --batch --quiet --with-colons \
+            --import-options show-only --import "$ENTITY_ID_DIR/entity.public.asc" 2>/dev/null \
+            | awk -F: '/^fpr:/{print $10; exit}' || true
+        rm -rf "$probe_home"
+    fi
+    return 0
+}
+
+verify_paternity() {
+    # Sets: PATERNITY (proven|disproven|unverifiable), PATERNITY_REASON,
+    #       ENTITY_FPR_ON_DISK, PATERNITY_GENESIS_FPRS
+    #
+    # "Cannot prove" is deliberately distinct from "proved false": a sovereign
+    # whose chain is absent, unreadable, or empty has recorded nothing, and
+    # absence is not evidence. Only a readable, non-empty chain can disprove.
+    PATERNITY="unverifiable"
+    PATERNITY_REASON=""
+    PATERNITY_GENESIS_FPRS=""
+    ENTITY_FPR_ON_DISK="$(entity_fingerprint_on_disk || true)"
+    ENTITY_FPR_ON_DISK="${ENTITY_FPR_ON_DISK//[[:space:]]/}"
+
+    if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+        PATERNITY_REASON="no sovereign at $SOVEREIGN_DIR on this device — there is no chain to prove anything against"
+        return 0
+    fi
+
+    local entries="$SOVEREIGN_DIR/sigchain/entries"
+    if [ ! -d "$entries" ]; then
+        PATERNITY_REASON="sovereign at $SOVEREIGN_DIR has no sigchain/entries — nothing recorded, nothing to compare"
+        return 0
+    fi
+
+    local entry_count
+    entry_count=$(find "$entries" -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l)
+    if [ "$entry_count" -eq 0 ]; then
+        PATERNITY_REASON="sovereign sigchain is empty — an empty chain proves nothing either way"
+        return 0
+    fi
+
+    if [ -z "$ENTITY_FPR_ON_DISK" ]; then
+        PATERNITY_REASON="id/entity.public.asc is present but its fingerprint could not be read"
+        return 0
+    fi
+
+    # One pass over the chain: collect genesis entries for THIS handle, and the
+    # fingerprints this chain records as its own signers (master + authorized_by).
+    local file type handle fpr owner auth
+    local -a gen_fpr=() gen_owner=()
+    local my_signers=" ${EXPECTED_MASTER_FPR:-} "
+    local leaf_auth_seen=0
+
+    for file in "$entries"/*.json; do
+        [ -f "$file" ] || continue
+
+        auth=$(_jget_all "$file" '"authorized_by"')
+        if [ -n "$auth" ]; then
+            leaf_auth_seen=1
+            my_signers+="$(printf '%s\n' "$auth" | tr '\n' ' ') "
+        fi
+
+        type=$(_jget_first "$file" '"type"')
+        [ "$type" = "koad.entity.genesis" ] || continue
+        handle=$(_jget_first "$file" '"entity_handle"')
+        [ "$handle" = "$ENTITY_NAME" ] || continue
+
+        fpr=$(_jget_first "$file" '"entity_key_fingerprint"' | tr 'abcdef' 'ABCDEF')
+        owner=$(_jget_first "$file" '"sovereign_key_fingerprint"' | tr 'abcdef' 'ABCDEF')
+        gen_fpr+=("$fpr")
+        gen_owner+=("$owner")
+    done
+
+    if [ "${#gen_fpr[@]}" -eq 0 ]; then
+        PATERNITY="disproven"
+        PATERNITY_REASON="this sovereign's sigchain has no koad.entity.genesis for '$ENTITY_NAME' — it never created a key for that handle"
+        return 0
+    fi
+
+    local i matched=0 foreign=0
+    for i in "${!gen_fpr[@]}"; do
+        fpr="${gen_fpr[$i]}"
+        owner="${gen_owner[$i]}"
+        PATERNITY_GENESIS_FPRS+=" $fpr"
+        # A genesis signed by a different sovereign does not authorize this
+        # sovereign's devices, even when it names the same handle. Only applied
+        # when the chain actually records authorized_by leaves — otherwise
+        # absence from my_signers means nothing and would create false negatives.
+        if [ "$leaf_auth_seen" -eq 1 ] && [ -n "$owner" ]; then
+            case "$my_signers" in
+                *" $owner "*) : ;;
+                *) foreign=1; continue ;;
+            esac
+        fi
+        [ "$fpr" = "$ENTITY_FPR_ON_DISK" ] && matched=1
+    done
+
+    if [ "$matched" -eq 1 ]; then
+        PATERNITY="proven"
+        PATERNITY_REASON="sigchain records koad.entity.genesis for '$ENTITY_NAME' naming this exact key (${ENTITY_FPR_ON_DISK: -16})"
+        return 0
+    fi
+
+    PATERNITY="disproven"
+    if [ "$foreign" -eq 1 ]; then
+        PATERNITY_REASON="the koad.entity.genesis for '$ENTITY_NAME' in this chain was signed by a different sovereign, not this one"
+    else
+        PATERNITY_REASON="sigchain records${PATERNITY_GENESIS_FPRS} for '$ENTITY_NAME'; id/ holds ${ENTITY_FPR_ON_DISK: -16}"
+    fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Args
 # ---------------------------------------------------------------------------
 
 ENTITY_NAME="${1:-}"
 REPO_URL=""
 FORCEFUL=0
+ADOPT=0
+FORCE_RESEED=0
+RE_SEED_ARCHIVE=0
 
 # Parse remaining args
 shift || true
 for arg in "$@"; do
     case "$arg" in
         --forceful) FORCEFUL=1 ;;
+        --adopt)    ADOPT=1 ;;
+        --re-seed)  FORCE_RESEED=1 ;;
         http://*|https://*|git@*|keybase://*) REPO_URL="$arg" ;;
         *) : ;;
     esac
@@ -80,7 +275,7 @@ fi
 
 # Reject flag-shaped names
 if [[ "$ENTITY_NAME" == --* ]]; then
-    die "Usage: koad-io init <name> [<repo-url>] [--forceful]"
+    die "Usage: koad-io init entity <name> [<repo-url>] [--forceful] [--adopt] [--re-seed]"
 fi
 
 ENTITY_DIR="$HOME/.$ENTITY_NAME"
@@ -172,6 +367,105 @@ fi
 
 say "Entity: $ENTITY_NAME  ($ENTITY_DIR)"
 say "State:  entity.public.asc=$([ "$ENTITY_KEY_PRESENT" -eq 1 ] && echo present || echo missing)  leaf/$HOST=$([ "$LEAF_PRESENT" -eq 1 ] && echo present || echo missing)  legacy_keys=$HAS_LEGACY"
+
+# ---------------------------------------------------------------------------
+# Paternity gate — precedes the action, does not patch the presence test
+# ---------------------------------------------------------------------------
+# The presence test above is what put us in state 7. It cannot tell an entity
+# key this sovereign created from one a template shipped. So before state 7 is
+# honoured, the key on disk has to be traced to a koad.entity.genesis.
+
+if [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$ACTION" = "secondary-device" ]; then
+    verify_paternity
+
+    if [ "$FORCE_RESEED" -eq 1 ]; then
+        warn "Paternity: $PATERNITY — $PATERNITY_REASON"
+        warn "  --re-seed was given: the on-disk entity key is ignored and a fresh entity"
+        warn "  keypair is minted for this directory. Displaced material is archived under"
+        warn "  id/archive/foreign-key-<ts>/ — archived, never deleted."
+        ACTION="re-seed"
+        RE_SEED_ARCHIVE=1
+    else
+    case "$PATERNITY" in
+        proven)
+            say "Paternity: PROVEN — $PATERNITY_REASON"
+            say "  A new device mints its own leaf for an entity key this sovereign created."
+            ;;
+
+        disproven)
+            warn "Paternity: DISPROVEN — $PATERNITY_REASON"
+            warn ""
+            if [ "$ADOPT" -eq 1 ]; then
+                warn "  --adopt was given: minting a leaf for a key this sovereign did not create."
+                warn "  Everything signed by that leaf will trace back to a key you do not hold."
+            else
+                warn "  The entity key in id/ is not one this sovereign created, so it is NOT"
+                warn "  adopted: a device leaf signed against it would tie this machine's authority"
+                warn "  to a key somebody else holds. A template that publishes its author's public"
+                warn "  key is exactly this shape, and presence is not paternity."
+                warn ""
+                warn "  Treating '$ENTITY_NAME' as a new entity sitting on stale material instead:"
+                warn "    - a fresh entity keypair is generated for this directory"
+                warn "    - the displaced material is archived under id/archive/foreign-key-<ts>/"
+                warn "      (archived, never deleted)"
+                warn ""
+                warn "  If adopting that key IS what you want, say so explicitly:"
+                warn "    koad-io init $ENTITY_NAME --adopt"
+                ACTION="re-seed"
+                RE_SEED_ARCHIVE=1
+            fi
+            ;;
+
+        *)
+            if [ "$ADOPT" -eq 1 ]; then
+                warn "Paternity: UNVERIFIABLE — $PATERNITY_REASON"
+                warn "  --adopt was given: minting a leaf for the on-disk entity key anyway."
+                if [ "$HAVE_SOVEREIGN" -eq 1 ]; then
+                    warn "  The key cannot be traced to any genesis in your chain. If it is not yours,"
+                    warn "  delete it and re-run, or run 'koad-io init $ENTITY_NAME --re-seed'."
+                else
+                    warn "  No sovereign on this device: the leaf is minted unsigned and no"
+                    warn "  koad.entity.leaf-authorize entry can be filed for it."
+                fi
+            else
+                {
+                    echo "[init] Paternity: UNVERIFIABLE — $PATERNITY_REASON"
+                    echo "[init]"
+                    echo "[init]   Nothing was generated. This is not a refusal to work; it is a"
+                    echo "[init]   refusal to guess. Paternity cannot be assumed from a file."
+                    echo "[init]"
+                    echo "[init]   Entity:      $ENTITY_NAME ($ENTITY_DIR)"
+                    echo "[init]   Entity key:  ${ENTITY_FPR_ON_DISK:-unreadable} (id/entity.public.asc)"
+                    echo "[init]   This device: $HOST — no leaf in id/devices/$HOST/"
+                    echo "[init]   Sovereign:   ${SOVEREIGN_DIR} ($([ "$HAVE_SOVEREIGN" -eq 1 ] && echo present || echo absent))"
+                    echo "[init]"
+                    echo "[init]   Choose one, explicitly:"
+                    echo "[init]     koad-io init sovereign                   establish a sovereign, then re-run"
+                    echo "[init]     koad-io init $ENTITY_NAME --adopt   adopt the key in id/ as yours"
+                    echo "[init]     koad-io init $ENTITY_NAME --re-seed  ignore it; mint a fresh keypair"
+                    echo "[init]"
+                    echo "[init]   A fresh clone of an entity template hits this branch on any machine"
+                    echo "[init]   without a sovereign. The template's key is its author's, not yours."
+                    echo "[init]   See install.md §7."
+                } >&2
+                exit 2
+            fi
+            ;;
+    esac
+    fi
+fi
+
+# Audit only: an already-initialized entity whose key this chain cannot account
+# for is worth saying out loud, but nothing is adopted on this path, so it warns.
+if [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$ACTION" = "all-set" ] && [ "$HAVE_SOVEREIGN" -eq 1 ]; then
+    verify_paternity
+    if [ "$PATERNITY" != "proven" ]; then
+        warn "Paternity: $PATERNITY — $PATERNITY_REASON"
+        warn "  This device already holds a leaf, so nothing is adopted and nothing changes."
+        warn "  Noted because this entity's key is not traceable through your sigchain."
+    fi
+fi
+
 say "Action: $ACTION"
 say ""
 
@@ -639,17 +933,43 @@ elif [ "$ACTION" = "secondary-device" ]; then
 elif [ "$ACTION" = "re-seed" ]; then
     # -----------------------------------------------------------------------
     # State 4/5: No key material at all (or partial SPEC-175 without leaf)
+    #            — also the landing place for a disproven paternity check
     # -----------------------------------------------------------------------
 
     if [ "$HAVE_SOVEREIGN" -eq 0 ]; then
         die "Sovereign required for entity key seeding. Run 'koad-io init sovereign' first."
     fi
 
-    say "Entity '$ENTITY_NAME' has no key material — re-seeding from scratch..."
+    say "Entity '$ENTITY_NAME' has no key material of its own — re-seeding from scratch..."
     say "This generates a new entity keypair and device leaf for this machine."
     say ""
 
+    # Nothing on disk is moved until the ceremony is proven able to run: the
+    # sovereign leaf is verified FIRST. A failure there must leave the directory
+    # exactly as it was found.
     verify_sovereign_leaf
+
+    # If a key was already on disk, it is somebody else's (paternity disproven,
+    # or --re-seed given). Overwrite-by-write is not this script's business:
+    # archive it, so the displaced material is recoverable rather than gone.
+    if [ "$ENTITY_KEY_PRESENT" -eq 1 ]; then
+        FOREIGN_ARCHIVE="$ENTITY_ID_DIR/archive/foreign-key-$(date -u +%Y%m%dT%H%M%SZ)"
+        mkdir -p "$FOREIGN_ARCHIVE"
+        say "Archiving the displaced entity key (archived, never deleted):"
+        for displaced in entity.public.asc entity.fingerprint; do
+            if [ -f "$ENTITY_ID_DIR/$displaced" ]; then
+                mv "$ENTITY_ID_DIR/$displaced" "$FOREIGN_ARCHIVE/"
+                say "  archived: id/$displaced"
+            fi
+        done
+        if [ -d "$DEVICE_DIR" ]; then
+            mv "$DEVICE_DIR" "$FOREIGN_ARCHIVE/device-$HOST"
+            say "  archived: id/devices/$HOST/"
+        fi
+        say "  archive:   $FOREIGN_ARCHIVE"
+        say ""
+        ENTITY_KEY_PRESENT=0
+    fi
 
     mkdir -p "$ENTITY_ID_DIR"
     mkdir -p "$DEVICE_DIR"
