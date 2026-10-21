@@ -242,15 +242,72 @@ git clone https://github.com/koad/alice.git ~/.alice
 koad-io init alice
 ```
 
-**✓ Verified 2026-10-21:** `koad/alice` is now a **template**, not a snapshot of a live entity's
-home. The clone contains no identity material — no `.env`, no `id/`, no `devices/`, no keyring,
-no trust bonds, no wallets — and no `/home/koad/` paths anywhere in the tree. It ships
-`.env.example` (portable, documented) instead of `.env`, so the identity this entity ends up
-with is **yours**, generated on your device.
+**✓ Verified 2026-10-21** by reading the tree at `5630ace` (12 files): `koad/alice` is a
+**template**, not a snapshot of a live entity's home. It carries **no private material and no
+inherited identity** — no `.env`, no `keyring/`, no `devices/`, no `sigchain/`, no trust bonds,
+no wallets, no memories, no briefs, and no private key of any kind (`git grep` finds no
+`PRIVATE KEY` block anywhere). No `/home/koad/` paths in the tree either.
 
-**⚠ Run §6 first.** `koad-io init alice` scaffolds `~/.alice`, generates the entity keypair and
-this device's leaf key, signs the sigchain entries, writes the launcher, and builds `AGENTS.md`.
-If no sovereign exists at `~/.koad-io/me/`, it stops with:
+**What it does publish, deliberately, is Alice's *public* identity.** `id/entity.public.asc` and
+`id/entity.fingerprint` ship in the clone: her OpenPGP public key and its fingerprint,
+`04ED15A3B056C900140BBB84C462E4DF7E7DC869`. A public key opens nothing and grants nothing — it
+only lets you verify that a signature came from Alice — which is why a template can carry it.
+**✓ Verified:** importing `id/entity.public.asc` into a throwaway keyring yields exactly that
+fingerprint. **It is Alice's key, not yours.**
+
+So a fresh clone has **no identity of its own** — no keypair, no leaf key, no sigchain, nothing
+that can sign in its name. One is meant to be generated on your device:
+
+```bash
+koad-io init sovereign        # master identity + this device's leaf key (see §6)
+koad-io init alice            # entity keypair, sigchain entries, launcher, AGENTS.md
+```
+
+When that runs as intended, `id/` in your tree holds *your* key and no longer matches the published
+one. That divergence is the expected outcome — it is the sign the template became you — and it is
+safe to commit to your own repo. Do not sign with Alice's key: your signatures would verify against
+the wrong author. Borrowed keys are worse than no keys.
+
+**⚠ It does not run as intended yet.** As of 2026-10-21 the second command adopts the published key
+instead of generating one. Read the box below before you run it.
+
+It also ships `.env.example` (portable, documented) instead of `.env`, so the configuration this
+entity ends up with is **yours** too.
+
+**This wording follows Alice's own.** Her `README.md` ("What this repo is") and `PRIMER.md`
+("Whose key is in `id/`") draw the same line — public key published, everything else generated
+locally — so if this section and those ever disagree, hers is the voice to trust and this file is
+the one to correct.
+
+**⚠ Run §6 first.** `koad-io init alice` scaffolds `~/.alice`, writes the launcher, builds
+`AGENTS.md`, and performs whichever identity action its state machine selects — which depends on
+what is already in `~/.alice/id/`.
+
+> ### ⚠⚠ Do not run `init alice` on a fresh template clone until this is fixed (2026-10-21)
+>
+> `init` picks its action from **file presence alone** (`entity/command.sh` lines 145–171). A clone
+> of the template at `62730fa` had no `id/`, so it read as `entity.public.asc=missing` →
+> `Action: re-seed`, which is the path that generates *your* entity keypair. **Alice's `5630ace`
+> publishes `id/entity.public.asc`, so the same clone now reads differently.** Verified 2026-10-21
+> by running the script's own detection block against a fresh clone:
+>
+> ```
+> State:  entity.public.asc=present  leaf/<host>=missing  legacy_keys=0
+> Action: secondary-device
+> ```
+>
+> `secondary-device` (State 7) means *“this entity key already exists; add a leaf for this
+> machine”*. It generates **only a device leaf**, imports **Alice's** key as the entity key, and —
+> if a sovereign is present — signs a `koad.entity.leaf-authorize` binding your new device leaf to
+> fingerprint `04ED…C869`. Your entity ends up with **no keypair of its own**, which is precisely
+> what Alice's README tells you never to do (*“Do not sign with Alice's key”*).
+>
+> So the flow below is broken for the template until the state machine learns to tell “the key the
+> template shipped” from “the key my entity already has”. Filed to Juno and Alice 2026-10-21. In
+> the meantime: `init sovereign` is unaffected; **stop before `init alice`** on a fresh clone.
+
+For the record, this is the gate a **keyless** clone (no `id/` at all — any entity other than
+Alice, or Alice at `62730fa`) hits when no sovereign exists at `~/.koad-io/me/`:
 
 ```
 [init] State:  entity.public.asc=missing  leaf/<host>=missing  legacy_keys=0
@@ -264,14 +321,19 @@ That is the correct failure — one clear instruction, exit 1, nothing half-writ
 sub-command explicitly. Both are idempotent: re-running on a fully initialized entity reports
 `Action: all-set` and changes nothing.
 
-**What the clone gives you:** `ENTITY.md` (an example entity's identity), `PRIMER.md`,
-`README.md`, `passenger.json` (the entity manifest), `.env.example`, `.gitignore`, `LICENSE`,
-`origins.txt`, plus the avatar and outfit the manifest references. Nothing from anybody else's
-memories, keys, wallets, or bonds.
+**What the clone gives you** — twelve files, ✓ verified against the tree: `ENTITY.md` (an example
+entity's identity), `PRIMER.md`, `README.md`, `passenger.json` (the entity manifest),
+`.env.example`, `.gitignore`, `LICENSE`, `origins.txt`, `avatar.png` and `outfit.json` (the face
+and palette the manifest references), and `id/entity.public.asc` + `id/entity.fingerprint`
+(Alice's public key — the only identity material in the box, and not yours). Nothing from
+anybody else's memories, private keys, wallets, sigchain, or bonds. `AGENTS.md` is *not* in the
+clone; `init` builds it.
 
 **? Unverified:** the re-seed path itself has not been walked end-to-end on a clean box
 (wonderland has no sovereign, so the run stops at the gate above by design). `testy003` should
-walk §7 with a real `init sovereign` in front of it.
+walk §7 with a real `init sovereign` in front of it. **As of 2026-10-21 the gate is unreachable on
+Alice's own template** — see the box above; the clone now reads as `secondary-device` rather than
+`re-seed`, so the re-seed path first has to be reachable before it can be walked.
 
 **✓ Verified:** the README's own `Learn More` section links `github.com/koad/alice` as *"the
 koad:io starting entity."* Alice is the intended first entity — she is the tour guide, and she
@@ -294,7 +356,11 @@ alice gestate newentity
 Copies skeletons, commands, and packages from the mother entity.
 
 **✓ Verified:** Option 1 — `git clone` + `koad-io init alice` resolves the framework `init`
-verb, detects state, and stops cleanly at the sovereign gate on a box without a sovereign.
+verb and runs its state detection without error. **⚠ It no longer *stops* at the sovereign gate on
+a box without a sovereign** — since Alice's `5630ace` the clone ships `id/entity.public.asc`, so
+detection selects `secondary-device` instead of the gated `re-seed` (see the box in §7). This line
+was true against the keyless template at `62730fa` and will be true again once the state machine
+can tell a template's shipped key from an entity's own.
 
 **? Unverified:** Options 2 and 3 — neither has been run on a clean box.
 
