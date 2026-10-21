@@ -165,6 +165,60 @@ unset _positional_args _arg _i _next_i _next
 
 [[ $9 ]] && echo 'You have reached the limits here, sorry -- too many arguments.' >&2 && exit 68
 
+# --- Entity git identity ------------------------------------------------------
+#
+# WHY THIS EXISTS (2026-10-21, from Alice's report)
+# ------------------------------------------------
+# A dispatched entity starts life with the DISPATCHER's shell environment. The
+# cascade above only overwrites the keys an entity's own .env happens to define,
+# so anything it omits is silently inherited from whoever dispatched it. Alice's
+# .env defined GIT_COMMITTER_NAME/EMAIL and not GIT_AUTHOR_NAME/EMAIL; her first
+# commit would have been AUTHORED as "Juno" while being committed as "Alice" —
+# and it looks perfectly normal on GitHub unless you read the author field. That
+# is exactly what SPEC-117 §4.5 (entity public face) exists to prevent.
+#
+# Rule: inside an entity invocation authorship is the entity's, in BOTH fields.
+# If the entity's own .env/.credentials names it, that wins — it was sourced
+# above and is not touched here. If they are silent, the identity is DERIVED
+# from the handle, never inherited. This runs in the launcher, so every harness
+# (pi, claude, opencode, codex, bash) and every command inherits the right
+# identity without each of them re-implementing it.
+
+_koad_io_entity_git_identity() {
+  [[ -n "${ENTITY:-}" ]] || return 0
+
+  local _ent_lower="$(printf '%s' "$ENTITY" | tr '[:upper:]' '[:lower:]')"
+  local _ent_dir="$HOME/.$_ent_lower"
+  local _have_a_name=0 _have_a_mail=0 _have_c_name=0 _have_c_mail=0
+  local _f
+
+  for _f in "$_ent_dir/.env" "$_ent_dir/.credentials"; do
+    [[ -f "$_f" ]] || continue
+    grep -qE '^[[:space:]]*(export[[:space:]]+)?GIT_AUTHOR_NAME='    "$_f" 2>/dev/null && _have_a_name=1
+    grep -qE '^[[:space:]]*(export[[:space:]]+)?GIT_AUTHOR_EMAIL='   "$_f" 2>/dev/null && _have_a_mail=1
+    grep -qE '^[[:space:]]*(export[[:space:]]+)?GIT_COMMITTER_NAME='  "$_f" 2>/dev/null && _have_c_name=1
+    grep -qE '^[[:space:]]*(export[[:space:]]+)?GIT_COMMITTER_EMAIL=' "$_f" 2>/dev/null && _have_c_mail=1
+  done
+
+  local _domain="${ENTITY_DOMAIN:-${KOAD_IO_KINGDOM_DOMAIN:-koad.io}}"
+  local _display="$(printf '%s' "${_ent_lower:0:1}" | tr '[:lower:]' '[:upper:]')${_ent_lower:1}"
+
+  # Fallbacks come from what the entity DID declare, before anything derived:
+  # if it names a committer, that is how it names itself, and the author should
+  # match rather than invent a different spelling or domain.
+  local _fb_name="" _fb_mail=""
+  [[ "$_have_c_name" -eq 1 ]] && _fb_name="${GIT_COMMITTER_NAME:-}"
+  [[ "$_have_c_mail" -eq 1 ]] && _fb_mail="${GIT_COMMITTER_EMAIL:-}"
+
+  [[ "$_have_a_name" -eq 0 ]] && export GIT_AUTHOR_NAME="${_fb_name:-$_display}"
+  [[ "$_have_a_mail" -eq 0 ]] && export GIT_AUTHOR_EMAIL="${_fb_mail:-$_ent_lower@$_domain}"
+
+  # Whatever the author resolved to IS the entity, so both fields agree.
+  [[ "$_have_c_name" -eq 0 ]] && export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+  [[ "$_have_c_mail" -eq 0 ]] && export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+  return 0
+}
+
 # Cascade environments BEFORE hook dispatch — hooks need entity env vars
 # (CLAUDE_CONFIG_DIR, GIT_AUTHOR_*, ENTITY_DIR, etc.)
 set -a
@@ -176,6 +230,7 @@ if [[ -n "$ENTITY" ]]; then
   [ -f "$HOME/.$ENTITY_LOWER/.credentials" ] && source "$HOME/.$ENTITY_LOWER/.credentials"
 fi
 set +a
+_koad_io_entity_git_identity
 
 # ensure we have arguments to parse, else run the executed-without-arguments hook.
 # waterfall: entity hook > CWD hook > global hook
@@ -228,6 +283,11 @@ export KOAD_IO_PACKAGE_DIRS="${KOAD_IO_PACKAGE_DIRS:-$HOME/.forge/packages}"
 export METEOR_PACKAGE_DIRS="$KOAD_IO_PACKAGE_DIRS"
 
 set +a
+
+# Re-assert after the second cascade: .aliases (sourced between the two passes)
+# is another file that could name a stranger's author, and the derivation is
+# idempotent — an entity that names its own identity is left alone.
+_koad_io_entity_git_identity
 
 echo "-" >&2
 # Framework commands — PATH-style search path, first entry = highest priority.
