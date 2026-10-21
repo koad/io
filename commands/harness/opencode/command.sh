@@ -597,15 +597,81 @@ fi
 
 # --- Exec -----------------------------------------------------------------
 #
-# opencode 'run' is the one-shot. Both 'run' and the interactive TUI accept
-# -c/--continue. For rooted entities cwd is always ~/.$ENTITY, so there is
-# exactly one persistent session per entity; for roaming entities, one per
-# (entity × project-dir) pair.
+# TWO INTERFACES (2026-10-21). opencode 2.0 removed `--model` and `--agent` from
+# the CLI and moved both into configuration; it also added `--prompt`,
+# `--session`, `--auto` and — importantly — a background service by default.
 #
-# --agent $ENTITY selects the entity's agent definition from the config.
+# Passing 1.x flags to a 2.x binary does not fail loudly: opencode prints its own
+# help and exits, which reads as documentation rather than a crash. That is how
+# citadel sat broken with a working-looking banner. So: detect the major version,
+# speak the right dialect, and refuse anything we have not been taught.
+#
+# We keep OUR process model on 2.x by passing --standalone (private server, not
+# the background service). `koad-io stop`, the flight-close hooks and
+# process-control all assume a foreground child; a background service makes them
+# watch the wrong pid *without breaking*, which is the worst failure available.
+# Flagged to process-control's owner; do not "fix" it here by adopting the
+# service.
+#
+# --auto is never passed, deliberately. It means "auto-approve permissions that
+# are not explicitly denied". The only enforced layer a newcomer has is the
+# permission prompt; an adapter that silences it hands a stranger an agent with
+# unprompted shell and filesystem access. Do not add it back as an optimisation.
+
+_OC_VERSION_RAW="$("$OPENCODE_BIN" --version 2>/dev/null | head -1)"
+_OC_VERSION="${_OC_VERSION_RAW#v}"
+_OC_MAJOR="${_OC_VERSION%%.*}"
+
+case "$_OC_MAJOR" in
+  1|2) : ;;
+  *)
+    echo "Error: opencode '${_OC_VERSION_RAW:-unknown}' is not a version this adapter speaks." >&2
+    echo "  This adapter targets opencode 1.x and 2.x." >&2
+    echo "  Reported version: '${_OC_VERSION_RAW:-<none>}'" >&2
+    echo "  Fix: install a 1.x/2.x release, or update ~/.koad-io/commands/harness/opencode/command.sh" >&2
+    exit 69
+    ;;
+esac
 
 _args=()
 
+if [ "$_OC_MAJOR" -ge 2 ]; then
+  # --- 2.x dialect ---------------------------------------------------------
+  # Model and permissions are configuration, not flags. Write ours once, and
+  # never overwrite a config the entity or the operator already owns.
+  _oc_cfg_dir="$ENTITY_DIR/opencode"
+  _oc_cfg="$_oc_cfg_dir/opencode.json"
+  if [ ! -f "$_oc_cfg" ] && [ ! -f "$ENTITY_DIR/opencode.json" ] && [ ! -f "$ENTITY_DIR/opencode.jsonc" ]; then
+    mkdir -p "$_oc_cfg_dir"
+    cat > "$_oc_cfg" <<JSONEOF
+{
+  "model": "$MODEL_RESOLVED",
+  "permission": {
+    "bash": "ask",
+    "edit": "ask",
+    "webfetch": "ask",
+    "websearch": "ask",
+    "external_directory": "ask",
+    "doom_loop": "ask"
+  }
+}
+JSONEOF
+    echo "[opencode] wrote $_oc_cfg (model + ask-by-default permissions)" >&2
+  fi
+
+  _args+=(--standalone)
+  if [ -n "$PROMPT" ]; then
+    _args+=(--prompt "$PROMPT")
+  fi
+  [ "$CONTINUE" = "1" ] && _args+=(--continue)
+  if [ -n "${RESUME_ID:-}" ]; then
+    _args+=(--session "$RESUME_ID")
+  fi
+  _args+=("$WORK_DIR")
+  exec "$OPENCODE_BIN" "${_args[@]}"
+fi
+
+# --- 1.x dialect -----------------------------------------------------------
 if [ -n "$PROMPT" ]; then
   _args+=(run)
 fi
