@@ -216,9 +216,14 @@ ask_yn() {
         [ "$yn_result" = "yes" ] && return 0 || return 1
     else
         local _var="${write_var:-UNKNOWN}"
+        # NOTE: ask_yn has no `required` or `default` local — a yes/no question is
+        # always answerable, unlike `ask`. Referencing $required here crashed under
+        # the caller's `set -u` ("required: unbound variable") instead of emitting
+        # the ask JSON, which took down `koad-io init sovereign` on any box without
+        # a Keybase answer waiting in env.
         local _default="${default:-}"
-        printf '{"KOAD_IO_ASK":{"var":"%s","prompt":"%s","required":%s,"default":"%s","kind":"yn"}}\n' \
-            "$_var" "$prompt" "$required" "$_default" >&2
+        printf '{"KOAD_IO_ASK":{"var":"%s","prompt":"%s","required":false,"default":"%s","kind":"yn"}}\n' \
+            "$_var" "$prompt" "$_default" >&2
         exit 67
     fi
 }
