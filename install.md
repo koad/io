@@ -158,7 +158,7 @@ This is the system. Everything else is detail.
 ls ~/.koad-io/commands/
 ```
 
-You will see `generate`, `gestate`, `harness`, `init`, `install`, `kingdom`, `summarize`, `test`,
+You will see `generate`, `gestate`, `harness`, `init`, `install`, `kingdom`, `summary`, `test`,
 `whoami` and friends. Open one:
 
 ```bash
