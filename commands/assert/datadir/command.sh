@@ -4,6 +4,11 @@
 # a .env file. Callers that need entity-scoped resolution do it upstream.
 
 LOCAL_BUILD=false
+# --print-env: after resolving and absorbing, dump the KOAD_IO_* set this workspace
+# resolves to. Same purpose as the archived `inspect/env.sh`, which is where it was
+# learned: answering "which cascade actually won for this target" without guessing.
+PRINT_ENV=false
+for _a in "$@"; do [[ "$_a" == "--print-env" ]] && PRINT_ENV=true; done
 
 [[ -v KOAD_IO_LOCAL_ONLY ]] && echo "Local build specified with KOAD_IO_LOCAL_ONLY" && LOCAL_BUILD=true
 
@@ -35,6 +40,9 @@ elif [[ -n $NAME ]]; then
     [[ -f "$NAME/.env" ]] && DATADIR="$NAME"
     # Name relative to CWD
     [[ -z "$DATADIR" && -f "$PWD/$NAME/.env" ]] && DATADIR="$PWD/$NAME"
+    # Entity handle — entities live at ~/.<handle>, so `assert datadir vulcan` should mean
+    # ~/.vulcan without the caller knowing the dot convention.
+    [[ -z "$DATADIR" && -f "$HOME/.$NAME/.env" ]] && DATADIR="$HOME/.$NAME"
 else
     # No args — use PWD
     [[ -f "$PWD/.env" ]] && DATADIR="$PWD"
@@ -70,3 +78,11 @@ source $DATADIR/.env && echo "absorbing $DATADIR/.env"
 set +a
 
 echo "-"
+
+if [ "$PRINT_ENV" = true ]; then
+  # The absorbed set, sorted and labelled with where it came from — an env dump without
+  # provenance is the thing that made this command necessary in the first place.
+  echo "# KOAD_IO_* as resolved by DATADIR=$(cd "$DATADIR" 2>/dev/null && pwd || echo "$DATADIR")"
+  env | grep '^KOAD_IO_' | sort
+  echo "# end"
+fi
