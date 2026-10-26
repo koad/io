@@ -224,10 +224,29 @@ mkdir -p "$_harness_pid_dir" 2>/dev/null
 echo $$ > "$_harness_pid_file" 2>/dev/null
 
 export HARNESS_PID=$$
-# Canonical session identity — stable for this harness wrapper's lifetime.
-export HARNESS_SESSION_ID="${ENTITY}-${HARNESS_PID}"
 # Spirit — who's at the keyboard. Defaults to $USER until sovereign-login is wired.
 export KOAD_IO_SPIRIT="${KOAD_IO_SPIRIT:-${USER:-unknown}}"
+
+# --- Canonical session identity: a content ID, not a pid -------------------
+#
+# Identity is a content ID over the launch itself, derived by the shared helper so every
+# launcher in the kingdom derives it the same way (one implementation, not copies).
+# See ~/.koad-io/helpers/session-identity.sh: pids are recycled, so a session id keyed on
+# one can be inherited by an unrelated launch — and everything that trusts the id
+# (control-tower's session index at koad.indexes.sessions, the questions board's liveness
+# test, session-watchers) then believes a dead session is running.
+#
+# HARNESS_PID stays exported above: a pid is a fact about a process, which is all it is.
+_model_label="${PROVIDER:+$PROVIDER/}$MODEL"
+_identity_helper="${KOAD_IO_DIR:-$HOME/.koad-io}/helpers/session-identity.sh"
+if [ -f "$_identity_helper" ]; then
+  . "$_identity_helper"
+  HARNESS_SESSION_ID="$(koad_session_identity "$ENTITY" "" codex "$_model_label" "$KOAD_IO_SPIRIT" "${HARNESS_CONTROL_FLIGHT_ID:-}")"
+else
+  # Framework helper missing — still never fall back to a pid.
+  HARNESS_SESSION_ID="${ENTITY}-$(date -u +%s%N)"
+fi
+export HARNESS_SESSION_ID
 
 # Emission ID persists across resume (same as pi harness)
 export HARNESS_EMISSION_ID_FILE="$_harness_pid_dir/emission.id"

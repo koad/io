@@ -319,24 +319,7 @@ mkdir -p "$_harness_pid_dir" 2>/dev/null
 echo $$ > "$_harness_pid_file" 2>/dev/null
 
 export HARNESS_PID=$$
-# Canonical session identity — stable for this harness wrapper's lifetime.
-# Format: <entity>-<harness-pid>. Unique per pi instance, shared by all
-# subprocesses via the process tree. Source of truth for session-watchers.
-export HARNESS_SESSION_ID="${ENTITY}-${HARNESS_PID}"
-
-# Durable entity-keyed marker (VESTA-SPEC-021 v1.1). The EXIT trap removes
-# harness.pid; this sidecar is NOT removed, so `koad-io stop <entity>` still
-# has an entity-keyed handle after a partial kill, a crash, or a stray TERM.
-_harness_session_file="$_harness_pid_dir/harness.session"
-{
-  echo "entity=$ENTITY"
-  echo "root_pid=$$"
-  echo "session_id=$HARNESS_SESSION_ID"
-  echo "started=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo "pid_file=$_harness_pid_file"
-  echo "flight=${HARNESS_CONTROL_FLIGHT_ID:-}"
-  echo "pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
-} > "$_harness_session_file" 2>/dev/null || true
+# Session identity is derived below, once the conversation id, model and spirit are known.
 
 # Conversation ID — stable across reloads. Persisted on disk so that
 # multiple harness sessions spanning pi reloads share one conversation
@@ -358,9 +341,43 @@ else
   echo "[harness/pi] resumed conversation id: $_conv_id" >&2
 fi
 export HARNESS_CONVERSATION_ID="$_conv_id"
-
 # Spirit — who's at the keyboard. Defaults to $USER until sovereign-login is wired.
 export KOAD_IO_SPIRIT="${KOAD_IO_SPIRIT:-${USER:-unknown}}"
+
+# --- Canonical session identity: a content ID, not a pid -------------------
+#
+# Identity is a content ID over the launch itself, derived by the shared helper so every
+# launcher in the kingdom derives it the same way (one implementation, not copies).
+# See ~/.koad-io/helpers/session-identity.sh: pids are recycled, so a session id keyed on
+# one can be inherited by an unrelated launch — and everything that trusts the id
+# (control-tower's session index at koad.indexes.sessions, the questions board's liveness
+# test, session-watchers) then believes a dead session is running.
+#
+# HARNESS_PID stays exported above: a pid is a fact about a process, which is all it is.
+_model_label="${PROVIDER:+$PROVIDER/}$MODEL"
+_identity_helper="${KOAD_IO_DIR:-$HOME/.koad-io}/helpers/session-identity.sh"
+if [ -f "$_identity_helper" ]; then
+  . "$_identity_helper"
+  HARNESS_SESSION_ID="$(koad_session_identity "$ENTITY" "$_conv_id" pi "$_model_label" "$KOAD_IO_SPIRIT" "${HARNESS_CONTROL_FLIGHT_ID:-}")"
+else
+  # Framework helper missing — still never fall back to a pid.
+  HARNESS_SESSION_ID="${ENTITY}-$(date -u +%s%N)"
+fi
+export HARNESS_SESSION_ID
+
+# Durable entity-keyed marker (VESTA-SPEC-021 v1.1). The EXIT trap removes
+# harness.pid; this sidecar is NOT removed, so `koad-io stop <entity>` still
+# has an entity-keyed handle after a partial kill, a crash, or a stray TERM.
+_harness_session_file="$_harness_pid_dir/harness.session"
+{
+  echo "entity=$ENTITY"
+  echo "root_pid=$$"
+  echo "session_id=$HARNESS_SESSION_ID"
+  echo "started=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "pid_file=$_harness_pid_file"
+  echo "flight=${HARNESS_CONTROL_FLIGHT_ID:-}"
+  echo "pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
+} > "$_harness_session_file" 2>/dev/null || true
 
 # Emission ID persists across resume (same as claude harness)
 export HARNESS_EMISSION_ID_FILE="$_harness_pid_dir/emission.id"
