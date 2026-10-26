@@ -155,7 +155,7 @@ The harness directory has two jobs: assemble a SYSTEM_PROMPT from layered source
 
 ## What this folder is, concretely
 
-This folder is the **pi agent home** for koad:io's pi-based entity runtime. Upstream pi normally uses `~/.pi/agent/`, but the launcher at `~/.dotfiles/commands/harness/pi/command.sh` exports `PI_CODING_AGENT_DIR="$HOME/.koad-io/harness"` unless `KOAD_IO_PI_AGENT_DIR` overrides it.
+This folder is the **pi agent home** for koad:io's pi-based entity runtime. Upstream pi normally uses `~/.pi/agent/`, but the launcher at `~/.forge/commands/harness/throne/command.sh` exports `PI_CODING_AGENT_DIR="$HOME/.koad-io/harness"` unless `KOAD_IO_PI_AGENT_DIR` overrides it.
 
 So `~/.koad-io/harness/` is not just documentation for a harness. It is the live upstream pi datadir **and** the koad:io integration layer for that datadir.
 

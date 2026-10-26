@@ -110,27 +110,36 @@ When `-c` is used without a prompt and without `--resume`, the claude harness pr
 ## Directory shape
 
 ```
-~/.forge/commands/harness/
-├── command.sh          # dispatcher — help + list installed harnesses
+~/.koad-io/commands/harness/          # kindergarten — building blocks, zero vendor accounts
+├── command.sh          # dispatcher — help + list installed harnesses (scans every command dir)
 ├── README.md           # this file
 ├── PRIMER.md           # agent orientation (deeper theory than this doc)
-├── claude/
-│   └── command.sh      # Claude Code harness
-├── opencode/
-│   ├── command.sh      # opencode TUI/run harness
-│   ├── sidecar.py      # optional SSE cost/heartbeat sidecar
-│   └── probe.py        # session probe utility
 ├── default/
 │   └── command.sh      # meta-harness: resolves $ENTITY_DEFAULT_HARNESS
 ├── bash/
 │   └── command.sh      # human harness — entity shell, no LLM
 ├── zsh/
 │   └── command.sh      # human harness — zsh variant (Mac hosts)
-├── ollama/
-│   └── command.sh      # local ollama inference (lightweight, no identity)
-└── rebuild-agents/
-    └── command.sh      # regenerate Claude Code subagent definition files
+├── opencode/
+│   ├── command.sh      # opencode TUI/run harness
+│   ├── sidecar.py      # optional SSE cost/heartbeat sidecar
+│   └── probe.py        # session probe utility
+└── ollama/
+    └── command.sh      # local ollama inference (lightweight, no identity)
+
+~/.forge/commands/harness/            # the operator's own — this kingdom's surface
+├── throne/             # the live launcher (every entity's ENTITY_DEFAULT_HARNESS)
+├── claude/             # Claude Code integration
+├── codex/              # OpenAI Codex integration
+├── gemini/             # Gemini CLI integration
+├── inject/             # inject text into a running entity session
+└── rebuild-agents/     # regenerate Claude Code subagent definition files
 ```
+
+The split is deliberate: the kindergarten ships what a fresh user can run with no vendor
+accounts, and the operator's vendor integrations stay in the forge. Both are on the same
+resolution path (`KOAD_IO_COMMANDS_DIRS`), so `<entity> harness <name>` behaves the same
+wherever the harness lives.
 
 ## Installed harnesses
 

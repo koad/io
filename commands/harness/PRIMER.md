@@ -89,15 +89,24 @@ And if you find yourself about to build a TUI from scratch: **don't.** Find a TU
 
 ## Current state
 
+**Two homes, one resolution path.** The kindergarten (`~/.koad-io/commands/harness/`) ships
+building blocks — the ones a fresh koad:io user gets out of the box with no vendor accounts:
+`default`, `bash`, `zsh`, `opencode`, `ollama`. The operator's own harnesses live in
+`~/.forge/commands/harness/` — `throne` plus the single-vendor integrations (`claude`,
+`codex`, `gemini`) and our operational tooling (`rebuild-agents`, `inject`). The framework
+should not over-deliver: a new user inheriting OUR vendor surface is not a skeleton, it is
+our workstation. The router scans every directory in `KOAD_IO_COMMANDS_DIRS`, so the list
+below is one list regardless of which home a harness sits in.
+
 | Harness  | Status      | Config-dir mechanic                   | Notes |
 |----------|-------------|---------------------------------------|-------|
 | default  | **shipped** | _(delegates)_                         | Meta-harness. Resolves `$ENTITY_DEFAULT_HARNESS` → `$KOAD_IO_DEFAULT_HARNESS` → `opencode`, then `exec`s the chosen sub-command with `$PROMPT` in env (no positional args) so the delegate's own env cascade owns provider/model selection. |
 | bash     | **shipped** | _(none — human harness)_              | The original way of using koad:io, pre-LLM. Loads the entity env, cds to rooted/roaming cwd, drops into an interactive bash with an entity-tagged PS1 (sources `~/.bashrc`, then prepends `[entity]` in magenta via a process-substituted rcfile). One-shot mode via `PROMPT` or positional. No provider/model. |
 | zsh      | **shipped** | _(none — human harness)_              | Mirror of `bash` for the **Mac hosts** (fourty4, flowbie) where zsh is the default shell. Uses a per-entity `ZDOTDIR` at `~/.cache/koad-io/harness/<entity>/zsh/` whose `.zshrc` sources the user's real `.zshrc` then tags `PROMPT`. Untested runtime on wonderland (Linux, no zsh), `bash -n` clean — validate on fourty4. |
-| claude   | **shipped** | `CLAUDE_CONFIG_DIR=~/.$ENTITY`       | Verified with real `claude` CLI. Provider: anthropic. |
+| claude   | **shipped** · forge | `CLAUDE_CONFIG_DIR=~/.$ENTITY`       | Verified with real `claude` CLI. Provider: anthropic. |
 | opencode | **shipped** | `XDG_CONFIG_HOME=~/.$ENTITY`         | Verified with fake binary. Providers: anthropic/openai/ollama/openrouter/google + passthrough. |
-| throne   | **shipped** | native default (`~/.pi/agent/`) — opt-in pin via `KOAD_IO_PI_AGENT_DIR` | `@earendil-works/pi-coding-agent` (npm). Dispatcher actively unsets cascaded `PI_CODING_AGENT_DIR` so pi uses its own data dir. Per-entity isolation deferred until we learn the right shape. `--no-context-files` always set. `-p` for one-shot. Pi-specific cascade: `ENTITY_PI_PROVIDER` → `KOAD_IO_PI_PROVIDER`. **Lives at `~/.forge/commands/harness/throne/`** — the framework copy (`harness/pi/`) was a stale fork and was deleted 2026-10-26; every entity's `ENTITY_DEFAULT_HARNESS` is `throne`. |
-| codex    | **shipped** | native default (`~/.codex/`) — opt-in pin via `KOAD_IO_CODEX_HOME`      | `@openai/codex` (npm, Rust binary). Same opt-in pattern as pi. Context via `-c instructions=...`. Non-interactive: `codex exec`. Resume: `codex resume --last`. `--oss` for local/ollama. Codex-specific cascade: `ENTITY_CODEX_MODEL` → `KOAD_IO_CODEX_MODEL`. |
+| throne   | **shipped** · forge | native default (`~/.pi/agent/`) — opt-in pin via `KOAD_IO_PI_AGENT_DIR` | `@earendil-works/pi-coding-agent` (npm). Dispatcher actively unsets cascaded `PI_CODING_AGENT_DIR` so pi uses its own data dir. Per-entity isolation deferred until we learn the right shape. `--no-context-files` always set. `-p` for one-shot. Pi-specific cascade: `ENTITY_PI_PROVIDER` → `KOAD_IO_PI_PROVIDER`. **Lives at `~/.forge/commands/harness/throne/`** — the framework copy (`harness/pi/`) was a stale fork and was deleted 2026-10-26; every entity's `ENTITY_DEFAULT_HARNESS` is `throne`. |
+| codex    | **shipped** · forge | native default (`~/.codex/`) — opt-in pin via `KOAD_IO_CODEX_HOME`      | `@openai/codex` (npm, Rust binary). Same opt-in pattern as pi. Context via `-c instructions=...`. Non-interactive: `codex exec`. Resume: `codex resume --last`. `--oss` for local/ollama. Codex-specific cascade: `ENTITY_CODEX_MODEL` → `KOAD_IO_CODEX_MODEL`. |
 | tui      | not started | —                                     | Planned. |
 | hermez   | not started | —                                     | Planned. NousResearch v0.6.0; GPG bonds need custom plugin. |
 

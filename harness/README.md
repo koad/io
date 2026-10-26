@@ -29,7 +29,7 @@ The constitution lives in the gate, not in the prompt. Prompts can drift, halluc
 
 ## What This Folder Actually Is
 
-Upstream pi normally uses `~/.pi/agent/` as its agent data directory. In this kingdom, the launcher at `~/.dotfiles/commands/harness/pi/command.sh` exports `PI_CODING_AGENT_DIR="$HOME/.koad-io/harness"` unless `KOAD_IO_PI_AGENT_DIR` overrides it.
+Upstream pi normally uses `~/.pi/agent/` as its agent data directory. In this kingdom, the launcher at `~/.forge/commands/harness/throne/command.sh` exports `PI_CODING_AGENT_DIR="$HOME/.koad-io/harness"` unless `KOAD_IO_PI_AGENT_DIR` overrides it.
 
 That means this folder is simultaneously:
 

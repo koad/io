@@ -17,13 +17,31 @@
 
 HARNESS_DIR="$(dirname "${BASH_SOURCE[0]}")"
 
-# Discover installed harnesses by listing sibling dirs that hold a command.sh
+# Discover installed harnesses across EVERY command dir, not just this one.
+#
+# This used to scan its own directory only, which was right while all harnesses lived in
+# the framework. They do not: the kindergarten keeps the building blocks (bash, zsh,
+# default, opencode, ollama) and the operator's own harnesses live in ~/.forge/commands
+# (throne, and the vendor integrations). A router that lists only its neighbours tells the
+# operator half the truth — `harness throne` works but never appears in the usage list.
+#
+# KOAD_IO_COMMANDS_DIRS is the same ordered path the dispatcher descends, so discovery here
+# matches resolution there. First hit wins; a name is listed once.
 installed=()
-if [ -d "$HARNESS_DIR" ]; then
-  for d in "$HARNESS_DIR"/*/; do
-    [ -f "$d/command.sh" ] && installed+=("$(basename "$d")")
+_seen_harnesses=" "
+for _cmd_dir in ${KOAD_IO_COMMANDS_DIRS//:/ }; do
+  _hdir="$_cmd_dir/harness"
+  [ -d "$_hdir" ] || continue
+  for d in "$_hdir"/*/; do
+    [ -f "$d/command.sh" ] || continue
+    _name="$(basename "$d")"
+    case "$_seen_harnesses" in *" $_name "*) continue ;; esac
+    _seen_harnesses="$_seen_harnesses$_name "
+    installed+=("$_name")
   done
-fi
+done
+installed=($(printf '%s
+' "${installed[@]}" | sort))
 
 echo
 echo "koad:io harness router"

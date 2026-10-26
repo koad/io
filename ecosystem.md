@@ -106,7 +106,7 @@ $ juno
   │   • Delegates to resolved harness
   │
   ▼
-~/.koad-io/commands/harness/pi/command.sh         pi harness launcher
+~/.forge/commands/harness/throne/command.sh       pi harness launcher (throne)
   │   • PI_CODING_AGENT_DIR=~/.koad-io/harness (isolated from normal pi)
   │   • Runs startup.sh → assembles layered SYSTEM_PROMPT
   │   • Launches pi --system-prompt "..." --no-context-files
