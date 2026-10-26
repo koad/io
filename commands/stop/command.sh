@@ -72,10 +72,11 @@
 # out unrelated entities and the operator's own session. This verb therefore
 # NEVER signals a process group; it walks the PPID tree.
 #
-# PAIRED HARNESS CHANGE: harness/pi/command.sh records a durable harness.session
+# PAIRED HARNESS CHANGE: harness/throne/command.sh records a durable harness.session
 # sidecar and kills its descendants on EXIT/signal, so harness.pid becomes a
 # self-healing handle. This verb is correct with or without that change — the
-# cmdline/env scan is the backstop.
+# cmdline/env scan is the backstop. (The sidecar lived only in the retired
+# harness/pi copy until 2026-10-26; throne carries it now that pi is gone.)
 
 set -uo pipefail
 

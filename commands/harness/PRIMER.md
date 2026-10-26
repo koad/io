@@ -96,7 +96,7 @@ And if you find yourself about to build a TUI from scratch: **don't.** Find a TU
 | zsh      | **shipped** | _(none — human harness)_              | Mirror of `bash` for the **Mac hosts** (fourty4, flowbie) where zsh is the default shell. Uses a per-entity `ZDOTDIR` at `~/.cache/koad-io/harness/<entity>/zsh/` whose `.zshrc` sources the user's real `.zshrc` then tags `PROMPT`. Untested runtime on wonderland (Linux, no zsh), `bash -n` clean — validate on fourty4. |
 | claude   | **shipped** | `CLAUDE_CONFIG_DIR=~/.$ENTITY`       | Verified with real `claude` CLI. Provider: anthropic. |
 | opencode | **shipped** | `XDG_CONFIG_HOME=~/.$ENTITY`         | Verified with fake binary. Providers: anthropic/openai/ollama/openrouter/google + passthrough. |
-| pi       | **shipped** | native default (`~/.pi/agent/`) — opt-in pin via `KOAD_IO_PI_AGENT_DIR` | `@earendil-works/pi-coding-agent` (npm). Dispatcher actively unsets cascaded `PI_CODING_AGENT_DIR` so pi uses its own data dir. Per-entity isolation deferred until we learn the right shape. `--no-context-files` always set. `-p` for one-shot. Pi-specific cascade: `ENTITY_PI_PROVIDER` → `KOAD_IO_PI_PROVIDER`. |
+| throne   | **shipped** | native default (`~/.pi/agent/`) — opt-in pin via `KOAD_IO_PI_AGENT_DIR` | `@earendil-works/pi-coding-agent` (npm). Dispatcher actively unsets cascaded `PI_CODING_AGENT_DIR` so pi uses its own data dir. Per-entity isolation deferred until we learn the right shape. `--no-context-files` always set. `-p` for one-shot. Pi-specific cascade: `ENTITY_PI_PROVIDER` → `KOAD_IO_PI_PROVIDER`. **Lives at `~/.forge/commands/harness/throne/`** — the framework copy (`harness/pi/`) was a stale fork and was deleted 2026-10-26; every entity's `ENTITY_DEFAULT_HARNESS` is `throne`. |
 | codex    | **shipped** | native default (`~/.codex/`) — opt-in pin via `KOAD_IO_CODEX_HOME`      | `@openai/codex` (npm, Rust binary). Same opt-in pattern as pi. Context via `-c instructions=...`. Non-interactive: `codex exec`. Resume: `codex resume --last`. `--oss` for local/ollama. Codex-specific cascade: `ENTITY_CODEX_MODEL` → `KOAD_IO_CODEX_MODEL`. |
 | tui      | not started | —                                     | Planned. |
 | hermez   | not started | —                                     | Planned. NousResearch v0.6.0; GPG bonds need custom plugin. |
@@ -179,7 +179,7 @@ CONTINUE=1 PROMPT="..." vesta harness default
 Expected entity `.env` (entity-scoped, under the `ENTITY_` namespace):
 
 ```bash
-ENTITY_DEFAULT_HARNESS=claude       # claude | opencode | pi | ...
+ENTITY_DEFAULT_HARNESS=throne       # throne | claude | opencode | ...
 ENTITY_DEFAULT_PROVIDER=anthropic   # read by the real harness's own cascade
 ENTITY_DEFAULT_MODEL=sonnet-4-6     # read by the real harness's own cascade
 ```
@@ -223,7 +223,7 @@ Notable observation from implementation: SPEC-072's structural rule applies **me
 
 ## Known open items
 
-- [x] `harness/pi/command.sh` — validated. `PI_CODING_AGENT_DIR` confirmed via source; binary `pi`, flags `--no-context-files`, `--model provider/id`, `-p` for one-shot all confirmed.
+- [x] `harness/throne/command.sh` (was `harness/pi/command.sh` until 2026-10-26) — validated. `PI_CODING_AGENT_DIR` confirmed via source; binary `pi`, flags `--no-context-files`, `--model provider/id`, `-p` for one-shot all confirmed.
 - [ ] `harness/tui/command.sh` — not started.
 - [ ] `harness/hermez/command.sh` — not started; blocked on GPG bond plugin for NousResearch.
 - [ ] Sibyl field report on multi-harness coexistence (brief filed at `~/.sibyl/briefs/multi-harness-container-field-report.md`) — when Sibyl runs claude alongside opencode at `~/.sibyl`, this directory's convention gets lived-data validation and SPEC-072 can land canonical.

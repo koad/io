@@ -126,8 +126,6 @@ When `-c` is used without a prompt and without `--resume`, the claude harness pr
 │   └── command.sh      # human harness — entity shell, no LLM
 ├── zsh/
 │   └── command.sh      # human harness — zsh variant (Mac hosts)
-├── pi/
-│   └── command.sh      # pi-mono harness (draft, unverified on fourty4)
 ├── ollama/
 │   └── command.sh      # local ollama inference (lightweight, no identity)
 └── rebuild-agents/
