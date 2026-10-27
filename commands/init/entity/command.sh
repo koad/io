@@ -646,7 +646,7 @@ ensure_spec175_gitignore() {
     fi
 
     if ! grep -qxF 'id/*' "$gitignore" 2>/dev/null; then
-        printf '\n# SPEC-175: public identity is committed; everything else in id/ stays ignored.\n# The whitelist MUST come after the id/* exclusion — git cannot re-include a\n# file whose parent directory is excluded. A bare `id/` rule anywhere above\n# would make every !id/ negation inert.\nid/*\n!id/.gitignore\n!id/entity.public.asc\n!id/entity.fingerprint\n!id/migrated-at\n!id/devices/\n!id/archive/\n' >> "$gitignore"
+        printf '\n# SPEC-175: public identity is committed; everything else in id/ stays ignored.\n# The whitelist MUST come after the id/* exclusion — git cannot re-include a\n# file whose parent directory is excluded. A bare `id/` rule anywhere above\n# would make every !id/ negation inert.\nid/*\n!id/devices/\nid/devices/*/*\n!id/devices/*/leaf.public.asc\n!id/.gitignore\n!id/entity.public.asc\n!id/entity.fingerprint\n!id/migrated-at\n!id/archive/\n' >> "$gitignore"
         changed=1
     fi
 

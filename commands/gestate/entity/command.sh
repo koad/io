@@ -452,6 +452,11 @@ id/*
 # Private key material — NEVER commit (SPEC-175)
 id/devices/*/leaf.private.asc
 id/devices/*/device.key
+# deny devices/ at depth too — only the public leaf is trackable, so a stray
+# device.key.bak or leaf.private.asc.old cannot be staged
+!id/devices/
+id/devices/*/*
+!id/devices/*/leaf.public.asc
 
 # Legacy private keys (pre-SPEC-175 — included for backward compat)
 id/ed25519
@@ -471,7 +476,6 @@ ssl/session.pem
 !id/entity.public.asc
 !id/entity.fingerprint
 !id/migrated-at
-!id/devices/
 !id/archive/
 
 # Entity config — local secrets / env
