@@ -616,13 +616,56 @@ ensure_spec175_gitignore() {
         changed=1
     fi
 
-    if ! grep -q "!id/entity.public.asc" "$gitignore" 2>/dev/null; then
-        printf '\n# SPEC-175: entity.public.asc is committed (sovereign-certified public identity)\n!id/entity.public.asc\n!id/entity.fingerprint\n!id/migrated-at\n!id/archive/**\n' >> "$gitignore"
+    # SPEC-175: a bare `id/` exclusion makes every !id/ negation inert — git will
+    # not re-include a file whose parent directory is excluded. Drop it; the
+    # deny-by-default half is re-established as `id/*` by the whitelist below.
+    if grep -qxF 'id/' "$gitignore" 2>/dev/null; then
+        local tmp
+        tmp=$(mktemp)
+        grep -vxF 'id/' "$gitignore" > "$tmp" && cat "$tmp" > "$gitignore"
+        rm -f "$tmp"
+        changed=1
+    fi
+
+    # Drop the superseded bare-negation block (four consecutive lines) so the
+    # whitelist below is the one place the id/ rules are stated.
+    local neg_start
+    neg_start=$(grep -nxF '!id/entity.public.asc' "$gitignore" 2>/dev/null | head -1 | cut -d: -f1)
+    if [ -n "$neg_start" ] &&
+       [ "$(sed -n "${neg_start},$((neg_start + 3))p" "$gitignore")" = "$(printf '!id/entity.public.asc\n!id/entity.fingerprint\n!id/migrated-at\n!id/archive/**')" ]; then
+        local neg_end=$((neg_start + 3))
+        # take the block's own comment line with it, so no orphan is left behind
+        if [ "$neg_start" -gt 1 ] && sed -n "$((neg_start - 1))p" "$gitignore" | grep -qF '# SPEC-175: entity.public.asc is committed'; then
+            neg_start=$((neg_start - 1))
+        fi
+        local tmp
+        tmp=$(mktemp)
+        awk -v s="$neg_start" -v e="$neg_end" 'NR < s || NR > e' "$gitignore" > "$tmp" && cat "$tmp" > "$gitignore"
+        rm -f "$tmp"
+        changed=1
+    fi
+
+    if ! grep -qxF 'id/*' "$gitignore" 2>/dev/null; then
+        printf '\n# SPEC-175: public identity is committed; everything else in id/ stays ignored.\n# The whitelist MUST come after the id/* exclusion — git cannot re-include a\n# file whose parent directory is excluded. A bare `id/` rule anywhere above\n# would make every !id/ negation inert.\nid/*\n!id/.gitignore\n!id/entity.public.asc\n!id/entity.fingerprint\n!id/migrated-at\n!id/devices/\n!id/archive/\n' >> "$gitignore"
+        changed=1
+    fi
+
+    # Runtime state every harness session rewrites — never source.
+    local missing_rules=()
+    local rule
+    for rule in '.buzz/' '.cache/' 'sessions/' 'logs/' 'keyring/'; do
+        if ! grep -qxF "$rule" "$gitignore" 2>/dev/null && ! grep -qxF "${rule%/}" "$gitignore" 2>/dev/null; then
+            missing_rules+=("$rule")
+        fi
+    done
+    if [ "${#missing_rules[@]}" -gt 0 ]; then
+        printf '\n# Runtime state — regenerated per session, never source\n' >> "$gitignore"
+        printf '%s\n' "${missing_rules[@]}" >> "$gitignore"
         changed=1
     fi
 
     if [ "$changed" -eq 1 ]; then
-        say "  updated: .gitignore (added SPEC-175 rules)"
+        say "  updated: .gitignore (SPEC-175 id/ whitelist + runtime rules)"
     fi
 }
 

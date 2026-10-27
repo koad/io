@@ -444,6 +444,11 @@ say "Writing entity artifacts..."
 # --- .gitignore (SPEC-175 patterns) ---
 cat > "$ENTITY_DIR/.gitignore" << GITIGNORE
 # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPEC-175: id/ is denied by default — only public identity material is tracked.
+# A bare `id/` exclusion here would make every !id/ negation below inert: git
+# will not re-include a file whose parent directory is excluded.
+id/*
+
 # Private key material — NEVER commit (SPEC-175)
 id/devices/*/leaf.private.asc
 id/devices/*/device.key
@@ -455,10 +460,19 @@ id/rsa
 id/dsa
 id/gpg-revocation.asc
 keyring/
+*.nsec
 ssl/master-curve.pem
 ssl/device-curve.pem
 ssl/relay-curve.pem
 ssl/session.pem
+
+# Public identity material — committed (SPEC-175 / SPEC-117)
+!id/.gitignore
+!id/entity.public.asc
+!id/entity.fingerprint
+!id/migrated-at
+!id/devices/
+!id/archive/
 
 # Entity config — local secrets / env
 .env
@@ -474,6 +488,10 @@ ssl/session.pem
 .pid
 proc/
 var/
+# Harness runtime — rewritten every launch, never source
+sessions/
+logs/
+.buzz/
 
 # Editor temp files
 *~
