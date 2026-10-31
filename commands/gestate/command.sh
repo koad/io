@@ -21,8 +21,15 @@
 #
 # Routing:
 #   koad-io gestate entity <name> …  → entity/command.sh   (gestation ceremony)
+#   koad-io gestate ensure <name>    → ensure/command.sh   (idempotent repair pass)
 #   koad-io gestate <name> [...]     → entity/command.sh   (compatibility: same path)
 #   koad-io gestate                  → usage, exit 1
+#
+# `ensure` is a SIBLING of `entity`, never a relaxation of it: `entity` still
+# hard-refuses an existing directory, because a birth leaves a sigchain trail
+# that a repair pass must not forge. `ensure` fills only the idempotent gaps on
+# an entity that already exists (dirs, .env keys, passenger.json, id/nostr/,
+# the SPEC-221 .gitignore contract) and touches no key material.
 #
 # The bare-name form is a compatibility reading for docs and scripts written
 # before the namespace existed. `gestate <name>` and `gestate entity <name>` are
@@ -43,6 +50,8 @@ Usage:
   koad-io gestate entity <name>              Create ~/.<name> with keys, dirs, launcher
   koad-io gestate entity <name> --as-authorized-agent
                                              Provisional entity; a sovereign countersigns later
+  koad-io gestate ensure <name>              Fill missing pieces on an EXISTING entity
+                                             (idempotent; never mints or rotates GPG/SSH keys)
 
 Name rules: 3–12 lowercase letters, no hyphens, underscores or digits.
 `me` is reserved — ~/.koad-io/me/ is the sovereign.
@@ -54,6 +63,11 @@ it does. See install.md §7.
 
 Compatibility: `koad-io gestate <name>` runs the same path as
 `koad-io gestate entity <name>`.
+
+Every gestation mints a Nostr identity (VESTA-SPEC-221, Path B: an independent
+secp256k1 keypair) and prints only the npub. An entity that pre-dates that — or
+lost an artifact — is repaired with `koad-io gestate ensure <name>`, which mints
+only what is absent and never overwrites a key.
 USAGE
 }
 
@@ -74,6 +88,10 @@ case "$SUB" in
     entity)
         shift
         exec bash "$_GESTATE_DIR/entity/command.sh" "$@"
+        ;;
+    ensure)
+        shift
+        exec bash "$_GESTATE_DIR/ensure/command.sh" "$@"
         ;;
     *)
         # Any other first argument is an entity name (compatibility reading).
