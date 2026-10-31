@@ -71,6 +71,18 @@ if [ ${#TREES[@]} -eq 0 ]; then
     exit 2
 fi
 
+# The cascade list plus $PWD/commands can name the same tree twice; count it once.
+_deduped=()
+for _t in "${TREES[@]}"; do
+    _seen=0
+    for _u in ${_deduped[@]+"${_deduped[@]}"}; do
+        if [ "$_t" = "$_u" ]; then _seen=1; break; fi
+    done
+    [ "$_seen" -eq 0 ] && _deduped+=("$_t")
+done
+TREES=("${_deduped[@]}")
+unset _deduped _t _u _seen
+
 # ── Scan ─────────────────────────────────────────────────────────────────────
 
 OFFENDERS=()   # repo<TAB>path<TAB>index-mode  — would ship broken
