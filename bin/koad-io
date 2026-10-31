@@ -563,6 +563,83 @@ fi
 echo "--exec $EXEC_FILE ${_REST_ARGS[*]} $KOAD_IO_FLAGS" >&2
 
 # ---------------------------------------------------------------------------
+# Executable-bit preflight (2026-10-31)
+#
+# The cascade resolves a command by DIRECTORY and then execs the shim inside it.
+# If that shim is not executable, `exec` dies with the shell's own
+# "Permission denied" and exit 126 — which names neither the file, nor the
+# reason, nor the fix. That is the answer a learner got on a real sovereign
+# install (valhala.is, 2026-10-21): the very first act of the entire install was
+#     chmod +x ~/.koad-io/commands/curriculum/command.sh   # it was not executable
+# because curriculum/command.sh had been committed 100644 while every other
+# command.sh in the tree was 100755. The mode bit blocked the map (the 27-note
+# difficulty ramp `curriculum list` prints); three days later he hand-wrote the
+# map and handed it in as homework.
+#
+# "Permission denied" is the wrong answer to "the repo shipped this file 644".
+# Same reasoning as the module preflight below: detect the condition, name the
+# cause, print the line that fixes it.
+#
+# The git index is the authority on what a clone will receive, so it decides
+# between the two cases:
+#   100755 in the index + not executable here → this checkout lost the bit
+#     (rsync/copy/restore without modes). git itself says it should be
+#     executable: restore it and carry on. Not silent — one line to stderr.
+#   100644 in the index → the repository ships a non-executable command. No
+#     local chmod can fix that for anyone else, so refuse and say so.
+# ---------------------------------------------------------------------------
+if [[ -n "${EXEC_FILE:-}" ]] && [[ -f "$EXEC_FILE" ]] && [[ ! -x "$EXEC_FILE" ]]; then
+  _EXEC_DIR="$(cd "$(dirname "$EXEC_FILE")" 2>/dev/null && pwd)"
+  _INDEX_MODE=""
+  if [[ -n "$_EXEC_DIR" ]]; then
+    _INDEX_MODE="$(cd "$_EXEC_DIR" && git ls-files -s -- "$(basename "$EXEC_FILE")" 2>/dev/null | awk 'NR==1{print $1}')"
+  fi
+
+  if [[ "$_INDEX_MODE" == "100755" ]]; then
+    echo "[koad-io] $EXEC_FILE lost its executable bit locally (git index says 100755) — restored." >&2
+    chmod +x "$EXEC_FILE" 2>/dev/null || true
+  else
+    {
+      echo ""
+      echo "[koad-io] This command is not executable, so the cascade cannot run it."
+      echo "[koad-io]   file:      $EXEC_FILE"
+      echo "[koad-io]   mode:      $(ls -ld "$EXEC_FILE" 2>/dev/null | awk '{print $1}')"
+      case "$_INDEX_MODE" in
+        100644)
+          _REPO_TOP="$(cd "$_EXEC_DIR" && git rev-parse --show-toplevel 2>/dev/null)"
+          _REPO_REL="${EXEC_FILE#"$_REPO_TOP"/}"
+          echo "[koad-io]   committed: 100644  ← the repository ships this file non-executable"
+          echo "[koad-io]"
+          echo "[koad-io] A fresh clone inherits the index mode, so the defect is in the repo, not"
+          echo "[koad-io] in your checkout. Chmod'ing it here fixes this machine and nobody else's."
+          echo "[koad-io]"
+          echo "[koad-io]   use it now:     chmod +x $EXEC_FILE"
+          echo "[koad-io]   fix the repo:   git -C ${_REPO_TOP:-$_EXEC_DIR} update-index --chmod=+x ${_REPO_REL:-$(basename "$EXEC_FILE")} && git commit"
+          unset _REPO_TOP _REPO_REL
+          ;;
+        '')
+          echo "[koad-io]   committed: (not tracked by git)"
+          echo "[koad-io]"
+          echo "[koad-io]   fix it:         chmod +x $EXEC_FILE"
+          ;;
+        *)
+          echo "[koad-io]   committed: $_INDEX_MODE"
+          echo "[koad-io]"
+          echo "[koad-io]   fix it:         chmod +x $EXEC_FILE"
+          ;;
+      esac
+      echo "[koad-io]"
+      echo "[koad-io] Every command.sh in a commands tree must be committed 755. Sweep for others:"
+      echo "[koad-io]   koad-io test modes"
+      echo ""
+    } >&2
+    unset _EXEC_DIR _INDEX_MODE
+    exit 126
+  fi
+  unset _EXEC_DIR _INDEX_MODE
+fi
+
+# ---------------------------------------------------------------------------
 # Module dependency preflight (2026-10-21)
 #
 # modules/node is the shared @koad-io/node module. Its package.json and lockfile
