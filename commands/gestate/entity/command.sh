@@ -308,6 +308,62 @@ unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR
 say ""
 
 # ---------------------------------------------------------------------------
+# Step 3b: Mint the Nostr identity (Path B — VESTA-SPEC-221)
+# ---------------------------------------------------------------------------
+# A fresh secp256k1 keypair, INDEPENDENT of the GPG and SSH keys above: Path B
+# says the npub is bound to the entity key later by cross-signature, never
+# derived from it. The mint lives in nostr-mint.mjs (node's own crypto + a local
+# bech32) so gestation never depends on the nostr rail or on Npm.depends.
+#
+# Only the npub is ever printed. The nsec is written once, mode 600, and is
+# never read back out by this script. A failure here WARNS and continues — an
+# entity is not stillborn because one artifact could not be minted.
+
+NOSTR_NPUB=""
+NOSTR_MINT_SCRIPT="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/nostr-mint.mjs"
+
+say "Minting the Nostr identity..."
+
+if ! command -v node >/dev/null 2>&1; then
+    warn "nostr: skipped (no node) — this entity has no npub yet; run 'koad-io gestate ensure $ENTITY_NAME' once node is available"
+elif [ ! -f "$NOSTR_MINT_SCRIPT" ]; then
+    warn "nostr: skipped (nostr-mint.mjs not found beside this script) — this entity has no npub yet"
+else
+    NOSTR_JSON=""
+    if NOSTR_JSON=$(node "$NOSTR_MINT_SCRIPT" --entity-dir "$ENTITY_DIR" 2>/dev/null); then
+        NOSTR_STATUS=$(echo "$NOSTR_JSON" | jq -r '.status // "unknown"')
+        NOSTR_NPUB=$(echo "$NOSTR_JSON" | jq -r '.npub // empty')
+
+        case "$NOSTR_STATUS" in
+            minted)
+                say "  minted: id/nostr/crown.nsec (mode 600, never committed)"
+                say "  minted: id/nostr/npub + id/nostr/pubkey.hex (public — tracked)"
+                ;;
+            published)
+                say "  derived: the public half of an existing Nostr key (secret untouched)"
+                ;;
+            present)
+                say "  present: id/nostr/ already complete (key never re-minted)"
+                ;;
+            *)
+                warn "nostr: unexpected mint status '$NOSTR_STATUS'"
+                ;;
+        esac
+
+        if [ -n "$NOSTR_NPUB" ]; then
+            say "  npub: $NOSTR_NPUB"
+        else
+            warn "nostr: mint returned no npub — check $NOSTR_MINT_SCRIPT"
+        fi
+    else
+        warn "nostr: skipped (mint failed) — this entity has no npub yet; run 'koad-io gestate ensure $ENTITY_NAME' to retry"
+    fi
+    unset NOSTR_JSON NOSTR_STATUS
+fi
+
+say ""
+
+# ---------------------------------------------------------------------------
 # Step 4: Sign sigchain entries (sovereign path) or mark provisional (authorized-agent)
 # ---------------------------------------------------------------------------
 
@@ -442,7 +498,10 @@ fi
 say "Writing entity artifacts..."
 
 # --- .gitignore (SPEC-175 patterns) ---
-cat > "$ENTITY_DIR/.gitignore" << GITIGNORE
+# Quoted delimiter: this heredoc is literal text. An unquoted one made bash expand
+# the backticks in the comment below as command substitution, so every gestation
+# printed "id/: Is a directory" and wrote a mangled comment line.
+cat > "$ENTITY_DIR/.gitignore" << 'GITIGNORE'
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPEC-175: id/ is denied by default — only public identity material is tracked.
 # A bare `id/` exclusion here would make every !id/ negation below inert: git
@@ -457,6 +516,18 @@ id/devices/*/device.key
 !id/devices/
 id/devices/*/*
 !id/devices/*/leaf.public.asc
+
+# Nostr identity — VESTA-SPEC-221 (Path B: an independent secp256k1 keypair)
+# The secret is a bearer token: never tracked. The public half MUST be tracked —
+# "it's meant to be signed and provable, not hidden". Anyone who clones this
+# repo has to be able to read the npub and verify it against the key that signs.
+# Same shape as the devices block above: deny the directory's contents, then
+# re-include the one public path. Order matters — the negations come last.
+id/nostr/crown.nsec
+!id/nostr/
+id/nostr/*
+!id/nostr/npub
+!id/nostr/pubkey.hex
 
 # Legacy private keys (pre-SPEC-175 — included for backward compat)
 id/ed25519
@@ -523,6 +594,13 @@ devices/*/device.key
 !entity.fingerprint
 !archive/**
 !.gitignore
+
+# Nostr identity — SPEC-221. The secret stays here; the provable half does not.
+nostr/crown.nsec
+!nostr/
+nostr/*
+!nostr/npub
+!nostr/pubkey.hex
 GITIGNORE
 
 say "  wrote: .gitignore"
@@ -727,7 +805,7 @@ git -C "$ENTITY_DIR" init --initial-branch=main -q 2>/dev/null || git -C "$ENTIT
 git -C "$ENTITY_DIR" add .
 
 # Verify private keys are not staged
-if git -C "$ENTITY_DIR" ls-files | grep -qE "leaf\.private\.asc|device\.key|\.env$"; then
+if git -C "$ENTITY_DIR" ls-files | grep -qE "leaf\.private\.asc|device\.key|\.env$|crown\.nsec|\.nsec$"; then
     die "Private key material or .env was staged — check .gitignore. Aborting."
 fi
 
@@ -809,6 +887,8 @@ say "   fingerprint:      $ENTITY_FINGERPRINT"
 say " Device leaf:        $ENTITY_DIR/id/devices/$HOST/leaf.public.asc"
 say "   fingerprint:      $LEAF_FINGERPRINT"
 say " Device key:         $ENTITY_DIR/id/devices/$HOST/device.key (gitignored)"
+say " Nostr npub:         ${NOSTR_NPUB:-(none — run: koad-io gestate ensure $ENTITY_NAME)}"
+say " Nostr secret:       $ENTITY_DIR/id/nostr/crown.nsec (mode 600, gitignored)"
 say ""
 say " Gestation mode:     authorized-agent (provisional)"
 say " Authorized by:      $ENTITY"
@@ -843,6 +923,8 @@ say "   fingerprint:      $ENTITY_FINGERPRINT"
 say " Device leaf:        $ENTITY_DIR/id/devices/$HOST/leaf.public.asc"
 say "   fingerprint:      $LEAF_FINGERPRINT"
 say " Device key:         $ENTITY_DIR/id/devices/$HOST/device.key (gitignored)"
+say " Nostr npub:         ${NOSTR_NPUB:-(none — run: koad-io gestate ensure $ENTITY_NAME)}"
+say " Nostr secret:       $ENTITY_DIR/id/nostr/crown.nsec (mode 600, gitignored)"
 say ""
 say " Sovereign sigchain:"
 say "   koad.entity.genesis:       $GENESIS_CID"
