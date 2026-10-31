@@ -650,6 +650,14 @@ ensure_spec175_gitignore() {
         changed=1
     fi
 
+    # VESTA-SPEC-221 — Nostr identity. Same shape as the devices whitelist: the
+    # secret is a bearer token and stays denied; the npub and the x-only pubkey
+    # are meant to be signed and provable, so they stay tracked.
+    if ! grep -qxF '!id/nostr/pubkey.hex' "$gitignore" 2>/dev/null; then
+        printf '\n# Nostr identity — VESTA-SPEC-221 (Path B: an independent secp256k1 keypair)\n# Deny the secret, track the provable half. Order matters: negations last.\nid/nostr/crown.nsec\n!id/nostr/\nid/nostr/*\n!id/nostr/npub\n!id/nostr/pubkey.hex\n' >> "$gitignore"
+        changed=1
+    fi
+
     # Runtime state every harness session rewrites — never source.
     local missing_rules=()
     local rule
@@ -689,6 +697,22 @@ devices/*/device.key
 !.gitignore
 GITIGNORE
         say "  created: id/.gitignore"
+    fi
+
+    # VESTA-SPEC-221 — the Nostr half of the identity, same contract as the root
+    # .gitignore: crown.nsec denied, npub + pubkey.hex trackable. Appended only
+    # when absent so a re-run is a no-op.
+    if ! grep -qxF '!nostr/pubkey.hex' "$id_gitignore" 2>/dev/null; then
+        cat >> "$id_gitignore" << 'GITIGNORE'
+
+# Nostr identity — SPEC-221. The secret stays here; the provable half does not.
+nostr/crown.nsec
+!nostr/
+nostr/*
+!nostr/npub
+!nostr/pubkey.hex
+GITIGNORE
+        say "  updated: id/.gitignore (SPEC-221 nostr contract)"
     fi
 }
 
