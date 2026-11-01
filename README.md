@@ -164,7 +164,7 @@ The system has two halves of its safety model:
 - Active/recent session index (`session-index.js`)
 - Flight index with stale detection (`flight-index.js`)
 - Dispatch records with full lineage (`runtime/dispatches/`)
-- Session watchers for live observation (`runtime/session-watchers/`)
+- Session live observation via the session index (DDP) — not `runtime/session-watchers/`, which was deleted with the delivery leg
 - Postgres audit trail (`koad_telemetry`)
 - JSONL archive sweep for terminal records
 - Question queue for cross-entity communication
