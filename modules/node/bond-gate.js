@@ -681,12 +681,65 @@ export function isCommandGranted(scope, commandName, aliases = []) {
   return [commandName, ...aliases].filter(Boolean).some(name => granted.includes(name));
 }
 
-export function checkCommand(entity, commandName, { aliases = [], interactive = false } = {}) {
+/**
+ * The places the launcher looks for a command, in the order it descends them.
+ * Mirrors ~/.koad-io/bin/koad-io: CWD, then the entity's own commands, then
+ * KOAD_IO_COMMANDS_DIRS (framework list, PATH-style).
+ */
+export function commandCascadeDirs({ cwd = process.cwd(), entity = process.env.ENTITY } = {}) {
+  const dirs = [];
+  if (cwd) dirs.push(path.join(cwd, 'commands'));
+  const handle = String(entity ?? '').trim().toLowerCase();
+  if (handle) dirs.push(path.join(HOME, `.${handle}`, 'commands'));
+  const configured = process.env.KOAD_IO_COMMANDS_DIRS
+    || [path.join(HOME, '.forge', 'commands'), path.join(HOME, '.koad-io', 'commands')].join(':');
+  for (const entry of configured.split(':')) {
+    const trimmed = entry.trim();
+    if (trimmed) dirs.push(expandPath(trimmed));
+  }
+  return [...new Set(dirs)];
+}
+
+/**
+ * Does this name resolve to an actual command in the cascade?
+ *
+ * WHY THIS EXISTS (2026-11-02): the gate used to answer "not granted — add to
+ * koadio_commands in bond" for every denial, including commands that do not
+ * exist anywhere. `trust-bond-viewer` was advertised in the tool schema and was
+ * never built; two entities (chiron, vulcan) independently read the denial as a
+ * permission gap and nearly filed it as one. A wrong remedy is worse than no
+ * remedy: it sends the entity to edit a signed bond and wait for koad's signing
+ * round, for a command that will still not exist afterwards. Same shape as F-12
+ * (bonds-guard/status advice naming the wrong fix) — do not regress by wording a
+ * denial before asking the filesystem whether the thing is there.
+ */
+export function commandExists(name, opts = {}) {
+  const command = String(name ?? '').trim();
+  if (!command || command.includes('/') || command.includes('\\') || command.includes('..')) return false;
+  for (const dir of commandCascadeDirs(opts)) {
+    if (fs.existsSync(path.join(dir, command, 'command.sh'))) return true;
+  }
+  const cwd = opts.cwd ?? process.cwd();
+  return fs.existsSync(path.join(cwd, `${command}.sh`));
+}
+
+export function checkCommand(entity, commandName, { aliases = [], interactive = false, cwd = process.cwd() } = {}) {
   const scope = resolveGate(entity, { interactive });
   if (scope.fatal) return { ok: false, scope, reason: scope.fatalReason ?? 'bond verification failed' };
   if (isCommandGranted(scope, commandName, aliases)) return { ok: true, scope };
-  const requested = [commandName, ...aliases].filter(Boolean).join(', ');
-  return { ok: false, scope, reason: `command not granted by bond: ${requested}` };
+  const requested = [commandName, ...aliases].filter(Boolean);
+  // Distinguish "you were not given this command" from "there is no such
+  // command". Only the first is served by editing the bond.
+  const known = requested.filter(name => commandExists(name, { cwd, entity }));
+  if (known.length === 0) {
+    return { ok: false, scope, reason: `no such command \`${requested[0]}\``, noSuchCommand: true };
+  }
+  return {
+    ok: false,
+    scope,
+    reason: `command not granted: ${known.join(', ')} — add to koadio_commands in bond`,
+    noSuchCommand: false,
+  };
 }
 
 function scopePathsForMode(scope, mode) {
