@@ -73,25 +73,10 @@ else
   # model_ceiling never reached the harness — every dispatch ran the flat .env
   # default regardless of ceiling (tickler 2026-08-01 dispatch-model-routing).
   # Preserve it so the harness can resolve the model via route.js.
-  #
-  # EXCEPTION: the SITE IDENTITY keys. Every website sets KOAD_IO_DOMAIN (and
-  # sometimes KOAD_IO_INSTANCE / KOAD_IO_TARGET) in its own .env, and a process
-  # spawned by that site — a chat surface, a bot, a dispatch opened from a site
-  # context — carries them. Wiping them here is why a harness launched from a
-  # site arrived with no idea which surface it came from: `KOAD_IO_DOMAIN=x
-  # vulcan …` printed nothing, while the session record needs exactly that value
-  # to say `origin: chat, surface: kingofalldata.com` instead of `unknown`
-  # (2026-11-01-2). These are CALLER INTENT, like ENTITY: they name the context
-  # the caller is invoking from, not entity state that a parent leaked. The
-  # cascade below still wins if an entity or command .env declares its own.
   while IFS= read -r _v; do
     case "$_v" in
       ENTITY) ;;                    # set by launcher — preserve
       KOAD_IO_MODEL_CEILING) ;;     # per-dispatch runtime var — preserve
-      KOAD_IO_DOMAIN) ;;            # site identity — surface for session origin
-      KOAD_IO_DOMAIN_WILDCARD) ;;    # site identity — companion
-      KOAD_IO_INSTANCE) ;;          # site identity — fallback surface (golf.koad.sh)
-      KOAD_IO_TARGET) ;;            # site identity — companion (player.koad.live)
       *)      unset "$_v" ;;
     esac
   done < <(compgen -v | grep -E '^(KOAD_IO_|ENTITY)' || true)
