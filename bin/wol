@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# wol — Wake-on-LAN for kingdom hosts.
+#
+#   wol <host|mac>              send a magic packet
+#   wol <host|mac> --wait       send, then poll until the host answers
+#   wol --list                  list hosts that have a recorded MAC
+#
+# Host resolution, in order:
+#   1. a literal MAC            (aa:bb:cc:dd:ee:ff · aa-bb-... · aabb.ccdd.eeff)
+#   2. a host cartridge         ~/.forge/<host>/config/<host>/config.json
+#                               → .network.mac / .network.lan_ip / .network.mesh_ip
+#
+# Broadcast targets: 255.255.255.255, every local subnet broadcast, and the
+# host's own /24 broadcast when its LAN IP is known. Ports 9 and 7.
+#
+# A magic packet only reaches a machine that is powered off *and* has its NIC
+# armed (`Wake-on: g`). It cannot help a hung box, a tripped PSU, or a lost
+# standby rail — see the citadel PRIMER's Power section.
+#
+# Exit: 0 = packet sent (and host answered, with --wait)
+#       1 = usage / resolution error
+#       2 = sent, but no answer within --timeout
+set -euo pipefail
+
+PROG="$(basename "$0")"
+FORGE="${KOAD_IO_FORGE_PATH:-$HOME/.forge}"
+WAIT=0
+TIMEOUT=90
+DRY_RUN=0
+
+die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 1; }
+usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+
+normalize_mac() {
+  local raw="${1//[:-]/}"
+  raw="$(printf '%s' "$raw" | tr 'A-Z' 'a-z')"
+  [[ "$raw" =~ ^[0-9a-f]{12}$ ]] || return 1
+  printf '%s' "$raw" | sed 's/\(..\)/\1:/g; s/:$//'
+}
+
+# Read a dotted key out of a host's cartridge config (jq-free on purpose).
+cartridge_field() {
+  local host="$1" key="$2" file="$FORGE/$1/config/$1/config.json"
+  [ -f "$file" ] || return 1
+  python3 - "$file" "$key" <<'PY'
+import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+for part in sys.argv[2].split('.'):
+    if not isinstance(d,dict) or part not in d: sys.exit(1)
+    d=d[part]
+print(d)
+PY
+}
+
+list_hosts() {
+  local found=0
+  printf '%-16s %-18s %-16s %s\n' HOST MAC LAN MESH
+  for cfg in "$FORGE"/*/config/*/config.json; do
+    [ -f "$cfg" ] || continue
+    local host mac lan mesh
+    host="$(basename "$(dirname "$(dirname "$(dirname "$cfg")")")")"
+    mac="$(cartridge_field "$host" network.mac 2>/dev/null || true)"
+    [ -n "${mac:-}" ] || continue
+    lan="$(cartridge_field "$host" network.lan_ip 2>/dev/null || echo -)"
+    mesh="$(cartridge_field "$host" network.mesh_ip 2>/dev/null || echo -)"
+    printf '%-16s %-18s %-16s %s\n' "$host" "$mac" "$lan" "$mesh"
+    found=1
+  done
+  [ "$found" = 1 ] || die "no cartridge declares network.mac"
+}
+
+# ── args ────────────────────────────────────────────────────────────────────
+TARGET=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --wait|-w)      WAIT=1 ;;
+    --timeout|-t)   TIMEOUT="${2:?--timeout needs seconds}"; shift ;;
+    --list|-l)      list_hosts; exit 0 ;;
+    --dry-run|-n)   DRY_RUN=1 ;;
+    --help|-h)      usage ;;
+    -*)             die "unknown flag: $1" ;;
+    *)              [ -z "$TARGET" ] || die "one target at a time"; TARGET="$1" ;;
+  esac
+  shift
+done
+[ -n "$TARGET" ] || usage
+
+# ── resolve ─────────────────────────────────────────────────────────────────
+HOST=""
+if MAC="$(normalize_mac "$TARGET")"; then
+  HOST="(literal)"
+else
+  HOST="$TARGET"
+  MAC="$(cartridge_field "$HOST" network.mac 2>/dev/null)" \
+    || die "'$TARGET' is neither a MAC nor a host with a recorded MAC (try --list)"
+  MAC="$(normalize_mac "$MAC")" || die "$HOST: cartridge MAC is malformed"
+fi
+
+LAN_IP="$(cartridge_field "$HOST" network.lan_ip 2>/dev/null || true)"
+MESH_IP="$(cartridge_field "$HOST" network.mesh_ip 2>/dev/null || true)"
+
+# ── broadcast targets ───────────────────────────────────────────────────────
+TARGETS=(255.255.255.255)
+while read -r bcast; do
+  [ -n "$bcast" ] || continue
+  [ "$bcast" = "255.255.255.255" ] || TARGETS+=("$bcast")
+done < <(ip -4 -o addr show scope global 2>/dev/null \
+  | awk '{split($4,a,"/"); ip=a[1]; cidr=a[2];
+          o1=ip; o2=ip; o3=ip; o4=ip;
+          split(ip,q,".");
+          if (cidr==24) printf "%s.%s.%s.255\n", q[1],q[2],q[3]}' | sort -u)
+
+if [ -n "$LAN_IP" ]; then
+  B="$(printf '%s' "$LAN_IP" | awk -F. '{printf "%s.%s.%s.255",$1,$2,$3}')"
+  case " ${TARGETS[*]} " in *" $B "*) ;; *) TARGETS+=("$B") ;; esac
+fi
+
+# ── send ────────────────────────────────────────────────────────────────────
+if [ "$DRY_RUN" = 1 ]; then
+  python3 - "$MAC" "${TARGETS[@]}" <<'PY'
+import sys
+mac=bytes.fromhex(sys.argv[1].replace(':',''))
+frame=b'\xff'*6+mac*16
+print(f"frame: {len(frame)} bytes · mac {sys.argv[1]} · targets {', '.join(sys.argv[2:])}")
+print(frame.hex())
+PY
+  exit 0
+fi
+
+SENT="$(python3 - "$MAC" "${TARGETS[@]}" <<'PY'
+import socket,sys
+mac=bytes.fromhex(sys.argv[1].replace(':',''))
+frame=b'\xff'*6+mac*16
+ok,errs=[],[]
+for t in sys.argv[2:]:
+    for port in (9,7):
+        s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET,socket.SO_BROADCAST,1)
+        try:
+            s.sendto(frame,(t,port)); ok.append(f"{t}:{port}")
+        except OSError as e:
+            errs.append(f"{t}:{port} ({e.strerror})")
+        finally:
+            s.close()
+print("OK " + " ".join(ok) if ok else "ERR " + " ".join(errs))
+PY
+)"
+case "$SENT" in
+  OK\ *)  printf 'wol: %s (%s) → %s\n' "$HOST" "$MAC" "${SENT#OK }" ;;
+  *)      die "no packet sent — ${SENT#ERR }" ;;
+esac
+
+[ "$WAIT" = 1 ] || exit 0
+
+# ── wait ────────────────────────────────────────────────────────────────────
+CANDIDATES=()
+[ -n "$LAN_IP" ]  && CANDIDATES+=("$LAN_IP")
+[ -n "$MESH_IP" ] && CANDIDATES+=("$MESH_IP")
+[ ${#CANDIDATES[@]} -gt 0 ] || die "--wait needs network.lan_ip or network.mesh_ip in the cartridge"
+
+printf 'wol: waiting up to %ss for %s …\n' "$TIMEOUT" "${CANDIDATES[*]}"
+START=$SECONDS
+while [ $((SECONDS-START)) -lt "$TIMEOUT" ]; do
+  for addr in "${CANDIDATES[@]}"; do
+    if ping -c1 -W1 "$addr" >/dev/null 2>&1; then
+      printf 'wol: %s answered after %ss (%s)\n' "$HOST" "$((SECONDS-START))" "$addr"
+      exit 0
+    fi
+  done
+  sleep 2
+done
+printf 'wol: %s did not answer within %ss — WoL may not be armed, or the box needs AC restore\n' \
+  "$HOST" "$TIMEOUT" >&2
+exit 2
