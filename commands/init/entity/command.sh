@@ -6,47 +6,53 @@
 #
 # Usage:
 #   koad-io init sovereign              # Kingdom genesis — see init/sovereign/command.sh
-#   koad-io init entity <name>          # Canonical form — state-detect + init/migrate/re-seed
+#   koad-io init entity <name>          # Canonical form — state-detect + run the cell
 #   koad-io init <name>                 # Compatibility form of the above (same code path)
 #   koad-io init <name> <url>           # Clone entity repo then state-detect
-#   koad-io init <name> --forceful      # Force re-run even if already initialized
-#   koad-io init <name> --adopt         # Explicitly adopt the on-disk entity key (see below)
-#   koad-io init <name> --re-seed       # Ignore the on-disk entity key; mint a fresh one
+#   koad-io init <name> --forceful      # Rotate what is mine: succession, new key + leaf
+#   koad-io init <name> --adopt         # Adopt the on-disk key (only when it is not disproven)
+#   koad-io init <name> --re-seed       # Replace an entity key that is NOT this handle's key
 #
-# State machine (entity path):
-#   1. Dir missing + URL given     → git clone → fall through to state detection
-#   2. Dir missing + no URL        → error, redirect to gestate or pass URL
-#   3. Dir present, legacy keys    → migrate to SPEC-175 (absorbs migrate-entity)
-#   4. Dir present, no keys at all → re-seed: regenerate device leaf + leaf-authorize
-#   5. Dir present, partial SPEC-175 → fill in missing pieces idempotently
-#   6. Dir present, full SPEC-175  → "all set", optionally backfill leaf-authorize
-#   7. Dir present, SPEC-175 entity key but no leaf for THIS device → secondary device adoption
+# VESTA-SPEC-240 §13 — four states, three flags, no silent cells:
 #
-# Paternity gate (2026-10-21, koad's ruling — fork A) — applies to state 7:
+#   Every invocation resolves to ONE state (filesystem facts only — a flag never
+#   chooses the state) and ONE flag, and prints exactly one leading line:
 #
-#   State 7 may only be selected when THIS sovereign's sigchain holds a
-#   koad.entity.genesis for the entity handle whose entity_key_fingerprint equals
-#   the key in id/. Proof of paternity, not proof of file presence: a template can
-#   ship somebody else's public key (github.com/koad/alice does, on purpose), and
-#   `[ -f id/entity.public.asc ]` cannot tell that apart from "my own entity key".
+#       [init] <state>/<flag>: did|no-op|warned|refused — <what happened>
 #
-#     proven        → secondary-device (unchanged). A new device mints its own leaf.
-#     disproven     → not adopted. Falls through to re-seed: fresh entity keypair,
-#                     displaced material archived under id/archive/foreign-key-<ts>/.
-#     unverifiable  → nothing is generated. Prints state + reason, exits 2, and
-#                     requires an explicit choice: --adopt, or `init sovereign` first.
+#   `did` / `no-op` / `warned` exit 0 and say what changed (or why nothing did).
+#   `refused` exits 2, names the reason and the exact command that would work,
+#   and writes NOTHING. Exit 1 is reserved for tooling failure.
+#   Two or more of --forceful/--adopt/--re-seed together are refused (§13.6):
+#   the three are distinct intents and no precedence order exists.
 #
-#   --adopt is the explicit escape hatch ("yes, this key"). It is never implicit.
+#   States (§13.1):
+#     3   legacy keys, no SPEC-175 entity key   → migrate (key event: genesis|succession)
+#     4/5 no key material                       → create (provisional without a sovereign)
+#     6   entity key + a leaf for THIS device   → report/audit; --forceful rotates
+#     7   entity key, no leaf for THIS device   → paternity gate, then adopt or replace
 #
-# Exit codes:
-#   0  success / already set
-#   1  error
-#   2  entity key present but paternity unverifiable — a human must choose
+# Key events (SPEC-240 §5 / W-2): a handle the chain already resolves gets a
+# `koad.entity.key-succession`; a handle the chain does not know gets a
+# `koad.entity.genesis`. A second genesis for a known handle is never filed.
+#
+# Paternity (SPEC-240 §8) is the sovereign chain's EFFECTIVE key, not "any
+# genesis that names this key":
+#
+#   proven        the disk key IS the chain's effective key for this handle.
+#   disproven     the chain resolves a different key. Current-state evidence: it
+#                 licenses succession, not deletion and not adoption.
+#   unverifiable  no sovereign, no/unreadable/empty chain, no key-affecting entry
+#                 for this handle, or an unreadable disk key. Absence is not
+#                 disproof (P-2), so nothing is guessed.
+#
+#   --adopt is the explicit escape hatch ("yes, this key"). It is never implicit,
+#   and never over a `disproven` verdict (SPEC-175 §4.4, SPEC-240 K-3).
 #
 # Pre-flight checks (entity path):
-#   - Sovereign must exist at ~/.koad-io/me/
-#   - Sovereign device leaf must exist at ~/.koad-io/me/id/devices/$HOSTNAME/
-#   - State 7 additionally requires a matching koad.entity.genesis in the sigchain
+#   - Sovereign at ~/.koad-io/me/ with a device leaf for $HOSTNAME enables signing.
+#     Creation (4/5, and 7 --re-seed unverifiable) proceeds provisionally without
+#     one; rotation and replacement are refused (SPEC-240 W-5).
 #
 # After state resolution:
 #   - Launcher at ~/.koad-io/bin/<entity> is always ensured
@@ -54,6 +60,7 @@
 #   - AGENTS.md is regenerated from KOAD_IO.md → ENTITY.md → PRIMER.md when
 #     those sources change (byte-identical output is not rewritten)
 #
+# Ref: VESTA-SPEC-240 — entity key succession, effective-key resolution, the matrix
 # Ref: VESTA-SPEC-175 §6 — entity key shape
 # Ref: VESTA-SPEC-149 — master/leaf split
 
@@ -279,7 +286,6 @@ REPO_URL=""
 FORCEFUL=0
 ADOPT=0
 FORCE_RESEED=0
-RE_SEED_ARCHIVE=0
 
 # Parse remaining args
 shift || true
@@ -320,21 +326,24 @@ SOVEREIGN_LEAF_PRIVATE="$SOVEREIGN_LEAF_DIR/leaf.private.asc"
 SOVEREIGN_DEVICE_KEY="$SOVEREIGN_LEAF_DIR/device.key"
 
 HAVE_SOVEREIGN=1
+# §13.2: the cell's loud line is the FIRST [init] line. Pre-flight notes are
+# held here and flushed immediately after it, never before.
+PREFLIGHT_NOTES=()
 
 if [ ! -d "$SOVEREIGN_DIR" ]; then
-    warn "No sovereign found at $SOVEREIGN_DIR — sigchain signing and key ceremonies will be skipped.\n  Run 'koad-io init sovereign' to set up a sovereign identity."
+    PREFLIGHT_NOTES+=("No sovereign found at $SOVEREIGN_DIR — sigchain signing and key ceremonies will be skipped. Run 'koad-io init sovereign' to set up a sovereign identity.")
     HAVE_SOVEREIGN=0
 elif [ ! -f "$SOVEREIGN_ID_DIR/gpg.public.asc" ]; then
-    warn "Sovereign exists but has no master public key — sigchain signing will be skipped.\n  Run 'koad-io init sovereign' to repair."
+    PREFLIGHT_NOTES+=("Sovereign exists but has no master public key — sigchain signing will be skipped. Run 'koad-io init sovereign' to repair.")
     HAVE_SOVEREIGN=0
 elif [ ! -f "$MASTER_FINGERPRINT_FILE" ]; then
-    warn "Sovereign id/master.fingerprint is missing — sigchain signing will be skipped.\n  Run 'koad-io init sovereign' to repair."
+    PREFLIGHT_NOTES+=("Sovereign id/master.fingerprint is missing — sigchain signing will be skipped. Run 'koad-io init sovereign' to repair.")
     HAVE_SOVEREIGN=0
 elif [ ! -f "$SOVEREIGN_LEAF_PRIVATE" ]; then
-    warn "Sovereign device leaf not found on this machine — sigchain signing will be skipped.\n  Run 'koad-io init sovereign' on this device to establish a device leaf."
+    PREFLIGHT_NOTES+=("Sovereign device leaf not found on this machine — sigchain signing will be skipped. Run 'koad-io init sovereign' on this device to establish a device leaf.")
     HAVE_SOVEREIGN=0
 elif [ ! -f "$SOVEREIGN_DEVICE_KEY" ]; then
-    warn "Sovereign device key not found — sigchain signing will be skipped.\n  Run 'koad-io init sovereign' on this device first."
+    PREFLIGHT_NOTES+=("Sovereign device key not found — sigchain signing will be skipped. Run 'koad-io init sovereign' on this device first.")
     HAVE_SOVEREIGN=0
 fi
 
@@ -347,9 +356,11 @@ EXPECTED_MASTER_FPR=""
 
 if [ ! -d "$ENTITY_DIR" ]; then
     if [ -n "$REPO_URL" ]; then
-        say "Cloning entity '$ENTITY_NAME' from $REPO_URL"
+        # Pre-cell work: progress goes out with a [clone] prefix so the cell's
+        # loud line stays the first [init] line read from stdout (§13.2).
+        echo "[clone] Cloning entity '$ENTITY_NAME' from $REPO_URL"
         git clone "$REPO_URL" "$ENTITY_DIR" || die "Clone failed: $REPO_URL"
-        say "Cloned to $ENTITY_DIR — continuing with state detection"
+        echo "[clone] Cloned to $ENTITY_DIR — continuing with state detection"
     else
         die "Entity '$ENTITY_NAME' does not exist at $ENTITY_DIR.
   To create a new entity:   koad-io gestate $ENTITY_NAME
@@ -358,8 +369,12 @@ if [ ! -d "$ENTITY_DIR" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Determine migration state
+# §13.1 State detection — filesystem only. A flag never chooses the state.
 # ---------------------------------------------------------------------------
+# The old code let --forceful force ACTION=migrate before state was known,
+# which collapsed "already initialized" and "rotate" onto one code path. §13.1
+# defines the four states as filesystem facts; the flag picks the CELL, never
+# the state.
 
 ENTITY_ID_DIR="$ENTITY_DIR/id"
 DEVICE_DIR="$ENTITY_ID_DIR/devices/$HOST"
@@ -377,146 +392,413 @@ done
 
 HAS_LEGACY=${#LEGACY_KEYS[@]}
 
-# Determine which action to take
-ACTION="unknown"
-
-if [ "$FORCEFUL" -eq 1 ]; then
-    ACTION="migrate"  # full re-run when forced
-elif [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$LEAF_PRESENT" -eq 1 ]; then
-    ACTION="all-set"
-elif [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$LEAF_PRESENT" -eq 0 ]; then
-    ACTION="secondary-device"  # State 7: entity key present, no leaf for this device
+if [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$LEAF_PRESENT" -eq 1 ]; then
+    STATE="6"      # all-set: entity key + a leaf for THIS device
+elif [ "$ENTITY_KEY_PRESENT" -eq 1 ]; then
+    STATE="7"      # secondary-device: entity key, no leaf for THIS device
 elif [ "$HAS_LEGACY" -gt 0 ]; then
-    ACTION="migrate"  # State 3: legacy keys present
-elif [ "$ENTITY_KEY_PRESENT" -eq 0 ] && [ "$LEAF_PRESENT" -eq 0 ]; then
-    ACTION="re-seed"  # State 4/5: no keys at all
+    STATE="3"      # migrate: legacy key material, no SPEC-175 entity key
+else
+    STATE="4/5"    # re-seed: no key material at all
 fi
 
-say "Entity: $ENTITY_NAME  ($ENTITY_DIR)"
-say "State:  entity.public.asc=$([ "$ENTITY_KEY_PRESENT" -eq 1 ] && echo present || echo missing)  leaf/$HOST=$([ "$LEAF_PRESENT" -eq 1 ] && echo present || echo missing)  legacy_keys=$HAS_LEGACY"
-
 # ---------------------------------------------------------------------------
-# Paternity gate — precedes the action, does not patch the presence test
-# ---------------------------------------------------------------------------
-# The presence test above is what put us in state 7. It cannot tell an entity
-# key this sovereign created from one a template shipped. So before state 7 is
-# honoured, the key on disk has to be traced to a koad.entity.genesis.
-
-if [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$ACTION" = "secondary-device" ]; then
-    audit_paternity
-
-    if [ "$FORCE_RESEED" -eq 1 ]; then
-        warn "Paternity: $PATERNITY — $PATERNITY_REASON"
-        warn "  --re-seed was given: the on-disk entity key is ignored and a fresh entity"
-        warn "  keypair is minted for this directory. Displaced material is archived under"
-        warn "  id/archive/foreign-key-<ts>/ — archived, never deleted."
-        ACTION="re-seed"
-        RE_SEED_ARCHIVE=1
-    else
-    case "$PATERNITY" in
-        proven)
-            say "Paternity: PROVEN — $PATERNITY_REASON"
-            say "  A new device mints its own leaf for an entity key this sovereign created."
-            ;;
-
-        disproven)
-            warn "Paternity: DISPROVEN — $PATERNITY_REASON"
-            warn ""
-            if [ "$ADOPT" -eq 1 ]; then
-                warn "  --adopt was given: minting a leaf for a key this sovereign did not create."
-                warn "  Everything signed by that leaf will trace back to a key you do not hold."
-            else
-                warn "  The entity key in id/ is not one this sovereign created, so it is NOT"
-                warn "  adopted: a device leaf signed against it would tie this machine's authority"
-                warn "  to a key somebody else holds. A template that publishes its author's public"
-                warn "  key is exactly this shape, and presence is not paternity."
-                warn ""
-                warn "  Treating '$ENTITY_NAME' as a new entity sitting on stale material instead:"
-                warn "    - a fresh entity keypair is generated for this directory"
-                warn "    - the displaced material is archived under id/archive/foreign-key-<ts>/"
-                warn "      (archived, never deleted)"
-                warn ""
-                warn "  If adopting that key IS what you want, say so explicitly:"
-                warn "    koad-io init $ENTITY_NAME --adopt"
-                ACTION="re-seed"
-                RE_SEED_ARCHIVE=1
-            fi
-            ;;
-
-        *)
-            if [ "$ADOPT" -eq 1 ]; then
-                warn "Paternity: UNVERIFIABLE — $PATERNITY_REASON"
-                warn "  --adopt was given: minting a leaf for the on-disk entity key anyway."
-                if [ "$HAVE_SOVEREIGN" -eq 1 ]; then
-                    warn "  The key cannot be traced to any genesis in your chain. If it is not yours,"
-                    warn "  delete it and re-run, or run 'koad-io init $ENTITY_NAME --re-seed'."
-                else
-                    warn "  No sovereign on this device: the leaf is minted unsigned and no"
-                    warn "  koad.entity.leaf-authorize entry can be filed for it."
-                fi
-            else
-                {
-                    echo "[init] Paternity: UNVERIFIABLE — $PATERNITY_REASON"
-                    echo "[init]"
-                    echo "[init]   Nothing was generated. This is not a refusal to work; it is a"
-                    echo "[init]   refusal to guess. Paternity cannot be assumed from a file."
-                    echo "[init]"
-                    echo "[init]   Entity:      $ENTITY_NAME ($ENTITY_DIR)"
-                    echo "[init]   Entity key:  ${ENTITY_FPR_ON_DISK:-unreadable} (id/entity.public.asc)"
-                    echo "[init]   This device: $HOST — no leaf in id/devices/$HOST/"
-                    echo "[init]   Sovereign:   ${SOVEREIGN_DIR} ($([ "$HAVE_SOVEREIGN" -eq 1 ] && echo present || echo absent))"
-                    echo "[init]"
-                    echo "[init]   Choose one, explicitly:"
-                    echo "[init]     koad-io init sovereign                   establish a sovereign, then re-run"
-                    echo "[init]     koad-io init $ENTITY_NAME --adopt   adopt the key in id/ as yours"
-                    echo "[init]     koad-io init $ENTITY_NAME --re-seed  ignore it; mint a fresh keypair"
-                    echo "[init]"
-                    echo "[init]   A fresh clone of an entity template hits this branch on any machine"
-                    echo "[init]   without a sovereign. The template's key is its author's, not yours."
-                    echo "[init]   See install.md §7."
-                } >&2
-                exit 2
-            fi
-            ;;
-    esac
-    fi
-fi
-
-# Audit only: an already-initialized entity is reported, never mutated. §13.4
-# requires the paternity line in every state-6 report (proven as well as not) —
-# silence about a key the chain does not account for is the shape of the bug.
-if [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$ACTION" = "all-set" ]; then
-    audit_paternity
-    say "Paternity: $(printf '%s' "$PATERNITY" | tr '[:lower:]' '[:upper:]') — $PATERNITY_REASON"
-    if [ "$PATERNITY" != "proven" ]; then
-        warn "  This device already holds a leaf, so nothing is adopted and nothing changes."
-        warn "  Noted because this entity's key is not traceable through your sigchain."
-    fi
-    if [ "$LEAF_EPOCH_STALE" -eq 1 ]; then
-        warn "Leaf epoch: STALE — this device's leaf was authorized before the last key succession"
-        warn "  for '$ENTITY_NAME', so it cannot sign for the current epoch (SPEC-240 §9.4 L-1)."
-        warn "  Repair: file a new koad.entity.leaf-authorize for this leaf in the current epoch,"
-        warn "  or run 'koad-io init $ENTITY_NAME --forceful' to rotate and re-onboard this device."
-    fi
-fi
-
-say "Action: $ACTION"
-say ""
-
-# ---------------------------------------------------------------------------
-# Tooling requirements (needed for migrate, re-seed, secondary-device)
+# §13.6 Flag combinations — refused, every flag named, no precedence order
 # ---------------------------------------------------------------------------
 
-CEREMONY_SCRIPT="${CEREMONY_SCRIPT:-$_INIT_CMD_DIR/ceremony.mjs}"
+FLAGS_GIVEN=()
+[ "$FORCEFUL" -eq 1 ]     && FLAGS_GIVEN+=("--forceful")
+[ "$ADOPT" -eq 1 ]        && FLAGS_GIVEN+=("--adopt")
+[ "$FORCE_RESEED" -eq 1 ] && FLAGS_GIVEN+=("--re-seed")
 
-if [ "$ACTION" != "all-set" ]; then
+FLAG="(none)"
+FLAG_COMBO=0
+FLAGS_LIST=""
+case "${#FLAGS_GIVEN[@]}" in
+    0) : ;;
+    1) FLAG="${FLAGS_GIVEN[0]}" ;;
+    *)
+        for f in "${FLAGS_GIVEN[@]}"; do
+            FLAG="${FLAG:+$FLAG+}$f"
+            FLAGS_LIST="${FLAGS_LIST:+$FLAGS_LIST, }$f"
+        done
+        FLAG_COMBO=1
+        ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Tooling — exit 1 is reserved for this, never for a protocol refusal (§13.2)
+# ---------------------------------------------------------------------------
+
+TOOLING_NEEDED=0
+[ "$ENTITY_KEY_PRESENT" -eq 0 ] && TOOLING_NEEDED=1
+[ "$STATE" = "7" ]              && TOOLING_NEEDED=1
+[ "$FORCEFUL" -eq 1 ]           && TOOLING_NEEDED=1
+[ "$FORCE_RESEED" -eq 1 ]       && TOOLING_NEEDED=1
+[ "$ADOPT" -eq 1 ]              && TOOLING_NEEDED=1
+
+if [ "$TOOLING_NEEDED" -eq 1 ]; then
     command -v jq   >/dev/null 2>&1 || die "jq is required but not found — install it and retry"
     command -v node >/dev/null 2>&1 || die "node is required but not found — install Node.js >= 18 and retry"
-
     if [ ! -f "$CEREMONY_SCRIPT" ]; then
         die "Ceremony script not found at $CEREMONY_SCRIPT — framework installation may be incomplete"
     fi
 fi
+
+# ---------------------------------------------------------------------------
+# Read-only resolution: effective key + paternity (§7, §8)
+# ---------------------------------------------------------------------------
+# Silent by construction: it runs before the loud line and must not print.
+
+audit_paternity
+
+# ---------------------------------------------------------------------------
+# §13.3 The cell — verb, action shape, archive label, detail
+# ---------------------------------------------------------------------------
+# Every cell resolves to exactly one of did | no-op | warned | refused, and to
+# exactly one leading [init] line. Nothing below mutates until that line has
+# been printed (AC-18: a refused cell writes nothing).
+
+CELL_VERB=""
+CELL_DETAIL=""
+CELL_KEY_EVENT="none"        # genesis | succession | none
+CELL_SIGN_LEAF=0             # file koad.entity.leaf-authorize
+CELL_MINT_ENTITY=0           # mint a fresh entity keypair
+CELL_MINT_LEAF=0             # mint this device's leaf
+CELL_ARCHIVE=""              # "" | pre-175-migration | rotation | foreign-key
+CELL_ARCHIVE_DEVICE=0        # move id/devices/<host>/ into the archive
+CELL_REVOKE_LEAF=0           # file koad.entity.leaf-revoke for the displaced leaf
+CELL_REASON=""               # succession reason (§5.2 closed set)
+ARCHIVE_DIR=""
+ARCHIVE_REL=""
+
+INVOKE="koad-io init entity $ENTITY_NAME"
+
+upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+
+key_event_word() {
+    case "$1" in
+        genesis)    printf 'koad.entity.genesis' ;;
+        succession) printf 'koad.entity.key-succession' ;;
+        *)          printf 'no key event' ;;
+    esac
+}
+
+next_key_event() {
+    # W-2: a chain that already resolves a key for this handle gets a
+    # succession; a chain that knows nothing about it gets a genesis. A second
+    # genesis for a known handle is forbidden — that is K-1.
+    if [ "$KEY_EVENT_COUNT" -gt 0 ]; then printf 'succession'; else printf 'genesis'; fi
+}
+
+archive_label() {
+    # §13.5 — the label is a truth claim about the displaced key, not about the
+    # flag that was typed. rotation iff the disk key IS the chain's effective key.
+    if [ -n "$EFFECTIVE_FPR" ] && [ -n "$ENTITY_FPR_ON_DISK" ] && [ "$ENTITY_FPR_ON_DISK" = "$EFFECTIVE_FPR" ]; then
+        printf 'rotation'
+    else
+        printf 'foreign-key'
+    fi
+}
+
+unique_archive_dir() {
+    local base="$ENTITY_ID_DIR/archive/$1-$(date -u +%Y%m%dT%H%M%SZ)"
+    local p="$base" n=1
+    while [ -e "$p" ]; do p="${base}-$n"; n=$((n + 1)); done
+    printf '%s' "$p"
+}
+
+set_archive() {
+    # Decide the archive path now, create it later: the loud line has to name
+    # the path before anything is written (§13.2).
+    case "${1:-}" in
+        "") ARCHIVE_DIR=""; ARCHIVE_REL=""; return 0 ;;
+        pre-175-migration) ARCHIVE_DIR="$ENTITY_ID_DIR/archive/pre-175-migration" ;;
+        *) ARCHIVE_DIR="$(unique_archive_dir "$1")" ;;
+    esac
+    ARCHIVE_REL="id/archive/${ARCHIVE_DIR##*/}"
+}
+
+epoch_note() {
+    if [ "$LEAF_EPOCH_STALE" -eq 1 ]; then
+        printf 'leaf epoch: STALE — this device leaf was authorized before the last key succession, so it cannot sign for the current epoch; repair with a new koad.entity.leaf-authorize in the current epoch, or %s --forceful' "$INVOKE"
+    elif [ "$LEAF_EPOCH_REVOKED" -eq 1 ]; then
+        printf 'leaf epoch: REVOKED — this device leaf was retired; mint a new leaf with %s --forceful' "$INVOKE"
+    elif [ "$LEAF_EPOCH_AUTHORIZED" -eq 0 ]; then
+        printf 'leaf epoch: UNRECORDED — the chain holds no koad.entity.leaf-authorize for this device leaf, so it cannot sign for any epoch; re-run with a sovereign present or %s --forceful' "$INVOKE"
+    else
+        printf 'leaf epoch: current'
+    fi
+}
+
+if [ "$FLAG_COMBO" -eq 1 ]; then
+    # §13.6 — two or more of --forceful/--adopt/--re-seed. No precedence order.
+    CELL_VERB="refused"
+    CELL_DETAIL="$FLAGS_LIST are distinct intents — rotate what is mine, adopt what is not, replace what is not — and no pair of them is meaningful together, so no precedence order exists. Give at most one: $INVOKE"
+else
+case "$STATE/$FLAG" in
+
+    # =======================================================================
+    # State 3 — migrate: legacy material, no SPEC-175 entity key
+    # =======================================================================
+    "3/--adopt")
+        CELL_VERB="refused"
+        CELL_DETAIL="there is no id/entity.public.asc to adopt — legacy keys are migrated, not adopted. Use: $INVOKE"
+        ;;
+    "3/--forceful"|"3/--re-seed"|"3/(none)")
+        if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+            # W-5: migration files a key event (the entity's key changes), and a
+            # key event cannot be recorded without a sovereign. Creation in
+            # state 4/5 may proceed provisionally; migration may not.
+            CELL_VERB="refused"
+            CELL_DETAIL="migration changes this entity's key, and an unrecorded key change is refused (W-5). Use: koad-io init sovereign, then $INVOKE"
+        else
+            CELL_VERB="did"
+            CELL_MINT_ENTITY=1
+            CELL_MINT_LEAF=1
+            CELL_SIGN_LEAF=1
+            CELL_ARCHIVE="pre-175-migration"
+            CELL_KEY_EVENT="$(next_key_event)"
+            CELL_REASON="migration"
+            set_archive "pre-175-migration"
+            case "$FLAG" in
+                --forceful) CELL_DETAIL="migration proceeds — there is no SPEC-175 entity key on disk to rotate" ;;
+                --re-seed)  CELL_DETAIL="migration proceeds — there is no SPEC-175 entity key on disk to ignore" ;;
+                *)          CELL_DETAIL="migrating legacy keys to SPEC-175" ;;
+            esac
+            CELL_DETAIL="$CELL_DETAIL; legacy material archived to $ARCHIVE_REL/; key event: $(key_event_word "$CELL_KEY_EVENT")"
+        fi
+        ;;
+
+    # =======================================================================
+    # State 4/5 — re-seed: no key material
+    # =======================================================================
+    "4/5/--adopt")
+        CELL_VERB="refused"
+        CELL_DETAIL="there is no on-disk key to adopt, and creating a fresh one would silently contradict the flag. Use: $INVOKE"
+        ;;
+    "4/5/--forceful"|"4/5/--re-seed"|"4/5/(none)")
+        CELL_VERB="did"
+        CELL_MINT_ENTITY=1
+        CELL_MINT_LEAF=1
+        case "$FLAG" in
+            --forceful) CELL_DETAIL="there is nothing to rotate — no key on disk; creation proceeds" ;;
+            --re-seed)  CELL_DETAIL="there is nothing to ignore — no key on disk; creation proceeds" ;;
+            *)          CELL_DETAIL="creating a fresh entity keypair and device leaf" ;;
+        esac
+        if [ "$HAVE_SOVEREIGN" -eq 1 ]; then
+            CELL_KEY_EVENT="$(next_key_event)"
+            CELL_SIGN_LEAF=1
+            CELL_REASON="migration"
+            CELL_DETAIL="$CELL_DETAIL; key event: $(key_event_word "$CELL_KEY_EVENT")"
+        else
+            # BC-7 / SPEC-175 §4.4b: creation needs no sovereign. It is
+            # provisional and says so about itself.
+            CELL_KEY_EVENT="none"
+            CELL_DETAIL="$CELL_DETAIL — provisional (no sovereign on this device); id/provisional.json marks it unsigned and no chain entry is filed"
+        fi
+        ;;
+
+    # =======================================================================
+    # State 6 — all-set: entity key + a leaf for this device
+    # =======================================================================
+    "6/--forceful")
+        if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+            CELL_VERB="refused"
+            CELL_DETAIL="rotation is a sovereign act and there is no sovereign on this device — an unrecorded key change is exactly what this refusal prevents (W-5). Use: koad-io init sovereign, then $INVOKE --forceful"
+        else
+            CELL_VERB="did"
+            CELL_MINT_ENTITY=1
+            CELL_MINT_LEAF=1
+            CELL_SIGN_LEAF=1
+            CELL_REVOKE_LEAF=1
+            CELL_ARCHIVE_DEVICE=1
+            CELL_KEY_EVENT="$(next_key_event)"
+            CELL_REASON="rotation"
+            CELL_ARCHIVE="$(archive_label)"
+            set_archive "$CELL_ARCHIVE"
+            CELL_DETAIL="rotation is succession — the displaced key is archived to $ARCHIVE_REL/, a new entity key and device leaf are minted, the replaced leaf is revoked, and the key event is $(key_event_word "$CELL_KEY_EVENT")"
+            if [ "$CELL_KEY_EVENT" = "genesis" ]; then
+                CELL_DETAIL="$CELL_DETAIL (the chain holds no key for this handle yet, so this is its first record, not a succession — W-2)"
+            fi
+        fi
+        ;;
+    "6/--adopt")
+        case "$PATERNITY" in
+            proven) CELL_VERB="no-op" ;;
+            *)      CELL_VERB="warned" ;;
+        esac
+        CELL_DETAIL="--adopt: a leaf already exists for this device, so there is nothing to adopt and nothing changes; paternity: $(upper "$PATERNITY") — $PATERNITY_REASON"
+        ;;
+    "6/--re-seed")
+        case "$PATERNITY" in
+            proven)
+                CELL_VERB="refused"
+                CELL_DETAIL="the chain says this key IS this handle's effective key, so \"not mine\" contradicts the chain. Use: $INVOKE --forceful"
+                ;;
+            disproven)
+                CELL_VERB="did"
+                CELL_MINT_ENTITY=1
+                CELL_MINT_LEAF=1
+                CELL_SIGN_LEAF=1
+                CELL_REVOKE_LEAF=1
+                CELL_ARCHIVE_DEVICE=1
+                CELL_KEY_EVENT="$(next_key_event)"
+                CELL_REASON="migration"
+                CELL_ARCHIVE="$(archive_label)"
+                set_archive "$CELL_ARCHIVE"
+                CELL_DETAIL="the on-disk key is not this handle's key — it is archived to $ARCHIVE_REL/ as foreign, a fresh entity key and device leaf are minted, and the key event is $(key_event_word "$CELL_KEY_EVENT") from the chain's effective key"
+                ;;
+            *)
+                CELL_VERB="refused"
+                CELL_DETAIL="the chain says nothing about this handle, and absence is not disproof (§8 P-2). Use: $INVOKE --adopt, or koad-io init sovereign"
+                ;;
+        esac
+        ;;
+    "6/(none)")
+        # §13.4: report, audit paternity and leaf epoch, mutate nothing.
+        CELL_VERB="did"
+        if [ "$PATERNITY" != "proven" ]; then CELL_VERB="warned"; fi
+        if [ "$LEAF_EPOCH_STALE" -eq 1 ] || [ "$LEAF_EPOCH_REVOKED" -eq 1 ] || [ "$LEAF_EPOCH_AUTHORIZED" -eq 0 ]; then
+            CELL_VERB="warned"
+        fi
+        CELL_DETAIL="already fully initialized on $HOST; paternity: $(upper "$PATERNITY") — $PATERNITY_REASON; $(epoch_note)"
+        ;;
+
+    # =======================================================================
+    # State 7 — secondary-device: entity key, no leaf for this device
+    # =======================================================================
+    "7/--forceful")
+        if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+            CELL_VERB="refused"
+            CELL_DETAIL="rotation is a sovereign act and there is no sovereign on this device (W-5). Use: koad-io init sovereign, then $INVOKE --forceful"
+        else
+            CELL_VERB="did"
+            CELL_MINT_ENTITY=1
+            CELL_MINT_LEAF=1
+            CELL_SIGN_LEAF=1
+            CELL_ARCHIVE_DEVICE=1
+            CELL_KEY_EVENT="$(next_key_event)"
+            CELL_REASON="rotation"
+            CELL_ARCHIVE="$(archive_label)"
+            set_archive "$CELL_ARCHIVE"
+            CELL_DETAIL="rotation and onboarding in one act — the on-disk key is archived to $ARCHIVE_REL/, a new entity key and this device's leaf are minted, and the key event is $(key_event_word "$CELL_KEY_EVENT")"
+        fi
+        ;;
+    "7/--adopt")
+        case "$PATERNITY" in
+            proven)
+                CELL_VERB="no-op"
+                CELL_DETAIL="--adopt: the key is already adopted and authorized for this device, so nothing changes; paternity: PROVEN — $PATERNITY_REASON"
+                ;;
+            disproven)
+                CELL_VERB="refused"
+                CELL_DETAIL="SPEC-175 §4.4 says do not adopt when paternity is disproven: leaf-signed authority would trace to a key this sovereign does not control. paternity: DISPROVEN — $PATERNITY_REASON. Use: $INVOKE --re-seed, or $INVOKE --forceful"
+                ;;
+            *)
+                CELL_VERB="warned"
+                CELL_MINT_LEAF=1
+                CELL_DETAIL="--adopt: minting a leaf under an on-disk key this chain cannot trace; paternity: UNVERIFIABLE — $PATERNITY_REASON. Nothing is filed in the chain for an untraceable key"
+                ;;
+        esac
+        ;;
+    "7/--re-seed")
+        case "$PATERNITY" in
+            proven)
+                CELL_VERB="refused"
+                CELL_DETAIL="the chain says this key IS this handle's effective key, so \"not mine\" contradicts the chain. Use: $INVOKE --forceful"
+                ;;
+            disproven)
+                CELL_VERB="did"
+                CELL_MINT_ENTITY=1
+                CELL_MINT_LEAF=1
+                CELL_SIGN_LEAF=1
+                CELL_ARCHIVE_DEVICE=1
+                CELL_KEY_EVENT="$(next_key_event)"
+                CELL_REASON="migration"
+                CELL_ARCHIVE="$(archive_label)"
+                set_archive "$CELL_ARCHIVE"
+                CELL_DETAIL="the on-disk key is archived to $ARCHIVE_REL/ as foreign, and the key event is $(key_event_word "$CELL_KEY_EVENT") from the chain's effective key to a freshly minted one"
+                ;;
+            *)
+                if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+                    CELL_VERB="did"
+                    CELL_MINT_ENTITY=1
+                    CELL_MINT_LEAF=1
+                    CELL_ARCHIVE_DEVICE=1
+                    CELL_KEY_EVENT="none"
+                    CELL_ARCHIVE="$(archive_label)"
+                    set_archive "$CELL_ARCHIVE"
+                    CELL_DETAIL="creation on a directory that inherited a face (SPEC-175 §4.4) — the on-disk key is archived to $ARCHIVE_REL/ as foreign; provisional (no sovereign), so id/provisional.json marks it unsigned and the first key event will be a genesis when a sovereign countersigns"
+                else
+                    CELL_VERB="did"
+                    CELL_MINT_ENTITY=1
+                    CELL_MINT_LEAF=1
+                    CELL_SIGN_LEAF=1
+                    CELL_ARCHIVE_DEVICE=1
+                    CELL_KEY_EVENT="genesis"
+                    CELL_ARCHIVE="$(archive_label)"
+                    set_archive "$CELL_ARCHIVE"
+                    CELL_DETAIL="creation, not succession — the chain has no key-affecting entry for this handle, so this is the first one; the on-disk key is archived to $ARCHIVE_REL/ as foreign; key event: koad.entity.genesis"
+                fi
+                ;;
+        esac
+        ;;
+    "7/(none)")
+        case "$PATERNITY" in
+            proven)
+                CELL_VERB="did"
+                CELL_MINT_LEAF=1
+                CELL_SIGN_LEAF=1
+                CELL_DETAIL="paternity: PROVEN — a new device mints its own leaf for an entity key this sovereign created; key event: koad.entity.leaf-authorize"
+                ;;
+            disproven)
+                CELL_VERB="did"
+                CELL_MINT_ENTITY=1
+                CELL_MINT_LEAF=1
+                CELL_SIGN_LEAF=1
+                CELL_ARCHIVE_DEVICE=1
+                CELL_KEY_EVENT="$(next_key_event)"
+                CELL_REASON="migration"
+                CELL_ARCHIVE="$(archive_label)"
+                set_archive "$CELL_ARCHIVE"
+                CELL_DETAIL="paternity: DISPROVEN — rescuing as scheduled: the on-disk key is archived to $ARCHIVE_REL/ as foreign, the chain's effective key is succeeded by a freshly minted one, and this device's leaf is authorized; key event: $(key_event_word "$CELL_KEY_EVENT")"
+                ;;
+            *)
+                CELL_VERB="refused"
+                CELL_DETAIL="paternity is UNVERIFIABLE and absence is not disproof (§8 P-2), so nothing is generated: $PATERNITY_REASON. Choose one, explicitly: $INVOKE --adopt, $INVOKE --re-seed, or koad-io init sovereign"
+                ;;
+        esac
+        ;;
+esac
+fi
+
+# ---------------------------------------------------------------------------
+# §13.2 The loud line — the FIRST [init] line of the cell
+# ---------------------------------------------------------------------------
+
+echo "[init] $STATE/$FLAG: $CELL_VERB — $CELL_DETAIL"
+
+if [ "${#PREFLIGHT_NOTES[@]}" -gt 0 ]; then
+    for _note in "${PREFLIGHT_NOTES[@]}"; do
+        warn "$_note"
+    done
+fi
+
+if [ "$CELL_VERB" = "refused" ]; then
+    if [ "$STATE" = "6" ] || [ "$STATE" = "7" ]; then
+        echo "[init] paternity: $(upper "$PATERNITY") — $PATERNITY_REASON" >&2
+        echo "[init] nothing was written." >&2
+    fi
+    exit 2
+fi
+
+say "Entity: $ENTITY_NAME  ($ENTITY_DIR)"
+say "State:  entity.public.asc=$([ "$ENTITY_KEY_PRESENT" -eq 1 ] && echo present || echo missing)  leaf/$HOST=$([ "$LEAF_PRESENT" -eq 1 ] && echo present || echo missing)  legacy_keys=$HAS_LEGACY"
+if [ -n "$CHAIN_ANOMALIES" ]; then
+    say "Chain anomalies: $CHAIN_ANOMALIES"
+fi
+say ""
 
 # ---------------------------------------------------------------------------
 # Helper: verify sovereign device leaf is decryptable
@@ -890,83 +1172,34 @@ commit_entity_migration() {
 }
 
 # ---------------------------------------------------------------------------
-# State 6: All set — full SPEC-175 already on this device
+# Key-material operations used by the §13 matrix
 # ---------------------------------------------------------------------------
 
-if [ "$ACTION" = "all-set" ]; then
-    say "Entity '$ENTITY_NAME' is already fully initialized on this device ($HOST)."
-    say "  entity.public.asc: present"
-    say "  devices/$HOST/leaf.private.asc: present"
+mint_entity_and_leaf() {
+    mkdir -p "$ENTITY_ID_DIR" "$DEVICE_DIR"
 
-    # Optionally backfill leaf-authorize entry if missing from sovereign sigchain
-    if [ "$HAVE_SOVEREIGN" -eq 1 ]; then
-        SOVEREIGN_SIGCHAIN_ENTRIES_DIR="$SOVEREIGN_DIR/sigchain/entries"
-        if [ -d "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" ]; then
-            EXISTING_LEAF_FPR=$(node "$CEREMONY_SCRIPT" get-leaf-fingerprint \
-                --leaf-public-armor-file "$DEVICE_DIR/leaf.public.asc" 2>/dev/null | \
-                jq -r '.fingerprint // empty' 2>/dev/null || true)
-
-            if [ -n "$EXISTING_LEAF_FPR" ]; then
-                LEAF_AUTHORIZED=$(grep -rl "$EXISTING_LEAF_FPR" "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR" 2>/dev/null | head -1 || true)
-                if [ -z "$LEAF_AUTHORIZED" ]; then
-                    warn "No koad.entity.leaf-authorize entry for this device's entity leaf in sovereign sigchain."
-                    warn "Run with --forceful to re-sign, or file this gap with Vesta."
-                fi
-            fi
-        fi
-    fi
-
-    # fall through to common: launcher + .env + AGENTS.md
-
-elif [ "$ACTION" = "migrate" ]; then
-    # -----------------------------------------------------------------------
-    # State 3: Legacy keys present → migrate to SPEC-175
-    # Also handles --forceful re-run (key rotation)
-    # -----------------------------------------------------------------------
-
-    if [ "$HAVE_SOVEREIGN" -eq 0 ]; then
-        die "Sovereign required for key migration. Run 'koad-io init sovereign' first."
-    fi
-
-    say "Migrating entity '$ENTITY_NAME' to SPEC-175 multi-device shape..."
-    say ""
-
-    verify_sovereign_leaf
-
-    # Step 2: Archive existing SPEC-175 keys if --forceful
-    mkdir -p "$ENTITY_ID_DIR"
-    mkdir -p "$DEVICE_DIR"
-
-    if [ "$FORCEFUL" -eq 1 ] && [ "$ENTITY_KEY_PRESENT" -eq 1 ]; then
-        ROTATION_ARCHIVE="$ENTITY_ID_DIR/archive/rotation-$(date +%Y%m%dT%H%M%S)"
-        mkdir -p "$ROTATION_ARCHIVE"
-        say "  --forceful: archiving existing SPEC-175 keys..."
-        [ -f "$ENTITY_ID_DIR/entity.public.asc" ] && mv "$ENTITY_ID_DIR/entity.public.asc" "$ROTATION_ARCHIVE/"
-        [ -d "$DEVICE_DIR" ] && mv "$DEVICE_DIR" "$ROTATION_ARCHIVE/device-$HOST" && mkdir -p "$DEVICE_DIR"
-    fi
-
-    # Step 3: Generate entity keypair + device leaf
     SOVEREIGN_DOMAIN=""
     [ -f "$SOVEREIGN_DIR/.env" ] && SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN || true)
     ENTITY_USERID="$ENTITY_NAME @ ${SOVEREIGN_DOMAIN:-kingdom}"
 
     say "Generating entity keypair and device leaf for '$ENTITY_NAME'..."
 
-    CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" generate-entity \
-        --userid "$ENTITY_USERID") || die "Entity key generation ceremony failed"
+    local json
+    json=$(node "$CEREMONY_SCRIPT" generate-entity --userid "$ENTITY_USERID") || die "Entity key generation ceremony failed"
 
-    ENTITY_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.entityFingerprint')
-    ENTITY_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.entityPublicArmor')
-    LEAF_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.leafFingerprint')
-    LEAF_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPublicArmor')
-    LEAF_PRIVATE_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPrivateArmor')
-    DEVICE_KEY=$(echo "$CEREMONY_JSON" | jq -r '.deviceKey')
+    ENTITY_FINGERPRINT=$(echo "$json" | jq -r '.entityFingerprint')
+    local entity_armor leaf_armor leaf_priv device_key
+    entity_armor=$(echo "$json" | jq -r '.entityPublicArmor')
+    LEAF_FINGERPRINT=$(echo "$json" | jq -r '.leafFingerprint')
+    leaf_armor=$(echo "$json" | jq -r '.leafPublicArmor')
+    leaf_priv=$(echo "$json" | jq -r '.leafPrivateArmor')
+    device_key=$(echo "$json" | jq -r '.deviceKey')
 
-    printf '%s' "$ENTITY_PUBLIC_ARMOR" > "$ENTITY_ID_DIR/entity.public.asc"
-    printf '%s' "$ENTITY_FINGERPRINT"  > "$ENTITY_ID_DIR/entity.fingerprint"
-    printf '%s' "$LEAF_PUBLIC_ARMOR"   > "$DEVICE_DIR/leaf.public.asc"
-    printf '%s' "$LEAF_PRIVATE_ARMOR"  > "$DEVICE_DIR/leaf.private.asc"
-    printf '%s' "$DEVICE_KEY"          > "$DEVICE_DIR/device.key"
+    printf '%s' "$entity_armor" > "$ENTITY_ID_DIR/entity.public.asc"
+    printf '%s' "$ENTITY_FINGERPRINT" > "$ENTITY_ID_DIR/entity.fingerprint"
+    printf '%s' "$leaf_armor"   > "$DEVICE_DIR/leaf.public.asc"
+    printf '%s' "$leaf_priv"    > "$DEVICE_DIR/leaf.private.asc"
+    printf '%s' "$device_key"   > "$DEVICE_DIR/device.key"
     chmod 600 "$DEVICE_DIR/leaf.private.asc" "$DEVICE_DIR/device.key"
 
     say "  generated: id/entity.public.asc (fingerprint: ${ENTITY_FINGERPRINT: -16})"
@@ -974,242 +1207,157 @@ elif [ "$ACTION" = "migrate" ]; then
     say "  generated: id/devices/$HOST/leaf.private.asc (encrypted — passphrase is device.key)"
     say "  generated: id/devices/$HOST/device.key (gitignored — machine-local, never commit)"
 
-    unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR ENTITY_PUBLIC_ARMOR LEAF_PUBLIC_ARMOR
+    unset json entity_armor leaf_armor leaf_priv device_key
 
-    # Step 3b: Bootstrap keyring
     say ""
     say "Bootstrapping GPG keyring..."
     bootstrap_keyring "$ENTITY_DIR" "$ENTITY_ID_DIR" "$DEVICE_DIR" "$ENTITY_NAME"
+}
 
-    # Step 3c: Sign sigchain entries
-    say ""
-    say "Signing sigchain entries..."
-    sign_entity_sigchain_entries 0
-
-    # Step 3d: Commit + push sovereign sigchain (before entity commit — surface errors early)
-    say ""
-    say "Committing sovereign sigchain..."
-    commit_push_sovereign_sigchain "$ENTITY_NAME"
-
-    # Step 4: Write migration record
-    [ ! -f "$ENTITY_ID_DIR/migrated-at" ] || [ "$FORCEFUL" -eq 1 ] && \
-        printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ENTITY_ID_DIR/migrated-at"
-
-    # Step 5: Archive legacy key files
-    if [ "$HAS_LEGACY" -gt 0 ]; then
-        LEGACY_ARCHIVE="$ENTITY_ID_DIR/archive/pre-175-migration"
-        mkdir -p "$LEGACY_ARCHIVE"
-        say "Archiving legacy key files..."
-        for kf in "${LEGACY_KEYS[@]}"; do
-            src="$ENTITY_ID_DIR/$kf"
-            [ -f "$src" ] && mv "$src" "$LEGACY_ARCHIVE/$kf" && say "  archived: $kf"
-        done
-    fi
-
-    # Step 6: Gitignore
-    ensure_spec175_gitignore "$ENTITY_DIR/.gitignore"
-    ensure_spec175_id_gitignore "$ENTITY_ID_DIR/.gitignore"
-
-    # Step 7: Commit + push entity repo
-    COMMIT_MSG="id: migrate to SPEC-175 multi-device shape"
-    [ "$FORCEFUL" -eq 1 ] && COMMIT_MSG="id: rotate keys per SPEC-175 (--forceful, $HOST)"
-    commit_entity_migration "$COMMIT_MSG"
-    push_entity_repo
-
-elif [ "$ACTION" = "secondary-device" ]; then
-    # -----------------------------------------------------------------------
-    # State 7: entity.public.asc present but no leaf for this device
-    # -----------------------------------------------------------------------
-
-    say "Entity '$ENTITY_NAME' has entity.public.asc but no leaf for this device ($HOST)."
-    say "Generating device leaf (secondary device adoption)..."
-    say ""
-
-    mkdir -p "$DEVICE_DIR"
-
-    SOVEREIGN_DOMAIN=""
-    if [ "$HAVE_SOVEREIGN" -eq 1 ] && [ -f "$SOVEREIGN_DIR/.env" ]; then
-        SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN || true)
-        verify_sovereign_leaf
-    fi
-    ENTITY_USERID="$ENTITY_NAME @ ${SOVEREIGN_DOMAIN:-kingdom}"
-
-    CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" generate-entity \
-        --userid "$ENTITY_USERID") || die "Entity leaf generation ceremony failed"
-
-    LEAF_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.leafFingerprint')
-    LEAF_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPublicArmor')
-    LEAF_PRIVATE_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPrivateArmor')
-    DEVICE_KEY=$(echo "$CEREMONY_JSON" | jq -r '.deviceKey')
-
-    printf '%s' "$LEAF_PUBLIC_ARMOR"   > "$DEVICE_DIR/leaf.public.asc"
-    printf '%s' "$LEAF_PRIVATE_ARMOR"  > "$DEVICE_DIR/leaf.private.asc"
-    printf '%s' "$DEVICE_KEY"          > "$DEVICE_DIR/device.key"
-    chmod 600 "$DEVICE_DIR/leaf.private.asc" "$DEVICE_DIR/device.key"
-
-    say "  generated: id/devices/$HOST/leaf.public.asc (fingerprint: ${LEAF_FINGERPRINT: -16})"
-    say "  generated: id/devices/$HOST/leaf.private.asc (encrypted — passphrase is device.key)"
-    say "  generated: id/devices/$HOST/device.key (gitignored — machine-local, never commit)"
-
-    unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR LEAF_PUBLIC_ARMOR
-
-    # Bootstrap keyring (entity key already on disk; import it + new leaf)
-    say ""
-    say "Bootstrapping GPG keyring..."
-    bootstrap_keyring "$ENTITY_DIR" "$ENTITY_ID_DIR" "$DEVICE_DIR" "$ENTITY_NAME"
-
-    # Read entity fingerprint from disk (entity key already committed)
-    ENTITY_FINGERPRINT=$(cat "$ENTITY_ID_DIR/entity.fingerprint" 2>/dev/null || true)
-
-    # Sign leaf-authorize only if sovereign is present
-    if [ "$HAVE_SOVEREIGN" -eq 1 ]; then
-        say ""
-        say "Signing koad.entity.leaf-authorize for $HOST..."
-        sign_entity_sigchain_entries 1
-
-        say ""
-        say "Committing sovereign sigchain..."
-        commit_push_sovereign_sigchain "$ENTITY_NAME"
-    else
-        warn "Sovereign not available — skipping sigchain leaf-authorize. Run 'koad-io init $ENTITY_NAME' again after 'koad-io init sovereign' to file the entry."
-    fi
-
-    ensure_spec175_gitignore "$ENTITY_DIR/.gitignore"
-    ensure_spec175_id_gitignore "$ENTITY_ID_DIR/.gitignore"
-    commit_entity_migration "id: add device leaf for $HOST (SPEC-175 secondary device)"
-    push_entity_repo
-
-elif [ "$ACTION" = "re-seed" ]; then
-    # -----------------------------------------------------------------------
-    # State 4/5: No key material at all (or partial SPEC-175 without leaf)
-    #            — also the landing place for a disproven paternity check
-    # -----------------------------------------------------------------------
-
-    # -----------------------------------------------------------------------
-    # Creation needs no sovereign (2026-10-21, Juno ruling on koad's objection)
-    #
-    # Paternity governs ADOPTION, not CREATION. A cold box with no key on disk has
-    # nothing that can be misattributed, so there is nothing to prove — and
-    # refusing to *create* because we cannot *adopt* was over-broad. `gestate
-    # entity` has always minted keys with no sovereign present; `init entity` now
-    # does the same, including the provisional marking, so an unsigned entity is
-    # visibly unsigned rather than silently invalid.
-    # -----------------------------------------------------------------------
-    ENTITY_PROVISIONAL=0
-    if [ "$HAVE_SOVEREIGN" -eq 0 ]; then
-        say "No sovereign on this device — minting $ENTITY_NAME's own key provisionally."
-        say ""
-        say "  The entity will be fully functional. It is not linked into any sovereign"
-        say "  sigchain yet, and it says so about itself (id/provisional.json)."
-        say "  A sovereign countersigns later, on a machine that holds one:"
-        say "    koad-io init entity $ENTITY_NAME"
-        say ""
-        ENTITY_PROVISIONAL=1
-    else
-        # Nothing on disk is moved until the ceremony is proven able to run: the
-        # sovereign leaf is verified FIRST. A failure there must leave the directory
-        # exactly as it was found.
-        verify_sovereign_leaf
-    fi
-
-    say "Entity '$ENTITY_NAME' has no key material of its own — re-seeding from scratch..."
-    say "This generates a new entity keypair and device leaf for this machine."
-    say ""
-
-    # If a key was already on disk, it is somebody else's (paternity disproven,
-    # or --re-seed given). Overwrite-by-write is not this script's business:
-    # archive it, so the displaced material is recoverable rather than gone.
-    if [ "$ENTITY_KEY_PRESENT" -eq 1 ]; then
-        FOREIGN_ARCHIVE="$ENTITY_ID_DIR/archive/foreign-key-$(date -u +%Y%m%dT%H%M%SZ)"
-        mkdir -p "$FOREIGN_ARCHIVE"
-        say "Archiving the displaced entity key (archived, never deleted):"
-        for displaced in entity.public.asc entity.fingerprint; do
-            if [ -f "$ENTITY_ID_DIR/$displaced" ]; then
-                mv "$ENTITY_ID_DIR/$displaced" "$FOREIGN_ARCHIVE/"
-                say "  archived: id/$displaced"
-            fi
-        done
-        if [ -d "$DEVICE_DIR" ]; then
-            mv "$DEVICE_DIR" "$FOREIGN_ARCHIVE/device-$HOST"
-            say "  archived: id/devices/$HOST/"
-        fi
-        say "  archive:   $FOREIGN_ARCHIVE"
-        say ""
-        ENTITY_KEY_PRESENT=0
-    fi
-
-    mkdir -p "$ENTITY_ID_DIR"
+mint_device_leaf() {
     mkdir -p "$DEVICE_DIR"
 
     SOVEREIGN_DOMAIN=""
     [ -f "$SOVEREIGN_DIR/.env" ] && SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN || true)
     ENTITY_USERID="$ENTITY_NAME @ ${SOVEREIGN_DOMAIN:-kingdom}"
 
-    CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" generate-entity \
-        --userid "$ENTITY_USERID") || die "Entity key generation ceremony failed"
+    say "Generating a device leaf for '$ENTITY_NAME' on $HOST..."
 
-    ENTITY_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.entityFingerprint')
-    ENTITY_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.entityPublicArmor')
-    LEAF_FINGERPRINT=$(echo "$CEREMONY_JSON" | jq -r '.leafFingerprint')
-    LEAF_PUBLIC_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPublicArmor')
-    LEAF_PRIVATE_ARMOR=$(echo "$CEREMONY_JSON" | jq -r '.leafPrivateArmor')
-    DEVICE_KEY=$(echo "$CEREMONY_JSON" | jq -r '.deviceKey')
+    local json
+    json=$(node "$CEREMONY_SCRIPT" generate-entity --userid "$ENTITY_USERID") || die "Entity leaf generation ceremony failed"
 
-    printf '%s' "$ENTITY_PUBLIC_ARMOR" > "$ENTITY_ID_DIR/entity.public.asc"
-    printf '%s' "$ENTITY_FINGERPRINT"  > "$ENTITY_ID_DIR/entity.fingerprint"
-    printf '%s' "$LEAF_PUBLIC_ARMOR"   > "$DEVICE_DIR/leaf.public.asc"
-    printf '%s' "$LEAF_PRIVATE_ARMOR"  > "$DEVICE_DIR/leaf.private.asc"
-    printf '%s' "$DEVICE_KEY"          > "$DEVICE_DIR/device.key"
+    LEAF_FINGERPRINT=$(echo "$json" | jq -r '.leafFingerprint')
+    local leaf_armor leaf_priv device_key
+    leaf_armor=$(echo "$json" | jq -r '.leafPublicArmor')
+    leaf_priv=$(echo "$json" | jq -r '.leafPrivateArmor')
+    device_key=$(echo "$json" | jq -r '.deviceKey')
+
+    printf '%s' "$leaf_armor"   > "$DEVICE_DIR/leaf.public.asc"
+    printf '%s' "$leaf_priv"    > "$DEVICE_DIR/leaf.private.asc"
+    printf '%s' "$device_key"   > "$DEVICE_DIR/device.key"
     chmod 600 "$DEVICE_DIR/leaf.private.asc" "$DEVICE_DIR/device.key"
 
-    say "  generated: id/entity.public.asc (fingerprint: ${ENTITY_FINGERPRINT: -16})"
     say "  generated: id/devices/$HOST/leaf.public.asc (fingerprint: ${LEAF_FINGERPRINT: -16})"
-    say "  generated: id/devices/$HOST/leaf.private.asc (encrypted)"
-    say "  generated: id/devices/$HOST/device.key (gitignored)"
+    say "  generated: id/devices/$HOST/leaf.private.asc (encrypted — passphrase is device.key)"
+    say "  generated: id/devices/$HOST/device.key (gitignored — machine-local, never commit)"
 
-    unset CEREMONY_JSON DEVICE_KEY LEAF_PRIVATE_ARMOR ENTITY_PUBLIC_ARMOR LEAF_PUBLIC_ARMOR
+    unset json leaf_armor leaf_priv device_key
 
-    # Bootstrap keyring
     say ""
     say "Bootstrapping GPG keyring..."
     bootstrap_keyring "$ENTITY_DIR" "$ENTITY_ID_DIR" "$DEVICE_DIR" "$ENTITY_NAME"
+}
 
-    say ""
-    if [ "$ENTITY_PROVISIONAL" -eq 1 ]; then
-        # Same shape gestate writes for an authorized-agent entity, so a consumer
-        # can tell "unsigned" from "invalid" without reading bash.
-        jq -n \
-            --arg handle "$ENTITY_NAME" \
-            --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg host "$HOST" \
-            '{
-                handle: $handle,
-                status: "provisional",
-                gestation_mode: "init-entity-no-sovereign",
-                provisional: true,
-                sovereign_countersign_required: true,
-                created_at: $created,
-                device: $host
-            }' > "$ENTITY_ID_DIR/provisional.json"
-        say "  wrote: id/provisional.json (unsigned — sovereign countersignature pending)"
-        say "  sovereign sigchain entries NOT signed (no sovereign on this device)"
-    else
+write_provisional_marker() {
+    # Same shape gestate writes for an authorized-agent entity, so a consumer can
+    # tell "unsigned" from "invalid" without reading bash.
+    jq -n \
+        --arg handle "$ENTITY_NAME" \
+        --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg host "$HOST" \
+        '{
+            handle: $handle,
+            status: "provisional",
+            gestation_mode: "init-entity-no-sovereign",
+            provisional: true,
+            sovereign_countersign_required: true,
+            created_at: $created,
+            device: $host
+        }' > "$ENTITY_ID_DIR/provisional.json"
+    say "  wrote: id/provisional.json (unsigned — sovereign countersignature pending)"
+    say "  sovereign sigchain entries NOT signed (no sovereign on this device)"
+}
+
+# ---------------------------------------------------------------------------
+# The executor — the only place the matrix mutates anything
+# ---------------------------------------------------------------------------
+
+perform_cell() {
+    # W-7: verify the armed sovereign leaf BEFORE moving the loaded one, so a
+    # failure leaves the directory exactly as found.
+    if [ "$HAVE_SOVEREIGN" -eq 1 ]; then
+        if [ "$CELL_MINT_ENTITY" -eq 1 ] || [ "$CELL_MINT_LEAF" -eq 1 ] || [ "$CELL_KEY_EVENT" != "none" ]; then
+            verify_sovereign_leaf
+        fi
+    fi
+
+    DISPLACED_LEAF_FPR="$LEAF_FPR_ON_DISK"
+
+    # §13.5 / W-8 — archive, never delete. The directory name follows the chain.
+    if [ -n "$ARCHIVE_DIR" ]; then
+        if [ "$CELL_ARCHIVE" = "pre-175-migration" ]; then
+            mkdir -p "$ARCHIVE_DIR"
+            say "Archiving legacy key files to $ARCHIVE_REL/"
+            for kf in "${LEGACY_KEYS[@]}"; do
+                if [ -f "$ENTITY_ID_DIR/$kf" ]; then
+                    mv "$ENTITY_ID_DIR/$kf" "$ARCHIVE_DIR/$kf"
+                    say "  archived: id/$kf"
+                fi
+            done
+        else
+            mkdir -p "$ARCHIVE_DIR"
+            say "Archiving the displaced entity material to $ARCHIVE_REL/ (archived, never deleted)"
+            for displaced in entity.public.asc entity.fingerprint; do
+                if [ -f "$ENTITY_ID_DIR/$displaced" ]; then
+                    mv "$ENTITY_ID_DIR/$displaced" "$ARCHIVE_DIR/"
+                    say "  archived: id/$displaced"
+                fi
+            done
+            if [ "$CELL_ARCHIVE_DEVICE" -eq 1 ] && [ -d "$DEVICE_DIR" ]; then
+                mv "$DEVICE_DIR" "$ARCHIVE_DIR/device-$HOST"
+                say "  archived: id/devices/$HOST/"
+            fi
+            ENTITY_KEY_PRESENT=0
+            LEAF_PRESENT=0
+        fi
+    fi
+
+    # Mint. W-2 lives in the decision above: the key EVENT is succession whenever
+    # the chain already resolves a key for this handle.
+    if [ "$CELL_MINT_ENTITY" -eq 1 ]; then
+        mint_entity_and_leaf
+    elif [ "$CELL_MINT_LEAF" -eq 1 ]; then
+        mint_device_leaf
+    fi
+
+    # Provenance record for any key-bearing state transition.
+    if [ "$CELL_MINT_ENTITY" -eq 1 ] || [ "$CELL_ARCHIVE" = "pre-175-migration" ]; then
+        printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ENTITY_ID_DIR/migrated-at"
+    fi
+
+    # Chain events, in W-6 order (the signing run enforces it).
+    if [ "$CELL_KEY_EVENT" != "none" ] || [ "$CELL_SIGN_LEAF" -eq 1 ]; then
+        local old_fpr="" revoke_leaf=""
+        [ "$CELL_KEY_EVENT" = "succession" ] && old_fpr="$EFFECTIVE_FPR"
+        [ "$CELL_REVOKE_LEAF" -eq 1 ] && revoke_leaf="$DISPLACED_LEAF_FPR"
+        say ""
         say "Signing sigchain entries..."
-        sign_entity_sigchain_entries 0
-
+        sign_entity_sigchain_entries "$CELL_KEY_EVENT" "$old_fpr" "$CELL_REASON" "$revoke_leaf"
         say ""
         say "Committing sovereign sigchain..."
         commit_push_sovereign_sigchain "$ENTITY_NAME"
     fi
 
-    printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ENTITY_ID_DIR/migrated-at"
+    if [ "$HAVE_SOVEREIGN" -eq 0 ] && [ "$CELL_MINT_ENTITY" -eq 1 ]; then
+        write_provisional_marker
+    fi
 
-    ensure_spec175_gitignore "$ENTITY_DIR/.gitignore"
-    ensure_spec175_id_gitignore "$ENTITY_ID_DIR/.gitignore"
-    commit_entity_migration "id: seed SPEC-175 entity keys for $ENTITY_NAME"
-    push_entity_repo
+    # §13.4: a report/audit cell mutates nothing — not even the ignore rules.
+    # Only a cell that actually changed key material touches .gitignore.
+    if [ "$CELL_MINT_ENTITY" -eq 1 ] || [ "$CELL_MINT_LEAF" -eq 1 ] || \
+       [ -n "$ARCHIVE_DIR" ] || [ "$CELL_KEY_EVENT" != "none" ] || [ "$CELL_SIGN_LEAF" -eq 1 ]; then
+        ensure_spec175_gitignore "$ENTITY_DIR/.gitignore"
+        ensure_spec175_id_gitignore "$ENTITY_ID_DIR/.gitignore"
+        commit_entity_migration "id: $ENTITY_NAME ($CELL_KEY_EVENT)"
+        push_entity_repo
+    fi
+}
 
-fi
+# ---------------------------------------------------------------------------
+# Run the cell
+# ---------------------------------------------------------------------------
+
+perform_cell
 
 # ---------------------------------------------------------------------------
 # Common: .env scaffolding
@@ -1311,7 +1459,7 @@ if [ -f "$KOAD_IO_LIGHTHOUSE" ] || [ -f "$ENTITY_IDENTITY" ]; then
             warn "  $AGENTS_OLD_BYTES → $AGENTS_NEW_BYTES bytes. This file is generated, not authored:"
             warn "  KOAD_IO.md + ENTITY.md + PRIMER.md changed since it was last written."
             warn "  Nothing was hand-edited and nothing is lost — edit the three sources, not this file."
-            if [ "$ACTION" = "all-set" ]; then
+            if [ "$STATE" = "6" ] && [ "$CELL_VERB" = "did" ]; then
                 warn "  The entity itself is unchanged; only the context cascade is stale."
             fi
         else

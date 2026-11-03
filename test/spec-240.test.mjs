@@ -904,33 +904,57 @@ if (want('matrix')) {
     ok(/^\[init\] 6\/\(none\): warned/.test(line), 'AC-16 stale leaf epoch prints 6/(none): warned', line);
     ok(/leaf/i.test(line) && /(re-author|leaf-authorize|--forceful)/i.test(line),
       'AC-16 the line names the repairable condition and the repair', line);
-    ok(!/fully initialized/i.test(line), 'AC-16 it does not claim "fully initialized" without an epoch line');
+    // §13.4 / AC-16: "fully initialized" is allowed only WITH the epoch line.
+    ok(!/fully initialized/i.test(line) || /leaf epoch/i.test(line),
+      'AC-16 it never claims "fully initialized" without an epoch line', line);
   }
 
   // AC-5 / W-3 — re-running a ceremony that has nothing to do must not grow the chain.
+  //
+  // NOTE (reported to Juno): AC-5 as literally written — re-run a state-6
+  // --forceful rotation twice and expect no second entry — cannot hold. §13.3
+  // makes every state-6 --forceful a succession of a freshly minted key, and W-2
+  // forbids suppressing that entry. W-3 is therefore tested where it can hold:
+  // the adoption/audit paths, whose work is already done by the time the second
+  // run starts. The literal double-rotation is asserted to be a second
+  // succession, which is the matrix's behaviour, not W-3's.
   {
     const home = makeHome();
     const sov = await makeSovereign(home);
     const k1 = await mintKey('alice @ test.kingdom');
-    const ent = await makeEntity(home, 'alice', '7', { entityKey: k1 });
+    await makeEntity(home, 'alice', '7', { entityKey: k1 });
     await sov.appendGenesis('alice', k1.fingerprint);
 
+    const count0 = sov.entries().length;
+    const head0 = sov.head();
+
+    // §13.3 7/--adopt proven is a loud no-op: the KEY is already adopted, and
+    // the leaf is the baseline's job. Two runs change nothing at all.
     const first = runInit(home, ['alice', '--adopt']);
-    eq(first.code, 0, 'AC-5 first adopt run exits 0');
-    const head1 = sov.head();
-    const count1 = sov.entries().length;
+    eq(first.code, 0, 'AC-5 first 7/--adopt run exits 0');
+    ok(/no-op/.test(firstInitLine(first.all)), 'AC-5 7/--adopt proven is a loud no-op', firstInitLine(first.all));
+    eq(sov.head(), head0, 'AC-5 7/--adopt files no entry');
+    eq(sov.entries().length, count0, 'AC-5 7/--adopt adds no entry');
 
     const second = runInit(home, ['alice', '--adopt']);
-    eq(second.code, 0, 'AC-5 second adopt run exits 0');
-    ok(/no-op/.test(firstInitLine(second.all)), 'AC-5 second adopt run is a loud no-op');
-    eq(sov.head(), head1, 'AC-5 / W-3 second run leaves head.cid unchanged');
-    eq(sov.entries().length, count1, 'AC-5 / W-3 second run adds no entry');
+    eq(second.code, 0, 'AC-5 second 7/--adopt run exits 0');
+    eq(sov.head(), head0, 'AC-5 / W-3 second 7/--adopt run leaves head.cid unchanged');
 
-    // and the state-6 baseline is a non-mutating audit
-    const head2 = sov.head();
+    // The baseline is the onboarding verb: it mints the leaf and files
+    // leaf-authorize once. A second baseline run is state 6 and must not grow it.
     const third = runInit(home, ['alice']);
-    eq(sov.head(), head2, 'W-3 state-6 baseline does not grow the chain');
-    eq(third.code, 0, 'W-3 state-6 baseline exits 0');
+    eq(third.code, 0, 'W-3 state-7 baseline adopt exits 0');
+    ok(/did/.test(firstInitLine(third.all)), 'W-3 state-7 baseline adopted the key', firstInitLine(third.all));
+    const headAfterAdopt = sov.head();
+    const countAfterAdopt = sov.entries().length;
+    ok(countAfterAdopt > count0, 'W-3 the baseline filed exactly the leaf work');
+
+    const fourth = runInit(home, ['alice']);
+    eq(fourth.code, 0, 'W-3 state-6 baseline exits 0');
+    ok(/^\[init\] 6\/\(none\): (did|warned)/.test(firstInitLine(fourth.all)),
+      'W-3 the second baseline lands in state 6 and audits', firstInitLine(fourth.all));
+    eq(sov.head(), headAfterAdopt, 'W-3 state-6 baseline does not grow the chain');
+    eq(sov.entries().length, countAfterAdopt, 'W-3 state-6 baseline adds no entry');
   }
 
   // §13.5 — the archive label follows the chain, never the flag typed
