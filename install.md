@@ -213,39 +213,66 @@ lets you verify a signature came from her. **It is her key, not yours.**
 ### What happens when you run it, with no sovereign
 
 A fresh clone carries a key you did not mint, and nothing on your machine can testify about where it
-came from. So `init` refuses to guess and stops:
+came from. Paternity is **unverifiable**, and `init` will not guess — and will never rotate a key on
+an absence. It stops with one line:
 
 ```
-[init] Paternity: UNVERIFIABLE — no sovereign at ~/.koad-io/me on this device
-[init]   Choose one, explicitly:
-[init]     koad-io init alice --adopt   adopt the key in id/ as yours
-[init]     koad-io init alice --re-seed  ignore it; mint a fresh keypair
+[init] 7/(none): refused — paternity is UNVERIFIABLE and absence is not disproof (§8 P-2), so
+  nothing is generated: no sovereign at ~/.koad-io/me on this device — there is no chain to prove
+  anything against. Choose one, explicitly: koad-io init entity alice --adopt,
+  koad-io init entity alice --re-seed, or koad-io init sovereign
+[init] paternity: UNVERIFIABLE — no sovereign at ~/.koad-io/me on this device …
+[init] nothing was written.
 exit 2
 ```
 
-**Pick `--re-seed`.** It is the correct answer for a template, and it does **not** require a
-sovereign — creation was never the suspect act:
+That leading line is the whole state machine: `[init] <state>/<flag>: <verb>`. Four states (`3`
+migrate, `4/5` create, `6` all-set, `7` secondary-device), three flags, and exactly one verb per cell
+— `did`, `no-op`, `warned`, or `refused`. No flag is accepted and quietly discarded.
+
+**Pick `--re-seed`** — but read what it means now, because the older docs described it wrongly.
+`--re-seed` is not "ignore the key on disk and mint a fresh one". It means **this key is not mine**,
+and what happens next follows from the sovereign's chain, not from the flag. Your chain holds no key
+for `alice`, so the key event here is a **genesis** — creation, and creation needs no sovereign. The
+published key is archived as *foreign*, and you get a keypair of your own:
 
 ```bash
 koad-io init entity alice --re-seed
 ```
 
 ```
-[init] No sovereign on this device — minting alice's own key provisionally.
+[init] 7/--re-seed: did — creation on a directory that inherited a face (SPEC-175 §4.4) — the
+  on-disk key is archived to id/archive/foreign-key-<ts>/ as foreign; provisional (no sovereign),
+  so id/provisional.json marks it unsigned and the first key event will be a genesis when a
+  sovereign countersigns
+[init]   archived: id/entity.public.asc
+[init]   archived: id/entity.fingerprint
+[init]   generated: id/entity.public.asc (fingerprint: <yours>)
 [init]   wrote: id/provisional.json (unsigned — sovereign countersignature pending)
 [init] Init complete: alice
 ```
 
-**✓ Verified 2026-10-21:** exit 0, your own keypair, device leaf, launcher at
-`~/.koad-io/bin/alice`, `AGENTS.md`, and `bonds: 0`. Alice's published key is untouched — never
-adopted.
+**✓ Verified 2026-11-03** on a temp `$HOME` with no sovereign: exit 0, your own keypair, device leaf,
+launcher at `~/.koad-io/bin/alice`, and `AGENTS.md`. Alice's published key is untouched — archived,
+never adopted. (The loud line prints as one line; it is wrapped here to fit.)
+
+**The rule underneath it:** creation may proceed provisionally without a sovereign. **Rotation and
+replacement may not.** A succession, a replacement, or a `leaf-authorize` for a handle the chain
+already owns is signed by the sovereign's device leaf, so with no sovereign those cells are
+`refused` — exit 2, nothing written. A single-box kingdom can create an entity and can never change
+one. That is the model, not a rough edge: `~/.vesta/specs/VESTA-SPEC-240-entity-key-succession.md` is
+the matrix, and `~/.koad-io/commands/init/PRIMER.md` carries it locally.
 
 If you would rather not see the choice at all, delete the published key first and `init` mints
 without asking:
 
 ```bash
-rm -rf ~/.alice/id && koad-io init entity alice     # exit 0, no prompt
+rm -rf ~/.alice/id && koad-io init entity alice     # 4/5/(none): did — creation
 ```
+
+Now the directory holds no key material, so the state is `4/5` and there is nothing to archive:
+`[init] 4/5/(none): did — creating a fresh entity keypair and device leaf — provisional (no
+sovereign on this device); id/provisional.json marks it unsigned and no chain entry is filed`.
 
 Both routes end in the same place. Alice's own README recommends the second; they now agree on the
 result.
