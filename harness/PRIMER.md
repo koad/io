@@ -21,9 +21,6 @@ children:
   - path: harness/patches/
     blurb: Third-party tool patches — opencode.patch
     status: documented
-  - path: harness/plugins/
-    blurb: Harness extension shelf — plugins that render into harness chrome (opencode, pi, claude, hermez)
-    status: documented
 features:
   - name: entity-context-assembly
     blurb: startup.sh assembles KOAD_IO.md → ENTITY.md → role primers → pre-emptive primitives into a SYSTEM_PROMPT before the session opens
@@ -118,9 +115,6 @@ features:
   - name: harness-preamble
     blurb: Each harness can ship a PREAMBLE.md describing native tool surface, DDP stream, bond gate, footer, live typing — loaded as Layer 1b between kingdom and entity layers
     location: ~/.koad-io/harness/startup.sh
-  - name: plugin-shelf
-    blurb: Framework-authored plugins that run inside harness processes (opencode, pi, claude) rendering into harness chrome — separate from commands and hooks
-    location: ~/.koad-io/harness/plugins/
   - name: error-logging
     blurb: Tool execution errors captured to in-memory ring buffer (last 100), surfaced in kingdom dashboard errors tab and footer
     location: ~/.koad-io/harness/extension/identity/telemetry.ts
@@ -129,7 +123,6 @@ relates-to:
   - ~/.koad-io/KOAD_IO.md
   - ~/.koad-io/hooks/executed-without-arguments.sh
   - ~/.forge/commands/harness/PRIMER.md
-  - ~/.koad-io/plugins/PRIMER.md
 status: experimental
 experimental-notes:
   - Channel backend still pending — tools return "backend pending" until daemon channel API is built
@@ -225,7 +218,6 @@ If pi is upgraded and the Node/npm path changes, re-resolve from `which pi`.
 | `extension/lifecycle.ts` | Pi lifecycle hooks — was koad-io-hooks; standing-watchers, session-harvest, prompt-awareness |
 | `extension/bond-gate/` | Tool permission gate — trust bond resolution, scoped read/write/exec paths (was koad-io-bond-gate.ts) |
 | `primers/<role>/` | Thirteen role-specific context directories anchored by `PRIMER.md`; startup loads every `.md` file in the role directory |
-| `plugins/` | Harness extension shelf — plugins that render into harness chrome |
 | `patches/` | Third-party tool patches (opencode) |
 | `memory-kek-ceremony.js` | VESTA-SPEC-134 §6.2 KEK passphrase ceremony (Phase 5 stub) |
 

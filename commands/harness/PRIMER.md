@@ -45,7 +45,7 @@ The payoff: every competent AI harness that ships in the next five years will ha
 This is the load-bearing mental model. Phrase it this way when onboarding any new agent to the framework:
 
 - **The entity** — identity, memory, keys, trust bonds, commands, hooks, passenger.json, outfit. Lives in `~/.<entity>/`. Portable. Inspectable. Sovereign.
-- **The harness** — the runtime costume the entity wears for this session. Lives in `~/.koad-io/commands/harness/<name>/` (the dispatcher) and `~/.koad-io/plugins/<name>/` (the chrome plugins). Swappable. Disposable. Not sovereign — the entity doesn't care which one it's wearing.
+- **The harness** — the runtime costume the entity wears for this session. Lives in `~/.koad-io/commands/harness/<name>/` (the dispatcher). Any chrome a harness wants to paint ships inside that dispatcher's own directory — the framework ships no plugin shelf. Swappable. Disposable. Not sovereign — the entity doesn't care which one it's wearing.
 
 An entity can switch harnesses mid-task and its identity doesn't flicker, because the identity never lived in the harness. The outfit color follows it. The ◊ glyph follows it. The memories follow it. The keys follow it. The harness is a stage; the entity is who walks onto it.
 
@@ -64,22 +64,24 @@ Any app can be a harness if it's thought about long enough.
 
 The pattern is always the same: find the extension surface, write a plugin, route identity through it. Every new harness is a new costume in the closet.
 
-### When to add a new harness to this directory vs. a new plugin
+### When to add a new harness to this directory vs. a chrome surface
 
 Two different decisions, often conflated:
 
 - **New harness dispatcher** (`~/.koad-io/commands/harness/<name>/`) — you need this when the program is a **session host**: it runs a conversation, loads credentials, owns a process lifetime, needs config-dir handoff. Claude, opencode, pi, hermez, bash. Dispatchers go in *this* directory.
-- **New plugin** (`~/.koad-io/plugins/<harness>/<name>/`) — you need this when the program is already a session host and you want to *paint chrome inside it*. The Claude statusline is a plugin for claude (wearing the older `commands/harness/claude/statusline.sh` layout, pending relocation). The opencode shell-git ribbon is a plugin for opencode. Plugins go in the `plugins/` shelf.
+- **New chrome surface** (`~/.koad-io/commands/harness/<name>/` as well) — you need this when the program is already a session host and you want to *paint chrome inside it*. The Claude statusline and the opencode shell-git ribbon are chrome. Chrome ships beside the dispatcher that owns it, because the dispatcher is what launches the program and hands it the env.
 
-Many harnesses need both — a dispatcher in `commands/harness/<name>/` to launch the program with the right env, and one or more plugins in `plugins/<name>/` to paint identity into its chrome. Claude Code is like this today. Opencode will be once the shell-git plugin is wired.
+**There is no `~/.koad-io/plugins/`.** Earlier revisions of this file promised one, and it never existed — the framework ships no plugin shelf, and a harness that needs chrome brings its own. Read that as the design, not a gap: chrome belongs to the harness, and the framework is a skeleton.
+
+Many harnesses need both — a dispatcher in `commands/harness/<name>/` to launch the program with the right env, and one or more chrome surfaces beside it to paint identity in. Claude Code is like this today.
 
 ### What this means for the next thinker
 
-If you are an agent reading this file because you are about to propose a new harness — **stop and ask the bigger question first**. Is the program you're thinking about actually a session host? Or is it a chrome surface that could be painted with a plugin?
+If you are an agent reading this file because you are about to propose a new harness — **stop and ask the bigger question first**. Is the program you're thinking about actually a session host? Or is it a chrome surface that could be painted beside one?
 
 If it's a session host: add a dispatcher here, follow the five-section template in `claude/command.sh`, update the state table, commit.
 
-If it's a chrome surface for an existing session host: add a plugin in `~/.koad-io/plugins/<harness>/<name>/`, follow the category PRIMER at `~/.koad-io/plugins/PRIMER.md`, commit.
+If it's a chrome surface for an existing session host: add it beside that harness's dispatcher in `~/.koad-io/commands/harness/<harness>/`, commit.
 
 If it's *both* — rare but possible, e.g. a new editor that also runs an embedded LLM — do both.
 

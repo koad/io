@@ -78,7 +78,6 @@ startup.sh → context assembly (pre-session)
 - **`extensions/`** — Ordered pi extension entrypoints loaded by `settings.json`; each is a tiny wrapper focused on load order and grouping.
 - **`extension/`** — Shared harness implementation modules: custom tools, bond-gate permissions, DDP live reactivity, dispatch system, channel communication, question queues, kingdom dashboard, lifecycle hooks, context budgeting, and circuit breakers.
 - **`primers/`** — Thirteen role-specific context directories (engineer, orchestrator, auditor, designer, healer, communicator, curator, analyst, researcher, teacher, keeper, producer, curriculum).
-- **`plugins/`** — In-process harness plugins that render into harness chrome.
 - **`settings.json` / `auth.json`** — Upstream pi agent-home state for this pinned `PI_CODING_AGENT_DIR`.
 - **`sessions/`** — Upstream pi session JSONL files written here because this folder is the active pi agent dir.
 
@@ -147,7 +146,6 @@ That's where the kingdom lives. Insiders get access to the conversation, the roa
 | `extension/kingdom/` | TUI dashboard |
 | `extension/identity/` | Footer, telemetry, health |
 | `primers/<role>/` | Role-specific context |
-| `plugins/` | Harness extension shelf |
 
 ---
 

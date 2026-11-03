@@ -222,7 +222,6 @@ koad:io is a living system. The substrate (commands, entities, cascade, packages
 ├── daemon/         # Kingdom backbone (Meteor, dev-mode, never built)
 ├── harness/        # Role primers + pi extension + startup
 ├── modules/        # Shared Node.js module (@koad-io/node)
-├── plugins/        # Harness extensions
 ├── me/             # Sovereign identity root
 ├── training/       # Master training layer
 ├── .env            # Framework defaults
