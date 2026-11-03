@@ -44,6 +44,8 @@
 set -euo pipefail
 
 source "$HOME/.koad-io/helpers/ask.sh"
+# Single reader for .env values — see helpers/env.sh for the contract.
+source "$HOME/.koad-io/helpers/env.sh"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -185,8 +187,8 @@ say ""
 SOVEREIGN_DOMAIN=""
 SOVEREIGN_HANDLE=""
 if [ "$AUTHORIZED_AGENT_MODE" != "1" ] && [ -n "${SOVEREIGN_DIR:-}" ] && [ -f "$SOVEREIGN_DIR/.env" ]; then
-    SOVEREIGN_DOMAIN=$(grep "^SOVEREIGN_DOMAIN=" "$SOVEREIGN_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
-    SOVEREIGN_HANDLE=$(grep "^SOVEREIGN_HANDLE=" "$SOVEREIGN_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
+    SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN || true)
+    SOVEREIGN_HANDLE=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_HANDLE || true)
 fi
 
 # Default display name: capitalized entity name

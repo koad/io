@@ -59,6 +59,9 @@
 
 set -euo pipefail
 
+# Single reader for .env values — see helpers/env.sh for the contract.
+source "$HOME/.koad-io/helpers/env.sh"
+
 # ---------------------------------------------------------------------------
 # Route: namespace words
 # ---------------------------------------------------------------------------
@@ -519,7 +522,7 @@ sign_entity_sigchain_entries() {
     [ -f "$SOVEREIGN_SIGCHAIN_HEAD_FILE" ] && CURRENT_HEAD=$(cat "$SOVEREIGN_SIGCHAIN_HEAD_FILE" | tr -d '[:space:]')
 
     SOVEREIGN_DOMAIN=""
-    [ -f "$SOVEREIGN_DIR/.env" ] && SOVEREIGN_DOMAIN=$(grep "^SOVEREIGN_DOMAIN=" "$SOVEREIGN_DIR/.env" 2>/dev/null | cut -d= -f2- || true)
+    [ -f "$SOVEREIGN_DIR/.env" ] && SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN || true)
 
     ENTITY_PUBLIC_ARMOR_FILE="$ENTITY_ID_DIR/entity.public.asc"
     ENTITY_FINGERPRINT_FILE="$ENTITY_ID_DIR/entity.fingerprint"
@@ -883,7 +886,7 @@ elif [ "$ACTION" = "migrate" ]; then
 
     # Step 3: Generate entity keypair + device leaf
     SOVEREIGN_DOMAIN=""
-    [ -f "$SOVEREIGN_DIR/.env" ] && SOVEREIGN_DOMAIN=$(grep "^SOVEREIGN_DOMAIN=" "$SOVEREIGN_DIR/.env" 2>/dev/null | cut -d= -f2- || true)
+    [ -f "$SOVEREIGN_DIR/.env" ] && SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN || true)
     ENTITY_USERID="$ENTITY_NAME @ ${SOVEREIGN_DOMAIN:-kingdom}"
 
     say "Generating entity keypair and device leaf for '$ENTITY_NAME'..."
@@ -965,7 +968,7 @@ elif [ "$ACTION" = "secondary-device" ]; then
 
     SOVEREIGN_DOMAIN=""
     if [ "$HAVE_SOVEREIGN" -eq 1 ] && [ -f "$SOVEREIGN_DIR/.env" ]; then
-        SOVEREIGN_DOMAIN=$(grep "^SOVEREIGN_DOMAIN=" "$SOVEREIGN_DIR/.env" 2>/dev/null | cut -d= -f2- || true)
+        SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN || true)
         verify_sovereign_leaf
     fi
     ENTITY_USERID="$ENTITY_NAME @ ${SOVEREIGN_DOMAIN:-kingdom}"
@@ -1078,7 +1081,7 @@ elif [ "$ACTION" = "re-seed" ]; then
     mkdir -p "$DEVICE_DIR"
 
     SOVEREIGN_DOMAIN=""
-    [ -f "$SOVEREIGN_DIR/.env" ] && SOVEREIGN_DOMAIN=$(grep "^SOVEREIGN_DOMAIN=" "$SOVEREIGN_DIR/.env" 2>/dev/null | cut -d= -f2- || true)
+    [ -f "$SOVEREIGN_DIR/.env" ] && SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN || true)
     ENTITY_USERID="$ENTITY_NAME @ ${SOVEREIGN_DOMAIN:-kingdom}"
 
     CEREMONY_JSON=$(node "$CEREMONY_SCRIPT" generate-entity \

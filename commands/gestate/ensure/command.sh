@@ -42,6 +42,9 @@
 
 set -euo pipefail
 
+# Single reader for .env values — see helpers/env.sh for the contract.
+source "$HOME/.koad-io/helpers/env.sh"
+
 say()  { echo "[ensure] $*"; }
 warn() { echo "[ensure] WARNING: $*" >&2; }
 die()  { echo "[ensure] ERROR: $*" >&2; exit 1; }
@@ -160,10 +163,11 @@ fi
 
 EMAIL_DOMAIN="${KOAD_IO_EMAIL_DOMAIN:-}"
 if [ -z "$EMAIL_DOMAIN" ] && [ -f "$ENV_FILE" ]; then
-    EMAIL_DOMAIN=$(grep -E '^GIT_AUTHOR_EMAIL=' "$ENV_FILE" 2>/dev/null | head -1 | sed 's/.*@//' || true)
+    _author_email=$(env_value "$ENV_FILE" GIT_AUTHOR_EMAIL || true)
+    EMAIL_DOMAIN="${_author_email##*@}"
 fi
 if [ -z "$EMAIL_DOMAIN" ] && [ -f "$HOME/.koad-io/me/.env" ]; then
-    EMAIL_DOMAIN=$(grep -E '^SOVEREIGN_DOMAIN=' "$HOME/.koad-io/me/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+    EMAIL_DOMAIN=$(env_value "$HOME/.koad-io/me/.env" SOVEREIGN_DOMAIN || true)
 fi
 [ -n "$EMAIL_DOMAIN" ] || EMAIL_DOMAIN="kingofalldata.com"
 

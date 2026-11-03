@@ -33,6 +33,9 @@
 
 set -euo pipefail
 
+# Single reader for .env values — see helpers/env.sh for the contract.
+source "$HOME/.koad-io/helpers/env.sh"
+
 # ── Constants ────────────────────────────────────────────────────────────────
 
 KOAD_PREFIX="6b6f6164"       # 4-byte OP_RETURN prefix for taint payloads
@@ -771,7 +774,7 @@ ENTITY_HANDLE=""
 
 # Load existing identity handle if available
 if [ -f "${HOME}/.koad-io/.env" ]; then
-  ENTITY_HANDLE=$(grep -oE '^KOAD_IO_ENTITY=[^[:space:]]*' "${HOME}/.koad-io/.env" 2>/dev/null | cut -d= -f2 || echo "")
+  ENTITY_HANDLE=$(env_value "${HOME}/.koad-io/.env" KOAD_IO_ENTITY || echo "")
 fi
 if [ -z "$ENTITY_HANDLE" ] && [ -n "${ENTITY:-}" ]; then
   ENTITY_HANDLE="$ENTITY"
