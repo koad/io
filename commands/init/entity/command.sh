@@ -632,8 +632,11 @@ ensure_spec175_gitignore() {
 
     # Drop the superseded bare-negation block (four consecutive lines) so the
     # whitelist below is the one place the id/ rules are stated.
+    # `|| true` is load-bearing, not defensive noise: under `set -euo pipefail` a
+    # no-match grep fails the pipeline, and no match is the normal case in every
+    # fresh .gitignore — i.e. exactly when this function is creating one.
     local neg_start
-    neg_start=$(grep -nxF '!id/entity.public.asc' "$gitignore" 2>/dev/null | head -1 | cut -d: -f1)
+    neg_start=$(grep -nxF '!id/entity.public.asc' "$gitignore" 2>/dev/null | head -1 | cut -d: -f1 || true)
     if [ -n "$neg_start" ] &&
        [ "$(sed -n "${neg_start},$((neg_start + 3))p" "$gitignore")" = "$(printf '!id/entity.public.asc\n!id/entity.fingerprint\n!id/migrated-at\n!id/archive/**')" ]; then
         local neg_end=$((neg_start + 3))
