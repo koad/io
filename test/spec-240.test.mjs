@@ -663,6 +663,32 @@ if (want('paternity')) {
       'AC-8 / §13.4 an audit run mutates nothing under id/');
   }
 
+  // AC-8b — the consequence K-2 licensed: a superseded key could be onboarded.
+  // State 7, K1 restored on disk, chain [genesis(K1), succession(K1→K2)].
+  // The pre-SPEC-240 check matched the genesis naming K1, read `proven`, and
+  // minted a device leaf for a key the entity no longer uses. The chain's
+  // effective key is K2, so K1 must never gain a leaf.
+  {
+    const home = makeHome();
+    const sov = await makeSovereign(home);
+    const k1 = await mintKey('alice @ test.kingdom');
+    const k2 = await mintKey('alice @ test.kingdom');
+    await sov.appendGenesis('alice', k1.fingerprint);
+    await sov.appendSuccession('alice', k1.fingerprint, k2.fingerprint, k2.publicKey, 'rotation');
+    await makeEntity(home, 'alice', '7', { entityKey: k1 }); // K1 restored
+
+    const run = runInit(home, ['alice']);
+    ok(/disproven/i.test(run.all), 'AC-8b state 7 reads the superseded key as DISPROVEN',
+      firstInitLine(run.all));
+    const onDisk = fs.readFileSync(path.join(home, '.alice', 'id', 'entity.fingerprint'), 'utf8').trim();
+    ok(onDisk !== k1.fingerprint, 'AC-8b no leaf is minted for the superseded key',
+      `entity.fingerprint is still ${onDisk}`);
+    const sucs = sov.entries().filter((e) => e.type === 'koad.entity.key-succession');
+    eq(sucs.length, 2, 'AC-8b the rescue files a succession from the effective key');
+    eq(sucs[1]?.payload.old_entity_key_fingerprint, k2.fingerprint,
+      'AC-8b the rescue supersedes K2, the effective key — never the restored K1');
+  }
+
   // AC-10 — proven / disproven / unverifiable
   {
     const home = makeHome();
@@ -739,6 +765,7 @@ if (want('matrix')) {
   // AC-17 — every cell emits its loud line first; AC-18 — refused writes nothing
   for (const { state, flag, result } of cells) {
     const { run, loud } = result;
+    if (process.env.SPEC240_SHOW_CELLS) console.log(`${state}/${flag} [${run.code}] ${loud}`);
     ok(LOUD_RE.test(firstInitLine(run.all)),
       `AC-17 ${state}/${flag}: the first [init] line is the loud line`,
       `got: ${JSON.stringify(loud)}`);
