@@ -817,6 +817,32 @@ if (want('matrix')) {
     const sucs = r.sov.entries().filter((e) => e.type === 'koad.entity.key-succession');
     eq(sucs.length, 1, 'AC-21 6/--forceful files exactly one succession');
     ok(fs.existsSync(path.join(r.entityDir, 'id', 'entity.public.asc')), 'AC-21 the new key is on disk');
+
+    // W-6 from the command path: succession → leaf-authorize (new leaf) →
+    // leaf-revoke (replaced leaf) → head. This is the assertion that would have
+    // caught get-leaf-fingerprint being unimplemented: with an empty
+    // fingerprint the revoke was silently skipped.
+    const entries = r.sov.entries();
+    const la = entries.filter((e) => e.type === 'koad.entity.leaf-authorize');
+    const lr = entries.filter((e) => e.type === 'koad.entity.leaf-revoke');
+    eq(sucs[0]?.payload.new_entity_key_fingerprint,
+      fs.readFileSync(path.join(r.entityDir, 'id', 'entity.fingerprint'), 'utf8').trim(),
+      'AC-21 the succession names the key now on disk');
+    eq(la.length, 1, 'AC-21 exactly one leaf-authorize is filed');
+    eq(lr.length, 1, 'W-6 exactly one leaf-revoke is filed for the replaced leaf');
+    const newLeafFpr = spawnSync('node', [
+      path.join(KOAD_IO_ROOT, 'commands', 'init', 'entity', 'ceremony.mjs'),
+      'get-leaf-fingerprint',
+      '--leaf-public-armor-file', path.join(r.entityDir, 'id', 'devices', HOST, 'leaf.public.asc'),
+    ], { encoding: 'utf8' });
+    const newLeaf = (JSON.parse(newLeafFpr.stdout || '{}').fingerprint) || '';
+    eq(la[0]?.payload.leaf_fingerprint, newLeaf, 'AC-21 leaf-authorize names the NEW leaf');
+    ok(lr[0]?.payload.leaf_fingerprint && lr[0].payload.leaf_fingerprint !== newLeaf,
+      'AC-21 leaf-revoke names the REPLACED leaf, not the new one', lr[0]?.payload.leaf_fingerprint);
+    const laCid = await computeCID(la[0]);
+    eq(la[0]?.previous, sucs[0]?.cid ?? la[0]?.previous, 'W-6 leaf-authorize.previous = succession CID');
+    eq(lr[0]?.previous, laCid, 'W-6 leaf-revoke.previous = leaf-authorize CID');
+    eq(r.sov.head(), await computeCID(lr[0]), 'W-6 head.cid = the leaf-revoke CID (last entry)');
   }
 
   // AC-22 — 6/--forceful with no sovereign → exit 2, nothing written

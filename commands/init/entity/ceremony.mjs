@@ -12,6 +12,10 @@
 //     Outputs: entityPublicArmor, entityFingerprint, leafPublicArmor, leafPrivateArmor,
 //              leafFingerprint, deviceKey
 //
+//   get-leaf-fingerprint --leaf-public-armor-file <path>
+//     Reads the fingerprint of an armored PUBLIC key (a device leaf).
+//     Outputs: { fingerprint } or { fingerprint: null, error: "..." }
+//
 //   verify-leaf --sovereign-leaf-encrypted-path <path> --sovereign-device-key-path <path>
 //     Decrypts the sovereign's device leaf and verifies it is readable.
 //     Outputs: { valid: true, leafFingerprint } or { valid: false, error: "..." }
@@ -155,6 +159,53 @@ async function cmdGenerateEntity(args) {
     leafPrivateArmor,
     deviceKey,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Command: get-leaf-fingerprint
+// ---------------------------------------------------------------------------
+// Reads the fingerprint of an armored PUBLIC key file (id/devices/<host>/
+// leaf.public.asc). Called by command.sh to learn which leaf is being replaced,
+// which is what makes the §13.3 / W-6 leaf-revoke possible: without it the
+// revoked fingerprint is the empty string and the revoke is silently skipped.
+//
+// NOTE: command.sh has called this since the state-6 backfill existed, but it
+// was never implemented here — the call was wrapped in `2>/dev/null || true`,
+// so it degraded to an empty fingerprint instead of failing loudly.
+
+async function cmdGetLeafFingerprint(args) {
+  const file = args['leaf-public-armor-file'];
+  if (!file) die('--leaf-public-armor-file is required for get-leaf-fingerprint');
+
+  let armor;
+  try {
+    armor = readFileSync(file, 'utf8');
+  } catch (err) {
+    out({ fingerprint: null, error: `cannot read ${file}: ${err.message}` });
+    return;
+  }
+
+  // kbpgp lives in modules/node/node_modules — resolve from there, not from
+  // this command directory.
+  const modulesRequire = createRequire(path.join(KOAD_IO_ROOT, 'modules', 'node', 'index.js'));
+  const kbpgp = modulesRequire('kbpgp');
+  try {
+    const km = await new Promise((resolve, reject) => {
+      kbpgp.KeyManager.import_from_armored_pgp({ armored: armor }, (err, imported) => {
+        if (err) return reject(err);
+        if (!imported) return reject(new Error('kbpgp returned no KeyManager'));
+        resolve(imported);
+      });
+    });
+    const fingerprint = (km.get_pgp_fingerprint_str() || '').toUpperCase();
+    if (!fingerprint) {
+      out({ fingerprint: null, error: 'key parsed but carries no pgp fingerprint' });
+      return;
+    }
+    out({ fingerprint });
+  } catch (err) {
+    out({ fingerprint: null, error: `cannot parse armored key: ${err.message}` });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -502,6 +553,9 @@ switch (command) {
   case 'verify-leaf':
     await cmdVerifyLeaf(args);
     break;
+  case 'get-leaf-fingerprint':
+    await cmdGetLeafFingerprint(args);
+    break;
   case 'sign-entity-entries':
     await cmdSignEntityEntries(args);
     break;
@@ -509,5 +563,5 @@ switch (command) {
     await cmdResolveEntity(args);
     break;
   default:
-    die(`unknown command: ${command || '(none)'}. Valid commands: generate-entity, verify-leaf, sign-entity-entries, resolve-entity`);
+    die(`unknown command: ${command || '(none)'}. Valid commands: generate-entity, verify-leaf, get-leaf-fingerprint, sign-entity-entries, resolve-entity`);
 }
