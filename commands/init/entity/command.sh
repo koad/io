@@ -89,27 +89,100 @@ say()  { echo "[init] $*"; }
 warn() { echo "[init] WARNING: $*" >&2; }
 die()  { echo "[init] ERROR: $*" >&2; exit 1; }
 
+CEREMONY_SCRIPT="$_INIT_CMD_DIR/ceremony.mjs"
+
 # ---------------------------------------------------------------------------
-# Paternity helpers — is the entity key in id/ one THIS sovereign created?
+# Chain resolution — VESTA-SPEC-240 §7
+# ---------------------------------------------------------------------------
+# One implementation of effective-key resolution: modules/node/sigchain.js
+# resolveEntityKey(), reached through ceremony.mjs. The bash side consumes its
+# JSON and never re-derives order itself. §11: two implementations of this are
+# exactly the drift the spec exists to end.
+
+RESOLVE_AVAILABLE=0
+EFFECTIVE_FPR=""
+EFFECTIVE_CID=""
+KEY_EVENT_COUNT=0
+CHAIN_ANOMALIES=""
+LEAF_FPR_ON_DISK=""
+LEAF_EPOCH_AUTHORIZED=0
+LEAF_EPOCH_STALE=0
+LEAF_EPOCH_REVOKED=0
+LEAF_EPOCH_CURRENT=0
+
+leaf_fingerprint_on_disk() {
+    # Fingerprint of id/devices/<host>/leaf.public.asc; empty when unknowable.
+    [ -f "$DEVICE_DIR/leaf.public.asc" ] || return 0
+    [ -f "$CEREMONY_SCRIPT" ] || return 0
+    command -v node >/dev/null 2>&1 || return 0
+    command -v jq   >/dev/null 2>&1 || return 0
+    node "$CEREMONY_SCRIPT" get-leaf-fingerprint \
+        --leaf-public-armor-file "$DEVICE_DIR/leaf.public.asc" 2>/dev/null \
+        | jq -r '.fingerprint // empty' 2>/dev/null || true
+}
+
+resolve_chain_state() {
+    # Sets RESOLVE_AVAILABLE, EFFECTIVE_FPR, EFFECTIVE_CID, KEY_EVENT_COUNT,
+    # CHAIN_ANOMALIES and the leaf-epoch flags. Never mutates, never exits:
+    # an unreadable chain resolves to "nothing available", which paternity
+    # reports as unverifiable — absence is not evidence (§8 P-2).
+    RESOLVE_AVAILABLE=0
+    EFFECTIVE_FPR=""
+    EFFECTIVE_CID=""
+    KEY_EVENT_COUNT=0
+    CHAIN_ANOMALIES=""
+    LEAF_EPOCH_AUTHORIZED=0
+    LEAF_EPOCH_STALE=0
+    LEAF_EPOCH_REVOKED=0
+    LEAF_EPOCH_CURRENT=0
+
+    [ "$HAVE_SOVEREIGN" -eq 1 ] || return 0
+    command -v node >/dev/null 2>&1 || return 0
+    command -v jq   >/dev/null 2>&1 || return 0
+    [ -f "$CEREMONY_SCRIPT" ] || return 0
+
+    local sigchain_dir="$SOVEREIGN_DIR/sigchain"
+    [ -d "$sigchain_dir/entries" ] || return 0
+
+    local json
+    json=$(node "$CEREMONY_SCRIPT" resolve-entity \
+        --handle "$ENTITY_NAME" \
+        --sigchain-dir "$sigchain_dir" \
+        --leaf-fingerprint "${LEAF_FPR_ON_DISK:-}" 2>/dev/null) || return 0
+    [ -n "$json" ] || return 0
+
+    RESOLVE_AVAILABLE=1
+    EFFECTIVE_FPR=$(printf '%s' "$json" | jq -r '.effective_fingerprint // ""' 2>/dev/null || true)
+    EFFECTIVE_CID=$(printf '%s' "$json" | jq -r '.established_by // ""' 2>/dev/null || true)
+    KEY_EVENT_COUNT=$(printf '%s' "$json" | jq -r '.keyEventCount // 0' 2>/dev/null || true)
+    CHAIN_ANOMALIES=$(printf '%s' "$json" | jq -r '(.anomalies // []) | join(",")' 2>/dev/null || true)
+    LEAF_EPOCH_AUTHORIZED=$(printf '%s' "$json" | jq -r 'if .leafEpoch.authorized then 1 else 0 end' 2>/dev/null || echo 0)
+    LEAF_EPOCH_STALE=$(printf '%s' "$json" | jq -r 'if .leafEpoch.stale then 1 else 0 end' 2>/dev/null || echo 0)
+    LEAF_EPOCH_REVOKED=$(printf '%s' "$json" | jq -r 'if .leafEpoch.revoked then 1 else 0 end' 2>/dev/null || echo 0)
+    LEAF_EPOCH_CURRENT=$(printf '%s' "$json" | jq -r 'if .leafEpoch.current then 1 else 0 end' 2>/dev/null || echo 0)
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Paternity — VESTA-SPEC-240 §8, restated against the EFFECTIVE key
 # ---------------------------------------------------------------------------
 #
-# WHY (2026-10-21, koad's ruling — fork A, the paternity check)
+# WHY (2026-10-21 koad's ruling; restated 2026-11-03 by SPEC-240 §8)
 # ------------------------------------------------------------
 # init and gestate are two halves of the same ceremony: gestate mints an entity
 # keypair and records it; init re-establishes it on another device. The record is
-# a koad.entity.genesis entry in the sovereign's sigchain (SPEC-175 §4) naming
-# the handle and the entity key fingerprint. That entry — not a file on disk — is
-# the only proof that an entity key is mine to add devices to.
+# the key-affecting entry in the sovereign's sigchain that is effective *now*.
 #
-# Until this gate existed the state machine keyed on `[ -f entity.public.asc ]`.
-# A template that publishes its author's public key (github.com/koad/alice does,
-# deliberately) therefore read as "my entity key", and a newcomer's very first
-# command minted a device leaf bound to a key they do not control. koad's ruling:
-# a new device should create a new key for itself — that is desirable — but only
-# for an entity this sovereign actually created.
+# The old check asked "does ANY genesis naming this handle match the disk key".
+# That is K-2: after a rotation the superseded key is still named by the old
+# genesis, so restoring the archived entity.public.asc read as `proven` and a
+# leaf could be minted for a key the entity no longer uses. §8 P-1 forbids it:
+# paternity compares resolveEntityKey(handle).effective_fingerprint, nothing else.
 #
-# Outcomes: proven → secondary-device; disproven → re-seed (archive, don't
-# destroy); unverifiable → generate nothing, ask the human.
+# Outcomes: proven → the disk key is the effective key; disproven → the chain
+# names a different key (current-state evidence, §8 P-3); unverifiable → the
+# chain says nothing (absent, empty, unreadable, or no entry for this handle),
+# and absence is not disproof (§8 P-2).
 
 _jget_first() {
     # _jget_first FILE KEY → first value for KEY, works on pretty or minified JSON.
@@ -146,14 +219,14 @@ entity_fingerprint_on_disk() {
 
 verify_paternity() {
     # Sets: PATERNITY (proven|disproven|unverifiable), PATERNITY_REASON,
-    #       ENTITY_FPR_ON_DISK, PATERNITY_GENESIS_FPRS
+    #       ENTITY_FPR_ON_DISK
     #
     # "Cannot prove" is deliberately distinct from "proved false": a sovereign
     # whose chain is absent, unreadable, or empty has recorded nothing, and
-    # absence is not evidence. Only a readable, non-empty chain can disprove.
+    # absence is not evidence. Only a readable chain that resolves an effective
+    # key can disprove.
     PATERNITY="unverifiable"
     PATERNITY_REASON=""
-    PATERNITY_GENESIS_FPRS=""
     ENTITY_FPR_ON_DISK="$(entity_fingerprint_on_disk || true)"
     ENTITY_FPR_ON_DISK="${ENTITY_FPR_ON_DISK//[[:space:]]/}"
 
@@ -162,16 +235,13 @@ verify_paternity() {
         return 0
     fi
 
-    local entries="$SOVEREIGN_DIR/sigchain/entries"
-    if [ ! -d "$entries" ]; then
-        PATERNITY_REASON="sovereign at $SOVEREIGN_DIR has no sigchain/entries — nothing recorded, nothing to compare"
+    if [ "$RESOLVE_AVAILABLE" -ne 1 ]; then
+        PATERNITY_REASON="the sovereign sigchain at $SOVEREIGN_DIR/sigchain is absent, empty, or unreadable — nothing recorded, nothing to compare"
         return 0
     fi
 
-    local entry_count
-    entry_count=$(find "$entries" -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l)
-    if [ "$entry_count" -eq 0 ]; then
-        PATERNITY_REASON="sovereign sigchain is empty — an empty chain proves nothing either way"
+    if [ "$KEY_EVENT_COUNT" -eq 0 ]; then
+        PATERNITY_REASON="the chain resolves no key-affecting entry for '$ENTITY_NAME' — nothing recorded, so nothing is disproved"
         return 0
     fi
 
@@ -180,70 +250,24 @@ verify_paternity() {
         return 0
     fi
 
-    # One pass over the chain: collect genesis entries for THIS handle, and the
-    # fingerprints this chain records as its own signers (master + authorized_by).
-    local file type handle fpr owner auth
-    local -a gen_fpr=() gen_owner=()
-    local my_signers=" ${EXPECTED_MASTER_FPR:-} "
-    local leaf_auth_seen=0
-
-    for file in "$entries"/*.json; do
-        [ -f "$file" ] || continue
-
-        auth=$(_jget_all "$file" '"authorized_by"')
-        if [ -n "$auth" ]; then
-            leaf_auth_seen=1
-            my_signers+="$(printf '%s\n' "$auth" | tr '\n' ' ') "
-        fi
-
-        type=$(_jget_first "$file" '"type"')
-        [ "$type" = "koad.entity.genesis" ] || continue
-        handle=$(_jget_first "$file" '"entity_handle"')
-        [ "$handle" = "$ENTITY_NAME" ] || continue
-
-        fpr=$(_jget_first "$file" '"entity_key_fingerprint"' | tr 'abcdef' 'ABCDEF')
-        owner=$(_jget_first "$file" '"sovereign_key_fingerprint"' | tr 'abcdef' 'ABCDEF')
-        gen_fpr+=("$fpr")
-        gen_owner+=("$owner")
-    done
-
-    if [ "${#gen_fpr[@]}" -eq 0 ]; then
-        PATERNITY="disproven"
-        PATERNITY_REASON="this sovereign's sigchain has no koad.entity.genesis for '$ENTITY_NAME' — it never created a key for that handle"
-        return 0
-    fi
-
-    local i matched=0 foreign=0
-    for i in "${!gen_fpr[@]}"; do
-        fpr="${gen_fpr[$i]}"
-        owner="${gen_owner[$i]}"
-        PATERNITY_GENESIS_FPRS+=" $fpr"
-        # A genesis signed by a different sovereign does not authorize this
-        # sovereign's devices, even when it names the same handle. Only applied
-        # when the chain actually records authorized_by leaves — otherwise
-        # absence from my_signers means nothing and would create false negatives.
-        if [ "$leaf_auth_seen" -eq 1 ] && [ -n "$owner" ]; then
-            case "$my_signers" in
-                *" $owner "*) : ;;
-                *) foreign=1; continue ;;
-            esac
-        fi
-        [ "$fpr" = "$ENTITY_FPR_ON_DISK" ] && matched=1
-    done
-
-    if [ "$matched" -eq 1 ]; then
+    if [ "$EFFECTIVE_FPR" = "$ENTITY_FPR_ON_DISK" ]; then
         PATERNITY="proven"
-        PATERNITY_REASON="sigchain records koad.entity.genesis for '$ENTITY_NAME' naming this exact key (${ENTITY_FPR_ON_DISK: -16})"
+        PATERNITY_REASON="the chain's effective key for '$ENTITY_NAME' is this exact key (${ENTITY_FPR_ON_DISK: -16})"
         return 0
     fi
 
     PATERNITY="disproven"
-    if [ "$foreign" -eq 1 ]; then
-        PATERNITY_REASON="the koad.entity.genesis for '$ENTITY_NAME' in this chain was signed by a different sovereign, not this one"
-    else
-        PATERNITY_REASON="sigchain records${PATERNITY_GENESIS_FPRS} for '$ENTITY_NAME'; id/ holds ${ENTITY_FPR_ON_DISK: -16}"
-    fi
+    PATERNITY_REASON="the chain's effective key for '$ENTITY_NAME' is ${EFFECTIVE_FPR: -16}; id/ holds ${ENTITY_FPR_ON_DISK: -16}"
     return 0
+}
+
+# Read-only audit: disk leaf fingerprint → chain resolution → §8 verdict.
+# One entry point so no caller can run paternity against a stale resolution.
+audit_paternity() {
+    LEAF_FPR_ON_DISK="$(leaf_fingerprint_on_disk || true)"
+    LEAF_FPR_ON_DISK="${LEAF_FPR_ON_DISK//[[:space:]]/}"
+    resolve_chain_state
+    verify_paternity
 }
 
 # ---------------------------------------------------------------------------
@@ -379,7 +403,7 @@ say "State:  entity.public.asc=$([ "$ENTITY_KEY_PRESENT" -eq 1 ] && echo present
 # honoured, the key on disk has to be traced to a koad.entity.genesis.
 
 if [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$ACTION" = "secondary-device" ]; then
-    verify_paternity
+    audit_paternity
 
     if [ "$FORCE_RESEED" -eq 1 ]; then
         warn "Paternity: $PATERNITY — $PATERNITY_REASON"
@@ -458,14 +482,21 @@ if [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$ACTION" = "secondary-device" ]; then
     fi
 fi
 
-# Audit only: an already-initialized entity whose key this chain cannot account
-# for is worth saying out loud, but nothing is adopted on this path, so it warns.
-if [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$ACTION" = "all-set" ] && [ "$HAVE_SOVEREIGN" -eq 1 ]; then
-    verify_paternity
+# Audit only: an already-initialized entity is reported, never mutated. §13.4
+# requires the paternity line in every state-6 report (proven as well as not) —
+# silence about a key the chain does not account for is the shape of the bug.
+if [ "$ENTITY_KEY_PRESENT" -eq 1 ] && [ "$ACTION" = "all-set" ]; then
+    audit_paternity
+    say "Paternity: $(printf '%s' "$PATERNITY" | tr '[:lower:]' '[:upper:]') — $PATERNITY_REASON"
     if [ "$PATERNITY" != "proven" ]; then
-        warn "Paternity: $PATERNITY — $PATERNITY_REASON"
         warn "  This device already holds a leaf, so nothing is adopted and nothing changes."
         warn "  Noted because this entity's key is not traceable through your sigchain."
+    fi
+    if [ "$LEAF_EPOCH_STALE" -eq 1 ]; then
+        warn "Leaf epoch: STALE — this device's leaf was authorized before the last key succession"
+        warn "  for '$ENTITY_NAME', so it cannot sign for the current epoch (SPEC-240 §9.4 L-1)."
+        warn "  Repair: file a new koad.entity.leaf-authorize for this leaf in the current epoch,"
+        warn "  or run 'koad-io init $ENTITY_NAME --forceful' to rotate and re-onboard this device."
     fi
 fi
 
@@ -476,7 +507,7 @@ say ""
 # Tooling requirements (needed for migrate, re-seed, secondary-device)
 # ---------------------------------------------------------------------------
 
-CEREMONY_SCRIPT="$_INIT_CMD_DIR/ceremony.mjs"
+CEREMONY_SCRIPT="${CEREMONY_SCRIPT:-$_INIT_CMD_DIR/ceremony.mjs}"
 
 if [ "$ACTION" != "all-set" ]; then
     command -v jq   >/dev/null 2>&1 || die "jq is required but not found — install it and retry"
@@ -511,7 +542,22 @@ verify_sovereign_leaf() {
 # ---------------------------------------------------------------------------
 
 sign_entity_sigchain_entries() {
-    local skip_genesis="${1:-0}"
+    # $1 key_event: genesis | succession | none   (legacy: 0=genesis, 1=none)
+    # $2 old_entity_key_fingerprint (succession only — MUST be the effective key)
+    # $3 reason (succession only; omitted = treated as `other` by consumers)
+    # $4 revoke_leaf_fingerprint (optional; files leaf-revoke after leaf-authorize)
+    # $5 revoke_host (optional, defaults to this host)
+    #
+    # W-6 order: key event → leaf-authorize → leaf-revoke → head.
+    local key_event="${1:-genesis}"
+    case "$key_event" in
+        0) key_event="genesis" ;;
+        1) key_event="none" ;;
+    esac
+    local old_fpr="${2:-}"
+    local reason="${3:-}"
+    local revoke_leaf="${4:-}"
+    local revoke_host="${5:-$HOST}"
 
     SOVEREIGN_SIGCHAIN_DIR="$SOVEREIGN_DIR/sigchain"
     SOVEREIGN_SIGCHAIN_HEAD_FILE="$SOVEREIGN_SIGCHAIN_DIR/head.cid"
@@ -527,22 +573,27 @@ sign_entity_sigchain_entries() {
     ENTITY_PUBLIC_ARMOR_FILE="$ENTITY_ID_DIR/entity.public.asc"
     ENTITY_FINGERPRINT_FILE="$ENTITY_ID_DIR/entity.fingerprint"
 
-    [ -f "$ENTITY_FINGERPRINT_FILE" ] && ENTITY_FINGERPRINT=$(cat "$ENTITY_FINGERPRINT_FILE")
-    [ -z "${ENTITY_FINGERPRINT:-}" ] && die "Cannot determine entity fingerprint — id/entity.fingerprint missing"
-    [ -f "$ENTITY_PUBLIC_ARMOR_FILE" ] || die "entity.public.asc not found at $ENTITY_PUBLIC_ARMOR_FILE"
+    if [ "$key_event" != "none" ]; then
+        [ -f "$ENTITY_FINGERPRINT_FILE" ] && ENTITY_FINGERPRINT=$(cat "$ENTITY_FINGERPRINT_FILE")
+        [ -z "${ENTITY_FINGERPRINT:-}" ] && die "Cannot determine entity fingerprint — id/entity.fingerprint missing"
+        [ -f "$ENTITY_PUBLIC_ARMOR_FILE" ] || die "entity.public.asc not found at $ENTITY_PUBLIC_ARMOR_FILE"
+    fi
 
     ENTITY_ARMOR_TMPFILE=$(mktemp /tmp/koad-entity-armor.XXXXXX)
-    cp "$ENTITY_PUBLIC_ARMOR_FILE" "$ENTITY_ARMOR_TMPFILE"
+    : > "$ENTITY_ARMOR_TMPFILE"
+    [ -f "$ENTITY_PUBLIC_ARMOR_FILE" ] && cp "$ENTITY_PUBLIC_ARMOR_FILE" "$ENTITY_ARMOR_TMPFILE"
 
-    SIGN_ENTITY_EXTRA_ARGS=()
-    [ "$skip_genesis" = "1" ] && SIGN_ENTITY_EXTRA_ARGS+=("--skip-genesis")
+    SIGN_ENTITY_EXTRA_ARGS=(--key-event "$key_event")
+    [ -n "$old_fpr" ]     && SIGN_ENTITY_EXTRA_ARGS+=(--old-entity-fingerprint "$old_fpr")
+    [ -n "$reason" ]      && SIGN_ENTITY_EXTRA_ARGS+=(--reason "$reason")
+    [ -n "$revoke_leaf" ] && SIGN_ENTITY_EXTRA_ARGS+=(--revoke-leaf-fingerprint "$revoke_leaf" --revoke-host "$revoke_host")
 
     ENTITY_SIGNING_JSON=$(node "$CEREMONY_SCRIPT" sign-entity-entries \
         --sovereign-leaf-encrypted-path "$SOVEREIGN_LEAF_PRIVATE" \
         --sovereign-device-key-path "$SOVEREIGN_DEVICE_KEY" \
         --sovereign-leaf-fingerprint "$SOVEREIGN_LEAF_FINGERPRINT" \
         --entity-handle "$ENTITY_NAME" \
-        --entity-fingerprint "$ENTITY_FINGERPRINT" \
+        --entity-fingerprint "${ENTITY_FINGERPRINT:-}" \
         --entity-public-armor "$(cat "$ENTITY_ARMOR_TMPFILE")" \
         --leaf-fingerprint "$LEAF_FINGERPRINT" \
         --host "$HOST" \
@@ -552,23 +603,30 @@ sign_entity_sigchain_entries() {
 
     rm -f "$ENTITY_ARMOR_TMPFILE"
 
-    GENESIS_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.genesisCid')
-    LEAF_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.leafCid')
-    NEW_HEAD_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.newHeadCid')
-    SKIP_GENESIS_RESULT=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.skipGenesis // false')
+    KEY_EVENT_TYPE=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.keyEvent // "none"')
+    KEY_EVENT_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.keyEventCid // ""')
+    LEAF_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.leafCid // ""')
+    REVOKE_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.revokeCid // ""')
+    NEW_HEAD_CID=$(echo "$ENTITY_SIGNING_JSON" | jq -r '.newHeadCid // ""')
 
     [ -z "$LEAF_CID" ] || [ "$LEAF_CID" = "null" ] && die "Sigchain signing returned no leafCid"
+    [ -z "$NEW_HEAD_CID" ] || [ "$NEW_HEAD_CID" = "null" ] && die "Sigchain signing returned no newHeadCid"
 
     mkdir -p "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR"
 
-    if [ "$SKIP_GENESIS_RESULT" = "false" ]; then
-        [ -z "$GENESIS_CID" ] || [ "$GENESIS_CID" = "null" ] && die "Sigchain signing returned no genesisCid"
-        echo "$ENTITY_SIGNING_JSON" | jq '.genesisEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$GENESIS_CID.json"
-        say "  signed: koad.entity.genesis (CID: ${GENESIS_CID:0:20}...)"
+    if [ "$KEY_EVENT_TYPE" = "genesis" ] || [ "$KEY_EVENT_TYPE" = "succession" ]; then
+        [ -z "$KEY_EVENT_CID" ] || [ "$KEY_EVENT_CID" = "null" ] && die "Sigchain signing returned no keyEventCid"
+        echo "$ENTITY_SIGNING_JSON" | jq '.keyEventEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$KEY_EVENT_CID.json"
+        say "  signed: koad.entity.$([ "$KEY_EVENT_TYPE" = "genesis" ] && echo genesis || echo key-succession) (CID: ${KEY_EVENT_CID:0:20}...)"
     fi
 
     echo "$ENTITY_SIGNING_JSON" | jq '.leafEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$LEAF_CID.json"
     say "  signed: koad.entity.leaf-authorize (CID: ${LEAF_CID:0:20}...)"
+
+    if [ -n "$REVOKE_CID" ] && [ "$REVOKE_CID" != "null" ]; then
+        echo "$ENTITY_SIGNING_JSON" | jq '.revokeEntry' > "$SOVEREIGN_SIGCHAIN_ENTRIES_DIR/$REVOKE_CID.json"
+        say "  signed: koad.entity.leaf-revoke (CID: ${REVOKE_CID:0:20}...)"
+    fi
 
     printf '%s' "$NEW_HEAD_CID" > "$SOVEREIGN_SIGCHAIN_HEAD_FILE"
 

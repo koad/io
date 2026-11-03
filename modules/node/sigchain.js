@@ -9,8 +9,13 @@
 //   koad.identity.genesis, koad.identity.leaf-authorize, koad.identity.leaf-revoke,
 //   koad.identity.prune-all, koad.identity.key-succession
 //
-// Entity entry types (SPEC-111 §5.10 / VESTA-SPEC-175 §4, koad.entity.* family):
-//   koad.entity.genesis, koad.entity.leaf-authorize, koad.entity.leaf-revoke
+// Entity entry types (SPEC-111 §5.10 / VESTA-SPEC-175 §4 / VESTA-SPEC-240 §5, koad.entity.* family):
+//   koad.entity.genesis, koad.entity.leaf-authorize, koad.entity.leaf-revoke,
+//   koad.entity.key-succession
+//
+// Entity-key resolution (VESTA-SPEC-240 §7):
+//   resolveEntityKey(handle, chain)      → { effective_fingerprint, established_by, history, anomalies }
+//   resolveLeafEpoch(handle, leafFpr, chain) → { authorized, stale, revoked, current, ... }
 //
 // Canonical serialization: dag-json (IPLD codec 0x0129), keys sorted
 // lexicographically. CID: CIDv1, sha2-256, base32 → "bagu" prefix.
@@ -33,6 +38,7 @@
 //     buildKeySuccession({ old_master_fingerprint, new_master_fingerprint, new_master_pubkey_armored, succeeded_at, reason })
 //
 //     buildEntityGenesis({ entity_handle, entity_key_fingerprint, sovereign_key_fingerprint, gestated_at, gestation_host, notes })
+//     buildEntityKeySuccession({ entity_handle, old_entity_key_fingerprint, new_entity_key_fingerprint, new_entity_pubkey_armored, succeeded_at, authorized_by, reason })
 //     buildEntityLeafAuthorize({ entity_handle, leaf_fingerprint, host, authorized_at, authorized_by })
 //     buildEntityLeafRevoke({ entity_handle, leaf_fingerprint, host, revoked_at, revoked_by, reason })
 //
@@ -817,6 +823,60 @@ export function buildEntityGenesis({
 }
 
 /**
+ * Build payload for koad.entity.key-succession entry.
+ * VESTA-SPEC-240 §5.1–5.2 — the sovereign says the handle continues under a
+ * new entity key. Filed in the sovereign's sigchain, signed by the sovereign's
+ * currently-active device leaf (SPEC-111 §3.2b), exactly like the other three
+ * koad.entity.* types.
+ *
+ * `new_entity_pubkey_armored` carries the whole armored public key on purpose:
+ * the chain MUST be self-contained, so a verifier must never have to fetch a
+ * file to learn what key a succession installed (§5.2).
+ *
+ * @param {object} opts
+ * @param {string} opts.entity_handle                  REQUIRED
+ * @param {string} opts.old_entity_key_fingerprint     REQUIRED (MUST equal the effective key before this entry)
+ * @param {string} opts.new_entity_key_fingerprint     REQUIRED (MUST equal fpr(new_entity_pubkey_armored))
+ * @param {string} opts.new_entity_pubkey_armored      REQUIRED (PGP-armored public key)
+ * @param {string} opts.succeeded_at                   REQUIRED (ISO 8601 UTC)
+ * @param {string} opts.authorized_by                  REQUIRED (40-hex fingerprint of the signing sovereign leaf)
+ * @param {string} [opts.reason]                       OPTIONAL: rotation|lost-key|compromise|migration|other
+ * @returns {{ type: string, payload: object }}
+ */
+export function buildEntityKeySuccession({
+  entity_handle,
+  old_entity_key_fingerprint,
+  new_entity_key_fingerprint,
+  new_entity_pubkey_armored,
+  succeeded_at,
+  authorized_by,
+  reason,
+} = {}) {
+  if (!entity_handle) throw new Error('[sigchain] buildEntityKeySuccession: entity_handle is required');
+  if (!old_entity_key_fingerprint) throw new Error('[sigchain] buildEntityKeySuccession: old_entity_key_fingerprint is required');
+  if (!new_entity_key_fingerprint) throw new Error('[sigchain] buildEntityKeySuccession: new_entity_key_fingerprint is required');
+  if (!new_entity_pubkey_armored) throw new Error('[sigchain] buildEntityKeySuccession: new_entity_pubkey_armored is required');
+  if (!succeeded_at) throw new Error('[sigchain] buildEntityKeySuccession: succeeded_at is required');
+  if (!authorized_by) throw new Error('[sigchain] buildEntityKeySuccession: authorized_by is required');
+
+  const payload = {
+    authorized_by,
+    entity_handle,
+    new_entity_key_fingerprint,
+    new_entity_pubkey_armored,
+    old_entity_key_fingerprint,
+    succeeded_at,
+  };
+  // §5.2: absent is treated as `other` by consumers; the writer omits rather
+  // than inventing a discriminator the operator did not give.
+  if (reason !== undefined && reason !== null && reason !== '') {
+    payload.reason = reason;
+  }
+
+  return { type: 'koad.entity.key-succession', payload };
+}
+
+/**
  * Build payload for koad.entity.leaf-authorize entry.
  * VESTA-SPEC-175 §4.2 — sovereign authorizes a device leaf for an entity.
  * Filed in the sovereign's sigchain when a new device comes online for an entity.
@@ -894,6 +954,174 @@ export function buildEntityLeafRevoke({
   }
 
   return { type: 'koad.entity.leaf-revoke', payload };
+}
+
+// ---------------------------------------------------------------------------
+// Entity-key resolution — VESTA-SPEC-240 §7
+// ---------------------------------------------------------------------------
+
+/** Uppercase a fingerprint for comparison. Non-strings become null. */
+function _fpr(value) {
+  return typeof value === 'string' && value.length > 0 ? value.toUpperCase() : null;
+}
+
+/**
+ * Resolve the effective entity key for a handle over a sovereign chain.
+ *
+ * VESTA-SPEC-240 §7. The single replacement for "does any genesis name this
+ * key" — that comparison is how a superseded key gets resurrected (K-2).
+ *
+ * R-1: order is LINKAGE order, supplied by the caller. `chain` MUST already be
+ *      in root → head order (resolveEntityKey never sorts, never reads mtime,
+ *      never trusts `timestamp`). Use loadChainFromDir() in ceremony.mjs to
+ *      produce it by walking `previous` from head.cid.
+ * R-2: key-affecting entries are {koad.entity.genesis, koad.entity.key-succession}.
+ * R-3: last key-affecting entry in chain order wins.
+ * R-4: anomalies are recorded, never fatal. A succession whose
+ *      old_entity_key_fingerprint is not the key effective immediately before it
+ *      is `dangling-succession`: it changes nothing and is not a key event.
+ *
+ * @param {string} handle  Entity handle to resolve.
+ * @param {Array<{entry: object, cid: string}>} chain  Root → head, linkage ordered.
+ * @returns {{
+ *   effective_fingerprint: string|null,
+ *   established_by: string|null,
+ *   history: Array<{type: string, fingerprint: string, cid: string, depth: number}>,
+ *   anomalies: string[]
+ * }}
+ */
+export function resolveEntityKey(handle, chain) {
+  if (!handle || typeof handle !== 'string') {
+    throw new Error('[sigchain] resolveEntityKey: handle is required');
+  }
+  if (!Array.isArray(chain)) {
+    throw new Error('[sigchain] resolveEntityKey: chain must be an array of {entry, cid}');
+  }
+
+  const history = [];
+  const anomalies = new Set();
+  let effective = null;
+  let establishedBy = null;
+  let genesisCount = 0;
+  const genesisFprs = [];
+
+  for (let i = 0; i < chain.length; i++) {
+    const item = chain[i];
+    const entry = item && item.entry ? item.entry : item;
+    const cid = item && item.cid ? item.cid : null;
+    if (!entry || typeof entry !== 'object') continue;
+
+    const type = entry.type;
+    if (type !== 'koad.entity.genesis' && type !== 'koad.entity.key-succession') continue;
+
+    const payload = entry.payload || {};
+    if (payload.entity_handle !== handle) continue;
+
+    if (type === 'koad.entity.genesis') {
+      const fpr = _fpr(payload.entity_key_fingerprint);
+      genesisCount += 1;
+      if (genesisCount > 1) {
+        // §12: duplicates are a recorded anomaly about one handle, not a chain
+        // failure. Different keys → legacy-duplicate-genesis; same key → the
+        // informational variant.
+        anomalies.add(genesisFprs.includes(fpr)
+          ? 'duplicate-genesis-same-key'
+          : 'legacy-duplicate-genesis');
+      }
+      genesisFprs.push(fpr);
+      effective = fpr;
+      establishedBy = cid;
+      history.push({ type, fingerprint: fpr, cid, depth: i });
+      continue;
+    }
+
+    // koad.entity.key-succession
+    const oldFpr = _fpr(payload.old_entity_key_fingerprint);
+    const newFpr = _fpr(payload.new_entity_key_fingerprint);
+    if (effective === null || oldFpr !== effective) {
+      // R-4: dangling — ignored as a key event, never fatal.
+      anomalies.add('dangling-succession');
+      continue;
+    }
+    effective = newFpr;
+    establishedBy = cid;
+    history.push({ type, fingerprint: newFpr, cid, depth: i });
+  }
+
+  return {
+    effective_fingerprint: effective,
+    established_by: effective === null ? null : establishedBy,
+    history,
+    anomalies: Array.from(anomalies),
+  };
+}
+
+/**
+ * Resolve whether a device leaf is authorized in the CURRENT entity-key epoch.
+ *
+ * VESTA-SPEC-240 §9.4 L-1/L-3 (the minimum the §13 matrix and AC-16 need to
+ * print the leaf-epoch line — full window enforcement is a separate brief).
+ * A leaf authorized before the most recent `koad.entity.key-succession` for the
+ * handle is `stale`; a leaf named by a later `koad.entity.leaf-revoke` is
+ * `revoked`. `current` is the only value a caller should treat as usable.
+ *
+ * @param {string} handle
+ * @param {string} leafFingerprint
+ * @param {Array<{entry: object, cid: string}>} chain  Root → head, linkage ordered.
+ * @returns {{authorized: boolean, stale: boolean, revoked: boolean, current: boolean,
+ *            authorized_by_cid: string|null, epoch_succession_cid: string|null}}
+ */
+export function resolveLeafEpoch(handle, leafFingerprint, chain) {
+  if (!handle || typeof handle !== 'string') {
+    throw new Error('[sigchain] resolveLeafEpoch: handle is required');
+  }
+  if (!Array.isArray(chain)) {
+    throw new Error('[sigchain] resolveLeafEpoch: chain must be an array of {entry, cid}');
+  }
+  const target = _fpr(leafFingerprint);
+
+  let authorizedDepth = -1;
+  let authorizedByCid = null;
+  let revokeDepth = -1;
+  let lastSuccessionDepth = -1;
+  let lastSuccessionCid = null;
+
+  for (let i = 0; i < chain.length; i++) {
+    const item = chain[i];
+    const entry = item && item.entry ? item.entry : item;
+    const cid = item && item.cid ? item.cid : null;
+    if (!entry || typeof entry !== 'object') continue;
+    const payload = entry.payload || {};
+    if (payload.entity_handle !== handle) continue;
+
+    if (entry.type === 'koad.entity.key-succession') {
+      lastSuccessionDepth = i;
+      lastSuccessionCid = cid;
+    } else if (target && entry.type === 'koad.entity.leaf-authorize') {
+      if (_fpr(payload.leaf_fingerprint) === target) {
+        authorizedDepth = i;
+        authorizedByCid = cid;
+      }
+    } else if (target && entry.type === 'koad.entity.leaf-revoke') {
+      if (_fpr(payload.leaf_fingerprint) === target) {
+        revokeDepth = i;
+      }
+    }
+  }
+
+  const authorized = authorizedDepth >= 0;
+  const stale = authorized && lastSuccessionDepth > authorizedDepth;
+  // L-3: revocation is final and independent of epochs.
+  const revoked = revokeDepth >= 0 && revokeDepth > authorizedDepth;
+
+  return {
+    authorized,
+    stale,
+    revoked,
+    current: authorized && !stale && !revoked,
+    authorized_by_cid: authorizedByCid,
+    epoch_succession_cid: stale ? lastSuccessionCid : null,
+  };
 }
 
 // ---------------------------------------------------------------------------

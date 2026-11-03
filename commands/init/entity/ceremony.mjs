@@ -17,9 +17,11 @@
 //     Outputs: { valid: true, leafFingerprint } or { valid: false, error: "..." }
 //
 //   sign-entity-entries
-//     Signs koad.entity.genesis + koad.entity.leaf-authorize entries per SPEC-175 §4.
+//     Signs koad.entity.genesis | koad.entity.key-succession + koad.entity.leaf-authorize
+//     (+ optional koad.entity.leaf-revoke) per SPEC-175 §4 and SPEC-240 §5.2/§14.
 //     Uses sovereign's active device leaf (SPEC-149: master is paper-only after genesis).
-//     Outputs: { genesisEntry, genesisCid, leafEntry, leafCid, newHeadCid }
+//     Outputs: { keyEvent, keyEventEntry, keyEventCid, leafEntry, leafCid,
+//                revokeEntry, revokeCid, newHeadCid }
 //     Required args:
 //       --sovereign-leaf-encrypted-path <path>   path to leaf.private.asc
 //       --sovereign-device-key-path <path>       path to device.key (passphrase file)
@@ -30,7 +32,23 @@
 //       --leaf-fingerprint "<40hex>"             fingerprint of devices/<host>/leaf.public.asc
 //       --host "<hostname>"                      machine hostname
 //       --sigchain-head "<cid>"|""               current sovereign sigchain head CID (empty if none)
-//       --skip-genesis                           secondary device adoption (only sign leaf-authorize)
+//       --key-event genesis|succession|none      which key event to file (default genesis)
+//       --skip-genesis                           legacy alias for --key-event none
+//       --old-entity-fingerprint "<40hex>"       REQUIRED when --key-event succession
+//       --reason <reason>                        OPTIONAL succession reason (§5.2 closed set)
+//       --revoke-leaf-fingerprint "<40hex>"      OPTIONAL: file leaf-revoke after leaf-authorize
+//       --revoke-host "<hostname>"               OPTIONAL (defaults to --host)
+//       --revoke-reason <reason>                 OPTIONAL
+//
+//   resolve-entity
+//     Resolves the effective entity key and the leaf's epoch over the sovereign
+//     chain (SPEC-240 §7/§9.4). Read-only.
+//     Required args:
+//       --handle "<name>"                        entity handle to resolve
+//       --sigchain-dir <path>                    sovereign sigchain/ dir (entries/ + head.cid)
+//       --leaf-fingerprint "<40hex>"             OPTIONAL: resolve this leaf's epoch
+//     Outputs: { effective_fingerprint, established_by, history, anomalies,
+//                keyEventCount, head, chainLength, leafEpoch }
 //
 // Ref: VESTA-SPEC-175 §6.2 — entity migration steps 2–4
 // Ref: VESTA-SPEC-175 §4 — sigchain entry types koad.entity.genesis + koad.entity.leaf-authorize
@@ -40,7 +58,7 @@
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync, existsSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,7 +77,11 @@ const {
 
 const {
   buildEntityGenesis,
+  buildEntityKeySuccession,
   buildEntityLeafAuthorize,
+  buildEntityLeafRevoke,
+  resolveEntityKey,
+  resolveLeafEpoch,
   wrapEntry,
   signEntry,
 } = await import(SIGCHAIN_PATH);
@@ -174,6 +196,87 @@ async function cmdVerifyLeaf(args) {
 }
 
 // ---------------------------------------------------------------------------
+// Chain loader — linkage order only (SPEC-240 §7 R-1)
+// ---------------------------------------------------------------------------
+// Walks `previous` from head.cid back to the root and reverses. Order is NEVER
+// derived from `timestamp`, mtime, filename, or directory iteration: timestamp
+// sits inside the signed pre-image and is attacker-chosen; linkage is not.
+// A chain that cannot be walked from its head resolves as EMPTY — the caller
+// then reports `unverifiable` rather than guessing an effective key.
+
+function loadChainFromDir(sigchainDir) {
+  const entriesDir = path.join(sigchainDir, 'entries');
+  const headFile = path.join(sigchainDir, 'head.cid');
+
+  let head = null;
+  try {
+    head = readFileSync(headFile, 'utf8').trim() || null;
+  } catch {
+    head = null;
+  }
+
+  if (!existsSync(entriesDir)) return { chain: [], head: null };
+
+  const byCid = new Map();
+  let files = [];
+  try {
+    files = readdirSync(entriesDir);
+  } catch {
+    return { chain: [], head: null };
+  }
+  for (const name of files) {
+    if (!name.endsWith('.json')) continue;
+    try {
+      const entry = JSON.parse(readFileSync(path.join(entriesDir, name), 'utf8'));
+      byCid.set(name.replace(/\.json$/, ''), entry);
+    } catch {
+      // An unreadable entry is not a resolvable link; skip it.
+    }
+  }
+
+  if (!head || !byCid.has(head)) return { chain: [], head: null };
+
+  const chain = [];
+  const seen = new Set();
+  let cur = head;
+  while (cur && byCid.has(cur) && !seen.has(cur)) {
+    seen.add(cur);
+    const entry = byCid.get(cur);
+    chain.push({ entry, cid: cur });
+    cur = entry.previous;
+  }
+  chain.reverse();
+  return { chain, head };
+}
+
+// ---------------------------------------------------------------------------
+// Command: resolve-entity
+// ---------------------------------------------------------------------------
+
+async function cmdResolveEntity(args) {
+  const handle = args.handle;
+  const sigchainDir = args['sigchain-dir'];
+  const leafFingerprint = args['leaf-fingerprint'] || null;
+
+  if (!handle) die('--handle is required for resolve-entity');
+  if (!sigchainDir) die('--sigchain-dir is required for resolve-entity');
+
+  const { chain, head } = loadChainFromDir(sigchainDir);
+  const resolution = resolveEntityKey(handle, chain);
+  const leafEpoch = leafFingerprint
+    ? resolveLeafEpoch(handle, leafFingerprint, chain)
+    : null;
+
+  out({
+    ...resolution,
+    keyEventCount: resolution.history.length,
+    head,
+    chainLength: chain.length,
+    leafEpoch,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Command: sign-entity-entries
 // ---------------------------------------------------------------------------
 // Builds and signs koad.entity.genesis + koad.entity.leaf-authorize sigchain entries
@@ -201,14 +304,27 @@ async function cmdSignEntityEntries(args) {
   const leafFingerprint = args['leaf-fingerprint'];
   const host = args.host;
   const sigchainHead = args['sigchain-head'] || null;
-  // --skip-genesis: secondary device adoption — entity already exists, only sign leaf-authorize
-  const skipGenesis = args['skip-genesis'] === true || args['skip-genesis'] === 'true';
+  // --key-event picks the key event; --skip-genesis is the legacy alias for none
+  // (secondary device adoption — entity already exists, only sign leaf-authorize).
+  let keyEvent = args['key-event'];
+  if (args['skip-genesis'] === true || args['skip-genesis'] === 'true') keyEvent = 'none';
+  if (!keyEvent) keyEvent = 'genesis';
+  if (!['genesis', 'succession', 'none'].includes(keyEvent)) {
+    die(`--key-event must be one of genesis|succession|none (got: ${keyEvent})`);
+  }
+  const oldEntityFingerprint = args['old-entity-fingerprint'];
+  const successionReason = args.reason;
+  const revokeLeafFingerprint = args['revoke-leaf-fingerprint'];
+  const revokeHost = args['revoke-host'] || host;
+  const revokeReason = args['revoke-reason'];
 
   if (!leafPath) die('--sovereign-leaf-encrypted-path is required for sign-entity-entries');
   if (!deviceKeyPath) die('--sovereign-device-key-path is required for sign-entity-entries');
   if (!sovereignLeafFingerprint) die('--sovereign-leaf-fingerprint is required for sign-entity-entries');
   if (!entityHandle) die('--entity-handle is required for sign-entity-entries');
-  if (!skipGenesis && !entityFingerprint) die('--entity-fingerprint is required for sign-entity-entries (use --skip-genesis for secondary device)');
+  if (keyEvent !== 'none' && !entityFingerprint) die('--entity-fingerprint is required for sign-entity-entries (use --key-event none for secondary device)');
+  if (keyEvent === 'succession' && !oldEntityFingerprint) die('--old-entity-fingerprint is required when --key-event succession');
+  if (keyEvent === 'succession' && !entityPublicArmor) die('--entity-public-armor is required when --key-event succession (the chain must be self-contained)');
   if (!leafFingerprint) die('--leaf-fingerprint is required for sign-entity-entries');
   if (!host) die('--host is required for sign-entity-entries');
 
@@ -242,11 +358,12 @@ async function cmdSignEntityEntries(args) {
 
   const now = new Date().toISOString();
 
-  let genesisEntry = null;
-  let genesisCid = null;
+  let keyEventEntry = null;
+  let keyEventCid = null;
+  let keyEventType = 'none';
   let previousForLeaf = sigchainHead || null;
 
-  if (!skipGenesis) {
+  if (keyEvent === 'genesis') {
     // 3a. Build koad.entity.genesis entry
     //     sovereign_key_fingerprint = sovereign leaf fingerprint (the actual signer)
     //     previous = sigchainHead (current sovereign chain tip, or null if sovereign has no chain)
@@ -267,14 +384,44 @@ async function cmdSignEntityEntries(args) {
     });
 
     const signed = await signEntry(genesisUnsigned, sovereignIdentity);
-    genesisEntry = signed.entry;
-    genesisCid = signed.cid;
-    previousForLeaf = genesisCid;
+    keyEventEntry = signed.entry;
+    keyEventCid = signed.cid;
+    keyEventType = 'genesis';
+    previousForLeaf = keyEventCid;
+  } else if (keyEvent === 'succession') {
+    // 3a'. Build koad.entity.key-succession entry (SPEC-240 §5.2).
+    //      A second genesis is what the deployed code filed on every rotation;
+    //      it asks the chain to say the entity was born twice. This names the
+    //      actual event instead: the handle continues, the key changed.
+    const successionPayload = buildEntityKeySuccession({
+      entity_handle: entityHandle,
+      old_entity_key_fingerprint: oldEntityFingerprint,
+      new_entity_key_fingerprint: entityFingerprint,
+      new_entity_pubkey_armored: entityPublicArmor,
+      succeeded_at: now,
+      authorized_by: sovereignLeafFingerprint,
+      reason: successionReason,
+    });
+
+    const successionUnsigned = wrapEntry({
+      entity: 'koad',
+      timestamp: now,
+      type: successionPayload.type,
+      payload: successionPayload.payload,
+      previous: sigchainHead || null,
+    });
+
+    const signed = await signEntry(successionUnsigned, sovereignIdentity);
+    keyEventEntry = signed.entry;
+    keyEventCid = signed.cid;
+    keyEventType = 'succession';
+    previousForLeaf = keyEventCid;
   }
 
   // 3b. Build koad.entity.leaf-authorize entry
   //     authorized_by = sovereign leaf fingerprint (the actual signer)
-  //     previous = genesisCid (if genesis was signed) or sigchainHead (secondary device)
+  //     previous = key event CID (if filed) or sigchainHead (secondary device)
+  // W-6: a leaf must never be authorized against a key the chain does not yet name.
   const leafPayload = buildEntityLeafAuthorize({
     entity_handle: entityHandle,
     leaf_fingerprint: leafFingerprint,
@@ -293,15 +440,51 @@ async function cmdSignEntityEntries(args) {
 
   const { entry: leafEntry, cid: leafCid } = await signEntry(leafUnsigned, sovereignIdentity);
 
+  // 3c. Optional koad.entity.leaf-revoke for the replaced leaf (W-6 order:
+  //     succession → leaf-authorize → leaf-revoke → head).
+  let revokeEntry = null;
+  let revokeCid = null;
+  let lastCid = leafCid;
+
+  if (revokeLeafFingerprint) {
+    const revokePayload = buildEntityLeafRevoke({
+      entity_handle: entityHandle,
+      leaf_fingerprint: revokeLeafFingerprint,
+      host: revokeHost,
+      revoked_at: now,
+      revoked_by: sovereignLeafFingerprint,
+      reason: revokeReason,
+    });
+
+    const revokeUnsigned = wrapEntry({
+      entity: 'koad',
+      timestamp: now,
+      type: revokePayload.type,
+      payload: revokePayload.payload,
+      previous: leafCid,
+    });
+
+    const signedRevoke = await signEntry(revokeUnsigned, sovereignIdentity);
+    revokeEntry = signedRevoke.entry;
+    revokeCid = signedRevoke.cid;
+    lastCid = revokeCid;
+  }
+
   // 4. Output signed entries as JSON for command.sh to write to disk
   out({
-    genesisEntry,     // null when skipGenesis=true
-    genesisCid,       // null when skipGenesis=true
+    keyEvent: keyEventType,
+    keyEventEntry,        // null when keyEvent=none
+    keyEventCid,          // null when keyEvent=none
+    // legacy field names, kept for callers that predate the succession vocabulary
+    genesisEntry: keyEventType === 'genesis' ? keyEventEntry : null,
+    genesisCid: keyEventType === 'genesis' ? keyEventCid : null,
     leafEntry,
     leafCid,
-    newHeadCid: leafCid,
+    revokeEntry,          // null unless --revoke-leaf-fingerprint was given
+    revokeCid,
+    newHeadCid: lastCid,
     previousHeadCid: sigchainHead || null,
-    skipGenesis,
+    skipGenesis: keyEventType !== 'genesis',
   });
 }
 
@@ -322,6 +505,9 @@ switch (command) {
   case 'sign-entity-entries':
     await cmdSignEntityEntries(args);
     break;
+  case 'resolve-entity':
+    await cmdResolveEntity(args);
+    break;
   default:
-    die(`unknown command: ${command || '(none)'}. Valid commands: generate-entity, verify-leaf, sign-entity-entries`);
+    die(`unknown command: ${command || '(none)'}. Valid commands: generate-entity, verify-leaf, sign-entity-entries, resolve-entity`);
 }
