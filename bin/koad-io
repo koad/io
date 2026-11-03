@@ -562,7 +562,7 @@ echo "--exec $EXEC_FILE ${_REST_ARGS[*]} $KOAD_IO_FLAGS" >&2
 # install (valhala.is, 2026-10-21): the very first act of the entire install was
 #     chmod +x ~/.koad-io/commands/curriculum/command.sh   # it was not executable
 # because curriculum/command.sh had been committed 100644 while every other
-# command.sh in the tree was 100755. The mode bit blocked the map (the 27-note
+# command.sh in the tree was 100755. The mode bit blocked the map (the then-27-note
 # difficulty ramp `curriculum list` prints); three days later he hand-wrote the
 # map and handed it in as homework.
 #

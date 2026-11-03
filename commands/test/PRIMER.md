@@ -44,7 +44,7 @@ arrives non-executable at every fresh clone and dies with a bare
 `Permission denied`. On 2026-10-21 a real sovereign install opened with
 `chmod +x ~/.koad-io/commands/curriculum/command.sh` for exactly this reason —
 the only `command.sh` in the tree committed `644`. The mode bit blocked the map
-(`curriculum list`), so he rebuilt the 27-note index by hand and handed it in.
+(`curriculum list`), so he rebuilt the then-27-note index by hand and handed it in.
 
 `test modes` reads the **index**, not the working tree — the defect only
 reproduces on a fresh clone, so a working-tree check would have passed on the
