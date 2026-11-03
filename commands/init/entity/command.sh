@@ -1038,11 +1038,40 @@ devices/*/device.key
 !entity.public.asc
 !entity.fingerprint
 !migrated-at
-!archive/**
+
+# VESTA-SPEC-240 §15 — archive hygiene (A-1/A-2).
+# An archive is a custody surface, not a publication surface. Rotation puts the
+# displaced leaf and its passphrase in here on a schedule, and `!archive/**`
+# used to publish both. Deny the tree, admit only public material, and deny
+# private material explicitly rather than by omission.
+archive/**
+!archive/**/
+!archive/**/entity.public.asc
+!archive/**/leaf.public.asc
+!archive/**/entity.fingerprint
+*.private.asc
+device.key
+
 # Keep this file
 !.gitignore
 GITIGNORE
         say "  created: id/.gitignore"
+    fi
+
+    # VESTA-SPEC-240 §15 — migrate an existing id/.gitignore. `!archive/**` is
+    # the K-5 defect: it admits archived leaf.private.asc and device.key while
+    # only devices/*/leaf.private.asc is denied. Drop it, state the contract.
+    if grep -qxF '!archive/**' "$id_gitignore" 2>/dev/null; then
+        local tmp
+        tmp=$(mktemp)
+        grep -vxF '!archive/**' "$id_gitignore" > "$tmp" && cat "$tmp" > "$id_gitignore"
+        rm -f "$tmp"
+        say "  updated: id/.gitignore (dropped !archive/** — SPEC-240 §15)"
+    fi
+
+    if ! grep -qF 'archive/**/entity.public.asc' "$id_gitignore" 2>/dev/null; then
+        printf '\n# VESTA-SPEC-240 §15 — archive hygiene (A-1/A-2).\n# An archive is a custody surface, not a publication surface. Deny the tree,\n# admit only public material, and deny private material explicitly.\narchive/**\n!archive/**/\n!archive/**/entity.public.asc\n!archive/**/leaf.public.asc\n!archive/**/entity.fingerprint\n*.private.asc\ndevice.key\n' >> "$id_gitignore"
+        say "  updated: id/.gitignore (SPEC-240 §15 archive rules)"
     fi
 
     # VESTA-SPEC-221 — the Nostr half of the identity, same contract as the root

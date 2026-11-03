@@ -998,24 +998,45 @@ if (want('hygiene')) {
       GIT_COMMITTER_EMAIL: 'test@test',
     },
   });
+
+  // Establish the repo the way a real entity gets one: a ceremony run writes the
+  // SPEC-175/§15 ignore rules, then the operator commits. Starting the commit
+  // BEFORE any ignore rules exist would commit private material by construction
+  // and the AC would be measuring the fixture, not the code.
+  const seed = runInit(home, ['alice', '--forceful']);
+  eq(seed.code, 0, '§15 the seeding rotation exits 0');
   git(['init', '-q']);
   git(['add', '-A']);
   git(['commit', '-qm', 'fixture']);
 
+  const trackedBefore = (git(['ls-files']).stdout || '').split('\n').filter(Boolean);
+  ok(!trackedBefore.some((f) => /\.private\.asc$|device\.key$/.test(f)),
+    '§15 the fixture repo tracks no private material before the rotation',
+    trackedBefore.filter((f) => /\.private\.asc$|device\.key$/.test(f)).join(', '));
+
+  // The rotation under test.
   const run = runInit(home, ['alice', '--forceful']);
   eq(run.code, 0, '§15 the rotation under test exits 0');
 
   // AC-31 — nothing private is tracked under id/archive/, and the ignore rules
   // actually cover the archived material.
-  const status = git(['status', '--porcelain', '--', 'id/archive']).stdout || '';
+  //
+  // -uall lists individual untracked files; without it `?? id/archive/` can hide
+  // exactly the material this AC exists to catch.
+  const status = git(['status', '--porcelain', '-uall']).stdout || '';
+  if (process.env.SPEC240_DEBUG) console.log('STATUS:', status);
   ok(!/\.private\.asc|device\.key/.test(status),
-    'AC-31 no *.private.asc or device.key is added under id/archive/', status);
+    'AC-31 no *.private.asc or device.key is offered to git (status -uall)', status);
+  const dryRun = git(['add', '-A', '-n']).stdout || '';
+  ok(!/\.private\.asc|device\.key/.test(dryRun),
+    'AC-31 `git add -A` would not stage any private material', dryRun);
 
   const archiveDirs = fs.existsSync(path.join(entityDir, 'id', 'archive'))
     ? fs.readdirSync(path.join(entityDir, 'id', 'archive'))
     : [];
   ok(archiveDirs.length > 0, 'AC-31 the rotation produced an archive directory');
-  const archivedDevice = fs.existsSync(path.join(entityDir, 'id', 'archive'))
+
+  const archivedFiles = fs.existsSync(path.join(entityDir, 'id', 'archive'))
     ? fs.readdirSync(path.join(entityDir, 'id', 'archive'))
       .map((d) => path.join(entityDir, 'id', 'archive', d))
       .filter((p) => fs.statSync(p).isDirectory())
@@ -1023,7 +1044,7 @@ if (want('hygiene')) {
       .filter((p) => fs.statSync(p).isDirectory())
       .flatMap((p) => fs.readdirSync(p).map((c) => path.join(p, c)))
     : [];
-  const priv = archivedDevice.filter((p) => /leaf\.private\.asc$|device\.key$/.test(p));
+  const priv = archivedFiles.filter((p) => /leaf\.private\.asc$|device\.key$/.test(p));
   ok(priv.length > 0, '§15 the archive does contain private material that must stay ignored');
   for (const p of priv) {
     const rel = path.relative(entityDir, p);
@@ -1031,12 +1052,42 @@ if (want('hygiene')) {
     eq(ignored.status, 0, `AC-31 git check-ignore confirms ${rel} is ignored`);
   }
 
-  // and the public half stays tracked
-  const pub = archivedDevice.filter((p) => /entity\.public\.asc$|leaf\.public\.asc$/.test(p));
+  const pub = archivedFiles.filter((p) => /entity\.public\.asc$|leaf\.public\.asc$/.test(p));
   for (const p of pub.slice(0, 2)) {
     const rel = path.relative(entityDir, p);
     const ignored = git(['check-ignore', '-q', rel]);
     ok(ignored.status !== 0, `§15 A-2 the public half is trackable (${rel} not ignored)`);
+  }
+
+  // §15 upgrade path — an entity that already has the K-5 rules must be
+  // migrated, not left publishing archived private keys.
+  {
+    const home2 = makeHome();
+    const sov2 = await makeSovereign(home2);
+    const k2 = await mintKey('bob @ test.kingdom');
+    await sov2.appendGenesis('bob', k2.fingerprint);
+    const ent = await makeEntity(home2, 'bob', '6', { entityKey: k2 });
+    fs.mkdirSync(path.join(ent.idDir), { recursive: true });
+    fs.writeFileSync(path.join(ent.idDir, '.gitignore'), [
+      '# legacy id/.gitignore (pre-SPEC-240)',
+      'devices/*/leaf.private.asc',
+      'devices/*/device.key',
+      '!devices/*/leaf.public.asc',
+      '!entity.public.asc',
+      '!entity.fingerprint',
+      '!migrated-at',
+      '!archive/**',
+      '!.gitignore',
+      '',
+    ].join('\n'));
+    const r2 = runInit(home2, ['bob', '--forceful']);
+    eq(r2.code, 0, '§15 upgrade-path rotation exits 0');
+    const rules = fs.readFileSync(path.join(ent.idDir, '.gitignore'), 'utf8');
+    ok(!/^!archive\/\*\*$/m.test(rules), '§15 the superseded !archive/** rule is removed');
+    ok(/^archive\/\*\*$/m.test(rules), '§15 the archive tree is denied by default');
+    ok(/^!archive\/\*\*\/leaf\.public\.asc$/m.test(rules), '§15 the public half is admitted explicitly');
+    ok(/^\*\.private\.asc$/m.test(rules), '§15 A-1 private keys are denied explicitly');
+    ok(/^device\.key$/m.test(rules), '§15 A-1 device keys are denied explicitly');
   }
 }
 
