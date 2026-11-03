@@ -20,3 +20,16 @@ debug.log
 
 # Any other per-session log
 *.log
+
+# Harness runtime state — written here when a harness runs with this directory as
+# its home: the provider auth store and the model cache. Per-machine, never
+# framework content. Both appeared untracked on 2026-11-03 (2-byte `{}` stubs) in
+# a repo whose only remote is public — the denylist above is doing what a denylist
+# does, so name each new artifact here when it first shows up.
+auth.json
+models-store.json
+
+# Claude Code harness auth cache. The root .gitignore already carries this name
+# unanchored, so it matches here too; listed locally so this section can be read
+# on its own without hunting for the other file.
+mcp-needs-auth-cache.json
