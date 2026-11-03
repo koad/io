@@ -118,50 +118,40 @@ fi
 # resolution. Flag args (--local, --attach, --dry-run, etc.) are NOT directory
 # names — they pass through to the final command unchanged.
 #
-# Fix A: preserve --flag value pairs. When a --flag token is followed by a
-# token that does not start with --, absorb the next token as the flag's value.
-# This keeps --entity juno and --note "some text" paired together rather than
-# splitting the value into positionals.
+# The classification lives in helpers/argv.sh and is shared with the regression
+# test, so the fix cannot silently drift away from what is pinned. The rule:
 #
-# Fix B: _flag_args is kept as a bash array (not flattened to a string) so
-# the exec at the bottom can expand it with "${_flag_args[@]}" — preserving
-# whitespace inside flag values through to the command's argv.
+#   Fix A: a flag consumes the next token ONLY if it is a known value-taking
+#   flag (helpers/argv.sh KOAD_IO_VALUE_FLAGS). Boolean AND unknown flags never
+#   eat a positional. The old loop absorbed the next non-flag token for EVERY
+#   --flag, so `koad-io --debug kingdom whoami` parsed --debug=kingdom and ran
+#   the framework `whoami` — the command word became data.
+#
+#   Fix B: _flag_args stays a bash array (not flattened) so the exec at the
+#   bottom can expand it with "${_flag_args[@]}", preserving whitespace inside
+#   flag values through to the command's argv.
 #
 # Backwards compat: KOAD_IO_FLAGS (word-split string) is still exported for
 # commands that read it directly (start/stop/restart use it for boolean flags
-# like --local and --attach). Boolean flags have no following value token so
-# Fix A does not affect them.
-_positional_args=()
-_flag_args=()
-_i=1
-while [[ $_i -le $# ]]; do
-  _arg="${!_i}"
-  if [[ "$_arg" == --*=* ]]; then
-    # --key=value form: already self-contained, no lookahead needed
-    _flag_args+=("$_arg")
-  elif [[ "$_arg" == --* ]]; then
-    _next_i=$((_i + 1))
-    _next="${!_next_i:-}"
-    if [[ -n "$_next" && "$_next" != --* ]]; then
-      # Absorb the next token as this flag's value
-      _flag_args+=("$_arg" "$_next")
-      _i=$((_i + 1))
-    else
-      # Boolean flag (no value follows, or next token is another flag)
-      _flag_args+=("$_arg")
-    fi
-  else
-    _positional_args+=("$_arg")
-  fi
-  _i=$((_i + 1))
-done
+# like --local and --attach). Boolean flags appear in it unchanged.
+_argv_helper="$HOME/.koad-io/helpers/argv.sh"
+if [[ ! -f "$_argv_helper" ]]; then
+  echo "koad-io: missing argv helper: $_argv_helper" >&2
+  exit 70
+fi
+# shellcheck source=../helpers/argv.sh
+source "$_argv_helper"
+unset _argv_helper
+koad_io_split_argv "$@"
+_positional_args=("${_koad_io_positional_args[@]}")
+_flag_args=("${_koad_io_flag_args[@]}")
 set -- "${_positional_args[@]}"
 export KOAD_IO_FLAGS="${_flag_args[*]}"
 # _flag_args array is kept alive (not unset here) so the exec at the bottom
 # of this script can expand it with "${_flag_args[@]}" and preserve whitespace
 # in flag values. KOAD_IO_FLAGS (word-split string) is exported for backwards
 # compat with commands that read it directly (e.g. start/stop for boolean flags).
-unset _positional_args _arg _i _next_i _next
+unset _positional_args _koad_io_positional_args _koad_io_flag_args
 
 [[ $9 ]] && echo 'You have reached the limits here, sorry -- too many arguments.' >&2 && exit 68
 
