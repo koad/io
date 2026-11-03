@@ -990,6 +990,25 @@ if (want('matrix')) {
       'AC-16 it never claims "fully initialized" without an epoch line', line);
   }
 
+  // §13.4 6/(none) happy path — paternity proven AND the leaf authorized in the
+  // current epoch is the one state-6 report that is a plain `did`.
+  {
+    const home = makeHome();
+    const sov = await makeSovereign(home);
+    const k1 = await mintKey('alice @ test.kingdom');
+    const ent = await makeEntity(home, 'alice', '6', { entityKey: k1 });
+    await sov.appendGenesis('alice', k1.fingerprint);
+    await sov.appendLeafAuthorize('alice', ent.leafKey.fingerprint);
+    const head = sov.head();
+    const run = runInit(home, ['alice']);
+    eq(run.code, 0, '§13.4 6/(none) happy path exits 0');
+    const line = firstInitLine(run.all);
+    ok(/^\[init\] 6\/\(none\): did/.test(line), '§13.4 6/(none) healthy entity is `did`', line);
+    ok(/leaf epoch: current/.test(line), '§13.4 the leaf-epoch line says current', line);
+    ok(/paternity: PROVEN/.test(line), '§13.4 the paternity line is present when proven', line);
+    eq(sov.head(), head, '§13.4 6/(none) mutates nothing');
+  }
+
   // AC-5 / W-3 — re-running a ceremony that has nothing to do must not grow the chain.
   //
   // NOTE (reported to Juno): AC-5 as literally written — re-run a state-6
