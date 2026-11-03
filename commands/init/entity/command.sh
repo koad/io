@@ -18,13 +18,15 @@
 #   Every invocation resolves to ONE state (filesystem facts only — a flag never
 #   chooses the state) and ONE flag, and prints exactly one leading line:
 #
-#       [init] <state>/<flag>: did|no-op|warned|refused — <what happened>
+#       [init] <state>/<flag-set>: did|no-op|warned|refused — <what happened>
 #
 #   `did` / `no-op` / `warned` exit 0 and say what changed (or why nothing did).
 #   `refused` exits 2, names the reason and the exact command that would work,
 #   and writes NOTHING. Exit 1 is reserved for tooling failure.
 #   Two or more of --forceful/--adopt/--re-seed together are refused (§13.6):
-#   the three are distinct intents and no precedence order exists.
+#   the three are distinct intents and no precedence order exists. A <flag-set>
+#   is emitted in the canonical order --forceful → --adopt → --re-seed, joined
+#   by `+`, whatever order the operator typed (§13.2).
 #
 #   States (§13.1):
 #     3   legacy keys, no SPEC-175 entity key   → migrate (key event: genesis|succession)
@@ -51,8 +53,10 @@
 #
 # Pre-flight checks (entity path):
 #   - Sovereign at ~/.koad-io/me/ with a device leaf for $HOSTNAME enables signing.
-#     Creation (4/5, and 7 --re-seed unverifiable) proceeds provisionally without
-#     one; rotation and replacement are refused (SPEC-240 W-5).
+#     Creation (3, 4/5, and 7 --re-seed unverifiable) proceeds provisionally without
+#     one; rotation, replacement and leaf authorization are refused (SPEC-240 §13.7b / W-5).
+#     The discriminator is resolution, not the state or flag: a chain that already
+#     resolves an effective key for the handle makes the next key event a succession.
 #
 # After state resolution:
 #   - Launcher at ~/.koad-io/bin/<entity> is always ensured
@@ -143,7 +147,11 @@ resolve_chain_state() {
     LEAF_EPOCH_REVOKED=0
     LEAF_EPOCH_CURRENT=0
 
-    [ "$HAVE_SOVEREIGN" -eq 1 ] || return 0
+    # Resolution is a chain fact, not a device capability (SPEC-240 D-1, §13.7).
+    # No device leaf on this host means we cannot SIGN, but a cloned sovereign
+    # chain may still resolve an effective key — and that resolution is what
+    # decides whether a cell is creation or succession (§13.7b). Do not gate
+    # resolution on HAVE_SOVEREIGN; gate it on the chain being readable.
     command -v node >/dev/null 2>&1 || return 0
     command -v jq   >/dev/null 2>&1 || return 0
     [ -f "$CEREMONY_SCRIPT" ] || return 0
@@ -237,13 +245,12 @@ verify_paternity() {
     ENTITY_FPR_ON_DISK="$(entity_fingerprint_on_disk || true)"
     ENTITY_FPR_ON_DISK="${ENTITY_FPR_ON_DISK//[[:space:]]/}"
 
-    if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
-        PATERNITY_REASON="no sovereign at $SOVEREIGN_DIR on this device — there is no chain to prove anything against"
-        return 0
-    fi
-
     if [ "$RESOLVE_AVAILABLE" -ne 1 ]; then
-        PATERNITY_REASON="the sovereign sigchain at $SOVEREIGN_DIR/sigchain is absent, empty, or unreadable — nothing recorded, nothing to compare"
+        if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+            PATERNITY_REASON="no sovereign at $SOVEREIGN_DIR on this device — there is no chain to prove anything against"
+        else
+            PATERNITY_REASON="the sovereign sigchain at $SOVEREIGN_DIR/sigchain is absent, empty, or unreadable — nothing recorded, nothing to compare"
+        fi
         return 0
     fi
 
@@ -418,6 +425,10 @@ case "${#FLAGS_GIVEN[@]}" in
     0) : ;;
     1) FLAG="${FLAGS_GIVEN[0]}" ;;
     *)
+        # §13.2 canonical <flag-set>: fixed order --forceful → --adopt →
+        # --re-seed, joined by `+`, no spaces. FLAGS_GIVEN is already built in
+        # that order, so a reversed invocation still emits one conforming line.
+        FLAG=""
         for f in "${FLAGS_GIVEN[@]}"; do
             FLAG="${FLAG:+$FLAG+}$f"
             FLAGS_LIST="${FLAGS_LIST:+$FLAGS_LIST, }$f"
@@ -546,27 +557,38 @@ case "$STATE/$FLAG" in
         CELL_DETAIL="there is no id/entity.public.asc to adopt — legacy keys are migrated, not adopted. Use: $INVOKE"
         ;;
     "3/--forceful"|"3/--re-seed"|"3/(none)")
-        if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
-            # W-5: migration files a key event (the entity's key changes), and a
-            # key event cannot be recorded without a sovereign. Creation in
-            # state 4/5 may proceed provisionally; migration may not.
+        # §13.7 — migration always files a key event, so the discriminator is
+        # resolution, not the fact that `id/` holds no SPEC-175 key. A handle
+        # the chain already resolves gets a succession, which is a sovereign
+        # act; a chain that holds no key for it gets a genesis, which creation
+        # may defer to countersignature.
+        _STATE3_EVENT="$(next_key_event)"
+        if [ "$HAVE_SOVEREIGN" -ne 1 ] && [ "$_STATE3_EVENT" = "succession" ]; then
             CELL_VERB="refused"
-            CELL_DETAIL="migration changes this entity's key, and an unrecorded key change is refused (W-5). Use: koad-io init sovereign, then $INVOKE"
+            CELL_DETAIL="the chain already resolves an effective key for '$ENTITY_NAME', so migration's key event is a succession — a sovereign act (SPEC-240 §13.7b / W-5) — and there is no sovereign on this device to sign it. Use: koad-io init sovereign, then $INVOKE"
         else
             CELL_VERB="did"
             CELL_MINT_ENTITY=1
             CELL_MINT_LEAF=1
-            CELL_SIGN_LEAF=1
             CELL_ARCHIVE="pre-175-migration"
-            CELL_KEY_EVENT="$(next_key_event)"
-            CELL_REASON="migration"
             set_archive "pre-175-migration"
             case "$FLAG" in
                 --forceful) CELL_DETAIL="migration proceeds — there is no SPEC-175 entity key on disk to rotate" ;;
                 --re-seed)  CELL_DETAIL="migration proceeds — there is no SPEC-175 entity key on disk to ignore" ;;
                 *)          CELL_DETAIL="migrating legacy keys to SPEC-175" ;;
             esac
-            CELL_DETAIL="$CELL_DETAIL; legacy material archived to $ARCHIVE_REL/; key event: $(key_event_word "$CELL_KEY_EVENT")"
+            CELL_DETAIL="$CELL_DETAIL; legacy material archived to $ARCHIVE_REL/"
+            if [ "$HAVE_SOVEREIGN" -eq 1 ]; then
+                CELL_SIGN_LEAF=1
+                CELL_KEY_EVENT="$_STATE3_EVENT"
+                CELL_REASON="migration"
+                CELL_DETAIL="$CELL_DETAIL; key event: $(key_event_word "$CELL_KEY_EVENT")"
+            else
+                # §13.7a — creation may proceed without a sovereign. The genesis
+                # (and its leaf-authorize) are deferred to countersignature.
+                CELL_KEY_EVENT="none"
+                CELL_DETAIL="$CELL_DETAIL; provisional (no sovereign on this device) — id/provisional.json marks it unsigned, and the koad.entity.genesis is deferred to sovereign countersignature"
+            fi
         fi
         ;;
 
@@ -578,24 +600,33 @@ case "$STATE/$FLAG" in
         CELL_DETAIL="there is no on-disk key to adopt, and creating a fresh one would silently contradict the flag. Use: $INVOKE"
         ;;
     "4/5/--forceful"|"4/5/--re-seed"|"4/5/(none)")
-        CELL_VERB="did"
-        CELL_MINT_ENTITY=1
-        CELL_MINT_LEAF=1
-        case "$FLAG" in
-            --forceful) CELL_DETAIL="there is nothing to rotate — no key on disk; creation proceeds" ;;
-            --re-seed)  CELL_DETAIL="there is nothing to ignore — no key on disk; creation proceeds" ;;
-            *)          CELL_DETAIL="creating a fresh entity keypair and device leaf" ;;
-        esac
-        if [ "$HAVE_SOVEREIGN" -eq 1 ]; then
-            CELL_KEY_EVENT="$(next_key_event)"
-            CELL_SIGN_LEAF=1
-            CELL_REASON="migration"
-            CELL_DETAIL="$CELL_DETAIL; key event: $(key_event_word "$CELL_KEY_EVENT")"
+        # §13.7 — creation is provisional only when the key event is a genesis.
+        # If the chain already resolves a key for this handle the next event is
+        # a succession, and there is nothing provisional to defer (AC-36).
+        _STATE45_EVENT="$(next_key_event)"
+        if [ "$HAVE_SOVEREIGN" -ne 1 ] && [ "$_STATE45_EVENT" = "succession" ]; then
+            CELL_VERB="refused"
+            CELL_DETAIL="the chain already resolves an effective key for '$ENTITY_NAME', so the key event would be a succession — a sovereign act (SPEC-240 §13.7b / W-5) — and there is no sovereign on this device to sign it. There is nothing provisional to defer, because the chain already knows the key. Use: koad-io init sovereign, then $INVOKE"
         else
-            # BC-7 / SPEC-175 §4.4b: creation needs no sovereign. It is
-            # provisional and says so about itself.
-            CELL_KEY_EVENT="none"
-            CELL_DETAIL="$CELL_DETAIL — provisional (no sovereign on this device); id/provisional.json marks it unsigned and no chain entry is filed"
+            CELL_VERB="did"
+            CELL_MINT_ENTITY=1
+            CELL_MINT_LEAF=1
+            case "$FLAG" in
+                --forceful) CELL_DETAIL="there is nothing to rotate — no key on disk; creation proceeds" ;;
+                --re-seed)  CELL_DETAIL="there is nothing to ignore — no key on disk; creation proceeds" ;;
+                *)          CELL_DETAIL="creating a fresh entity keypair and device leaf" ;;
+            esac
+            if [ "$HAVE_SOVEREIGN" -eq 1 ]; then
+                CELL_KEY_EVENT="$_STATE45_EVENT"
+                CELL_SIGN_LEAF=1
+                CELL_REASON="migration"
+                CELL_DETAIL="$CELL_DETAIL; key event: $(key_event_word "$CELL_KEY_EVENT")"
+            else
+                # BC-7 / SPEC-175 §4.4b: creation needs no sovereign. It is
+                # provisional and says so about itself.
+                CELL_KEY_EVENT="none"
+                CELL_DETAIL="$CELL_DETAIL — provisional (no sovereign on this device); id/provisional.json marks it unsigned, and the koad.entity.genesis is deferred to sovereign countersignature"
+            fi
         fi
         ;;
 
@@ -637,17 +668,24 @@ case "$STATE/$FLAG" in
                 CELL_DETAIL="the chain says this key IS this handle's effective key, so \"not mine\" contradicts the chain. Use: $INVOKE --forceful"
                 ;;
             disproven)
-                CELL_VERB="did"
-                CELL_MINT_ENTITY=1
-                CELL_MINT_LEAF=1
-                CELL_SIGN_LEAF=1
-                CELL_REVOKE_LEAF=1
-                CELL_ARCHIVE_DEVICE=1
-                CELL_KEY_EVENT="$(next_key_event)"
-                CELL_REASON="migration"
-                CELL_ARCHIVE="$(archive_label)"
-                set_archive "$CELL_ARCHIVE"
-                CELL_DETAIL="the on-disk key is not this handle's key — it is archived to $ARCHIVE_REL/ as foreign, a fresh entity key and device leaf are minted, and the key event is $(key_event_word "$CELL_KEY_EVENT") from the chain's effective key"
+                if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+                    # §13.7b — replacement is a succession, and a succession is a
+                    # sovereign act. W-5 is about resolution, not the flag name.
+                    CELL_VERB="refused"
+                    CELL_DETAIL="the on-disk key is not this handle's key, so the rescue is a succession — a sovereign act (SPEC-240 §13.7b / W-5) — and there is no sovereign on this device to sign it. Use: koad-io init sovereign, then $INVOKE --re-seed"
+                else
+                    CELL_VERB="did"
+                    CELL_MINT_ENTITY=1
+                    CELL_MINT_LEAF=1
+                    CELL_SIGN_LEAF=1
+                    CELL_REVOKE_LEAF=1
+                    CELL_ARCHIVE_DEVICE=1
+                    CELL_KEY_EVENT="$(next_key_event)"
+                    CELL_REASON="migration"
+                    CELL_ARCHIVE="$(archive_label)"
+                    set_archive "$CELL_ARCHIVE"
+                    CELL_DETAIL="the on-disk key is not this handle's key — it is archived to $ARCHIVE_REL/ as foreign, a fresh entity key and device leaf are minted, and the key event is $(key_event_word "$CELL_KEY_EVENT") from the chain's effective key"
+                fi
                 ;;
             *)
                 CELL_VERB="refused"
@@ -688,8 +726,18 @@ case "$STATE/$FLAG" in
     "7/--adopt")
         case "$PATERNITY" in
             proven)
-                CELL_VERB="no-op"
-                CELL_DETAIL="--adopt: the key is already adopted and authorized for this device, so nothing changes; paternity: PROVEN — $PATERNITY_REASON"
+                # V-2: state 7 is DEFINED as no leaf for this host, so the leaf
+                # work is never already done. A no-op here would leave the
+                # device unable to sign while claiming the adoption succeeded.
+                if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+                    CELL_VERB="refused"
+                    CELL_DETAIL="the on-disk key is already this handle's effective key, but adopting it for this device means filing koad.entity.leaf-authorize — a sovereign act (SPEC-240 §13.7b / W-5) — and there is no sovereign on this device to sign it. Use: koad-io init sovereign, then $INVOKE --adopt"
+                else
+                    CELL_VERB="did"
+                    CELL_MINT_LEAF=1
+                    CELL_SIGN_LEAF=1
+                    CELL_DETAIL="--adopt: the key was already this handle's effective key, so no key event is filed; minting this device's leaf and filing koad.entity.leaf-authorize; paternity: PROVEN — $PATERNITY_REASON"
+                fi
                 ;;
             disproven)
                 CELL_VERB="refused"
@@ -709,16 +757,21 @@ case "$STATE/$FLAG" in
                 CELL_DETAIL="the chain says this key IS this handle's effective key, so \"not mine\" contradicts the chain. Use: $INVOKE --forceful"
                 ;;
             disproven)
-                CELL_VERB="did"
-                CELL_MINT_ENTITY=1
-                CELL_MINT_LEAF=1
-                CELL_SIGN_LEAF=1
-                CELL_ARCHIVE_DEVICE=1
-                CELL_KEY_EVENT="$(next_key_event)"
-                CELL_REASON="migration"
-                CELL_ARCHIVE="$(archive_label)"
-                set_archive "$CELL_ARCHIVE"
-                CELL_DETAIL="the on-disk key is archived to $ARCHIVE_REL/ as foreign, and the key event is $(key_event_word "$CELL_KEY_EVENT") from the chain's effective key to a freshly minted one"
+                if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+                    CELL_VERB="refused"
+                    CELL_DETAIL="the on-disk key is not this handle's key, so the rescue is a succession — a sovereign act (SPEC-240 §13.7b / W-5) — and there is no sovereign on this device to sign it. Use: koad-io init sovereign, then $INVOKE --re-seed"
+                else
+                    CELL_VERB="did"
+                    CELL_MINT_ENTITY=1
+                    CELL_MINT_LEAF=1
+                    CELL_SIGN_LEAF=1
+                    CELL_ARCHIVE_DEVICE=1
+                    CELL_KEY_EVENT="$(next_key_event)"
+                    CELL_REASON="migration"
+                    CELL_ARCHIVE="$(archive_label)"
+                    set_archive "$CELL_ARCHIVE"
+                    CELL_DETAIL="the on-disk key is archived to $ARCHIVE_REL/ as foreign, and the key event is $(key_event_word "$CELL_KEY_EVENT") from the chain's effective key to a freshly minted one"
+                fi
                 ;;
             *)
                 if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
@@ -729,7 +782,7 @@ case "$STATE/$FLAG" in
                     CELL_KEY_EVENT="none"
                     CELL_ARCHIVE="$(archive_label)"
                     set_archive "$CELL_ARCHIVE"
-                    CELL_DETAIL="creation on a directory that inherited a face (SPEC-175 §4.4) — the on-disk key is archived to $ARCHIVE_REL/ as foreign; provisional (no sovereign), so id/provisional.json marks it unsigned and the first key event will be a genesis when a sovereign countersigns"
+                    CELL_DETAIL="creation on a directory that inherited a face (SPEC-175 §4.4) — the on-disk key is archived to $ARCHIVE_REL/ as foreign; provisional (no sovereign on this device), so id/provisional.json marks it unsigned, and the koad.entity.genesis is deferred to sovereign countersignature"
                 else
                     CELL_VERB="did"
                     CELL_MINT_ENTITY=1
@@ -747,22 +800,32 @@ case "$STATE/$FLAG" in
     "7/(none)")
         case "$PATERNITY" in
             proven)
-                CELL_VERB="did"
-                CELL_MINT_LEAF=1
-                CELL_SIGN_LEAF=1
-                CELL_DETAIL="paternity: PROVEN — a new device mints its own leaf for an entity key this sovereign created; key event: koad.entity.leaf-authorize"
+                if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+                    CELL_VERB="refused"
+                    CELL_DETAIL="the chain proves the on-disk key is this handle's effective key, but onboarding this device means filing koad.entity.leaf-authorize — a sovereign act (SPEC-240 §13.7b / W-5) — and there is no sovereign on this device to sign it. Use: koad-io init sovereign, then $INVOKE"
+                else
+                    CELL_VERB="did"
+                    CELL_MINT_LEAF=1
+                    CELL_SIGN_LEAF=1
+                    CELL_DETAIL="paternity: PROVEN — a new device mints its own leaf for an entity key this sovereign created; key event: koad.entity.leaf-authorize"
+                fi
                 ;;
             disproven)
-                CELL_VERB="did"
-                CELL_MINT_ENTITY=1
-                CELL_MINT_LEAF=1
-                CELL_SIGN_LEAF=1
-                CELL_ARCHIVE_DEVICE=1
-                CELL_KEY_EVENT="$(next_key_event)"
-                CELL_REASON="migration"
-                CELL_ARCHIVE="$(archive_label)"
-                set_archive "$CELL_ARCHIVE"
-                CELL_DETAIL="paternity: DISPROVEN — rescuing as scheduled: the on-disk key is archived to $ARCHIVE_REL/ as foreign, the chain's effective key is succeeded by a freshly minted one, and this device's leaf is authorized; key event: $(key_event_word "$CELL_KEY_EVENT")"
+                if [ "$HAVE_SOVEREIGN" -ne 1 ]; then
+                    CELL_VERB="refused"
+                    CELL_DETAIL="paternity: DISPROVEN — the rescue is a succession, a sovereign act (SPEC-240 §13.7b / W-5), and there is no sovereign on this device to sign it. Use: koad-io init sovereign, then $INVOKE"
+                else
+                    CELL_VERB="did"
+                    CELL_MINT_ENTITY=1
+                    CELL_MINT_LEAF=1
+                    CELL_SIGN_LEAF=1
+                    CELL_ARCHIVE_DEVICE=1
+                    CELL_KEY_EVENT="$(next_key_event)"
+                    CELL_REASON="migration"
+                    CELL_ARCHIVE="$(archive_label)"
+                    set_archive "$CELL_ARCHIVE"
+                    CELL_DETAIL="paternity: DISPROVEN — rescuing as scheduled: the on-disk key is archived to $ARCHIVE_REL/ as foreign, the chain's effective key is succeeded by a freshly minted one, and this device's leaf is authorized; key event: $(key_event_word "$CELL_KEY_EVENT")"
+                fi
                 ;;
             *)
                 CELL_VERB="refused"

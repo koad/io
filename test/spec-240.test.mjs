@@ -118,6 +118,17 @@ function makeHome({ sovereign = true } = {}) {
 
 const nowIso = () => new Date().toISOString();
 
+/**
+ * Remove this device's signing material while leaving the sovereign chain
+ * readable. This is the §13.7 "no sovereign" case: the chain still resolves an
+ * effective key, but no cell on this host may SIGN a succession or a leaf.
+ */
+function dropSovereignDeviceLeaf(home) {
+  const devDir = path.join(home, '.koad-io', 'me', 'id', 'devices', HOST);
+  fs.rmSync(path.join(devDir, 'leaf.private.asc'), { force: true });
+  fs.rmSync(path.join(devDir, 'device.key'), { force: true });
+}
+
 /** Generate a sovereign identity into <home>/.koad-io/me with a real root entry. */
 async function makeSovereign(home, { handle = 'sovereign', domain = 'test.kingdom' } = {}) {
   const me = path.join(home, '.koad-io', 'me');
@@ -366,7 +377,9 @@ function diffSnapshots(a, b) {
   return diffs;
 }
 
-const LOUD_RE = /^\[init\] (3|4\/5|6|7)\/(--forceful|--adopt|--re-seed|\(none\)): (did|no-op|warned|refused)/m;
+const FLAG_SET_RE = String.raw`(?:\(none\)|--forceful|--adopt|--re-seed|--forceful\+--adopt|--forceful\+--re-seed|--adopt\+--re-seed|--forceful\+--adopt\+--re-seed)`;
+const LOUD_RE = new RegExp(
+  String.raw`^\[init\] (3|4\/5|6|7)\/(${FLAG_SET_RE}): (did|no-op|warned|refused)`);
 
 function firstInitLine(text) {
   return text.split('\n').find((l) => l.startsWith('[init] ')) || '';
@@ -780,8 +793,49 @@ async function matrixCell(state, flag) {
   };
 }
 
+/**
+ * A §13.6 combination cell. Refusal happens before any mutation, so this
+ * fixture needs no keygen: fake key files are enough to reach state detection
+ * and the loud line.
+ */
+async function comboCell(state, typedFlags) {
+  const home = makeHome({ sovereign: false });
+  const fakeKey = {
+    fingerprint: K(9),
+    publicKey: '-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nAAAA\n-----END PGP PUBLIC KEY BLOCK-----\n',
+  };
+  const fakeLeaf = {
+    ...fakeKey,
+    fingerprint: K(8),
+    privateArmor: 'fake',
+    deviceKey: 'fake',
+  };
+  const name = 'alice';
+  await makeEntity(home, name, state, { entityKey: fakeKey, leafKey: fakeLeaf });
+  const idDir = path.join(home, `.${name}`, 'id');
+  const headFile = path.join(home, '.koad-io', 'me', 'sigchain', 'head.cid');
+  const before = snapshotTree(idDir, headFile);
+  const run = runInit(home, [name, ...typedFlags]);
+  const after = snapshotTree(idDir, headFile);
+  return { home, name, run, before, after, entityDir: path.join(home, `.${name}`), loud: firstInitLine(run.all) };
+}
+
+// §13.6 combinations. Each pair is listed typed in canonical order and then
+// reversed; the triple likewise. AC-17/AC-26 require one conforming line
+// whatever order the operator typed.
+const COMBO_SPECS = [
+  { typed: ['--forceful', '--adopt'], canonical: '--forceful+--adopt' },
+  { typed: ['--adopt', '--forceful'], canonical: '--forceful+--adopt' },
+  { typed: ['--forceful', '--re-seed'], canonical: '--forceful+--re-seed' },
+  { typed: ['--re-seed', '--forceful'], canonical: '--forceful+--re-seed' },
+  { typed: ['--adopt', '--re-seed'], canonical: '--adopt+--re-seed' },
+  { typed: ['--re-seed', '--adopt'], canonical: '--adopt+--re-seed' },
+  { typed: ['--forceful', '--adopt', '--re-seed'], canonical: '--forceful+--adopt+--re-seed' },
+  { typed: ['--re-seed', '--adopt', '--forceful'], canonical: '--forceful+--adopt+--re-seed' },
+];
+
 if (want('matrix')) {
-  section('§13 matrix — AC-17, AC-18, AC-19..AC-26');
+  section('§13 matrix — AC-17, AC-18, AC-19..AC-26, §13.7');
 
   const cells = [];
   for (const state of ['3', '4/5', '6', '7']) {
@@ -810,6 +864,33 @@ if (want('matrix')) {
     }
   }
 
+  // AC-17 (combination half) + AC-26 — every flag-set, including both typed
+  // orders of the pairs and the triple, is refused in one canonical line.
+  const comboCells = [];
+  for (const state of ['3', '4/5', '6', '7']) {
+    for (const spec of COMBO_SPECS) {
+      comboCells.push({ state, spec, result: await comboCell(state, spec.typed) });
+    }
+  }
+
+  for (const { state, spec, result } of comboCells) {
+    const { run, loud } = result;
+    if (process.env.SPEC240_SHOW_CELLS) console.log(`${state}/${spec.canonical} [${run.code}] ${loud}`);
+    ok(LOUD_RE.test(loud),
+      `AC-17 ${state}/${spec.canonical}: combination loud line matches the §13.2 grammar`,
+      `typed ${spec.typed.join(' ')} — got ${JSON.stringify(loud)}`);
+    ok(loud.startsWith(`[init] ${state}/${spec.canonical}: refused`),
+      `AC-26 ${state}/${spec.canonical}: canonical flag-set whatever order was typed`,
+      `typed ${spec.typed.join(' ')} — got ${JSON.stringify(loud)}`);
+    eq(run.code, 2, `AC-26 ${state}/${spec.canonical}: exits 2`);
+    for (const flag of new Set(spec.typed)) {
+      ok(run.all.includes(flag), `AC-26 ${state}/${spec.canonical}: names ${flag}`);
+    }
+    const diffs = diffSnapshots(result.before, result.after);
+    ok(diffs.length === 0, `AC-18 ${state}/${spec.canonical}: refused is byte-level non-mutating`,
+      diffs.slice(0, 6).join('; '));
+  }
+
   const cell = (state, flag) => cells.find((c) => c.state === state && c.flag === flag).result;
   const verbOf = (r) => (r.loud.match(/: (did|no-op|warned|refused)/) || [])[1];
 
@@ -824,7 +905,7 @@ if (want('matrix')) {
   eq(verbOf(cell('6', '--adopt')), 'no-op', '§13.3 6/--adopt (proven): no-op');
   eq(verbOf(cell('6', '--re-seed')), 'refused', '§13.3 6/--re-seed (proven): refused');
   eq(verbOf(cell('7', '--forceful')), 'did', '§13.3 7/--forceful: did');
-  eq(verbOf(cell('7', '--adopt')), 'no-op', '§13.3 7/--adopt (proven): no-op');
+  eq(verbOf(cell('7', '--adopt')), 'did', '§13.3 7/--adopt (proven): did — it mints the leaf (V-2)');
   eq(verbOf(cell('7', '--re-seed')), 'refused', '§13.3 7/--re-seed (proven): refused');
   eq(verbOf(cell('3', '(none)')), 'did', '§13.4 3 baseline: did');
   eq(verbOf(cell('4/5', '(none)')), 'did', '§13.4 4/5 baseline: did');
@@ -940,6 +1021,26 @@ if (want('matrix')) {
       'AC-24 the on-disk key is archived under foreign-key-<ts>/');
   }
 
+  // AC-23b — 7/--adopt, unverifiable: warned is the one verb, and it says
+  // nothing was filed for an untraceable key (§13.2 one-verb-per-cell).
+  {
+    const home = makeHome();
+    const sov = await makeSovereign(home); // chain has no entry for alice
+    const stale = await mintKey('alice @ test.kingdom');
+    await makeEntity(home, 'alice', '7', { entityKey: stale });
+    const chainBefore = sov.entries().length;
+    const run = runInit(home, ['alice', '--adopt']);
+    eq(run.code, 0, 'AC-23b 7/--adopt unverifiable exits 0');
+    const line = firstInitLine(run.all);
+    ok(/^\[init\] 7\/--adopt: warned/.test(line),
+      'AC-23b the one verb is warned, never did', line);
+    ok(fs.existsSync(path.join(home, '.alice', 'id', 'devices', HOST, 'leaf.private.asc')),
+      'AC-23b a device leaf exists afterwards');
+    eq(sov.entries().length, chainBefore, 'AC-23b no chain entry is filed');
+    ok(/untraceable|nothing is filed/i.test(line),
+      'AC-23b the warning says nothing was filed for an untraceable key', line);
+  }
+
   // AC-25 — 4/5/--adopt → exit 2 and no key material afterwards
   {
     const home = makeHome();
@@ -952,23 +1053,148 @@ if (want('matrix')) {
     ok(!fs.existsSync(path.join(idDir, 'devices', HOST, 'leaf.private.asc')), 'AC-25 no leaf afterwards');
   }
 
-  // AC-26 — every pair of flags is refused, naming both
+  // =========================================================================
+  // §13.7 — the sovereign requirement, stated once (AC-32..AC-37)
+  // =========================================================================
+  // The discriminator is resolution, not the state and not the flag. These
+  // fixtures keep the sovereign CHAIN readable but remove this host's signing
+  // material, which is exactly the "chain resolves, no sovereign present" case.
+
+  // AC-32 — state 3, no sovereign, chain holds no key-affecting entry: did,
+  // provisional, legacy archived, nothing filed, deferred genesis named.
   {
-    const pairs = [
-      ['--forceful', '--adopt'],
-      ['--forceful', '--re-seed'],
-      ['--adopt', '--re-seed'],
-    ];
-    for (const pair of pairs) {
-      const r = await matrixCell('6', '(none)'); // fresh state-6 fixture per pair
-      const run = runInit(r.home, ['alice', ...pair]);
-      eq(run.code, 2, `AC-26 ${pair.join(' + ')} exits 2`);
-      const line = firstInitLine(run.all);
-      ok(pair.every((f) => line.includes(f) || run.all.includes(f)),
-        `AC-26 ${pair.join(' + ')} names both flags`, `loud: ${line}`);
-      ok(/refused/.test(line), `AC-26 ${pair.join(' + ')} is refused`, `loud: ${line}`);
-    }
+    const home = makeHome({ sovereign: false });
+    await makeEntity(home, 'alice', '3');
+    const run = runInit(home, ['alice']);
+    eq(run.code, 0, 'AC-32 state 3 no sovereign, no chain entry: exits 0');
+    const line = firstInitLine(run.all);
+    ok(/^\[init\] 3\/\(none\): did/.test(line), 'AC-32 the cell is did', line);
+    ok(fs.existsSync(path.join(home, '.alice', 'id', 'provisional.json')),
+      'AC-32 id/provisional.json exists');
+    const archive = path.join(home, '.alice', 'id', 'archive', 'pre-175-migration');
+    ok(fs.existsSync(path.join(archive, 'rsa')) && fs.existsSync(path.join(archive, 'rsa.pub')),
+      'AC-32 legacy material is archived under pre-175-migration/');
+    ok(!fs.existsSync(path.join(home, '.koad-io', 'me', 'sigchain')),
+      'AC-32 no chain entry is filed');
+    ok(/genesis.*deferred|deferred.*genesis/i.test(line),
+      'AC-32 the loud line names the deferred genesis', line);
   }
+
+  // AC-33 — state 3, no sovereign, chain resolves an effective key: refused.
+  {
+    const home = makeHome();
+    const sov = await makeSovereign(home);
+    const k1 = await mintKey('alice @ test.kingdom');
+    await sov.appendGenesis('alice', k1.fingerprint);
+    await makeEntity(home, 'alice', '3');
+    dropSovereignDeviceLeaf(home);
+    const idDir = path.join(home, '.alice', 'id');
+    const before = snapshotTree(idDir, sov.headFile);
+    const headBefore = sov.head();
+    const run = runInit(home, ['alice']);
+    eq(run.code, 2, 'AC-33 state 3 no sovereign, chain resolves a key: exits 2');
+    const line = firstInitLine(run.all);
+    ok(/^\[init\] 3\/\(none\): refused/.test(line), 'AC-33 the cell is refused', line);
+    ok(/init sovereign/i.test(line), 'AC-33 the refusal names `init sovereign`', line);
+    ok(diffSnapshots(before, snapshotTree(idDir, sov.headFile)).length === 0,
+      'AC-33 id/ is byte-identical to before');
+    eq(sov.head(), headBefore, 'AC-33 sigchain/head.cid is unchanged');
+  }
+
+  // AC-34 — state 7 --re-seed, unverifiable, no sovereign: provisional creation,
+  // nothing filed, deferred genesis named (with a sovereign, AC-24 files it).
+  {
+    const home = makeHome();
+    const sov = await makeSovereign(home); // no key-affecting entry for alice
+    const stale = await mintKey('alice @ test.kingdom');
+    await makeEntity(home, 'alice', '7', { entityKey: stale });
+    dropSovereignDeviceLeaf(home);
+    const chainBefore = sov.entries().length;
+    const run = runInit(home, ['alice', '--re-seed']);
+    eq(run.code, 0, 'AC-34 state 7 --re-seed unverifiable no sovereign: exits 0');
+    const line = firstInitLine(run.all);
+    ok(/^\[init\] 7\/--re-seed: did/.test(line), 'AC-34 the cell is did', line);
+    ok(fs.existsSync(path.join(home, '.alice', 'id', 'provisional.json')),
+      'AC-34 the run is provisional');
+    eq(sov.entries().length, chainBefore, 'AC-34 nothing is filed in the chain');
+    ok(/genesis.*deferred|deferred.*genesis/i.test(line),
+      'AC-34 the loud line states the genesis is deferred to countersignature', line);
+  }
+
+  // AC-35 — state 7 --adopt, proven, no sovereign: refused, nothing written,
+  // because koad.entity.leaf-authorize is a sovereign act.
+  {
+    const home = makeHome();
+    const sov = await makeSovereign(home);
+    const k1 = await mintKey('alice @ test.kingdom');
+    await sov.appendGenesis('alice', k1.fingerprint);
+    await makeEntity(home, 'alice', '7', { entityKey: k1 });
+    dropSovereignDeviceLeaf(home);
+    const idDir = path.join(home, '.alice', 'id');
+    const before = snapshotTree(idDir, sov.headFile);
+    const run = runInit(home, ['alice', '--adopt']);
+    eq(run.code, 2, 'AC-35 state 7 --adopt proven no sovereign: exits 2');
+    const line = firstInitLine(run.all);
+    ok(/^\[init\] 7\/--adopt: refused/.test(line), 'AC-35 the cell is refused', line);
+    ok(/leaf-authorize|leaf/i.test(line) && /init sovereign/i.test(line),
+      'AC-35 the refusal says leaf authorization is a sovereign act and names init sovereign', line);
+    ok(!fs.existsSync(path.join(idDir, 'devices', HOST, 'leaf.private.asc')),
+      'AC-35 nothing is written — no leaf');
+    ok(diffSnapshots(before, snapshotTree(idDir, sov.headFile)).length === 0,
+      'AC-35 id/ is byte-identical to before');
+  }
+
+  // AC-36 — state 4/5 --forceful, no sovereign, chain resolves a key: refused,
+  // because the key event would be a succession, not creation.
+  {
+    const home = makeHome();
+    const sov = await makeSovereign(home);
+    const k1 = await mintKey('alice @ test.kingdom');
+    await sov.appendGenesis('alice', k1.fingerprint);
+    await makeEntity(home, 'alice', '4/5');
+    dropSovereignDeviceLeaf(home);
+    const idDir = path.join(home, '.alice', 'id');
+    const before = snapshotTree(idDir, sov.headFile);
+    const headBefore = sov.head();
+    const run = runInit(home, ['alice', '--forceful']);
+    eq(run.code, 2, 'AC-36 state 4/5 --forceful no sovereign, chain resolves a key: exits 2');
+    const line = firstInitLine(run.all);
+    ok(/^\[init\] 4\/5\/--forceful: refused/.test(line), 'AC-36 the cell is refused', line);
+    ok(/succession/i.test(line), 'AC-36 the refusal says the event would be a succession', line);
+    ok(!fs.existsSync(path.join(idDir, 'entity.public.asc')), 'AC-36 nothing is written — no entity key');
+    ok(diffSnapshots(before, snapshotTree(idDir, sov.headFile)).length === 0,
+      'AC-36 id/ is byte-identical to before');
+    eq(sov.head(), headBefore, 'AC-36 sigchain/head.cid is unchanged');
+  }
+
+  // AC-37 — state 7 --adopt, proven, sovereign present: did, one leaf-authorize,
+  // no key event (the key event was already in the chain).
+  {
+    const home = makeHome();
+    const sov = await makeSovereign(home);
+    const k1 = await mintKey('alice @ test.kingdom');
+    await sov.appendGenesis('alice', k1.fingerprint);
+    await makeEntity(home, 'alice', '7', { entityKey: k1 });
+    const run = runInit(home, ['alice', '--adopt']);
+    eq(run.code, 0, 'AC-37 state 7 --adopt proven with sovereign: exits 0');
+    const line = firstInitLine(run.all);
+    ok(/^\[init\] 7\/--adopt: did/.test(line), 'AC-37 the cell is did', line);
+    ok(/already this handle|already the handle|key was already/i.test(line),
+      'AC-37 the line says the key was already the handle\'s', line);
+    ok(/leaf/i.test(line), 'AC-37 the line names the leaf work', line);
+    ok(fs.existsSync(path.join(home, '.alice', 'id', 'devices', HOST, 'leaf.private.asc')),
+      'AC-37 a device leaf exists afterwards');
+    const chain = (await orderedEntries(sov)).map((x) => ({ ...x.entry, __cid: x.cid }));
+    const la = chain.filter((e) => e.type === 'koad.entity.leaf-authorize');
+    eq(la.length, 1, 'AC-37 exactly one leaf-authorize is filed');
+    eq(chain.filter((e) => e.type === 'koad.entity.genesis').length, 1,
+      'AC-37 no new genesis is filed');
+    eq(chain.filter((e) => e.type === 'koad.entity.key-succession').length, 0,
+      'AC-37 no key-succession is filed');
+  }
+
+  // AC-26 is asserted by the combination loop above: three pairs and the
+  // triple, each typed in canonical and reversed order, one canonical line.
 
   // AC-16 — state 6 on a stale-epoch leaf prints 6/(none): warned, naming the repair
   {
@@ -1009,15 +1235,11 @@ if (want('matrix')) {
     eq(sov.head(), head, '§13.4 6/(none) mutates nothing');
   }
 
-  // AC-5 / W-3 — re-running a ceremony that has nothing to do must not grow the chain.
+  // AC-5 / W-3 — idempotence where the work is already done.
   //
-  // NOTE (reported to Juno): AC-5 as literally written — re-run a state-6
-  // --forceful rotation twice and expect no second entry — cannot hold. §13.3
-  // makes every state-6 --forceful a succession of a freshly minted key, and W-2
-  // forbids suppressing that entry. W-3 is therefore tested where it can hold:
-  // the adoption/audit paths, whose work is already done by the time the second
-  // run starts. The literal double-rotation is asserted to be a second
-  // succession, which is the matrix's behaviour, not W-3's.
+  // §13.3/V-2: state 7 --adopt + proven is `did` — it mints this device's leaf
+  // and files leaf-authorize. Re-running the identical command now finds state 6
+  // and is a loud no-op; the state-6 baseline audit is non-mutating on re-run.
   {
     const home = makeHome();
     const sov = await makeSovereign(home);
@@ -1026,35 +1248,71 @@ if (want('matrix')) {
     await sov.appendGenesis('alice', k1.fingerprint);
 
     const count0 = sov.entries().length;
-    const head0 = sov.head();
 
-    // §13.3 7/--adopt proven is a loud no-op: the KEY is already adopted, and
-    // the leaf is the baseline's job. Two runs change nothing at all.
     const first = runInit(home, ['alice', '--adopt']);
     eq(first.code, 0, 'AC-5 first 7/--adopt run exits 0');
-    ok(/no-op/.test(firstInitLine(first.all)), 'AC-5 7/--adopt proven is a loud no-op', firstInitLine(first.all));
-    eq(sov.head(), head0, 'AC-5 7/--adopt files no entry');
-    eq(sov.entries().length, count0, 'AC-5 7/--adopt adds no entry');
+    ok(/^\[init\] 7\/--adopt: did/.test(firstInitLine(first.all)),
+      'AC-5 7/--adopt proven is `did`, not a no-op (V-2)', firstInitLine(first.all));
+    ok(fs.existsSync(path.join(home, '.alice', 'id', 'devices', HOST, 'leaf.private.asc')),
+      'AC-5 the adoption mints this device leaf');
+    const countsAfterAdopt = (chain) => chain.filter((e) => e.type === 'koad.entity.leaf-authorize').length;
+    eq(countsAfterAdopt(sov.entries()), 1,
+      'AC-5 the adoption files exactly one koad.entity.leaf-authorize');
+    eq(sov.entries().filter((e) => e.type === 'koad.entity.key-succession').length, 0,
+      'AC-5 the adoption files no key event');
+
+    const head1 = sov.head();
+    const count1 = sov.entries().length;
+    ok(count1 > count0, 'AC-5 the adoption added exactly the leaf work');
 
     const second = runInit(home, ['alice', '--adopt']);
-    eq(second.code, 0, 'AC-5 second 7/--adopt run exits 0');
-    eq(sov.head(), head0, 'AC-5 / W-3 second 7/--adopt run leaves head.cid unchanged');
+    eq(second.code, 0, 'AC-5 second 7/--adopt run exits 0 (now state 6)');
+    ok(/^\[init\] 6\/--adopt: no-op/.test(firstInitLine(second.all)),
+      'AC-5 the re-run is a loud no-op in state 6', firstInitLine(second.all));
+    eq(sov.head(), head1, 'AC-5 / W-3 the re-run leaves head.cid unchanged');
+    eq(sov.entries().length, count1, 'AC-5 / W-3 the re-run adds no chain entry');
 
-    // The baseline is the onboarding verb: it mints the leaf and files
-    // leaf-authorize once. A second baseline run is state 6 and must not grow it.
+    // §13.4 state-6 baseline, twice: the audit writes nothing on either run.
     const third = runInit(home, ['alice']);
-    eq(third.code, 0, 'W-3 state-7 baseline adopt exits 0');
-    ok(/did/.test(firstInitLine(third.all)), 'W-3 state-7 baseline adopted the key', firstInitLine(third.all));
-    const headAfterAdopt = sov.head();
-    const countAfterAdopt = sov.entries().length;
-    ok(countAfterAdopt > count0, 'W-3 the baseline filed exactly the leaf work');
-
     const fourth = runInit(home, ['alice']);
-    eq(fourth.code, 0, 'W-3 state-6 baseline exits 0');
+    eq(third.code, 0, 'AC-5 state-6 baseline run exits 0');
+    eq(fourth.code, 0, 'AC-5 state-6 baseline re-run exits 0');
     ok(/^\[init\] 6\/\(none\): (did|warned)/.test(firstInitLine(fourth.all)),
-      'W-3 the second baseline lands in state 6 and audits', firstInitLine(fourth.all));
-    eq(sov.head(), headAfterAdopt, 'W-3 state-6 baseline does not grow the chain');
-    eq(sov.entries().length, countAfterAdopt, 'W-3 state-6 baseline adds no entry');
+      'AC-5 the second baseline lands in state 6 and audits', firstInitLine(fourth.all));
+    eq(sov.head(), head1, 'AC-5 / W-3 state-6 baseline does not grow the chain');
+    eq(sov.entries().length, count1, 'AC-5 / W-3 state-6 baseline adds no entry');
+  }
+
+  // AC-5b — two rotations are two successions. W-3's precondition (the key
+  // about to be installed is already effective) cannot hold on a path that
+  // mints fresh material, so a second succession is correct and a no-op is the
+  // defect.
+  {
+    const home = makeHome();
+    const sov = await makeSovereign(home);
+    const k1 = await mintKey('alice @ test.kingdom');
+    await makeEntity(home, 'alice', '6', { entityKey: k1 });
+    await sov.appendGenesis('alice', k1.fingerprint);
+
+    const first = runInit(home, ['alice', '--forceful']);
+    eq(first.code, 0, 'AC-5b first rotation exits 0');
+    const key1 = fs.readFileSync(path.join(home, '.alice', 'id', 'entity.fingerprint'), 'utf8').trim();
+    const head1 = sov.head();
+
+    const second = runInit(home, ['alice', '--forceful']);
+    eq(second.code, 0, 'AC-5b second rotation exits 0');
+    ok(sov.head() !== head1, 'AC-5b the second rotation changes head.cid');
+
+    const chain = (await orderedEntries(sov)).map((x) => ({ ...x.entry, __cid: x.cid }));
+    const sucs = chain.filter((e) => e.type === 'koad.entity.key-succession');
+    eq(sucs.length, 2, 'AC-5b two rotations file two successions');
+    eq(chain.filter((e) => e.type === 'koad.entity.genesis').length, 1,
+      'AC-5b neither rotation files a genesis');
+    eq(sucs[1]?.payload.old_entity_key_fingerprint, key1,
+      'AC-5b the second succession names the first run\'s key as old');
+    eq(sucs[1]?.payload.new_entity_key_fingerprint,
+      fs.readFileSync(path.join(home, '.alice', 'id', 'entity.fingerprint'), 'utf8').trim(),
+      'AC-5b the second succession installs the key now on disk');
   }
 
   // §13.5 — the archive label follows the chain, never the flag typed
