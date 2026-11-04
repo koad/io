@@ -32,6 +32,45 @@
 #
 set -euo pipefail
 
+# --- Degradation capture (VESTA-SPEC-242 deliverable 12) — DEFAULT OFF ------
+#
+# `KOAD_IO_ASSEMBLY_DEGRADED=1` turns on LABELLED DEGRADATION (§10.3):
+#   Rule F-1  a degraded assembly inserts an explicit first-line block naming
+#             the sections not produced and their causes — not a footnote, not
+#             at the end. The first thing the model must know is what it does
+#             not know.
+#   Rule F-3  a single section's failure MUST NOT abort assembly. The read that
+#             did fail is named instead of being swallowed.
+#
+# Unset (the default) is the behaviour that shipped on 2026-10-10, byte for
+# byte. Twenty entities wake up through this script; changing what a session
+# start produces for all of them is not a change to make by default. Turn it on
+# per-session with the env var, then promote it once a week of sessions has run
+# with it on.
+_ASM_DEGRADED=()
+_asm_degrade() { _ASM_DEGRADED+=("$1 [$2]"); }
+
+if [ "${KOAD_IO_ASSEMBLY_DEGRADED:-0}" = "1" ]; then
+  exec 3>&1
+  _ASM_TMP="$(mktemp "${TMPDIR:-/tmp}/startup-assembly.XXXXXX")"
+  exec 1>"$_ASM_TMP"
+  _asm_finish() {
+    _asm_rc=$?
+    {
+      if [ "${#_ASM_DEGRADED[@]}" -gt 0 ]; then
+        _old_ifs="$IFS"; IFS=';'
+        printf '## ASSEMBLY DEGRADED — sections not produced: %s\n\n' "${_ASM_DEGRADED[*]}"
+        IFS="$_old_ifs"
+        printf '> These sections were not assembled. Anything below that depends on them is missing, not empty.\n\n'
+      fi
+      cat "$_ASM_TMP"
+    } >&3
+    rm -f "$_ASM_TMP"
+    exit "$_asm_rc"
+  }
+  trap _asm_finish EXIT
+fi
+
 # --- Light mode flag ---
 # --light (arg) or KOAD_IO_STARTUP_LIGHT=1 (env) activates light mode.
 # Light mode: session header + git status + KOAD_IO.md + ENTITY.md + role primers only.
@@ -67,11 +106,23 @@ _DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 _DATE_HUMAN="$(date '+%A %B %-d, %Y')"  # e.g. "Monday April 13, 2026"
 
 # --- Helper: list a directory if it exists, one item per line ---
-_ls() {
-  if [ -d "$1" ]; then
-    ls -1 "$1" 2>/dev/null
-  fi
-}
+# Under KOAD_IO_ASSEMBLY_DEGRADED=1 this helper never fails: a listing that
+# cannot be produced returns success with no output, so `_ls | sed` cannot abort
+# the whole assembly through pipefail (Rule F-3). The default branch keeps the
+# original semantics exactly, because a caller may be relying on the exit status.
+if [ "${KOAD_IO_ASSEMBLY_DEGRADED:-0}" = "1" ]; then
+  _ls() {
+    if [ -d "$1" ]; then
+      ls -1 "$1" 2>/dev/null || true
+    fi
+  }
+else
+  _ls() {
+    if [ -d "$1" ]; then
+      ls -1 "$1" 2>/dev/null
+    fi
+  }
+fi
 
 # --- Helper: resolve a command path without invoking the launcher ---
 # Session-start scanners need the resolved command.sh path directly so we can
@@ -450,7 +501,21 @@ fi
 # Never reads message content — count only.
 _messages_dir="${KOAD_IO_MESSAGES_DIR:-$HOME/.forge/messages}/${ENTITY}"
 if [ -d "$_messages_dir" ]; then
-  _msg_count=$(find "$_messages_dir" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  # The read SPEC-242 §10.1 quotes by name: an unguarded pipeline here aborted
+  # the WHOLE assembly on a permission error or an unavailable mount, and both
+  # call sites then fell back to "proceeding without context assembly" — a naked
+  # model acting under an entity's name. Under the degradation flag the failure
+  # is captured and NAMED (Rule F-3); otherwise the line is unchanged.
+  if [ "${KOAD_IO_ASSEMBLY_DEGRADED:-0}" = "1" ]; then
+    if _msg_count="$(find "$_messages_dir" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"; then
+      :
+    else
+      _msg_count=""
+      _asm_degrade "inbox-count" "failed/inbox-read"
+    fi
+  else
+    _msg_count=$(find "$_messages_dir" -maxdepth 1 -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  fi
   if [ "${_msg_count:-0}" -gt 0 ]; then
     echo "[startup] inbox: $_msg_count message(s) in $_messages_dir" >&2
     printf '\n### Inbox (%s messages)\n\n' "$_msg_count"
