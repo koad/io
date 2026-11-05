@@ -25,7 +25,7 @@ device_ids: [wonderland]
 capabilities:
   read: [~/.vulcan, ~/.forge, ~/.koad-io]
   write: [~/.vulcan, ~/.forge]
-  exec: [~/.vulcan/bin, ~/.forge/bin]
+  exec: [~/.vulcan, ~/.forge]
   blocked: [/.env, /.credentials, /id/]
   read_extensions: []
   write_extensions: [".md", ".js", ".ts", ".json", ".yaml"]
@@ -84,7 +84,7 @@ koad grants Vulcan scoped builder capabilities:
 |-------|------|-------------|
 | `read` | paths[] | Directories the entity may read from |
 | `write` | paths[] | Directories the entity may write to |
-| `exec` | paths[] | Directories where bash may execute |
+| `exec` | paths[] | Directories where bash may execute. Must be directories that **exist**, and must cover `write` whenever `tools.bash: true` — an entity has to be able to stand where it writes, or it can author a build script and never run it. An `exec` lane narrower than `write` is a bug, not a tightening. |
 | `blocked` | patterns[] | Path patterns always denied (substring match) |
 
 ### Extension Control
@@ -367,7 +367,7 @@ capabilities:
   read: [~/.vulcan, ~/.forge, ~/.koad-io]
   write: [~/.vulcan, ~/.forge]
   write_extensions: [".md", ".js", ".ts", ".json"]
-  exec: [~/.vulcan/bin]
+  exec: [~/.vulcan]
   blocked: [/.env, /.credentials]
   blocked_extensions: [".asc", ".pem"]
 
