@@ -161,51 +161,69 @@ if [ -z "$DISPLAY_NAME" ]; then
     DISPLAY_NAME="$(echo "${ENTITY_NAME:0:1}" | tr '[:lower:]' '[:upper:]')${ENTITY_NAME:1}"
 fi
 
-EMAIL_DOMAIN="${KOAD_IO_EMAIL_DOMAIN:-}"
+# §3.4 — a step that cannot yield a domain does not resolve. An empty value, a
+# value with no domain part, or a domain containing a space or a '/' is a FAILED
+# step: fall through to the next one, never terminate the chain on a malformed
+# value. Returns nothing when the candidate is not a domain.
+_email_domain_of() {
+    local v="${1:-}" d
+    [ -n "$v" ] || return 0
+    case "$v" in
+        *@*) d="${v##*@}" ;;
+        *)   d="$v" ;;
+    esac
+    case "$d" in
+        ""|*" "*|*/*) return 0 ;;
+    esac
+    printf '%s\n' "$d"
+}
+
+EMAIL_DOMAIN="$(_email_domain_of "${KOAD_IO_EMAIL_DOMAIN:-}")"
 if [ -z "$EMAIL_DOMAIN" ] && [ -f "$ENV_FILE" ]; then
-    _author_email=$(env_value "$ENV_FILE" GIT_AUTHOR_EMAIL || true)
-    EMAIL_DOMAIN="${_author_email##*@}"
+    EMAIL_DOMAIN="$(_email_domain_of "$(env_value "$ENV_FILE" GIT_AUTHOR_EMAIL || true)")"
 fi
-if [ -z "$EMAIL_DOMAIN" ] && [ -f "$HOME/.koad-io/me/.env" ]; then
-    EMAIL_DOMAIN=$(env_value "$HOME/.koad-io/me/.env" SOVEREIGN_DOMAIN || true)
+if [ -z "$EMAIL_DOMAIN" ] && [ -f "${KOAD_IO_HOME:-$HOME/.koad-io}/me/.env" ]; then
+    EMAIL_DOMAIN="$(_email_domain_of "$(env_value "${KOAD_IO_HOME:-$HOME/.koad-io}/me/.env" SOVEREIGN_DOMAIN || true)")"
 fi
 
-# NO kingdom-literal fallback. A framework that stamps its own kingdom's domain
-# into another kingdom's newborn has invented an identity it was never given
-# (valhalla, 2026-11-05). Unresolvable is a real answer: the git email keys are
-# omitted below and the reason is printed, instead of a plausible-looking guess.
+# §3.4 — the chain terminates at <entity>.invalid, never at a domain this machine
+# does not own. `.invalid` is RFC 2606 reserved: unroutable by construction, and
+# legible as absent in a way an empty string is not. Git cannot be authorless
+# (§3.6.2), so omission is not available here.
 if [ -z "$EMAIL_DOMAIN" ]; then
-    warn "no email domain resolvable — GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL omitted, not guessed"
-    warn "  set KOAD_IO_EMAIL_DOMAIN, or SOVEREIGN_DOMAIN in $HOME/.koad-io/me/.env, then re-run"
+    EMAIL_DOMAIN="${ENTITY_NAME}.invalid"
+    say "note: no email domain resolved; using $EMAIL_DOMAIN"
+    say "      (RFC 2606 reserved — unroutable by construction, and never a claim about"
+    say "      a domain this machine does not own.)"
+    say "      Repair: set KOAD_IO_EMAIL_DOMAIN, then correct GIT_AUTHOR_EMAIL in $ENV_FILE"
 fi
 
-# Who made this entity? The entity that ran this command, else the sovereign on
-# this box, else OMIT the key. Never a literal: the hardcoded builder name this
-# replaces wrote OUR builder into every newborn on every machine (valhalla,
-# 2026-11-05). No key is better than a false parent.
-CREATOR="${KOAD_IO_CREATOR:-${ENTITY:-}}"
-if [ -z "$CREATOR" ] && [ -f "$HOME/.koad-io/me/.env" ]; then
-    CREATOR=$(env_value "$HOME/.koad-io/me/.env" SOVEREIGN_HANDLE || true)
+# Who is this entity's CREATOR? §3.2: the AUTHORIZING PRINCIPAL — the sovereign
+# under whose sigchain the genesis is recorded — and nobody else. It is NOT the
+# entity that ran this command: the instrument is GESTATED_BY, and ensure does
+# not write that either. Resolved from SOVEREIGN_HANDLE in the sovereign's .env,
+# and if nothing resolves there the key is omitted rather than guessed.
+#
+# The hardcoded builder name this replaces declared OUR builder the creator of
+# every newborn on every machine (valhalla, 2026-11-05).
+CREATOR=""
+if [ -f "${KOAD_IO_HOME:-$HOME/.koad-io}/me/.env" ]; then
+    CREATOR=$(env_value "${KOAD_IO_HOME:-$HOME/.koad-io}/me/.env" SOVEREIGN_HANDLE || true)
 fi
 
-# Structural keys only. MOTHER / ROLE / GESTATED_AT are deliberately absent:
-# they record identity decisions this command must not guess.
+# Structural keys only. CREATOR / MOTHER / ROLE / GESTATED_AT are deliberately
+# absent: they record identity decisions this command must not guess, and a
+# maintenance pass that invents a parentage claim spreads it across every entity
+# it touches (§3.6.1). GIT_AUTHOR_EMAIL stays — git cannot be authorless (§3.6.2).
 ENV_PAIRS=(
     "ENTITY=$ENTITY_NAME"
     "ENTITY_DIR=$ENTITY_DIR"
     "ENTITY_HOME=$ENTITY_DIR"
     "GIT_AUTHOR_NAME=$DISPLAY_NAME"
     "GIT_COMMITTER_NAME=$DISPLAY_NAME"
+    "GIT_AUTHOR_EMAIL=${ENTITY_NAME}@${EMAIL_DOMAIN}"
+    "GIT_COMMITTER_EMAIL=${ENTITY_NAME}@${EMAIL_DOMAIN}"
 )
-if [ -n "$EMAIL_DOMAIN" ]; then
-    ENV_PAIRS+=(
-        "GIT_AUTHOR_EMAIL=${ENTITY_NAME}@${EMAIL_DOMAIN}"
-        "GIT_COMMITTER_EMAIL=${ENTITY_NAME}@${EMAIL_DOMAIN}"
-    )
-fi
-if [ -n "$CREATOR" ]; then
-    ENV_PAIRS+=("CREATOR=$CREATOR")
-fi
 ENV_PAIRS+=(
     "KOAD_IO_HOME_MACHINE=$HOST"
     "KOAD_IO_EMIT=1"
@@ -231,6 +249,21 @@ for pair in "${ENV_PAIRS[@]}"; do
         ENV_ADDED+=("$key")
     fi
 done
+
+# §3.6.3 — an existing identity value is reported, never rewritten and never
+# silently kept. `ensure` runs in loops; a loop is the right place to SURFACE a
+# corpus-wide defect and the wrong place to write one. Identity is repaired
+# consciously, one entity at a time (§3.7) — there is no repair verb yet.
+if [ -f "$ENV_FILE" ]; then
+    _existing_creator=$(env_value "$ENV_FILE" CREATOR || true)
+    if [ -n "$_existing_creator" ]; then
+        if [ -z "$CREATOR" ]; then
+            skipped "CREATOR (existing value '$_existing_creator' has no resolvable input — this command does not rewrite identity values; see VESTA-SPEC-243 §3)"
+        elif [ "$_existing_creator" != "$CREATOR" ]; then
+            skipped "CREATOR (existing value '$_existing_creator' differs from the resolved sovereign '$CREATOR' — not rewritten; repair by hand with the sovereign present)"
+        fi
+    fi
+fi
 
 if [ "${#ENV_ADDED[@]}" -gt 0 ]; then
     if [ "$CREATED_ENV" = "1" ]; then
@@ -265,7 +298,8 @@ else
             created_at: $created,
             avatar: null,
             buttons: []
-        } + (if $creator == "" then {} else {created_by: $creator} end)' > "$PASSENGER"
+        }
+        | .created_by = (if $creator == "" then null else $creator end)' > "$PASSENGER"
     added "passenger.json (created)"
 fi
 

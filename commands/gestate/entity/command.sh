@@ -188,19 +188,30 @@ say ""
 say "Gestating new entity: $ENTITY_NAME"
 say ""
 
-# Read sovereign env for defaults (authorized-agent mode skips this)
+# Read sovereign env for defaults. This is a READ, not a claim of authority:
+# --as-authorized-agent means the signer is absent, not that the sovereign's
+# declared domain stops being the right one for this box (§3.4).
+SOVEREIGN_ENV="${KOAD_IO_HOME:-$HOME/.koad-io}/me/.env"
 SOVEREIGN_DOMAIN=""
 SOVEREIGN_HANDLE=""
-if [ "$AUTHORIZED_AGENT_MODE" != "1" ] && [ -n "${SOVEREIGN_DIR:-}" ] && [ -f "$SOVEREIGN_DIR/.env" ]; then
-    SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_DOMAIN || true)
-    SOVEREIGN_HANDLE=$(env_value "$SOVEREIGN_DIR/.env" SOVEREIGN_HANDLE || true)
+if [ -f "$SOVEREIGN_ENV" ]; then
+    SOVEREIGN_DOMAIN=$(env_value "$SOVEREIGN_ENV" SOVEREIGN_DOMAIN || true)
+    SOVEREIGN_HANDLE=$(env_value "$SOVEREIGN_ENV" SOVEREIGN_HANDLE || true)
 fi
 
 # Default display name: capitalized entity name
 DEFAULT_DISPLAY_NAME="$(echo "${ENTITY_NAME:0:1}" | tr '[:lower:]' '[:upper:]')${ENTITY_NAME:1}"
 
-# Mother: if running from entity context, default to that
-DEFAULT_MOTHER="${ENTITY:-}"
+# MOTHER is LINEAGE, not a default. §3.3: an INFERRED parent (the command worked
+# it out from the running entity) must resolve on this machine at write time or
+# be omitted; a DECLARED parent (an operator answer, or KOAD_IO_MOTHER_ENTITY in
+# the environment) is written verbatim even when its home is absent here, and is
+# marked unverified. The old `${ENTITY:-}` default presented an inference as if
+# it were an answer, which is how valhalla's newborn came to name two parents
+# that did not exist on that machine.
+_MOTHER_DECLARED="${KOAD_IO_MOTHER_ENTITY:-}"
+_MOTHER_INFERRED="${ENTITY:-}"
+DEFAULT_MOTHER="${_MOTHER_DECLARED:-$_MOTHER_INFERRED}"
 
 DISPLAY_NAME=$(ask "Display name" "${KOAD_IO_DISPLAY_NAME:-}" "$DEFAULT_DISPLAY_NAME")
 # The email domain belongs to whoever's kingdom this is. Resolve it, in order:
@@ -208,15 +219,42 @@ DISPLAY_NAME=$(ask "Display name" "${KOAD_IO_DISPLAY_NAME:-}" "$DEFAULT_DISPLAY_
 # entity's own email domain. Then ASK — required — rather than fall back to a
 # kingdom literal that belongs to someone else (valhalla, 2026-11-05).
 EMAIL_DOMAIN_DEFAULT="$SOVEREIGN_DOMAIN"
+case "${EMAIL_DOMAIN_DEFAULT:-}" in
+    ""|*" "*|*/*) EMAIL_DOMAIN_DEFAULT="" ;;
+esac
 if [ -z "$EMAIL_DOMAIN_DEFAULT" ] && [ -n "$GESTATING_ENTITY" ] && [ -f "$HOME/.$GESTATING_ENTITY/.env" ]; then
+    # §3.4 — a value that cannot yield a domain is a FAILED step, not a domain.
+    # An address with no '@' is empty, malformed, and falls through.
     _gestating_email=$(env_value "$HOME/.$GESTATING_ENTITY/.env" GIT_AUTHOR_EMAIL || true)
-    EMAIL_DOMAIN_DEFAULT="${_gestating_email##*@}"
+    case "$_gestating_email" in
+        *@*) _gestating_domain="${_gestating_email##*@}" ;;
+        *)   _gestating_domain="" ;;
+    esac
+    case "$_gestating_domain" in
+        ""|*" "*|*/*) _gestating_domain="" ;;
+    esac
+    EMAIL_DOMAIN_DEFAULT="$_gestating_domain"
 fi
-unset _gestating_email
+unset _gestating_email _gestating_domain
 EMAIL_DOMAIN=$(ask "Email domain" "${KOAD_IO_EMAIL_DOMAIN:-}" "$EMAIL_DOMAIN_DEFAULT" --required)
 HOME_MACHINE=$(ask "Home machine (hostname)" "${KOAD_IO_HOME_MACHINE:-}" "$HOST")
 ROLE=$(ask "Role (short description of what this entity does)" "${KOAD_IO_ROLE:-}" "")
-MOTHER=$(ask "Mother entity" "${KOAD_IO_MOTHER_ENTITY:-${ENTITY:-}}" "$DEFAULT_MOTHER")
+MOTHER=$(ask "Mother entity" "$_MOTHER_DECLARED" "$DEFAULT_MOTHER")
+
+# Provenance, decided once and used by the note below and by the write. An
+# answer that differs from the inferred default is an operator declaration; so
+# is one that came from KOAD_IO_MOTHER_ENTITY. Accepting the machine's guess is
+# still the guess.
+MOTHER_ORIGIN=""
+if [ -n "$MOTHER" ]; then
+    if [ -n "$_MOTHER_DECLARED" ] && [ "$MOTHER" = "$_MOTHER_DECLARED" ]; then
+        MOTHER_ORIGIN="declared"
+    elif [ "$MOTHER" != "$_MOTHER_INFERRED" ]; then
+        MOTHER_ORIGIN="declared"
+    else
+        MOTHER_ORIGIN="inferred"
+    fi
+fi
 
 say ""
 say "  Entity:        $ENTITY_NAME"
@@ -226,6 +264,18 @@ say "  Home machine:  $HOME_MACHINE"
 [ -n "$ROLE" ] && say "  Role:          $ROLE"
 [ -n "$MOTHER" ] && say "  Mother:        $MOTHER"
 say ""
+
+# §3.3 — the resolvability rule, said out loud. Inferred-and-absent is not
+# written at all; declared-and-absent is written and marked unverified.
+if [ "$MOTHER_ORIGIN" = "inferred" ] && [ ! -d "$HOME/.$MOTHER" ]; then
+    say "MOTHER not written: the running entity ($MOTHER) has no home on this machine."
+    say "      Parentage is recorded only when it resolves or when an operator declares it."
+    MOTHER=""
+elif [ "$MOTHER_ORIGIN" = "declared" ] && [ ! -d "$HOME/.$MOTHER" ]; then
+    say "note: MOTHER=$MOTHER (declared). No ~/.$MOTHER on this machine."
+    say "      Recorded as declared parentage, unverified here — an entity home is"
+    say "      per-machine (VESTA-SPEC-175 §3). Absence here is not disproof."
+fi
 
 # ---------------------------------------------------------------------------
 # Step 1: Verify sovereign device leaf is decryptable (sovereign path only)
@@ -623,27 +673,41 @@ GITIGNORE
 say "  wrote: .gitignore"
 say "  wrote: id/.gitignore"
 
-# --- who made this entity ---------------------------------------------------
-# The entity that ran this gestate, else the sovereign on this box, else OMIT.
-# Never a literal: the hardcoded builder name this replaces declared OUR builder
-# as the creator of every entity gestated anywhere (valhalla, 2026-11-05).
-# An omitted line means the relationship was not recorded — which is honest.
-# MOTHER is treated the same way: no default parent is invented either.
-CREATOR="${KOAD_IO_CREATOR:-$GESTATING_ENTITY}"
-if [ -z "$CREATOR" ] && [ -f "$HOME/.koad-io/me/.env" ]; then
-    CREATOR=$(env_value "$HOME/.koad-io/me/.env" SOVEREIGN_HANDLE || true)
+# --- who made this entity (VESTA-SPEC-243 §3.2) -----------------------------
+# CREATOR is the AUTHORIZING PRINCIPAL: the sovereign under whose sigchain this
+# genesis is recorded. It is resolved from SOVEREIGN_HANDLE and from nothing
+# else — not the running entity, not the framework, not a literal. A builder is
+# not an authority (valhalla, 2026-11-05).
+CREATOR=""
+if [ -f "$SOVEREIGN_ENV" ]; then
+    CREATOR=$(env_value "$SOVEREIGN_ENV" SOVEREIGN_HANDLE || true)
 fi
+
+# GESTATED_BY is the ACTOR that ran the ceremony — the entity whose harness
+# executed this command, else the sovereign if a human ran it by hand. It is a
+# different fact from CREATOR and MUST NOT be merged into it: when the sovereign
+# runs a ceremony by hand, CREATOR and GESTATED_BY are the same handle; when an
+# entity does, they are not. An omitted line means nothing was resolved.
+GESTATED_BY="${GESTATING_ENTITY:-}"
+[ -n "$GESTATED_BY" ] || GESTATED_BY="$CREATOR"
 
 _CREATOR_LINE=""
 _MOTHER_LINE=""
 _GESTATED_BY_LINE=""
 [ -n "$CREATOR" ] && _CREATOR_LINE="CREATOR=$CREATOR"
-[ -n "$CREATOR" ] && _GESTATED_BY_LINE="GESTATED_BY=$CREATOR"
+[ -n "$GESTATED_BY" ] && _GESTATED_BY_LINE="GESTATED_BY=$GESTATED_BY"
 [ -n "${MOTHER:-}" ] && _MOTHER_LINE="MOTHER=$MOTHER"
 
+# §3.3 — the absence is printed, not papered over.
+if [ -z "$CREATOR" ]; then
+    say "CREATOR not written: no sovereign resolved on this machine"
+    say "      ($SOVEREIGN_ENV has no SOVEREIGN_HANDLE)."
+    say "      CREATOR names the authorizing principal; it is not guessed (VESTA-SPEC-243 §3)."
+fi
+
 # --- KOAD_IO_VERSION ---
-# GESTATED_BY is the creator entity (VESTA-SPEC-138 checks for the field); an
-# empty line means no creator was recorded, not that a stranger made this one.
+# GESTATED_BY is the ACTOR (VESTA-SPEC-138 checks for the field); an empty
+# line means no actor was recorded, not that a stranger made this one.
 cat > "$ENTITY_DIR/KOAD_IO_VERSION" << VERSIONEOF
 # koad:io entity — gestation record (SPEC-002 v1.3)
 
@@ -715,7 +779,8 @@ if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
             sovereign_countersign_required: true,
             avatar: null,
             buttons: []
-        } + (if $creator == "" then {} else {created_by: $creator} end)' > "$ENTITY_DIR/passenger.json"
+        }
+        | .created_by = (if $creator == "" then null else $creator end)' > "$ENTITY_DIR/passenger.json"
     say "  wrote: passenger.json (provisional — authorized-agent gestation)"
 else
     jq -n \
@@ -732,7 +797,8 @@ else
             created_at: $created,
             avatar: null,
             buttons: []
-        } + (if $creator == "" then {} else {created_by: $creator} end)' > "$ENTITY_DIR/passenger.json"
+        }
+        | .created_by = (if $creator == "" then null else $creator end)' > "$ENTITY_DIR/passenger.json"
     say "  wrote: passenger.json"
 fi
 
