@@ -194,6 +194,9 @@ if [ -n "$_SPAWN_RULE" ]; then
     echo "spawn: $_SPAWN_WHY"
     echo "spawn: deploying anyway into $_SPAWN_TARGET. rsync -a merges: colliding names WILL be overwritten."
   else
+    # This heredoc is UNQUOTED so $DATADIR/$SKELETON_NAME expand. Anything between
+    # backticks or inside a dollar-paren is COMMAND SUBSTITUTION here and runs.
+    # That is how a refusal message recursively invoked `koad-io spawn` (2026-11-05).
     cat >&2 <<REFUSAL
 refusing to spawn into $DATADIR — $_SPAWN_WHY
 
@@ -201,12 +204,15 @@ spawn deploys into the directory you are standing in, so that directory has to b
 a new, empty project folder — not the framework, not ~/.forge, not an entity home,
 not a skeleton, and not a folder that already holds something.
 
-Create the project first, then spawn into it:
-  mkdir -p ~/dev/myapp && cd ~/dev/myapp && koad-io spawn $SKELETON_NAME
+Create the project first, then spawn into it, under an entity handle:
+  mkdir -p ~/dev/myapp && cd ~/dev/myapp && ${ENTITY:-<entity>} spawn $SKELETON_NAME
+
+('koad-io spawn' with no entity dead-ends: a skeleton's control/install
+ runs as an entity and refuses without one.)
 
 Refused by rule: $_SPAWN_RULE
 Override (it prints what it is doing):
-  KOAD_IO_SPAWN_ALLOW_HOSTILE=1 koad-io spawn $SKELETON_NAME
+  KOAD_IO_SPAWN_ALLOW_HOSTILE=1 ${ENTITY:-<entity>} spawn $SKELETON_NAME
 REFUSAL
     exit 1
   fi
