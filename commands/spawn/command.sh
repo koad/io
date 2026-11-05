@@ -82,6 +82,145 @@ if [ "$SKELETON_NAME" = "list" ]; then
   exit 0
 fi
 
+# --- Project guard ------------------------------------------------------------
+# `spawn` DEPLOYS into the directory you are standing in, and _deploy_payload is
+# `rsync -a` with no --delete: it MERGES, silently overwriting colliding names.
+# Run from the framework root it merged a bare skeleton's src/ into ~/.koad-io
+# (reproduced on valhalla, 2026-11-05). Nothing asked whether the target was a
+# project. This asks.
+#
+# Deliberately conservative: the canon ruling on what MAKES a directory a project
+# root is still owed to Vesta (2026-11-05). This refuses the structures we can
+# name today and explains itself; it does not pretend to define a project root.
+#
+# KOAD_IO_SPAWN_ALLOW_HOSTILE=1 overrides, loudly, for the rare legitimate case.
+
+# _spawn_real PATH — physical path, works for paths that do not exist yet.
+_spawn_real() {
+  if command -v realpath >/dev/null 2>&1; then
+    realpath -m -- "$1" 2>/dev/null && return 0
+  fi
+  local p="$1" tail="" base
+  while [ ! -d "$p" ] && [ "$p" != "/" ]; do
+    tail="/$(basename "$p")$tail"
+    p="$(dirname "$p")"
+  done
+  base="$( cd "$p" 2>/dev/null && pwd -P )" || return 1
+  [ "$base" = "/" ] && base=""
+  printf '%s%s\n' "$base" "$tail"
+}
+
+_spawn_is_or_inside() {
+  [ "$1" = "$2" ] && return 0
+  case "$1" in "$2"/*) return 0 ;; esac
+  return 1
+}
+
+_SPAWN_TARGET="$(_spawn_real "$DATADIR")"
+_SPAWN_HOME="$(_spawn_real "$HOME")"
+_SPAWN_RULE=""
+_SPAWN_WHY=""
+
+# Home itself, then any skeletons/ tree (a skeleton or its payload directory),
+# then the framework root and ~/.forge — is or inside, all of them. Most specific
+# rule first, so the message names the closest true reason.
+if [ "$_SPAWN_TARGET" = "$_SPAWN_HOME" ]; then
+  _SPAWN_RULE="home"
+  _SPAWN_WHY="that is your home directory, not a project."
+else
+  case "/$_SPAWN_TARGET/" in
+    */skeletons/*|*/skeleton/*)
+      _SPAWN_RULE="skeleton"
+      _SPAWN_WHY="that is a skeleton source tree, not a project."
+      ;;
+  esac
+fi
+
+if [ -z "$_SPAWN_RULE" ]; then
+  if _spawn_is_or_inside "$_SPAWN_TARGET" "$_SPAWN_HOME/.koad-io"; then
+    _SPAWN_RULE="framework"
+    if [ "$_SPAWN_TARGET" = "$_SPAWN_HOME/.koad-io" ]; then
+      _SPAWN_WHY="that is the framework root, not a project."
+    else
+      _SPAWN_WHY="that is inside the framework (~/.koad-io)."
+    fi
+  elif _spawn_is_or_inside "$_SPAWN_TARGET" "$_SPAWN_HOME/.forge"; then
+    _SPAWN_RULE="forge"
+    if [ "$_SPAWN_TARGET" = "$_SPAWN_HOME/.forge" ]; then
+      _SPAWN_WHY="that is the forge root, not a project."
+    else
+      _SPAWN_WHY="that is inside ~/.forge, which holds existing kingdom work."
+    fi
+  fi
+fi
+
+# An entity home, or anything inside one. Walk up to $HOME and look for markers.
+if [ -z "$_SPAWN_RULE" ]; then
+  _spawn_probe="$_SPAWN_TARGET"
+  while _spawn_is_or_inside "$_spawn_probe" "$_SPAWN_HOME"; do
+    if [ -f "$_spawn_probe/ENTITY.md" ] || [ -f "$_spawn_probe/passenger.json" ]; then
+      _SPAWN_RULE="entity"
+      if [ "$_spawn_probe" = "$_SPAWN_TARGET" ]; then
+        _SPAWN_WHY="that is an entity home (it carries ENTITY.md or passenger.json)."
+      else
+        _SPAWN_WHY="that is inside the entity home $_spawn_probe."
+      fi
+      break
+    fi
+    [ "$_spawn_probe" = "$_SPAWN_HOME" ] && break
+    _spawn_probe="$(dirname "$_spawn_probe")"
+  done
+fi
+
+# A directory that already holds something — most of all another payload.
+# An empty target is the shape we want; a .git/ directory is not payload.
+if [ -z "$_SPAWN_RULE" ] && [ -d "$_SPAWN_TARGET" ]; then
+  _spawn_first="$(find "$_SPAWN_TARGET" -mindepth 1 -maxdepth 1 \
+                     ! -name '.git' ! -name '.DS_Store' -print -quit 2>/dev/null || true)"
+  if [ -n "$_spawn_first" ]; then
+    _SPAWN_RULE="occupied"
+    _spawn_name="$(basename "$_spawn_first")"
+    if [ -e "$_SPAWN_TARGET/src/.meteor" ] || [ -d "$_SPAWN_TARGET/src" ] || [ -f "$_SPAWN_TARGET/.env" ]; then
+      _SPAWN_WHY="it already carries a project payload (found: $_spawn_name)."
+    else
+      _SPAWN_WHY="it is not empty (found: $_spawn_name)."
+    fi
+  fi
+fi
+
+if [ -n "$_SPAWN_RULE" ]; then
+  if [ "${KOAD_IO_SPAWN_ALLOW_HOSTILE:-}" = "1" ]; then
+    echo "spawn: KOAD_IO_SPAWN_ALLOW_HOSTILE=1 — override engaged."
+    echo "spawn: $_SPAWN_WHY"
+    echo "spawn: deploying anyway into $_SPAWN_TARGET. rsync -a merges: colliding names WILL be overwritten."
+  else
+    cat >&2 <<REFUSAL
+refusing to spawn into $DATADIR — $_SPAWN_WHY
+
+spawn deploys into the directory you are standing in, so that directory has to be
+a new, empty project folder — not the framework, not ~/.forge, not an entity home,
+not a skeleton, and not a folder that already holds something.
+
+Create the project first, then spawn into it:
+  mkdir -p ~/dev/myapp && cd ~/dev/myapp && koad-io spawn $SKELETON_NAME
+
+Refused by rule: $_SPAWN_RULE
+Override (it prints what it is doing):
+  KOAD_IO_SPAWN_ALLOW_HOSTILE=1 koad-io spawn $SKELETON_NAME
+REFUSAL
+    exit 1
+  fi
+fi
+
+unset _spawn_probe _spawn_first _spawn_name _SPAWN_TARGET _SPAWN_HOME _SPAWN_RULE _SPAWN_WHY
+
+# The target is a real directory from here on. Create it if absent and work off
+# the physical path, so a symlinked project cannot deploy somewhere the guard
+# did not inspect.
+mkdir -p "$DATADIR"
+DATADIR="$(cd "$DATADIR" && pwd -P)"
+export DATADIR
+
 if ! SKELETON_PATH="$(_find_skeleton "$SKELETON_NAME")"; then
   echo "Skeleton '$SKELETON_NAME' not found." >&2
   echo >&2
