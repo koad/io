@@ -35,6 +35,39 @@ function loadPassengerConfig(entityPath) {
   }
 }
 
+// Normalize an outfit from passenger.json onto the Passengers wire shape.
+//
+// Two schemas are live on disk. The current one (VESTA-SPEC-099 / gestate) is
+// h / s / bri (+ visual). The legacy one is hue / saturation, still carried by
+// .astro and .jesus. Current wins; legacy is the fallback — never the reverse.
+// This is the same precedence the Blaze layer uses (templating/client/helpers/
+// outfit.js normalizeOutfit), so the daemon and the templates cannot disagree
+// about which name owns the color.
+//
+// The 200/30 tail is the historical behaviour for an outfit object that carries
+// neither name. Entities with no outfit key at all never reach here — they go
+// through generateDefaultOutfit() — so their docs are unchanged.
+function normalizeOutfit(rawOutfit) {
+  const hue = rawOutfit.h != null ? rawOutfit.h
+    : (rawOutfit.hue != null ? rawOutfit.hue : 200);
+  const saturation = rawOutfit.s != null ? rawOutfit.s
+    : (rawOutfit.saturation != null ? rawOutfit.saturation : 30);
+
+  const outfit = { hue, saturation, visual: rawOutfit.visual || {} };
+
+  // Brightness exists only under the current schema (bri). Carry it when the
+  // source has one and add nothing when it does not, so legacy and outfit-less
+  // entities produce byte-identical docs to before.
+  //
+  // Deliberately NOT falling back to the legacy `brightness` key: .astro and
+  // .jesus are the two files carrying it (both `brightness: 30`), and reading
+  // it would add a field to two existing passports that no consumer asked for.
+  // Whoever owns SPEC-099 can decide whether legacy brightness should travel.
+  if (rawOutfit.bri != null) outfit.brightness = rawOutfit.bri;
+
+  return outfit;
+}
+
 // Index a single entity's passenger.json
 function indexEntity(handle, entityPath) {
   const config = loadPassengerConfig(entityPath);
@@ -45,11 +78,7 @@ function indexEntity(handle, entityPath) {
       handle: config.handle || handle,
       name: config.name,
       image: `/${handle}.png`,
-      outfit: {
-        hue: rawOutfit.hue != null ? rawOutfit.hue : 200,
-        saturation: rawOutfit.saturation != null ? rawOutfit.saturation : 30,
-        visual: rawOutfit.visual || {},
-      },
+      outfit: normalizeOutfit(rawOutfit),
       buttons: config.buttons || [],
       scannedAt: new Date(),
     };
