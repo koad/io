@@ -112,6 +112,11 @@ fi
 
 HOST=$(hostname -s)
 
+# The CALLER's handle, captured before the default below overwrites it. Only a
+# real caller can be this entity's creator; the 'mary' default is the framework
+# talking, not a parent.
+GESTATING_ENTITY="${ENTITY:-}"
+
 # Default authority when none is set: mary (immaculate conception — no initial genome)
 if [ -z "${ENTITY:-}" ]; then
     ENTITY='mary'
@@ -198,7 +203,17 @@ DEFAULT_DISPLAY_NAME="$(echo "${ENTITY_NAME:0:1}" | tr '[:lower:]' '[:upper:]')$
 DEFAULT_MOTHER="${ENTITY:-}"
 
 DISPLAY_NAME=$(ask "Display name" "${KOAD_IO_DISPLAY_NAME:-}" "$DEFAULT_DISPLAY_NAME")
-EMAIL_DOMAIN=$(ask "Email domain" "${KOAD_IO_EMAIL_DOMAIN:-}" "${SOVEREIGN_DOMAIN:-kingofalldata.com}")
+# The email domain belongs to whoever's kingdom this is. Resolve it, in order:
+# an explicit env value, the local sovereign's declared domain, the running
+# entity's own email domain. Then ASK — required — rather than fall back to a
+# kingdom literal that belongs to someone else (valhalla, 2026-11-05).
+EMAIL_DOMAIN_DEFAULT="$SOVEREIGN_DOMAIN"
+if [ -z "$EMAIL_DOMAIN_DEFAULT" ] && [ -n "$GESTATING_ENTITY" ] && [ -f "$HOME/.$GESTATING_ENTITY/.env" ]; then
+    _gestating_email=$(env_value "$HOME/.$GESTATING_ENTITY/.env" GIT_AUTHOR_EMAIL || true)
+    EMAIL_DOMAIN_DEFAULT="${_gestating_email##*@}"
+fi
+unset _gestating_email
+EMAIL_DOMAIN=$(ask "Email domain" "${KOAD_IO_EMAIL_DOMAIN:-}" "$EMAIL_DOMAIN_DEFAULT" --required)
 HOME_MACHINE=$(ask "Home machine (hostname)" "${KOAD_IO_HOME_MACHINE:-}" "$HOST")
 ROLE=$(ask "Role (short description of what this entity does)" "${KOAD_IO_ROLE:-}" "")
 MOTHER=$(ask "Mother entity" "${KOAD_IO_MOTHER_ENTITY:-${ENTITY:-}}" "$DEFAULT_MOTHER")
@@ -608,11 +623,31 @@ GITIGNORE
 say "  wrote: .gitignore"
 say "  wrote: id/.gitignore"
 
+# --- who made this entity ---------------------------------------------------
+# The entity that ran this gestate, else the sovereign on this box, else OMIT.
+# Never a literal: the hardcoded builder name this replaces declared OUR builder
+# as the creator of every entity gestated anywhere (valhalla, 2026-11-05).
+# An omitted line means the relationship was not recorded — which is honest.
+# MOTHER is treated the same way: no default parent is invented either.
+CREATOR="${KOAD_IO_CREATOR:-$GESTATING_ENTITY}"
+if [ -z "$CREATOR" ] && [ -f "$HOME/.koad-io/me/.env" ]; then
+    CREATOR=$(env_value "$HOME/.koad-io/me/.env" SOVEREIGN_HANDLE || true)
+fi
+
+_CREATOR_LINE=""
+_MOTHER_LINE=""
+_GESTATED_BY_LINE=""
+[ -n "$CREATOR" ] && _CREATOR_LINE="CREATOR=$CREATOR"
+[ -n "$CREATOR" ] && _GESTATED_BY_LINE="GESTATED_BY=$CREATOR"
+[ -n "${MOTHER:-}" ] && _MOTHER_LINE="MOTHER=$MOTHER"
+
 # --- KOAD_IO_VERSION ---
+# GESTATED_BY is the creator entity (VESTA-SPEC-138 checks for the field); an
+# empty line means no creator was recorded, not that a stranger made this one.
 cat > "$ENTITY_DIR/KOAD_IO_VERSION" << VERSIONEOF
 # koad:io entity — gestation record (SPEC-002 v1.3)
 
-GESTATED_BY=vulcan
+$_GESTATED_BY_LINE
 GESTATE_VERSION=$(cd "$HOME/.koad-io" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BIRTHDAY=$(date +%y:%m:%d:%H:%M:%S)
 NAME=$ENTITY_NAME
@@ -639,8 +674,8 @@ GIT_COMMITTER_NAME=$DISPLAY_NAME
 GIT_COMMITTER_EMAIL=${ENTITY_NAME}@${EMAIL_DOMAIN}
 
 # Creator & relationships
-CREATOR=vulcan
-MOTHER=${MOTHER:-juno}
+$_CREATOR_LINE
+$_MOTHER_LINE
 
 # Home machine
 KOAD_IO_HOME_MACHINE=$HOME_MACHINE
@@ -667,6 +702,7 @@ if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
         --arg role "${ROLE:-}" \
         --arg created "$NOW_ISO_JSON" \
         --arg authorizedBy "$ENTITY" \
+        --arg creator "$CREATOR" \
         '{
             handle: $handle,
             name: $name,
@@ -675,12 +711,11 @@ if [ "$AUTHORIZED_AGENT_MODE" = "1" ]; then
             gestation_mode: "authorized-agent",
             authorized_by: $authorizedBy,
             created_at: $created,
-            created_by: "vulcan",
             provisional: true,
             sovereign_countersign_required: true,
             avatar: null,
             buttons: []
-        }' > "$ENTITY_DIR/passenger.json"
+        } + (if $creator == "" then {} else {created_by: $creator} end)' > "$ENTITY_DIR/passenger.json"
     say "  wrote: passenger.json (provisional — authorized-agent gestation)"
 else
     jq -n \
@@ -688,16 +723,16 @@ else
         --arg name "$DISPLAY_NAME" \
         --arg role "${ROLE:-}" \
         --arg created "$NOW_ISO_JSON" \
+        --arg creator "$CREATOR" \
         '{
             handle: $handle,
             name: $name,
             role: $role,
             status: "gestated",
             created_at: $created,
-            created_by: "vulcan",
             avatar: null,
             buttons: []
-        }' > "$ENTITY_DIR/passenger.json"
+        } + (if $creator == "" then {} else {created_by: $creator} end)' > "$ENTITY_DIR/passenger.json"
     say "  wrote: passenger.json"
 fi
 

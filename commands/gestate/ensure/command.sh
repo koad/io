@@ -169,7 +169,24 @@ fi
 if [ -z "$EMAIL_DOMAIN" ] && [ -f "$HOME/.koad-io/me/.env" ]; then
     EMAIL_DOMAIN=$(env_value "$HOME/.koad-io/me/.env" SOVEREIGN_DOMAIN || true)
 fi
-[ -n "$EMAIL_DOMAIN" ] || EMAIL_DOMAIN="kingofalldata.com"
+
+# NO kingdom-literal fallback. A framework that stamps its own kingdom's domain
+# into another kingdom's newborn has invented an identity it was never given
+# (valhalla, 2026-11-05). Unresolvable is a real answer: the git email keys are
+# omitted below and the reason is printed, instead of a plausible-looking guess.
+if [ -z "$EMAIL_DOMAIN" ]; then
+    warn "no email domain resolvable — GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL omitted, not guessed"
+    warn "  set KOAD_IO_EMAIL_DOMAIN, or SOVEREIGN_DOMAIN in $HOME/.koad-io/me/.env, then re-run"
+fi
+
+# Who made this entity? The entity that ran this command, else the sovereign on
+# this box, else OMIT the key. Never a literal: the hardcoded builder name this
+# replaces wrote OUR builder into every newborn on every machine (valhalla,
+# 2026-11-05). No key is better than a false parent.
+CREATOR="${KOAD_IO_CREATOR:-${ENTITY:-}}"
+if [ -z "$CREATOR" ] && [ -f "$HOME/.koad-io/me/.env" ]; then
+    CREATOR=$(env_value "$HOME/.koad-io/me/.env" SOVEREIGN_HANDLE || true)
+fi
 
 # Structural keys only. MOTHER / ROLE / GESTATED_AT are deliberately absent:
 # they record identity decisions this command must not guess.
@@ -178,10 +195,18 @@ ENV_PAIRS=(
     "ENTITY_DIR=$ENTITY_DIR"
     "ENTITY_HOME=$ENTITY_DIR"
     "GIT_AUTHOR_NAME=$DISPLAY_NAME"
-    "GIT_AUTHOR_EMAIL=${ENTITY_NAME}@${EMAIL_DOMAIN}"
     "GIT_COMMITTER_NAME=$DISPLAY_NAME"
-    "GIT_COMMITTER_EMAIL=${ENTITY_NAME}@${EMAIL_DOMAIN}"
-    "CREATOR=vulcan"
+)
+if [ -n "$EMAIL_DOMAIN" ]; then
+    ENV_PAIRS+=(
+        "GIT_AUTHOR_EMAIL=${ENTITY_NAME}@${EMAIL_DOMAIN}"
+        "GIT_COMMITTER_EMAIL=${ENTITY_NAME}@${EMAIL_DOMAIN}"
+    )
+fi
+if [ -n "$CREATOR" ]; then
+    ENV_PAIRS+=("CREATOR=$CREATOR")
+fi
+ENV_PAIRS+=(
     "KOAD_IO_HOME_MACHINE=$HOST"
     "KOAD_IO_EMIT=1"
     "KOAD_IO_QUIET=0"
@@ -231,16 +256,16 @@ else
         --arg handle "$ENTITY_NAME" \
         --arg name "$DISPLAY_NAME" \
         --arg created "$NOW_ISO_JSON" \
+        --arg creator "$CREATOR" \
         '{
             handle: $handle,
             name: $name,
             role: "",
             status: "gestated",
             created_at: $created,
-            created_by: "vulcan",
             avatar: null,
             buttons: []
-        }' > "$PASSENGER"
+        } + (if $creator == "" then {} else {created_by: $creator} end)' > "$PASSENGER"
     added "passenger.json (created)"
 fi
 
