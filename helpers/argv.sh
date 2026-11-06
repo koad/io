@@ -57,7 +57,7 @@ KOAD_IO_VALUE_FLAGS=(
   --days --delegate-to --description --device-id --domain
   --due --entity --fence-lines --file --files-archived
   --files-merged --files-read --fresh-hours --git-dir --home
-  --id --interval --kind --leg --limit
+  --id --interval --into --kind --leg --limit
   --local-provider --location --message --model --model-ceiling
   --model-filter --model_filter --name --new-key-path --note
   --only --out --out-dir --output --override-requires

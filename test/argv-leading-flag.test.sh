@@ -130,6 +130,15 @@ check "T12a KOAD_IO_FLAGS word-split carries booleans" "--local --attach" "$KOAD
 check "T12b positional split preserves the verb" "$(join upstart)" "$(join ${_koad_io_positional_args[@]})"
 unset KOAD_IO_FLAGS
 
+# ── T20: --into pairs with its path (VESTA-SPEC-243 §2.6) ───────────────────
+# `spawn <skeleton> --into <path>` is the spec's canonical spelling. The launcher
+# reorders argv (positionals first, then flags), so a value flag that is NOT in
+# the table arrives as a bare `--into` with its path left among the positionals —
+# the command then sees `--into` with no value and refuses. Pinned here so the
+# pairing cannot silently regress.
+assert_split "T20 --into pairs with its path" \
+  "$(join spawn spawnprobe)" "$(join --into /tmp/new-proj)" -- spawn spawnprobe --into /tmp/new-proj
+
 # ── T13–T15: the value table itself ─────────────────────────────────────────
 # The set must be non-empty and cover representative value flags from each layer
 # (framework + forge) — and must NOT contain flags that are booleans everywhere.
