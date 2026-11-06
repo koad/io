@@ -139,6 +139,20 @@ unset KOAD_IO_FLAGS
 assert_split "T20 --into pairs with its path" \
   "$(join spawn spawnprobe)" "$(join --into /tmp/new-proj)" -- spawn spawnprobe --into /tmp/new-proj
 
+# ── T21: --month pairs with its period (the 2026-11-06 repro) ───────────────
+# `koad-io ledger --month 2026-06 balance` used to reach the command as
+# `2026-06 balance --month`: the flag was hoisted past its value, and the value
+# was left among the positionals. Same class as --into (T20) and --debug (T1) —
+# one missing table entry, one silently re-routed argument.
+assert_split "T21a --month pairs when it leads (value must not eat the verb)" \
+  "$(join ledger balance)" "$(join --month 2026-06)" -- --month 2026-06 ledger balance
+
+assert_split "T21b --month pairs after the verb (the reported repro)" \
+  "$(join ledger balance)" "$(join --month 2026-06)" -- ledger --month 2026-06 balance
+
+assert_split "T21c --month=value needs no lookahead" \
+  "$(join ledger balance)" "$(join --month=2026-06)" -- ledger balance --month=2026-06
+
 # ── T13–T15: the value table itself ─────────────────────────────────────────
 # The set must be non-empty and cover representative value flags from each layer
 # (framework + forge) — and must NOT contain flags that are booleans everywhere.
@@ -159,6 +173,20 @@ for _bf in --local --attach --dry-run --debug --json --quiet; do
 done
 check "T15 predicate rejects an unknown flag" "rejected" \
   "$(koad_io_flag_takes_value --not-a-real-flag && echo accepted || echo rejected)"
+
+# ── T22: the 2026-11-06 audit's additions are present ────────────────────────
+# Every entry here is a value flag a USER types on the koad-io command line and
+# that the launcher was silently mis-splitting. They are pinned individually so
+# a future edit to the table cannot quietly drop one and resurrect its bug.
+# (Call-site-only flags — --handle, --userid, --leaf-fingerprint, … — are
+# deliberately absent: the launcher never sees them.)
+for _af in --arms --category --format --max-lines --month --parser --schema --verbosity; do
+  if koad_io_flag_takes_value "$_af"; then
+    check "T22 audit addition present: $_af" "yes" "yes"
+  else
+    check "T22 audit addition present: $_af" "yes" "no"
+  fi
+done
 
 # ── T16–T19: call-site lint — the defect must not return inline ─────────────
 # The absorbing branch must be GATED by the predicate in the helper …

@@ -42,6 +42,28 @@
 # NOT listed. When a command grows a new value-taking flag, add it here; a
 # missing entry degrades to boolean, which turns its value into a positional.
 #
+# WHAT BELONGS HERE (learned the hard way, 2026-11-06)
+# ---------------------------------------------------
+# Only flags a USER can type on the koad-io command line. A line inside a
+# command.sh that calls another program — `node ceremony.mjs --handle "$X" ...`
+# — is a CALL SITE, not an argv surface: the launcher never sees it, so listing
+# it here buys nothing and bloats a global table.
+# The two look alike in a grep sweep — a call site ending in `)` matches a case
+# arm's `--flag)` — so check that the line's body reaches `;;` before believing
+# it is an arm.
+#
+# A flag is ADDED only when it takes a value everywhere it appears on a real
+# command line. A flag that is sometimes boolean (`--skip`, `--plan`) must not be
+# added "just in case": a boolean entry eats the next positional, which is the
+# original bug wearing the opposite mask.
+#
+# 2026-11-06 audit (framework + forge + skeletons, shell arms and the JS command
+# surfaces that receive "$@") added the user-facing value flags that were
+# missing: --arms, --category, --format, --max-lines, --month, --parser,
+# --schema, --verbosity. Deliberately NOT added (call sites, not argv surfaces):
+# --handle, --host, --leaf-fingerprint, --mnemonic, --sigchain-head,
+# --sovereign-device-key-path, --userid, --asc, --md, --expect-from.
+#
 # test/argv-leading-flag.test.sh pins the three reproduced failures plus the
 # value-taking / boolean / `-`-leading-value cases.
 #
@@ -51,22 +73,22 @@
 # launcher is more risk than the bug it fixes.
 
 KOAD_IO_VALUE_FLAGS=(
-  --action --authorizing-key --avatar --bio --body
-  --budget --budget-tokens --cache-dir --ceiling --consumed
+  --action --arms --authorizing-key --avatar --bio --body
+  --budget --budget-tokens --cache-dir --category --ceiling --consumed
   --context --cwd --cwd-filter --cwd_filter --date
   --days --delegate-to --description --device-id --domain
   --due --entity --fence-lines --file --files-archived
-  --files-merged --files-read --fresh-hours --git-dir --home
+  --files-merged --files-read --format --fresh-hours --git-dir --home
   --id --interval --into --kind --leg --limit
-  --local-provider --location --message --model --model-ceiling
-  --model-filter --model_filter --name --new-key-path --note
+  --local-provider --location --max-lines --message --model --model-ceiling
+  --model-filter --model_filter --month --name --new-key-path --note
   --only --out --out-dir --output --override-requires
-  --parent-consumed --parent-plan --per-leg --plan --priority
+  --parent-consumed --parent-plan --parser --per-leg --plan --priority
   --profile --pubkey-base64url --pubkey-path --reason --recovery-dir
-  --refs --root --service --sign --signal
+  --refs --root --schema --service --sign --signal
   --signing-key --since --skip --snooze-until --stage
   --subject --system --timeout --tip --title
-  --to --total --type --until --visitor
+  --to --total --type --until --verbosity --visitor
   --wait --work-tree
 )
 
