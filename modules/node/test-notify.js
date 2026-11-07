@@ -214,6 +214,73 @@ await test('every event carries by + via', () => {
   assert.equal(read.to_session, 'juno-test');
 });
 
+// ── 13. the shared cursor: one place, two transports ────────────────────
+//
+// The push feed and the long-poll both wait on the same file. If each kept its
+// own "last handled", one would re-inject what the other already delivered. These
+// four prove the cursor is a property of the ENTITY and that it cannot move
+// backwards when a slower reader finishes late.
+await test('cursor file starts empty and is written where it is documented', () => {
+  const entity = 'cursortest';
+  const empty = notify.readCursor(entity);
+  assert.deepEqual(empty.channels, {});
+  assert.equal(empty.corrupt, false);
+  assert.ok(notify.cursorPath(entity).endsWith('/notify/cursortest.cursor'));
+});
+
+await test('advanceCursor records a channel id and refuses to move backwards', () => {
+  const first = notify.appendEvent('triage', { type: 'item.opened', item: 'tr-1', summary: 'one' });
+  const second = notify.appendEvent('triage', { type: 'item.decided', item: 'tr-1', summary: 'two' });
+
+  const a = notify.advanceCursor('cursortest', 'triage', first.id);
+  assert.equal(a.advanced, true);
+  assert.equal(notify.readCursor('cursortest').channels.triage, first.id);
+
+  const b = notify.advanceCursor('cursortest', 'triage', second.id);
+  assert.equal(b.advanced, true);
+
+  // A slower reader finishing after the faster one must not resurrect `first`.
+  const replay = notify.advanceCursor('cursortest', 'triage', first.id);
+  assert.equal(replay.advanced, false);
+  assert.equal(replay.reason, 'backwards');
+  assert.equal(notify.readCursor('cursortest').channels.triage, second.id);
+});
+
+await test('a cursor id the channel no longer contains is accepted, not deadlocked', () => {
+  const fresh = notify.appendEvent('questions', { type: 'question.asked', item: 'q-1', summary: 'q' });
+  notify.advanceCursor('cursortest', 'questions', 'an-id-from-a-rotated-file');
+  const moved = notify.advanceCursor('cursortest', 'questions', fresh.id);
+  assert.equal(moved.advanced, true);
+  assert.equal(notify.readCursor('cursortest').channels.questions, fresh.id);
+});
+
+await test('the carried pending list is bounded and survives a rewrite', () => {
+  const rows = Array.from({ length: 80 }, (_v, i) => ({ channel: 'triage', id: `d-${i}`, type: 'item.read', decision: 'digest', summary: `read ${i}` }));
+  const record = notify.commitCursor('cursortest', { pending: rows });
+  assert.equal(record.pending.length, notify.PENDING_MAX);
+  assert.equal(record.pending[record.pending.length - 1].summary, 'read 79');
+  assert.equal(notify.readCursor('cursortest').pending.length, notify.PENDING_MAX);
+});
+
+await test('one commit advances the cursor and carries pending in one write', () => {
+  const event = notify.appendEvent('triage', { type: 'item.decided', item: 'tr-2', summary: 'decided' });
+  const record = notify.commitCursor('cursortest', {
+    channels: { triage: event.id },
+    pending: [{ channel: 'triage', id: event.id, decision: 'immediate', summary: 'decided' }],
+  });
+  assert.equal(record.channels.triage, event.id);
+  assert.equal(record.pending.length, 1);
+});
+
+await test('a corrupt cursor file is set aside, never silently replayed', () => {
+  const file = notify.cursorPath('cursortest');
+  fs.writeFileSync(file, '{not json');
+  const read = notify.readCursor('cursortest');
+  assert.equal(read.corrupt, true);
+  assert.ok(read.aside, 'the unreadable file is kept beside the new one');
+  assert.deepEqual(read.channels, {});
+});
+
 fs.rmSync(scratch, { recursive: true, force: true });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

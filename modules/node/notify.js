@@ -95,6 +95,28 @@ export function presencePath(entity) {
   return path.join(presenceDir(), `${entity}.json`);
 }
 
+/**
+ * One entity's cursor file — shared by EVERY path that reads a channel for it.
+ *
+ * A push subscription and a long-poll are two ways to wait on the same file. If
+ * each kept its own idea of "last handled", one would eventually re-inject what
+ * the other already delivered — and a re-delivered decision invites the same
+ * decision twice into the same record. So the cursor is a property of the
+ * ENTITY, not of the transport.
+ *
+ *   { entity, updated, channels: { triage: "<event id>", ... }, pending: [ ... ] }
+ *
+ * `pending` is the consumed-but-not-yet-delivered list: the push path advances
+ * the cursor as soon as it has READ an event, so a crash before the wake would
+ * otherwise lose it. An event still in `pending` was never delivered, so
+ * resuming it is not a replay. It is cleared when the wake that carries it is
+ * sent.
+ */
+export function cursorPath(entity) {
+  assertEntity(entity);
+  return path.join(notifyDir(), `${entity}.cursor`);
+}
+
 function assertChannel(channel) {
   if (!CHANNEL_RE.test(String(channel || ''))) {
     throw new Error(`invalid channel name: ${JSON.stringify(channel)} — expected /${CHANNEL_RE.source}/`);
@@ -288,6 +310,140 @@ export async function waitForEvents(channel, options = {}) {
     }
     await sleep(Math.min(pollMs, Math.max(1, maxWaitMs - elapsed)));
   }
+}
+
+// ── shared cursor ───────────────────────────────────────────────────────────
+//
+// File order is the only ordering the channel has (see property 1 at the top),
+// so a cursor write is guarded against moving BACKWARDS in the file: a slower
+// path finishing after a faster one must not resurrect events the faster path
+// already consumed. Ids the file does not contain are treated as unknown and the
+// write proceeds — a rotated channel must not wedge the cursor forever.
+
+/** How many consumed-but-undelivered events are carried between wakes. */
+export const PENDING_MAX = 50;
+
+function channelOrder(channel) {
+  let text = '';
+  try {
+    text = fs.readFileSync(channelPath(channel), 'utf8');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return new Map();
+    throw err;
+  }
+  const order = new Map();
+  let index = 0;
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const event = JSON.parse(trimmed);
+      if (event && typeof event.id === 'string') order.set(event.id, index++);
+    } catch (_err) {
+      // An unreadable line is not an event; it takes no position.
+    }
+  }
+  return order;
+}
+
+/**
+ * Read an entity's cursor record, or a well-formed empty one.
+ * A corrupt file is NOT silently discarded — that would replay the channel — so
+ * it is renamed aside and reported with `corrupt: true`.
+ */
+export function readCursor(entity) {
+  const file = cursorPath(entity);
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') throw new Error('not an object');
+    const channels = parsed.channels && typeof parsed.channels === 'object' ? parsed.channels : {};
+    const pending = Array.isArray(parsed.pending) ? parsed.pending : [];
+    return { entity, updated: parsed.updated || null, channels, pending, corrupt: false };
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return { entity, updated: null, channels: {}, pending: [], corrupt: false };
+    }
+    let aside = null;
+    try {
+      aside = `${file}.corrupt-${Date.now()}`;
+      fs.renameSync(file, aside);
+    } catch (_renameErr) { aside = null; }
+    return { entity, updated: null, channels: {}, pending: [], corrupt: true, aside };
+  }
+}
+
+function writeCursorRecord(entity, record) {
+  const file = cursorPath(entity);
+  ensureDir(path.dirname(file));
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tmp, file);
+  return record;
+}
+
+/**
+ * One read-modify-write of the cursor record.
+ *
+ * The push feed and the long-poll both touch this file. Two separate writes per
+ * event (advance, then carry) would leave a lost-update window in which one
+ * transport overwrites the other's progress. So callers pass a patch and this
+ * function merges it under a single tmp+rename.
+ *
+ * A channel cursor is guarded against moving BACKWARDS in the file: a slower
+ * reader finishing late must not resurrect events the faster one consumed. An id
+ * the file no longer contains is accepted — a rotated channel must not deadlock.
+ */
+export function commitCursor(entity, patch = {}, options = {}) {
+  const now = options.now == null ? Date.now() : Number(options.now);
+  const cap = options.cap == null ? PENDING_MAX : Number(options.cap);
+  const record = readCursor(entity);
+
+  const channels = patch.channels && typeof patch.channels === 'object' ? patch.channels : {};
+  let moved = 0;
+  let held = 0;
+  for (const [channel, candidate] of Object.entries(channels)) {
+    assertChannel(channel);
+    if (candidate == null || String(candidate).trim() === '') continue;
+    const next = String(candidate);
+    const current = record.channels[channel] == null ? null : String(record.channels[channel]);
+    if (current === next) continue;
+    if (current) {
+      const order = channelOrder(channel);
+      const from = order.get(current);
+      const to = order.get(next);
+      if (from != null && to != null && to <= from) { held += 1; continue; }
+    }
+    record.channels[channel] = next;
+    moved += 1;
+  }
+
+  if (Array.isArray(patch.pending)) {
+    record.pending = patch.pending.slice(-cap);
+  }
+
+  record.entity = entity;
+  record.updated = new Date(now).toISOString();
+  writeCursorRecord(entity, record);
+  return { ...record, moved, held };
+}
+
+/**
+ * Advance one channel's cursor to `id`. Never throws for an ordinary race.
+ *
+ * → { cursor, advanced, reason? }
+ *   reason: 'backwards' (a slower reader finished late) | 'unchanged'
+ */
+export function advanceCursor(entity, channel, id, options = {}) {
+  assertChannel(channel);
+  if (id == null || String(id).trim() === '') throw new Error('advanceCursor requires an event id');
+  const candidate = String(id);
+  const before = readCursor(entity).channels[channel] ?? null;
+  const after = commitCursor(entity, { channels: { [channel]: candidate } }, options);
+  const current = after.channels[channel] ?? null;
+  if (current === candidate) {
+    return { cursor: current, advanced: before !== candidate, reason: before === candidate ? 'unchanged' : undefined };
+  }
+  return { cursor: current, advanced: false, reason: 'backwards' };
 }
 
 // ── presence ────────────────────────────────────────────────────────────────
@@ -556,6 +712,11 @@ export default {
   presenceDir,
   channelPath,
   presencePath,
+  cursorPath,
+  readCursor,
+  commitCursor,
+  advanceCursor,
+  PENDING_MAX,
   newEventId,
   clipSummary,
   appendEvent,
