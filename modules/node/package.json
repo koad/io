@@ -50,6 +50,9 @@
     },
     "./bond-gate": {
       "import": "./bond-gate.js"
+    },
+    "./notify": {
+      "import": "./notify.js"
     }
   },
   "main": "./index.cjs",
