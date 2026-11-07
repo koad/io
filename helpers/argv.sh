@@ -3,92 +3,81 @@
 #
 # argv classification for the koad-io launcher.
 #
-# WHY THIS FILE EXISTS (2026-11-03)
-# ---------------------------------
-# bin/koad-io separates leading flags from positional command words so the
-# cascade can resolve a command by directory. The old inline loop treated EVERY
-# `--token` as value-taking: it absorbed the next non-flag token as the flag's
-# value. A boolean — or entirely unknown — flag therefore ate the command word:
+# THE CONTRACT (VESTA-SPEC-245 §0, A-3)
+# ------------------------------------
+#   The launcher may remove the command words it resolved. It may not add,
+#   drop, or move any other token.
 #
-#   koad-io --debug kingdom whoami   -> parsed as --debug=kingdom, ran `whoami`
-#   koad-io --dry-run kingdom project list -> command became `project`, exit 66
-#   koad-io --debug kingdom          -> no positional left, printed the banner
+# Everything else in the invocation belongs to the command, in the order the
+# caller wrote it. This file computes two things and nothing more:
 #
-# `--debug` is not a flag at all (debug is switched on by the DEBUG env var);
-# the class is any unknown leading flag silently re-routing the command.
+#   1. a RESOLUTION VIEW — which leading tokens could be command-directory
+#      words (koad_io_split_argv), and
+#   2. the EXEC SLICE — the caller's original argv with only those resolved
+#      command words removed (koad_io_exec_slice).
 #
-# THE FIX
-# -------
-# A flag consumes the next token ONLY if it is in the value-taking set below.
-# Everything else — known booleans AND unknown flags — is boolean and never
-# consumes a positional. Unknown flags pass through as boolean (inert at worst).
+# WHAT THIS FILE USED TO DO, AND WHY IT STOPPED (2026-11-07)
+# ---------------------------------------------------------
+# Until SPEC-245 the launcher did a stable PARTITION: every flag token was
+# moved behind all the positionals and the exec line appended them
+# (`exec cmd "${_REST_ARGS[@]}" "${_flag_args[@]}"`). Nothing was lost, every
+# token survived, and the exit code was zero — which is why it looked harmless
+# for months. It was not harmless: the partition RELOCATES a value, it never
+# mangles one. `profile view --chain a.json b.json` reached the command as
+# `b.json --chain a.json`; the boolean `--chain` arm shifted one token, so
+# `a.json` was read as a chain file by the `*)` arm. CHAIN_FILES became
+# (b.json, a.json): genesis-first over a tip-first chain, exit 0, silent.
 #
-# THE VALUE-TAKING SET IS DERIVED, NOT GUESSED
-# --------------------------------------------
-# Every entry below appears in a command's argv parser as a case arm that
-# consumes the NEXT token (`"$2"`, `shift 2`, `${2:-…}`) rather than the
-# self-contained `--flag=value` form. Derivation sweep (run from $HOME):
+# A missing table row strands a value in plain sight. A spurious row produces
+# a confident wrong answer. SPEC-245 calls that the signature of the class.
 #
-#   grep -rn --include='*.sh' -E '^\s*[^()#[:space:]][^()]*\)' \
-#     ~/.koad-io/commands ~/.forge/commands \
-#   # then keep only arms whose body references $2 / shift 2 / ${2:-…}
+# THE VALUE-TAKING TABLE IS NOW A LEADING-REGION AID (SPEC-245 A-3.1 / A-5)
+# ------------------------------------------------------------------------
+# Arity knowledge is consulted ONLY for tokens before the last resolved
+# command word. A token after it is data and is never classified by the
+# launcher — the command's own `case` statement is the authority for its
+# vocabulary. So a global row can no longer collide with a command's tail
+# flags: it is simply not read there.
 #
-# plus the separate-value flags of the JavaScript command surfaces
-# (session/list/report.mjs, status/bonds, chat/bonds-guard-cli, git/scope-gate).
+# In the leading region a value-taking flag should be written `--flag=value`.
+# The table reduces the risk for known flags and is deprecated for the purpose.
 #
-# `--flag=value` needs no lookahead (the splitter handles it before consulting
-# this table) and is therefore NOT listed. Flags that are booleans everywhere
-# (`--local`, `--attach`, `--dry-run`, `--json`, `--force`, `--quiet`, …) are
-# NOT listed. When a command grows a new value-taking flag, add it here; a
-# missing entry degrades to boolean, which turns its value into a positional.
+# KOAD_IO_FLAGS is GONE (SPEC-245 A-5). It was a word-split string: a string
+# cannot preserve element boundaries, so a consumer re-applied the partition
+# after splitting on whitespace — losing the caller's quoting a second time.
+# A command needs its flags in `"$@"`, which now carries every token in the
+# caller's order. Do not reintroduce it.
 #
-# WHAT BELONGS HERE (learned the hard way, 2026-11-06)
-# ---------------------------------------------------
+# A-'--' IS HONOURED (SPEC-245 m2). When the splitter meets `--`, classification
+# STOPS. The `--` token and every token after it are never consulted for
+# resolution and never tabled; they are preserved in place by the exec slice.
+# Before this a caller had no way to protect a literal that begins with `--`.
+#
+# WHAT BELONGS IN THE TABLE
+# -------------------------
 # Only flags a USER can type on the koad-io command line. A line inside a
-# command.sh that calls another program — `node ceremony.mjs --handle "$X" ...`
+# command.sh that calls another program — `node ceremony.mjs --handle "$X" …`
 # — is a CALL SITE, not an argv surface: the launcher never sees it, so listing
 # it here buys nothing and bloats a global table.
 # The two look alike in a grep sweep — a call site ending in `)` matches a case
 # arm's `--flag)` — so check that the line's body reaches `;;` before believing
 # it is an arm.
 #
-# A flag is ADDED only when it takes a value everywhere it appears on a real
-# command line. A flag that is sometimes boolean (`--skip`, `--plan`) must not be
-# added "just in case": a boolean entry eats the next positional, which is the
-# original bug wearing the opposite mask.
+# A flag enters the table only if it takes a value everywhere it appears on a
+# real command line. A flag that is sometimes boolean MUST NOT be added: a
+# boolean entry eats the next positional, which is the original bug wearing the
+# opposite mask. A contested flag loses — boolean wins, and the value-taking
+# side writes `--flag=value` (SPEC-245 A-2).
 #
-# 2026-11-06 audit (framework + forge + skeletons, shell arms and the JS command
-# surfaces that receive "$@") added the user-facing value flags that were
-# missing: --arms, --category, --format, --max-lines, --month, --parser,
-# --schema, --verbosity. Deliberately NOT added (call sites, not argv surfaces):
-# --handle, --host, --leaf-fingerprint, --mnemonic, --sigchain-head,
-# --sovereign-device-key-path, --userid, --asc, --md, --expect-from.
+# test/argv-value-conformance.test.sh sweeps every tree in both directions:
+# presence (a consuming arm must be tabled) and ABSENCE (a tabled flag must not
+# have a non-consuming arm anywhere, entity trees included).
 #
-# 2026-11-07 audit (from rooty's ecoincore conformance sweep): added the 18
-# user-facing value flags the ~/.ecoincore command tree consumes and the table
-# lacked, which made those commands STRAND their values through the launcher
-# (not merely degraded — e.g. `export xprv`, `psbt create|sign|finalize`,
-# `import xprv`, `{init,set,inspect} chainpack`, `configure blockchains
-# --device`): --account, --by, --chainpack, --curator, --device, --encrypt-with,
-# --endpoint, --from, --index, --log, --network, --passphrase, --psbt,
-# --purpose, --query, --source, --spec, --ticker. Every one is a `shift 2` arm
-# documented in its own usage block; each was grep-verified to have no boolean
-# use in ~/.koad-io/commands or ~/.forge/commands. --passphrase has a boolean
-# use in ~/.dotfiles/commands/identity/init, but that command takes zero
-# positional operands, so the row cannot eat a value there (verified by
-# simulating every invocation); operator approved the row.
-# Deliberately NOT added (== BOOLEAN in the forge, a row would eat a
-# positional): --chain (profile view/verify mode switch), --tail (start),
-# --paths (tickler board). Those commands fail loudly on the space form and
-# name the working --flag=value form instead.
+# Derivation sweep (run from $HOME):
 #
-# test/argv-leading-flag.test.sh pins the three reproduced failures plus the
-# value-taking / boolean / `-`-leading-value cases.
-#
-# LONG-RUN SHAPE (NOT THIS CHANGE): resolve the command first, then hand it the
-# remainder to parse with its own `--flag value` rules. That removes the need
-# for a global table. Not done here — rewriting argv parsing in a working
-# launcher is more risk than the bug it fixes.
+#   grep -rn --include='*.sh' -E '^\s*[^()#[:space:]][^()]*\)' \
+#     ~/.koad-io/commands ~/.forge/commands \
+#   # then keep only arms whose body references $2 / shift 2 / ${2:-…}
 
 KOAD_IO_VALUE_FLAGS=(
   --account --action --arms --authorizing-key --avatar --bio --body
@@ -110,7 +99,7 @@ KOAD_IO_VALUE_FLAGS=(
   --wait --work-tree
 )
 
-# koad_io_flag_takes_value FLAG -> 0 if the flag expects the next token as value
+# koad_io_flag_takes_value FLAG -> 0 if the flag may take the next token as value
 koad_io_flag_takes_value() {
   local _f="$1" _v
   for _v in "${KOAD_IO_VALUE_FLAGS[@]}"; do
@@ -120,25 +109,39 @@ koad_io_flag_takes_value() {
 }
 
 # koad_io_split_argv ARGS...
-#   Populates two caller-visible arrays:
-#     _koad_io_positional_args — positional tokens (command words + their args)
-#     _koad_io_flag_args       — flag tokens; values of value-taking flags are
-#                                paired in so whitespace survives to exec
+#   Populates three caller-visible arrays:
+#     _koad_io_positional_args  — tokens eligible to be command-directory words
+#                                 (everything before `--` that is not a flag)
+#     _koad_io_positional_index — the ORIGINAL argv index of each of those, so
+#                                 the exec slice can remove exactly those tokens
+#     _koad_io_flag_args        — flag tokens before `--`, with a value-taking
+#                                 flag's value paired in (diagnostics + DRY_RUN)
+#
+#   Nothing is reordered and nothing is dropped. `--` and everything after it
+#   are deliberately in none of these arrays: they are data, and the exec slice
+#   preserves them in place.
 koad_io_split_argv() {
   _koad_io_positional_args=()
+  _koad_io_positional_index=()
   _koad_io_flag_args=()
-  local _i=1 _arg _next_i _next
+  local _i=1 _arg _next_i _next _fenced=0
   while [[ $_i -le $# ]]; do
     _arg="${!_i}"
-    if [[ "$_arg" == --*=* ]]; then
+    if (( _fenced )); then
+      # Past `--`: classify nothing. The token stays where the caller put it.
+      :
+    elif [[ "$_arg" == "--" ]]; then
+      _fenced=1
+    elif [[ "$_arg" == --*=* ]]; then
       # --key=value form: already self-contained, no lookahead needed
       _koad_io_flag_args+=("$_arg")
     elif [[ "$_arg" == --* ]]; then
       _next_i=$((_i + 1))
       _next="${!_next_i:-}"
       # Absorb the next token as the value ONLY for a known value-taking flag.
-      # A boolean or unknown flag never eats a positional (the bug this fixes).
-      # A value may begin with a single '-' (e.g. -5); only '--' is a flag.
+      # A boolean or unknown flag never eats a positional (the 2026-11-03 bug).
+      # A value may begin with a single '-' (e.g. -5); only '--' is a flag, and
+      # `--` itself is the fence, so it is never absorbed.
       if koad_io_flag_takes_value "$_arg" && [[ -n "$_next" && "$_next" != --* ]]; then
         _koad_io_flag_args+=("$_arg" "$_next")
         _i=$((_i + 1))
@@ -147,7 +150,42 @@ koad_io_split_argv() {
       fi
     else
       _koad_io_positional_args+=("$_arg")
+      _koad_io_positional_index+=("$_i")
     fi
     _i=$((_i + 1))
+  done
+}
+
+# koad_io_exec_slice CONSUMED ARGS...
+#   CONSUMED = how many leading POSITIONAL tokens resolution consumed.
+#   Populates:
+#     _koad_io_exec_args     — the caller's argv, in the caller's order, minus
+#                              exactly those consumed command words
+#     _koad_io_consumed_args — the command words that were removed
+#   Requires _koad_io_positional_index from koad_io_split_argv on the SAME argv.
+#
+#   This is the only transformation the launcher is allowed to perform
+#   (SPEC-245 A-3). It removes; it does not add, drop, or move.
+koad_io_exec_slice() {
+  local _consumed="${1:-0}"
+  (( $# )) && shift
+  _koad_io_exec_args=()
+  _koad_io_consumed_args=()
+  local -a _drop=()
+  local _k _i _is_drop _idx
+
+  for ((_k=0; _k<_consumed; _k++)); do
+    _idx="${_koad_io_positional_index[$_k]:-}"
+    [[ -n "$_idx" ]] || continue
+    _drop+=("$_idx")
+    _koad_io_consumed_args+=("${!_idx}")
+  done
+
+  for ((_i=1; _i<=$#; _i++)); do
+    _is_drop=0
+    for _k in ${_drop[@]+"${_drop[@]}"}; do
+      [[ "$_i" == "$_k" ]] && { _is_drop=1; break; }
+    done
+    (( _is_drop )) || _koad_io_exec_args+=("${!_i}")
   done
 }

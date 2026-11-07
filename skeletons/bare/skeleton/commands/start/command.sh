@@ -15,32 +15,40 @@ source "$HOME/.koad-io/commands/assert/datadir/command.sh"
 
 cd $DATADIR
 
-# Parse positional and flag arguments.
+# Parse this command's own arguments. They arrive in "$@" exactly as the
+# caller wrote them, in order: the launcher hands the command its tokens and
+# classifies nothing after the command words (VESTA-SPEC-245 A-3). Read "$@";
+# never read a launcher-supplied flag string (A-5 — that string is gone).
+#
 # Positional: build type (e.g. "local"). Flags: --local, --attach,
 # --no-screen, --tail.
-# The dispatcher exports KOAD_IO_FLAGS with any --flag args stripped from $@,
-# but commands can also receive flags directly for backwards compatibility.
 #
 # --no-screen  Run in the foreground instead of inside screen.
 # --tail       After starting, wait 5s then tail -f the log in the foreground.
 # --tail=N     Wait N seconds (or 30s / 2m / 1h) before tailing.
 #              Ctrl-C stops the tail — the daemon keeps running in its screen.
-#
-# Note: the `--tail N` space form is NOT supported because upstream helpers
-# (assert/datadir and the dispatcher) strip --tail but then treat N as a
-# positional argument, which breaks workspace resolution. Always use the
-# equals form when specifying a value.
 KOAD_IO_TAIL=""
 KOAD_IO_TAIL_WAIT="5"
-for _arg in "$@" $KOAD_IO_FLAGS; do
-  case "$_arg" in
+while [[ $# -gt 0 ]]; do
+  # `--tail` alone is boolean (wait 5s, then tail). `--tail <token>` is the
+  # space form of a value flag, and this command owns the following token as
+  # its build-type positional — so the value would be eaten by the positional
+  # parser and the run would fail three steps later with an unrelated message.
+  # Refuse it here, by name, and name the working form (VESTA-SPEC-245 A-2).
+  # The guard sits OUTSIDE the case on purpose: `--tail` stays a boolean flag
+  # to anything that inspects this command's argv surface, which is what it is.
+  if [[ "$1" == "--tail" && -n "${2:-}" && "${2:-}" != -* ]]; then
+    echo "start: '--tail <value>' is not supported — use --tail=<seconds> (the space form loses its value to the build-type argument)" >&2
+    exit 2
+  fi
+  case "$1" in
     --local)      LOCAL_BUILD=true ;;
     --attach)     KOAD_IO_ATTACH=true ;;
     --no-screen)  KOAD_IO_NO_SCREEN=true ;;
     --tail)       KOAD_IO_TAIL=true ;;
     --tail=*)
       KOAD_IO_TAIL=true
-      _t="${_arg#--tail=}"
+      _t="${1#--tail=}"
       case "$_t" in
         *s) KOAD_IO_TAIL_WAIT="${_t%s}" ;;
         *m) KOAD_IO_TAIL_WAIT="$(( ${_t%m} * 60 ))" ;;
@@ -49,10 +57,11 @@ for _arg in "$@" $KOAD_IO_FLAGS; do
       esac
       ;;
     --*)       ;; # ignore unknown flags
-    *)         [[ -z "$KOAD_IO_TYPE" ]] && KOAD_IO_TYPE="$_arg" ;;
+    *)         [[ -z "$KOAD_IO_TYPE" ]] && KOAD_IO_TYPE="$1" ;;
   esac
+  shift
 done
-unset _arg _t
+unset _t
 
 # "local" as a positional arg also sets LOCAL_BUILD, and vice versa
 [[ "$KOAD_IO_TYPE" == "local" ]] && LOCAL_BUILD=true

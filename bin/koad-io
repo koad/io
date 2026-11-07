@@ -89,7 +89,7 @@ unset _koad_io_room_pin _koad_io_quiet_pin _v
 # we want to save CWD as the directory which the command was fired from, and pass this into the regular command.
 export CWD=$PWD
 [[ $DEBUG ]] && echo "PWD=$PWD" >&2;
-[[ $DEBUG ]] && echo "ORIG_ARGS=$1 $2 $3 $4 $5 $6 $7 $8 $8" >&2
+[[ $DEBUG ]] && { printf 'ORIG_ARGS (%d):' "$#" >&2; for _a in "$@"; do printf ' %q' "$_a" >&2; done; echo >&2; unset _a; }
 
 # Detect --quiet / -q flag or KOAD_IO_QUIET env var.
 # Quiet mode suppresses spinners and ANSI decoration while keeping plain-text status output.
@@ -113,27 +113,47 @@ if [[ "$KOAD_IO_QUIET" == "1" ]]; then
   unset _filtered_args _arg
 fi
 
-# Separate --flag arguments from positional command arguments.
-# Positional args (start, local, dev, etc.) are used for directory-based command
-# resolution. Flag args (--local, --attach, --dry-run, etc.) are NOT directory
-# names — they pass through to the final command unchanged.
+# ── The argv boundary (VESTA-SPEC-245) ──────────────────────────────────────
 #
-# The classification lives in helpers/argv.sh and is shared with the regression
-# test, so the fix cannot silently drift away from what is pinned. The rule:
+# The launcher has exactly one job it cannot delegate: find the command.
+# Everything else belongs to the command, in the order the caller wrote it.
 #
-#   Fix A: a flag consumes the next token ONLY if it is a known value-taking
-#   flag (helpers/argv.sh KOAD_IO_VALUE_FLAGS). Boolean AND unknown flags never
-#   eat a positional. The old loop absorbed the next non-flag token for EVERY
-#   --flag, so `koad-io --debug kingdom whoami` parsed --debug=kingdom and ran
-#   the framework `whoami` — the command word became data.
+#   The launcher may remove the command words it resolved. It may not add,
+#   drop, or move any other token.
 #
-#   Fix B: _flag_args stays a bash array (not flattened) so the exec at the
-#   bottom can expand it with "${_flag_args[@]}", preserving whitespace inside
-#   flag values through to the command's argv.
+# _ORIG_ARGV is the caller's argv, untouched, captured before anything else
+# touches it. Two derived views are computed by helpers/argv.sh (shared with
+# the regression tests, so the behaviour cannot silently drift from what is
+# pinned):
 #
-# Backwards compat: KOAD_IO_FLAGS (word-split string) is still exported for
-# commands that read it directly (start/stop/restart use it for boolean flags
-# like --local and --attach). Boolean flags appear in it unchanged.
+#   RESOLUTION VIEW — koad_io_split_argv puts the tokens eligible to be
+#   command-directory words into _koad_io_positional_args (and their original
+#   argv indices into _koad_io_positional_index). Only those are handed to the
+#   resolver below. This is the ONLY reason arity knowledge exists: a
+#   value-taking flag must not let its value be mistaken for a command word.
+#
+#   EXEC SLICE — koad_io_exec_slice replays _ORIG_ARGV, skipping exactly the
+#   positional tokens resolution consumed. Same tokens, same order, same
+#   multiplicity. It removes; it never reorders.
+#
+# WHAT THIS REPLACED (2026-11-07, and why it mattered)
+# ---------------------------------------------------
+# The launcher used to do a stable PARTITION: flags moved behind every
+# positional and the exec line appended them. No token was lost and the exit
+# code was zero, which is how it survived review for months — but it RELOCATES
+# a value rather than mangling it, and a relocation inside an order-sensitive
+# command inverts meaning silently. `profile view --chain a.json b.json`
+# arrived as `b.json --chain a.json`; the boolean `--chain` arm shifted one
+# token and `a.json` was read as a chain file. Every token intact, exit 0,
+# and a tip-first chain walked genesis-first.
+#
+# `--` is honoured: classification stops at it, and it is preserved in place.
+#
+# KOAD_IO_FLAGS is NOT exported (VESTA-SPEC-245 A-5). It was a word-split
+# string, so a consumer re-applied the partition after splitting on whitespace
+# and lost the caller's quoting a second time. A command reads its own "$@" —
+# which now carries every token in the caller's order.
+_ORIG_ARGV=("$@")
 _argv_helper="$HOME/.koad-io/helpers/argv.sh"
 if [[ ! -f "$_argv_helper" ]]; then
   echo "koad-io: missing argv helper: $_argv_helper" >&2
@@ -142,16 +162,8 @@ fi
 # shellcheck source=../helpers/argv.sh
 source "$_argv_helper"
 unset _argv_helper
-koad_io_split_argv "$@"
-_positional_args=("${_koad_io_positional_args[@]}")
-_flag_args=("${_koad_io_flag_args[@]}")
-set -- "${_positional_args[@]}"
-export KOAD_IO_FLAGS="${_flag_args[*]}"
-# _flag_args array is kept alive (not unset here) so the exec at the bottom
-# of this script can expand it with "${_flag_args[@]}" and preserve whitespace
-# in flag values. KOAD_IO_FLAGS (word-split string) is exported for backwards
-# compat with commands that read it directly (e.g. start/stop for boolean flags).
-unset _positional_args _koad_io_positional_args _koad_io_flag_args
+koad_io_split_argv "${_ORIG_ARGV[@]}"
+set -- ${_koad_io_positional_args[@]+"${_koad_io_positional_args[@]}"}
 
 [[ $9 ]] && echo 'You have reached the limits here, sorry -- too many arguments.' >&2 && exit 68
 
@@ -516,41 +528,57 @@ export COMMAND_LOCATION=$COMMAND_LOCATION
 [[ $DEBUG ]] && echo "EXEC_ARGS=$EXEC_ARGS" >&2;
 [[ $DEBUG ]] && echo >&2
 
-# Check if the --dry-run flag is set (now in KOAD_IO_FLAGS, not $@).
-# Set DRY_RUN env so individual commands can do previews when they support it.
-# The flag is passed through to the command via _flag_args so commands
-# that parse --dry-run themselves (e.g. inbox resolve, obligation advance)
-# can offer per-action dry-run behavior without the binary blocking execution.
-if [[ "$KOAD_IO_FLAGS" == *"--dry-run"* ]]; then
-  export DRY_RUN=true
-fi
+# Check if the --dry-run flag is set. Read the pre-fence flag view, not a
+# KOAD_IO_FLAGS string: `--dry-run` appearing AFTER `--` is data and must not
+# switch the launcher into preview mode.
+for _arg in ${_koad_io_flag_args[@]+"${_koad_io_flag_args[@]}"}; do
+  [[ "$_arg" == "--dry-run" ]] && export DRY_RUN=true && break
+done
+unset _arg
 
-# Reconstruct the trailing arguments as a proper array from the ORIGINAL
-# positional tokens ($@ — set once, never shifted). The old EXEC_ARGS
-# string + unquoted exec flattened free-text bodies: `message`/`tickle`/
-# `announce` bodies containing newlines arrived at command.sh word-split,
-# so multi-line notes were written as one space-joined line (rooty's note,
-# 2026-09-07). Resolution consumed COMMAND_DEPTH positional tokens for the
-# command directory, +1 when a named <command>.sh file was chosen (its name
-# was one of the positionals), and the harness fallbacks consume 1-2.
-_REST_ARGS=()
+# Compute the exec slice: the caller's argv, in the caller's order, minus only
+# the command words resolution consumed. _CONSUMED counts leading POSITIONAL
+# tokens -- exactly what the resolver consumed -- so the words to drop are
+# _koad_io_positional_index[0 .. _CONSUMED-1].
+#
+# The old code sliced the POSITIONAL view ($@) and appended the flag view at the
+# exec line. That pair IS the partition SPEC-245 removed: it relocated every flag
+# behind the data, which is invisible in a token set and lethal to order.
 if [[ -n "${EXEC_FILE:-}" ]]; then
   _CONSUMED=$COMMAND_DEPTH
   if [[ "$EXEC_FILE" == "$HOME/.koad-io/commands/harness/command.sh" ]]; then
     _CONSUMED=1
-  elif [[ "$EXEC_FILE" == "$HOME/.koad-io/commands/harness/"*"/command.sh" ]]; then
+  elif [[ "$EXEC_FILE" == "$HOME/.koad-io/commands/harness/"*"command.sh" ]]; then
     _CONSUMED=2
   elif [[ "$EXEC_FILE" == "$COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh" && -n "$POTENTIAL_NAMED_COMMAND" ]]; then
     _CONSUMED=$((COMMAND_DEPTH + 1))
   elif [[ "$EXEC_FILE" == "$CWD/$1.sh" ]]; then
     _CONSUMED=1
   fi
-  # Slice from the first unconsumed token: each original argv element stays
-  # intact (quoted expansion below preserves spaces AND newlines).
-  _REST_ARGS=("${@:$((_CONSUMED + 1))}")
+  koad_io_exec_slice "$_CONSUMED" "${_ORIG_ARGV[@]}"
+else
+  _koad_io_exec_args=()
+  _koad_io_consumed_args=()
+  _CONSUMED=0
 fi
 
-echo "--exec $EXEC_FILE ${_REST_ARGS[*]} $KOAD_IO_FLAGS" >&2
+# What actually crosses the boundary. %q makes a token with spaces, a newline,
+# or an empty string visible as ONE element instead of appearing to be two --
+# the failure mode DEBUG exists to make findable (SPEC-245 m3).
+if [[ $DEBUG ]]; then
+  printf 'ORIGINAL_ARGV (%d):' "${#_ORIG_ARGV[@]}" >&2
+  for _a in ${_ORIG_ARGV[@]+"${_ORIG_ARGV[@]}"}; do printf ' %q' "$_a" >&2; done
+  echo >&2
+  printf 'REMOVED_COMMAND_WORDS (%d):' "${#_koad_io_consumed_args[@]}" >&2
+  for _a in ${_koad_io_consumed_args[@]+"${_koad_io_consumed_args[@]}"}; do printf ' %q' "$_a" >&2; done
+  echo >&2
+  printf 'EXEC_ARGV (%d):' "${#_koad_io_exec_args[@]}" >&2
+  for _a in ${_koad_io_exec_args[@]+"${_koad_io_exec_args[@]}"}; do printf ' %q' "$_a" >&2; done
+  echo >&2
+  unset _a
+fi
+
+echo "--exec $EXEC_FILE ${_koad_io_exec_args[*]-}" >&2
 
 # ---------------------------------------------------------------------------
 # Executable-bit preflight (2026-10-31)
@@ -679,8 +707,8 @@ if [[ -n "${EXEC_FILE:-}" ]] && [[ -d "$_MODULE_DIR" ]] && [[ ! -d "$_MODULE_DIR
 fi
 
 # All is well, lets go!
-# _REST_ARGS is the array of trailing positional tokens (each original argv
-# element intact — spaces/newlines preserved). _flag_args is the bash array
-# from the flag-separation loop above; quoted expansion preserves whitespace
-# inside flag values (Fix B).
-exec "$EXEC_FILE" "${_REST_ARGS[@]}" "${_flag_args[@]}"
+# _koad_io_exec_args is the caller's argv minus the command words the launcher
+# resolved -- same tokens, same relative order, same multiplicity, no insertions
+# and no moves (SPEC-245 A-3). Nothing is appended after it: appending the flag
+# view here is what resurrected the partition (m4).
+exec "$EXEC_FILE" ${_koad_io_exec_args[@]+"${_koad_io_exec_args[@]}"}
