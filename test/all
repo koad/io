@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# test/all — run the whole framework contract suite, from anywhere.
+#
+# WHY THIS EXISTS (2026-11-06)
+# ----------------------------
+# Five test files landed in ~/.koad-io/test/ over three months, each one
+# written after a real defect reached a live install. Every one of them
+# documents `Run: bash ~/.koad-io/test/<name>.test.sh` in its header, and
+# NOTHING ran them: no CI workflow, no git hook, no Makefile, no mention in
+# install.md / README.md / PRIMER.md. A suite that runs when a human remembers
+# is a suite that runs after the incident.
+#
+# This is the missing runner. It is the thing a gate can call, and the thing a
+# human can call without knowing the file names.
+#
+# Run:
+#   bash ~/.koad-io/test/all              # everything (default)
+#   bash ~/.koad-io/test/all --fast       # skip the slow acceptance suites
+#   bash ~/.koad-io/test/all --slow       # only the slow acceptance suites
+#   bash ~/.koad-io/test/all --staged     # the tier the STAGED change requires
+#   bash ~/.koad-io/test/all --list       # what would run, and how it is tiered
+#
+# Exit: 0 = every suite that ran passed. 1 = at least one failed, timed out, or
+# could not be executed. 2 = the runner itself was used wrong.
+#
+# SURFACE, NOT A LIST
+#   Tests are DISCOVERED, not enumerated: every `test/*.test.sh` and
+#   `test/*.test.mjs` under KOAD_IO_DIR (default ~/.koad-io). A sixth suite
+#   added tomorrow runs tomorrow without editing this file — which is the whole
+#   point of having a runner instead of five remembered command lines.
+#
+# TIERS
+#   fast — `*.test.sh`. Hermetic shell contracts over the framework surface
+#          (env reader parity, argv classification, the value-flag table, the
+#          kingdom-safe grep dialect). Whole tier is single-digit seconds.
+#   slow — `*.test.mjs`. Acceptance suites that spawn processes and generate
+#          throwaway identities in a temporary HOME. spec-240 alone is ~100s.
+#
+#   The tier is derived from the extension on purpose: a test declares nothing,
+#   so a test cannot forget to declare. A shell contract that later becomes
+#   slow is visible as a slow fast-tier run, not as a silent omission.
+#
+# --staged, AND WHY THE SURFACE TABLE LIVES HERE
+#   `--staged` reads the git index and runs the fast tier, plus the slow tier
+#   for any slow suite whose SURFACE the staged change touches. That is how the
+#   commit path stays honest without taxing a README edit with a 100-second
+#   acceptance run (16 commits in one afternoon is not a hypothetical).
+#
+#   The table lives in this file rather than in the commit command for one
+#   reason: someone adding a suite is already looking here. A slow suite with no
+#   declared surface REFUSES (exit 1) instead of being quietly skipped — a suite
+#   that is unconditional on paper and never triggered in practice is the exact
+#   declared-versus-enforced gap this runner exists to close.
+#
+#   Two doors call it: `koad-io git commit` (scoped to the framework repo) and
+#   the versioned pre-commit hook at test/pre-commit, which fires on plain
+#   `git commit` too. The hook matters because the command path is bond-scoped
+#   and an entity without write scope on ~/.koad-io reaches the framework only
+#   through plain git — see README, "Two doors, one gate".
+#
+# CWD-INDEPENDENT BY CONSTRUCTION
+#   Paths come from BASH_SOURCE, never from $PWD, and every suite is executed
+#   from the framework root so a suite that assumes its own cwd is unaffected.
+#   `cd /tmp && bash ~/.koad-io/test/all` behaves exactly like running it in
+#   ~/.koad-io.
+#
+# OUTPUT CONTRACT (the gate reads this)
+#   One line per suite, always, whatever the suite prints:
+#       ok    <file>   <counts>   <duration>
+#       FAIL  <file>   <counts>   <duration>   exit <rc>
+#   Failing suites also print their last KOAD_IO_TEST_TAIL lines (default 40)
+#   indented, so a red run names its own reason instead of pointing at a log.
+#   A final `── <n> suites, <n> passed, <n> failed ──` line and a non-zero exit
+#   when anything is red. Counts are parsed for the human line only — the exit
+#   code of each suite is the authority, and an unparseable suite is reported
+#   as such rather than silently counted clean.
+#
+# BOUNDED
+#   Each suite runs under `timeout` (KOAD_IO_TEST_TIMEOUT, default 900s). A
+#   hung suite is a failure with a reason, never an open-ended wait.
+
+set -uo pipefail
+
+SELF_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KOAD_IO_DIR="${KOAD_IO_DIR:-$(cd "$TEST_DIR/.." && pwd)}"
+KOAD_IO_DIR="$(cd "$KOAD_IO_DIR" && pwd)"
+TEST_TIMEOUT="${KOAD_IO_TEST_TIMEOUT:-900}"
+TEST_TAIL="${KOAD_IO_TEST_TAIL:-40}"
+
+MODE="full"
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help|help)
+      sed -n '2,/^set -uo pipefail$/p' "$SELF_PATH" | sed 's/^# \{0,1\}//'
+      exit 0 ;;
+    --fast) MODE="fast" ;;
+    --slow) MODE="slow" ;;
+    --staged) MODE="staged" ;;
+    --list) MODE="list" ;;
+    *) printf '%s: unknown option %s\n' "${SELF_PATH##*/}" "$_arg" >&2
+       printf "Run 'bash %s --help'.\n" "$SELF_PATH" >&2
+       exit 2 ;;
+  esac
+done
+unset _arg
+
+# ── discovery ────────────────────────────────────────────────────────────────
+# Sorted so two runs produce comparable output, and so the fast tier is stable
+# in the gate's eyes.
+FILES=()
+while IFS= read -r _f; do
+  [[ -n "$_f" ]] && FILES+=("$_f")
+done < <(
+  {
+    find "$TEST_DIR" -maxdepth 1 -type f -name '*.test.sh' 2>/dev/null
+    find "$TEST_DIR" -maxdepth 1 -type f -name '*.test.mjs' 2>/dev/null
+  } | LC_ALL=C sort
+)
+unset _f
+
+tier_of() {
+  case "$1" in
+    *.test.sh)  printf 'fast' ;;
+    *.test.mjs) printf 'slow' ;;
+    *)          printf 'fast' ;;
+  esac
+}
+
+runner_for() {
+  case "$1" in
+    *.test.mjs) command -v node >/dev/null 2>&1 && printf 'node' || printf '' ;;
+    *)          printf 'bash' ;;
+  esac
+}
+
+if (( ${#FILES[@]} == 0 )); then
+  # A runner that finds nothing and reports success is a lie with a green face.
+  printf 'test/all: no suites found under %s\n' "$TEST_DIR" >&2
+  printf '  Expected *.test.sh or *.test.mjs beside this runner.\n' >&2
+  exit 1
+fi
+
+# ── the acceptance surface ───────────────────────────────────────────────────
+# A slow suite's surface is the set of paths whose change could reasonably make
+# that suite fail: space-separated, a trailing `/` meaning "this subtree".
+# Adding a slow suite means adding a line here. Forgetting does not degrade
+# silently — --staged refuses and says so (see the `*)` arm).
+
+surface_for() {
+  case "$1" in
+    spec-240.test.mjs)
+      printf 'commands/init/entity/ modules/node/ test/spec-240.test.mjs' ;;
+    *) printf '' ;;
+  esac
+}
+
+# Does any line of $1 equal the path in $2, or live under it (a trailing `/` in
+# $2 means "this subtree", a bare name means "this path or this directory")?
+path_hit() {  # $1 = newline-separated paths, $2 = surface entry
+  awk -v p="$2" '
+    p ~ /\/$/ { if (index($0, p) == 1) { print; exit } next }
+    { if ($0 == p || index($0, p "/") == 1) { print; exit } }' <<< "$1"
+}
+
+if [[ "$MODE" == "staged" ]]; then
+  _root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+    printf 'test/all: --staged needs a git work tree\n' >&2
+    exit 2
+  }
+  _staged_paths="$(cd "$_root" && git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null)"
+
+  MODE="fast"
+  _reason="no staged path is in a slow suite's surface"
+  for _suite in "${FILES[@]}"; do
+    [[ "$(tier_of "$_suite")" == "slow" ]] || continue
+    _name="${_suite##*/}"
+    _surface="$(surface_for "$_name")"
+    if [[ -z "$_surface" ]]; then
+      printf 'test/all: refused — %s is a slow suite with no declared surface.\n' "$_name" >&2
+      printf '  This runner cannot know when it must run, so it will not silently skip it.\n' >&2
+      printf '  Declare it in surface_for() in %s.\n' "$SELF_PATH" >&2
+      exit 1
+    fi
+    for _p in $_surface; do
+      _hit="$(path_hit "$_staged_paths" "$_p")"
+      if [[ -n "$_hit" ]]; then
+        MODE="full"
+        _reason="staged path '$_hit' is in the surface of $_name"
+        break 2
+      fi
+    done
+  done
+  printf 'test/all: --staged → %s tier (%s)\n' "$MODE" "$_reason" >&2
+  unset _root _staged_paths _reason _suite _name _surface _p _hit
+fi
+
+SELECTED=()
+for _f in "${FILES[@]}"; do
+  _t="$(tier_of "$_f")"
+  case "$MODE" in
+    full) SELECTED+=("$_f") ;;
+    fast) [[ "$_t" == "fast" ]] && SELECTED+=("$_f") ;;
+    slow) [[ "$_t" == "slow" ]] && SELECTED+=("$_f") ;;
+    list) SELECTED+=("$_f") ;;
+  esac
+done
+unset _f _t
+
+if (( ${#SELECTED[@]} == 0 )); then
+  printf 'test/all: mode --%s selected no suites (%d discovered).\n' \
+    "$MODE" "${#FILES[@]}" >&2
+  exit 1
+fi
+
+if [[ "$MODE" == "list" ]]; then
+  printf '%d suite(s) under %s\n' "${#SELECTED[@]}" "$TEST_DIR"
+  for _f in "${SELECTED[@]}"; do
+    printf '  %-4s %-40s %s\n' "$(tier_of "$_f")" "${_f##*/}" "$(runner_for "$_f")"
+  done
+  unset _f
+  exit 0
+fi
+
+# ── run ──────────────────────────────────────────────────────────────────────
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/koad-io-test-all-XXXXXX")" || {
+  printf 'test/all: cannot create a work directory\n' >&2
+  exit 1
+}
+trap 'rm -rf "$WORK"' EXIT
+
+GREEN=$'\033[0;32m'; RED=$'\033[0;31m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; OFF=$'\033[0m'
+if [[ ! -t 1 ]] || [[ "${NO_COLOR:-}" != "" ]]; then
+  GREEN=""; RED=""; DIM=""; BOLD=""; OFF=""
+fi
+
+printf '%s\n' "${BOLD}koad:io framework contracts${OFF} ${DIM}— $KOAD_IO_DIR/test · mode: $MODE${OFF}"
+
+passed=0
+failed=0
+skipped=0
+total_secs=0
+
+for _f in "${SELECTED[@]}"; do
+  _name="${_f##*/}"
+  _tier="$(tier_of "$_f")"
+  _runner="$(runner_for "$_f")"
+  _log="$WORK/$_name.log"
+
+  if [[ -z "$_runner" ]]; then
+    failed=$((failed + 1))
+    printf '  %sFAIL%s  %-34s %s\n' "$RED" "$OFF" "$_name" "interpreter not available (node)"
+    continue
+  fi
+
+  _start=$SECONDS
+  ( cd "$KOAD_IO_DIR" && timeout "$TEST_TIMEOUT" "$_runner" "$_f" ) >"$_log" 2>&1
+  _rc=$?
+  _secs=$((SECONDS - _start))
+  total_secs=$((total_secs + _secs))
+
+  _counts="$(grep -oE '[0-9]+ passed, [0-9]+ failed' "$_log" 2>/dev/null | tail -1)"
+  if [[ -z "$_counts" ]]; then
+    _counts="$(grep -oE '[0-9]+ passed' "$_log" 2>/dev/null | tail -1)"
+  fi
+  [[ -z "$_counts" ]] && _counts="counts unavailable"
+
+  if (( _rc == 0 )); then
+    passed=$((passed + 1))
+    printf '  %sok%s    %-34s %-24s %s%ds%s\n' \
+      "$GREEN" "$OFF" "$_name" "$_counts" "$DIM" "$_secs" "$OFF"
+  else
+    failed=$((failed + 1))
+    _why="exit $_rc"
+    (( _rc == 124 )) && _why="timed out after ${TEST_TIMEOUT}s"
+    printf '  %sFAIL%s  %-34s %-24s %s%s%s\n' \
+      "$RED" "$OFF" "$_name" "$_counts" "$RED" "$_why" "$OFF"
+    if [[ -n "$_counts" && "$_counts" != "counts unavailable" ]]; then
+      # Name the failing assertions, not just the count.
+      grep -E '^(FAIL|  fail|  ✗)' "$_log" 2>/dev/null | head -10 | \
+        while IFS= read -r _l; do printf '        %s\n' "$_l"; done
+    fi
+    printf '        %s--- last %s lines of %s ---%s\n' "$DIM" "$TEST_TAIL" "$_name" "$OFF"
+    tail -n "$TEST_TAIL" "$_log" | while IFS= read -r _l; do printf '        %s\n' "$_l"; done
+  fi
+  unset _start _rc _secs _counts _why
+done
+unset _f _name _tier _runner _log
+
+printf '\n'
+if (( failed == 0 )); then
+  printf '%s── %d suite(s), %d passed, 0 failed — %ds ──%s\n' \
+    "$GREEN" "${#SELECTED[@]}" "$passed" "$total_secs" "$OFF"
+  exit 0
+fi
+
+printf '%s── %d suite(s), %d passed, %d failed — %ds ──%s\n' \
+  "$RED" "${#SELECTED[@]}" "$passed" "$failed" "$total_secs" "$OFF"
+printf '%s   the framework surface is red; nothing that depends on it is honest yet%s\n' \
+  "$DIM" "$OFF"
+exit 1

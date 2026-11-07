@@ -205,6 +205,51 @@ Each package is a **named, scoped component** that declares what it provides. Th
 
 koad:io is a living system. The substrate (commands, entities, cascade, packages) is stable. The AI integration layer (pi harness, bond gate, control surface) is evolving fast. Things break, change shape, and get reorganized.
 
+## 🧪 Tests
+
+The framework carries a contract suite. Each file exists because a real defect
+reached a live install, and the suite is what stops it coming back:
+
+```bash
+bash ~/.koad-io/test/all          # everything, ~100s
+bash ~/.koad-io/test/all --fast   # the shell contracts only, ~2s
+bash ~/.koad-io/test/all --list   # what runs, and how it is tiered
+```
+
+The runner discovers `test/*.test.sh` and `test/*.test.mjs` — a new suite runs
+the day it lands, without editing the runner. It is cwd-independent and exits
+non-zero on any failure.
+
+**Committing to the framework runs the suite first.** Fast tier always, the
+slow acceptance suites only when a staged path falls in that suite's declared
+surface (`test/all --staged`). A red suite refuses the commit. There is no
+override flag, and an unmapped slow suite also refuses rather than being
+silently skipped.
+
+### Two doors, one gate
+
+`~/.koad-io` is not a checkout of the framework — on a running machine it *is*
+the framework, and there is no deploy step between "committed" and every
+entity's next command. So the gate is wired at both doors that reach it:
+
+| Door | Gate |
+|------|------|
+| `koad-io git commit` (and `commit`, which hands off to it) | `test/all --staged`, scoped to the framework repo |
+| plain `git commit` | the `test/pre-commit` hook |
+
+The hook exists because the command path is bond-scoped: an entity whose bond
+grants read but not write on `~/.koad-io` can only reach the framework through
+plain git. Gating the command path alone would gate the entities that least
+need it and miss the one that commits most.
+
+```bash
+# once per clone — a symlink, so an update to the hook takes effect
+ln -sf ../../test/pre-commit ~/.koad-io/.git/hooks/pre-commit
+```
+
+The hook steps aside for a rebase/merge/cherry-pick/revert in progress (those
+re-apply commits that already ran the suite) and for git's own `--no-verify`.
+
 ---
 
 ## 🛠 Directory Layout

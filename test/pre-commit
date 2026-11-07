@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# pre-commit — the framework contract gate, on the door that has no gate.
+#
+# WHY A GIT HOOK, WHEN `koad-io git commit` ALREADY GATES
+# ------------------------------------------------------
+# The command path is bond-scoped. An entity whose bond grants read but not
+# write on ~/.koad-io — which is what the current koad→vulcan bond says, while
+# the dispatch that sends Vulcan to build framework work says otherwise —
+# reaches the framework only through plain `git commit`, which runs none of the
+# command gates. Wiring the suite into the command path alone therefore gates
+# the entities that least need it and misses the one that commits most.
+#
+# A hook fires on every commit, whichever door it came through. The two belong
+# together: the hook is the enclosure, the command path is the good message.
+#
+# Install (once per clone; symlink so an update to this file takes effect -
+# .git/hooks is not versioned, this file is):
+#
+#   ln -sf ../../test/pre-commit ~/.koad-io/.git/hooks/pre-commit
+#
+# Uninstall: rm ~/.koad-io/.git/hooks/pre-commit
+#
+# WHAT IT RUNS
+#   `test/all --staged`, which decides the tier: fast contracts always, the slow
+#   acceptance suites only when the staged change is inside that suite's
+#   declared surface. Same runner, same table, same refusal on an unmapped slow
+#   suite as the command path — one implementation, two doors.
+#
+# WHEN IT DELIBERATELY STEPS ASIDE
+#   A rebase, merge, cherry-pick or revert in progress. Those re-apply commits
+#   that already ran the suite when they were authored; re-running a 100-second
+#   acceptance suite once per step of an interactive rebase would not be a gate,
+#   it would be a reason to disable the hook. This is not a bypass — the commit
+#   being replayed was gated the first time, and the post-rewrite tree gets
+#   gated at the next ordinary commit.
+#
+#   `git commit --no-verify` also skips it. That is git's own flag, not ours;
+#   the command path (`koad-io git commit`) deliberately does not honour it.
+#
+# Exit: 0 = let the commit proceed. Non-zero = git aborts the commit.
+
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+
+# Not the framework repo (hook copied, or a worktree without the runner).
+[[ -f "$ROOT/test/all" ]] || exit 0
+
+# Re-application in progress — see "WHEN IT DELIBERATELY STEPS ASIDE".
+_gitdir="$(cd "$ROOT" && git rev-parse --git-dir 2>/dev/null)" || _gitdir=""
+if [[ -n "$_gitdir" ]]; then
+  _gd="$(cd "$ROOT" && cd "$_gitdir" 2>/dev/null && pwd -P)" || _gd=""
+  if [[ -n "$_gd" ]]; then
+    for _marker in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
+      if [[ -e "$_gd/$_marker" ]]; then
+        printf 'pre-commit: contract suite skipped — %s in progress\n' "$_marker" >&2
+        exit 0
+      fi
+    done
+  fi
+fi
+unset _gitdir _gd _marker
+
+printf 'pre-commit: framework contract gate —\n' >&2
+bash "$ROOT/test/all" --staged >&2
+_rc=$?
+
+if (( _rc != 0 )); then
+  printf '\n' >&2
+  printf 'pre-commit: refused — the framework contract suite is red (exit %d).\n' "$_rc" >&2
+  printf '  Each of these suites exists because a defect reached a live install.\n' >&2
+  printf '  Fix the suite or fix the change, then commit again.\n' >&2
+  printf '  Run it yourself:  bash %s/test/all\n' "$ROOT" >&2
+  exit 1
+fi
+
+exit 0
