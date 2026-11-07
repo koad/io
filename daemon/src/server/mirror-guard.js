@@ -37,10 +37,18 @@
 //
 // READING THE LOGS
 //   grep '\[mirror-guard\]' logs/*.log
-//   `DESYNC`     — the crash we are band-aiding fired (source: rejection|caught)
-//   `bridge ...` — connection status + doc counts right then
-//   `self-heal`  — a reconnect was forced; the mirror should be whole again after
-//   `status ...` — a bridge connection changed state (reconnect = desync weather)
+//   `STORE-DESYNC` — the throw, caught at source with the context that matters:
+//                    bridge, collection, msg, _id, fields, how many docs the mirror
+//                    held, whether that _id was present, and whether it landed
+//                    inside the post-reset grace window.
+//   `STORE-RESET`  — a mirror was wiped for a replay: bridge, collection, reset flag,
+//                    batch size, and how many docs it held before the wipe.
+//   `DESYNC`       — the crash we are band-aiding fired outside the store layer
+//                    (source: rejection|caught|store)
+//   `bridge ...`   — connection status + doc counts right then
+//   `self-heal`    — the desyncing connection was reconnected (only that one, when
+//                    we know which it was); the mirror is whole again after replay
+//   `status ...`   — a bridge connection changed state (reconnect = desync weather)
 //
 // Every block is wrapped: an instrument must never be the reason the daemon dies.
 
@@ -61,6 +69,7 @@ const stats = {
   desyncs: 0,
   byRejection: 0,
   byMeteorCatch: 0,
+  byStore: 0,
   heals: 0,
   firstAt: null,
   lastAt: null,
@@ -86,20 +95,20 @@ const isDesync = (err) => {
 //
 // Any other server-side mirror can register itself on `koad.mirrorConnections`
 // as `{ name, connection }` and it shows up here too.
-const bridgeGroups = () => {
-  const groups = new Map(); // DDP connection → [{ name, coll }]
+const mirrorCollections = () => {
+  const out = [];
   try {
     const bridges = (typeof koad !== 'undefined' && koad.bridges) || null;
     if (bridges && typeof bridges.forEach === 'function') {
-      for (const [name, bridge] of bridges) {
+      for (const [bridgeName, bridge] of bridges) {
         try {
           const conn = bridge && bridge.conn;
           if (!conn) continue;
-          if (!groups.has(conn)) groups.set(conn, []);
-          const list = groups.get(conn);
-          if (bridge.remoteInstance) list.push({ name: `${name}.instanceHealth`, coll: bridge.remoteInstance });
+          if (bridge.remoteInstance) {
+            out.push({ bridgeName, conn, name: bridge.remoteInstance._name, coll: bridge.remoteInstance });
+          }
           for (const coll of bridge.mirrorCols || []) {
-            if (coll && coll._name) list.push({ name: `${name}.${coll._name}`, coll });
+            if (coll && coll._name) out.push({ bridgeName, conn, name: coll._name, coll });
           }
         } catch (err) {
           /* one bad bridge must not blind the instrument */
@@ -108,6 +117,16 @@ const bridgeGroups = () => {
     }
   } catch (err) {
     /* koad not up yet */
+  }
+  return out;
+};
+
+const bridgeGroups = () => {
+  const groups = new Map(); // DDP connection → [{ name, coll }]
+
+  for (const entry of mirrorCollections()) {
+    if (!groups.has(entry.conn)) groups.set(entry.conn, []);
+    groups.get(entry.conn).push({ name: `${entry.bridgeName}.${entry.name}`, coll: entry.coll });
   }
 
   // Any mirror that lives outside koad.bridges (other packages, future bridges).
@@ -131,6 +150,121 @@ const bridgeGroups = () => {
   }
 
   return groups;
+};
+
+// ── Store-level instrumentation — the part that makes the log worth reading ──
+//
+// Catching the rejection gives a stack made of ddp-client frames and nothing else:
+// it does not name the collection, the document, or the message that disagreed.
+// The throw itself happens in mongo's replication store
+// (`wrappedStoreServer.update(msg)`, methods_replication.js:192), which ddp-client
+// reaches through `conn._stores[name].update(msg)` (livedata_connection.js:1166).
+// Wrapping that one method at source turns
+//
+//   Exception in handling DDP message: Error: Expected to find a document to change
+//
+// into
+//
+//   [mirror-guard] STORE-DESYNC bridge=control-tower collection=HarnessSessions
+//                  msg=changed id=abc123 held=11 docPresent=false fields=signals,status
+//
+// and swallowing it there lets the REST of the batch apply (a rejection aborts the
+// flush mid-way and silently drops every remaining message in it). The heal then
+// refills whatever the mirror was missing.
+const WRAPPED = Symbol('mirrorGuardStore');
+const stats2 = { storeDesyncs: 0, resets: 0 };
+
+const describeMsg = (msg) => {
+  if (!msg || typeof msg !== 'object') return 'msg=? id=? ';
+  const fields = msg.fields && typeof msg.fields === 'object' ? Object.keys(msg.fields).join(',') : '';
+  return `msg=${msg.msg || '?'} id=${msg.id || '?'} fields=${fields}`;
+};
+
+const docPresent = async (coll, id) => {
+  try {
+    if (coll.findOneAsync) return !!(await coll.findOneAsync(id));
+    return !!coll.findOne(id);
+  } catch (err) {
+    return '?';
+  }
+};
+
+const countWrapped = () => {
+  let total = 0;
+  let wrapped = 0;
+  for (const entry of mirrorCollections()) {
+    total += 1;
+    try {
+      const store = entry.conn && entry.conn._stores && entry.conn._stores[entry.name];
+      if (store && store[WRAPPED]) wrapped += 1;
+    } catch (err) {
+      /* best effort */
+    }
+  }
+  return { total, wrapped };
+};
+
+const instrumentStores = () => {
+  let wrapped = 0;
+  for (const entry of mirrorCollections()) {
+    try {
+      const stores = entry.conn && entry.conn._stores;
+      const store = stores && stores[entry.name];
+      if (!store || typeof store.update !== 'function') continue;
+      if (store[WRAPPED]) continue;
+
+      const originalUpdate = store.update;
+      store.update = async (msg) => {
+        try {
+          return await originalUpdate(msg);
+        } catch (err) {
+          if (!isDesync(err)) throw err;
+          stats2.storeDesyncs += 1;
+          let held = '?';
+          let present = '?';
+          try { held = await entry.coll.find().countAsync(); } catch (e) { /* best effort */ }
+          present = await docPresent(entry.coll, msg && msg.id);
+          const sinceReset = Date.now() - (lastResetAt.get(entry.conn) || 0);
+          const duringReset = sinceReset < RESET_GRACE_MS;
+          console.error(
+            `${TAG} STORE-DESYNC bridge=${entry.bridgeName} collection=${entry.name} `
+            + `${describeMsg(msg)} held=${held} docPresent=${present} duringReset=${duringReset} at ${nowIso()}`
+          );
+          // Inside the grace window the replay that follows the reset is the repair.
+          // Healing there is what manufactured the 05:03:51 wave: heal -> reset ->
+          // in-flight changes -> desync -> heal. Outside it, heal only this connection.
+          report('store', err, duringReset ? { heal: false } : { conn: entry.conn }).catch(() => {});
+          // Swallow: the document is gone for this message; the heal refills.
+          return;
+        }
+      };
+
+      // A store reset is the other half of the suspected mechanism: ddp-client wipes
+      // the mirror before applying the batch that reset it. Logging the reset with the
+      // batch size and pre-reset doc count proves or kills that theory next time.
+      const originalBegin = store.beginUpdate;
+      if (typeof originalBegin === 'function') {
+        store.beginUpdate = async (batchSize, reset) => {
+          try {
+            if (reset) {
+              stats2.resets += 1;
+              lastResetAt.set(entry.conn, Date.now());
+              let held = '?';
+              try { held = await entry.coll.find().countAsync(); } catch (e) { /* best effort */ }
+              console.error(`${TAG} STORE-RESET bridge=${entry.bridgeName} collection=${entry.name} reset=${String(reset)} batch=${batchSize} held=${held} at ${nowIso()}`);
+            }
+          } catch (e) { /* never let the instrument throw */ }
+          return originalBegin(batchSize, reset);
+        };
+      }
+
+      store[WRAPPED] = true;
+      wrapped += 1;
+    } catch (err) {
+      console.error(`${TAG} instrument ${entry && entry.name} failed: ${messageOf(err)}`);
+    }
+  }
+  return wrapped;
 };
 
 const statusOf = (conn) => {
@@ -169,9 +303,19 @@ const snapshot = async () => {
 
 const lastHeal = new WeakMap();
 const healPending = new WeakSet();
+const lastResetAt = new WeakMap();
+// A store reset is followed by the replay that refills it. Desyncs that land inside
+// that window are the replay catching up, not drift — healing them makes more of them.
+const RESET_GRACE_MS = 10000;
 
-const scheduleHeal = (source) => {
-  for (const [conn] of bridgeGroups()) {
+// `targetConn` narrows the heal to the one connection that actually desynced. The
+// first copy of this guard could not identify it and reconnected every mirror on
+// every desync; measured here 2026-11-07 — one synthetic desync on control-tower
+// reconnected all 8 connections, wiped 11 mirror collections, and manufactured 4
+// fresh desyncs out of the in-flight traffic they disturbed.
+const scheduleHeal = (source, targetConn) => {
+  const targets = targetConn ? [targetConn] : [...bridgeGroups().keys()];
+  for (const conn of targets) {
     const last = lastHeal.get(conn) || 0;
     if (healPending.has(conn)) continue;
     if (Date.now() - last < HEAL_THROTTLE_MS) continue;
@@ -194,12 +338,13 @@ const scheduleHeal = (source) => {
 
 let reporting = false;
 
-const report = async (source, err) => {
+const report = async (source, err, opts) => {
   if (reporting) return;
   reporting = true;
   try {
     stats.desyncs += 1;
     if (source === 'rejection') stats.byRejection += 1;
+    else if (source === 'store') stats.byStore += 1;
     else stats.byMeteorCatch += 1;
     stats.lastAt = nowIso();
     if (!stats.firstAt) stats.firstAt = stats.lastAt;
@@ -216,7 +361,7 @@ const report = async (source, err) => {
 
     for (const line of await snapshot()) console.error(`${TAG}   ${line}`);
 
-    scheduleHeal(source);
+    if (!opts || opts.heal !== false) scheduleHeal(source, opts && opts.conn);
   } catch (err) {
     console.error(`${TAG} report failed: ${messageOf(err)}`);
   } finally {
@@ -272,13 +417,17 @@ Meteor.startup(() => {
         labels.push(`${label}=${statusOf(conn)}`);
         lastStatus.set(conn, statusOf(conn));
       }
-      console.error(`${TAG} armed — ${groups.size} mirror connection(s): ${labels.join(' ') || '(none yet)'}`);
+      const wrapped = instrumentStores();
+      const cover = countWrapped();
+      console.error(`${TAG} armed — ${groups.size} mirror connection(s), ${cover.wrapped}/${cover.total} store(s) instrumented (+${wrapped} just now): ${labels.join(' ') || '(none yet)'}`);
     };
 
     if (typeof koad !== 'undefined') {
       koad.mirrorGuard = {
         stats,
+        stats2,
         arm,
+        instrument: instrumentStores,
         snapshot: async () => (await snapshot()).forEach((line) => console.error(`${TAG} ${line}`)),
         heal: () => scheduleHeal('manual'),
       };
@@ -288,6 +437,9 @@ Meteor.startup(() => {
 
     Meteor.setInterval(() => {
       let i = 0;
+      // Mission mirrors are created when a service advertises them, which can be
+      // long after arming — sweep for unwrapped stores on every tick.
+      instrumentStores();
       for (const [conn, entries] of bridgeGroups()) {
         i += 1;
         const current = statusOf(conn);

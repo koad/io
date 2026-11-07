@@ -204,6 +204,10 @@ function bridgeMission(bridge, itemName, pubName, remoteColName) {
     return;
   }
   bridge.mirrorCols.push(remoteCol);
+  // Wrap the new mirror's store now, not at the next 30s sweep — a desync in the
+  // first half-minute after a service advertises flights/sessions would otherwise
+  // arrive with no context attached (2026-11-06).
+  if (koad.mirrorGuard && koad.mirrorGuard.instrument) koad.mirrorGuard.instrument();
 
   let observing = false;
   let counted = false;
@@ -296,6 +300,7 @@ function bridgeOne(entry) {
     lastError: null,
   };
   bridges.set(entry.name, bridge);
+  if (koad.mirrorGuard && koad.mirrorGuard.instrument) koad.mirrorGuard.instrument();
 
   log.success(`[service-instances] connecting to ${entry.name} at ${url}`);
 
