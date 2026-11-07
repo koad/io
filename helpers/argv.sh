@@ -64,6 +64,24 @@
 # --handle, --host, --leaf-fingerprint, --mnemonic, --sigchain-head,
 # --sovereign-device-key-path, --userid, --asc, --md, --expect-from.
 #
+# 2026-11-07 audit (from rooty's ecoincore conformance sweep): added the 18
+# user-facing value flags the ~/.ecoincore command tree consumes and the table
+# lacked, which made those commands STRAND their values through the launcher
+# (not merely degraded — e.g. `export xprv`, `psbt create|sign|finalize`,
+# `import xprv`, `{init,set,inspect} chainpack`, `configure blockchains
+# --device`): --account, --by, --chainpack, --curator, --device, --encrypt-with,
+# --endpoint, --from, --index, --log, --network, --passphrase, --psbt,
+# --purpose, --query, --source, --spec, --ticker. Every one is a `shift 2` arm
+# documented in its own usage block; each was grep-verified to have no boolean
+# use in ~/.koad-io/commands or ~/.forge/commands. --passphrase has a boolean
+# use in ~/.dotfiles/commands/identity/init, but that command takes zero
+# positional operands, so the row cannot eat a value there (verified by
+# simulating every invocation); operator approved the row.
+# Deliberately NOT added (== BOOLEAN in the forge, a row would eat a
+# positional): --chain (profile view/verify mode switch), --tail (start),
+# --paths (tickler board). Those commands fail loudly on the space form and
+# name the working --flag=value form instead.
+#
 # test/argv-leading-flag.test.sh pins the three reproduced failures plus the
 # value-taking / boolean / `-`-leading-value cases.
 #
@@ -73,21 +91,21 @@
 # launcher is more risk than the bug it fixes.
 
 KOAD_IO_VALUE_FLAGS=(
-  --action --arms --authorizing-key --avatar --bio --body
-  --budget --budget-tokens --cache-dir --category --ceiling --consumed
-  --context --cwd --cwd-filter --cwd_filter --date
-  --days --delegate-to --description --device-id --domain
-  --due --entity --fence-lines --file --files-archived
-  --files-merged --files-read --format --fresh-hours --git-dir --home
-  --id --interval --into --kind --leg --limit
-  --local-provider --location --max-lines --message --model --model-ceiling
-  --model-filter --model_filter --month --name --new-key-path --note
+  --account --action --arms --authorizing-key --avatar --bio --body
+  --budget --budget-tokens --by --cache-dir --category --ceiling --chainpack --consumed
+  --context --curator --cwd --cwd-filter --cwd_filter --date
+  --days --delegate-to --description --device --device-id --domain
+  --due --encrypt-with --endpoint --entity --fence-lines --file --files-archived
+  --files-merged --files-read --format --fresh-hours --from --git-dir --home
+  --id --index --interval --into --kind --leg --limit
+  --local-provider --location --log --max-lines --message --model --model-ceiling
+  --model-filter --model_filter --month --name --network --new-key-path --note
   --only --out --out-dir --output --override-requires
-  --parent-consumed --parent-plan --parser --per-leg --plan --priority
-  --profile --pubkey-base64url --pubkey-path --reason --recovery-dir
+  --parent-consumed --parent-plan --parser --passphrase --per-leg --plan --priority
+  --profile --psbt --pubkey-base64url --pubkey-path --purpose --query --reason --recovery-dir
   --refs --root --schema --service --sign --signal
-  --signing-key --since --skip --snooze-until --stage
-  --subject --system --timeout --tip --title
+  --signing-key --since --skip --snooze-until --source --spec --stage
+  --subject --system --ticker --timeout --tip --title
   --to --total --type --until --verbosity --visitor
   --wait --work-tree
 )
