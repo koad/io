@@ -55,6 +55,10 @@ koad.indexes.sessions      = new Mongo.Collection('harnessSessions',{ connection
 koad.indexes.conversations = new Mongo.Collection('conversations',  { connection: null });
 
 const bridges = new Map(); // service name → bridge
+// Published so server/mirror-guard.js can see every mirror connection and its
+// collections. The guard exists because a strict-store throw inside
+// ddp-client's write flush once took the whole daemon down (2026-11-06 20:17).
+koad.bridges = bridges;
 let watcher = null;
 let rescanTimer = null;
 
@@ -199,6 +203,7 @@ function bridgeMission(bridge, itemName, pubName, remoteColName) {
     if (readySignals.missions) readySignals.missions.oneDone();
     return;
   }
+  bridge.mirrorCols.push(remoteCol);
 
   let observing = false;
   let counted = false;
@@ -284,6 +289,7 @@ function bridgeOne(entry) {
     url,
     conn,
     remoteInstance: new Mongo.Collection('instanceHealth', { connection: conn }),
+    mirrorCols: [],             // remote mirror collections on this conn (for mirror-guard)
     missions: new Set(),        // item names bridged
     observers: [],
     connectedAt: null,
