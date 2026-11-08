@@ -202,6 +202,26 @@ for _d in "${LINT_DIRS[@]}"; do
 done
 check "T11 no call site depends on BRE alternation" "" "$(printf '%s' "$offenders")"
 
+# ── T13: a broad walk never prints a secret's CONTENTS ──────────────
+# Filed by juno 2026-11-08: `grep` naming `~/.koad-io/.env` was refused by the
+# bond gate as a protected path, while `grep` over `~/.koad-io/` walked the same
+# file and printed its lines. The fence applied to the path the caller NAMED,
+# not to the files the walk OPENED. Class 6 in kingdom-safe-search.sh.
+SECRET_DIR="$WORK/secretwalk"
+mkdir -p "$SECRET_DIR/sub"
+printf 'CANARY-VALUE-DO-NOT-PRINT\n' > "$SECRET_DIR/.env"
+printf 'CANARY-VALUE-DO-NOT-PRINT\n' > "$SECRET_DIR/sub/.credentials"
+printf 'ordinary line\n' > "$SECRET_DIR/notes.md"
+
+out="$("$GREP_BIN" -rn CANARY-VALUE "$SECRET_DIR" 2>/dev/null)"
+check "T13a a broad walk prints no secret contents" "" "$out"
+
+out="$("$GREP_BIN" -rn CANARY-VALUE "$SECRET_DIR" --raw 2>/dev/null)"
+check "T13b --raw still reaches them (the escape is real)" "2" "$(printf '%s' "$out" | /usr/bin/grep -c CANARY-VALUE)"
+
+out="$("$GREP_BIN" -rn ordinary "$SECRET_DIR" 2>/dev/null)"
+check "T13c ordinary files are still searched" "ordinary line" "${out##*:}"
+
 # ── T12: stdin, non-recursive path still speaks ERE ─────────────────────────
 out="$(printf 'alpha\nbeta\n' | "$GREP_BIN" -e 'alpha|beta' 2>"$WORK/err")"; rc=$?
 check "T12a stdin ERE exit code" "0" "$rc"

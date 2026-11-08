@@ -67,6 +67,37 @@ KG_SAFE_DIR_NAMES=(
   .local
 )
 
+# ── Class 6 — secrets by BASENAME, at any depth ─────────────────────────────
+# A broad search must never print a credential the bond gate would refuse to
+# open by name. It could, until 2026-11-08: `grep` naming `~/.koad-io/.env`
+# directly was refused by the gate as a protected path, while `grep` over
+# `~/.koad-io/` walked the same file and printed its lines — the fence applied
+# to the path the caller NAMED, not to the files the walk OPENED, and a
+# directory walk names none of them.
+#
+# The gate's fence is still the authority for what an entity may read; this is
+# the second, independent statement: a *broad* search does not print these, so
+# "search the kingdom for X" can never be the way a secret leaves.
+#
+# Naming one as the search root still searches it (with a notice) and --raw
+# still bypasses — the same three escapes every other exclusion has. That keeps
+# this a search default rather than a hidden prohibition.
+KG_SAFE_FILE_NAMES=(
+  .env
+  .credentials
+  auth.json
+  .netrc
+  id_ed25519
+  id_rsa
+)
+
+# Patterns, for key material whose basename varies.
+KG_SAFE_FILE_PATTERNS=(
+  '*.pem'
+  '*.key'
+  '*.kbx'
+)
+
 # ── Class 2 — generated, but only in a package-relative position ─────────────
 # A bare directory named `local` can be meaningful. `.meteor/local` never is.
 KG_SAFE_PATH_PATTERNS=(
@@ -266,8 +297,8 @@ kg_safe_note_explicit_root() {
 
 kg_safe_excludes_summary() {
   kg_safe_zones_ready
-  printf 'generated/cached dirs (%d names), .meteor/local, %d session+scratch zones, runtime substrate' \
-    "${#KG_SAFE_DIR_NAMES[@]}" "${#KG_SAFE_ZONES[@]}"
+  printf 'generated/cached dirs (%d names), .meteor/local, %d session+scratch zones, runtime substrate, %d secret filename(s)' \
+    "${#KG_SAFE_DIR_NAMES[@]}" "${#KG_SAFE_ZONES[@]}" "${#KG_SAFE_FILE_NAMES[@]}"
 }
 
 kg_safe_print_banner() {
@@ -299,6 +330,14 @@ kg_safe_show_excludes() {
   local _s
   for _s in "${KG_SAFE_SUBSTRATE[@]}"; do
     printf '    - %s/\n' "$_s"
+  done
+  printf '\n  secrets, by basename at any depth (never printed by a broad walk):\n'
+  local _f _fp
+  for _f in "${KG_SAFE_FILE_NAMES[@]}"; do
+    printf '    - %s\n' "$_f"
+  done
+  for _fp in "${KG_SAFE_FILE_PATTERNS[@]}"; do
+    printf '    - %s\n' "$_fp"
   done
   printf '\n  Not unreachable: name one of these as the search root and it is\n'
   printf '  searched (with a notice), or pass --raw to bypass the policy.\n'

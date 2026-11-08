@@ -496,14 +496,30 @@ enumerate_root() {
   kg_safe_prune_args "$root"
   cmd+=("$root")
 
+  # A broad walk does not print credentials, by basename at any depth. Naming one
+  # as the root still searches it (the KG_ROOT_EXCLUDED branch below) and --raw
+  # bypasses the whole policy — see class 6 in kingdom-safe-search.sh.
+  #
+  # These predicates live INSIDE the `-type f` group: find's `-o` short-circuits,
+  # so `-not -name .env ... -o -type f -print0` would print the .env it just
+  # excluded (the left branch fails, the right branch prints).
+  local -a file_preds=()
+  local _f _fp
+  for _f in "${KG_SAFE_FILE_NAMES[@]}"; do
+    file_preds+=(-not -name "$_f")
+  done
+  for _fp in "${KG_SAFE_FILE_PATTERNS[@]}"; do
+    file_preds+=(-not -name "$_fp")
+  done
+
   if [[ $KG_ROOT_EXCLUDED -eq 1 ]]; then
     # The caller named an excluded tree as the root. Search it — a silent empty
     # answer here would be the same class of lie as a false "No matches" — but
     # say so, because every broad walk will skip it.
     kg_safe_note_explicit_root "grep" "$root" "$KG_ROOT_ZONE"
-    cmd+=(-type f -print0)
+    cmd+=(-type f "${file_preds[@]}" -print0)
   else
-    cmd+=("${KG_PRUNE_ARGS[@]}" -o -type f -print0)
+    cmd+=("${KG_PRUNE_ARGS[@]}" -o '(' -type f "${file_preds[@]}" -print0 ')')
   fi
 
   local rc
