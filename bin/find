@@ -135,7 +135,13 @@ fi
 expr_has_action=0
 for arg in "${expr[@]}"; do
   case "$arg" in
-    -print|-print0|-ls|-fls|-delete|-quit|-exec|-execdir|-ok|-okdir|-fprint|-fprint0|-fprintf)
+    # `-printf` belongs in this list. It is an action: it decides what each match
+    # writes. It was missing while `-fprintf` was present, so the wrapper appended
+    # a `-print` to every `-printf` expression and emitted each match TWICE — the
+    # formatted line and a bare path. `inbox digest` reads its message list with
+    # `-printf '%T@ %p\0'` and counted a phantom 40th item out of 39 files, whose id
+    # was the previous filename with the newline glued on. Found 2026-11-07.
+    -print|-print0|-printf|-ls|-fls|-delete|-quit|-exec|-execdir|-ok|-okdir|-fprint|-fprint0|-fprintf)
       expr_has_action=1
       break
       ;;
