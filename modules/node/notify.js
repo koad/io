@@ -42,6 +42,9 @@
 //    and an entry is `listening` only while it has been refreshed inside
 //    PRESENCE_FRESH_MS (the same five minutes the board calls fresh). After
 //    that it is `last-seen` with an age — never a greyed-out "listening".
+//    The file does not accumulate: every upsert forgets the entries past that
+//    same window, because a presence file that grows forever reads as a crowd.
+//    One clock, used by the readers and by the pruner.
 //
 // Written for the notify_subscribe / presence / relay flight, 2026-11-07.
 
@@ -52,11 +55,10 @@ import * as path from 'node:path';
 
 // ── the rules, in one place ─────────────────────────────────────────────────
 
-/** The five-minute freshness rule, used for presence by every reader. */
+/** The five-minute freshness rule, used for presence by every reader AND by the
+ *  pruner. One clock: an entry that has not been refreshed inside this window is
+ *  not listening, and the next upsert forgets it. */
 export const PRESENCE_FRESH_MS = 5 * 60 * 1000;
-
-/** How long an expired presence entry is kept so a reader can say "12m ago". */
-export const PRESENCE_PRUNE_MS = 24 * 60 * 60 * 1000;
 
 /** One line, never a document. 400 chars arrives clipped, with the true length. */
 export const SUMMARY_MAX = 240;
@@ -489,11 +491,17 @@ export function writePresence(entry = {}) {
   const now = entry.now == null ? Date.now() : Number(entry.now);
   const file = presencePath(entity);
   const existing = readPresenceFile(entity);
+  // Prune on upsert, at the freshness window — not at a wider one of its own.
+  // Until 2026-11-07 this kept an expired entry for 24h "so a reader can say
+  // '12m ago'", which made the file a crowd: nine dead rows beside one live one,
+  // distinguishable only by `refreshed`, growing without bound (sienna held ten).
+  // A second window is a second answer to "who is listening", and it disagreed
+  // with the five-minute rule every reader uses. There is one clock.
   const sessions = (existing && Array.isArray(existing.sessions) ? existing.sessions : [])
     .filter((row) => row && row.session && row.session !== session)
     .filter((row) => {
       const at = Date.parse(String(row.refreshed || ''));
-      return Number.isFinite(at) && now - at <= PRESENCE_PRUNE_MS;
+      return Number.isFinite(at) && now - at <= PRESENCE_FRESH_MS;
     });
 
   const previous = (existing && Array.isArray(existing.sessions) ? existing.sessions : [])
@@ -548,9 +556,11 @@ export function clearPresence(entity, session) {
  * Who is listening, kingdom-wide.
  *
  * `listening` holds only fresh entries — an empty list is a TRUE answer and the
- * door says exactly that. `last_seen` holds the expired ones with their age, so
+ * door says exactly that. `last_seen` holds the ones that have aged out of the
+ * five-minute window and that no later upsert has pruned yet, with their age, so
  * a reader can say "Juno was listening twelve minutes ago" instead of inventing
- * a listener or a silence.
+ * a listener or a silence. It is a courtesy, not a history: `writePresence`
+ * forgets an aged-out entry the next time any session of that entity upserts.
  */
 export function listPresence(options = {}) {
   const now = options.now == null ? Date.now() : Number(options.now);

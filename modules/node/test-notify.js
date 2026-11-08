@@ -201,6 +201,45 @@ await test('channel name is a bound, not a path', () => {
   assert.throws(() => notify.appendEvent('Triage', { type: 'x' }), /invalid channel name/);
 });
 
+// ── 11b. presence does not accumulate ────────────────────────────────────
+//
+// koad, 2026-11-07: sienna's presence file held TEN sessions, nine of them dead
+// test connections, "big beside one live one, distinguished only by `refreshed`".
+// The file kept an expired entry for 24 hours — a second window, which is a second
+// answer to "who is listening" and disagreed with the five minutes every reader
+// uses. This proves the upsert forgets what the freshness rule has already called
+// not-listening, and that the file on DISK (not the return value) is what shrank.
+await test('presence prunes expired sessions on upsert — off the file, at the five-minute rule', () => {
+  const t0 = Date.parse('2026-11-07T04:00:00.000Z');
+  const entity = 'prunetest';
+
+  // Nine stale sessions from earlier connections, one second apart.
+  for (let i = 0; i < 9; i += 1) {
+    notify.writePresence({ entity, session: `dead-${i}`, mode: 'mcp', now: t0 + i * 1000 });
+  }
+  // A live one, later than all of them but still inside the window.
+  notify.writePresence({ entity, session: 'live', mode: 'mcp', now: t0 + 2 * 60_000 });
+  assert.equal(notify.readPresenceFile(entity).sessions.length, 10, 'ten rows before any pruning');
+
+  // A session that has aged out of the window is not listening even before the
+  // prune reaches it. `live` refreshed at t0+2m, so at t0+8m it is six minutes old.
+  const mid = notify.listPresence({ now: t0 + 8 * 60_000 });
+  assert.equal(mid.listening.filter((row) => row.entity === entity).length, 0,
+    'an unrefreshed session is never listening');
+  assert.equal(mid.last_seen.filter((row) => row.entity === entity).length, 10,
+    'all ten are readable as last-seen until an upsert prunes them');
+
+  // Ten minutes past the live session's refresh: every earlier row is past the
+  // five-minute window, and the upserting session is itself fresh.
+  const later = t0 + 12 * 60_000;
+  notify.writePresence({ entity, session: 'live', mode: 'mcp', now: later });
+
+  const onDisk = JSON.parse(fs.readFileSync(notify.presencePath(entity), 'utf8'));
+  assert.deepEqual(onDisk.sessions.map((row) => row.session), ['live'],
+    'the file on disk holds only the session that just refreshed');
+  assert.equal(onDisk.sessions.length, 1, 'a presence file is a liveness record, not a crowd');
+});
+
 // ── 12. attribution survives the round trip ───────────────────────────────
 await test('every event carries by + via', () => {
   const event = notify.appendEvent('triage', {
