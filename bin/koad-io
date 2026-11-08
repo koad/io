@@ -186,6 +186,59 @@ set -- ${_koad_io_positional_args[@]+"${_koad_io_positional_args[@]}"}
 # (pi, claude, opencode, codex, bash) and every command inherits the right
 # identity without each of them re-implementing it.
 
+# --- The empty-interpolation fence -------------------------------------------
+#
+# WHY THIS EXISTS (2026-11-08, Sienna's cartridge down)
+# -----------------------------------------------------
+# A path built from a variable that expanded to NOTHING looks correct and points
+# nowhere. `~/.koad-io/.env` held `GNUPGHOME=$HOME/.$ENTITY/keyring`; the door
+# (mcp.koad.sh) is a website service with no entity, so $ENTITY was empty, the
+# path became `/home/koad/./keyring`, and gpg answered
+# "Can't check signature: No public key" for EVERY bond in the kingdom — while
+# every one of those signatures was good. An operator spent forty minutes
+# hunting a signature bug that was a variable.
+#
+# The loader that exports `/home/koad/./keyring` without complaint IS the bug.
+# So: after the cascade, refuse by name. `.` and empty segments are the two
+# fingerprints an empty interpolation leaves — `$HOME/.$VAR/keyring` collapses
+# to `/.`, and `$HOME/$VAR/keyring` collapses to `//`. Neither is ever a path
+# somebody typed on purpose, and both are silently plausible.
+#
+# Exit 78 (EX_CONFIG): the environment is misconfigured, not the command.
+#
+# Only absolute, single-valued path variables are checked. Colon lists (PATH,
+# KOAD_IO_PACKAGE_DIRS) are exempt: an empty entry there is a documented meaning
+# ("the current directory"), and refusing it would be a false alarm.
+
+_koad_io_env_path_guard() {
+  local _var _val _rest _seg _what
+  for _var in "$@"; do
+    _val="${!_var:-}"
+    [[ -n "$_val" ]]    || continue   # unset is somebody else's decision
+    [[ "$_val" == /* ]]  || continue   # only absolute paths are our construction
+
+    _rest="${_val#/}"
+    while [[ -n "$_rest" ]]; do
+      _seg="${_rest%%/*}"
+      if [[ -z "$_seg" || "$_seg" == "." ]]; then
+        if [[ -z "$_seg" ]]; then _what="an empty segment ('//')"; else _what="a '.' segment ('/./')"; fi
+        echo "koad-io: refusing to run — \$$_var is '$_val'" >&2
+        echo "         which contains $_what: a variable inside that path expanded to" >&2
+        echo "         nothing. A path like that looks plausible and points at nothing real;" >&2
+        echo "         every consumer of it fails somewhere else, later, as something else." >&2
+        echo "         On 2026-11-08 GNUPGHOME=/home/koad/./keyring made gpg answer" >&2
+        echo "         'No public key' — i.e. 'bad signature' — for every bond in the kingdom," >&2
+        echo "         and Sienna's cartridge was down on signatures that were all good." >&2
+        echo "         Fix the .env line: an entity-less service must be given the sovereign" >&2
+        echo "         keyring explicitly rather than through a per-entity template." >&2
+        exit 78
+      fi
+      if [[ "$_rest" == */* ]]; then _rest="${_rest#*/}"; else break; fi
+    done
+  done
+  return 0
+}
+
 _koad_io_entity_git_identity() {
   [[ -n "${ENTITY:-}" ]] || return 0
 
@@ -232,6 +285,12 @@ if [[ -n "$ENTITY" ]]; then
   [ -f "$HOME/.$ENTITY_LOWER/.credentials" ] && source "$HOME/.$ENTITY_LOWER/.credentials"
 fi
 set +a
+# The fence runs on what the cascade just produced, before a hook can exec and
+# before any command sees it. An entity-less service is exactly the case that
+# produced `/home/koad/./keyring`.
+_koad_io_env_path_guard \
+  GNUPGHOME ENTITY_DIR ENTITY_HOME \
+  KOAD_IO_PROCESS_PATH KOAD_IO_RUNTIME_PATH
 _koad_io_entity_git_identity
 
 # ensure we have arguments to parse, else run the executed-without-arguments hook.
@@ -285,6 +344,13 @@ export KOAD_IO_PACKAGE_DIRS="${KOAD_IO_PACKAGE_DIRS:-$HOME/.forge/packages}"
 export METEOR_PACKAGE_DIRS="$KOAD_IO_PACKAGE_DIRS"
 
 set +a
+
+# The second cascade sources the entity's own .env, so the fence runs again:
+# an entity that overrides GNUPGHOME is exactly as capable of writing a path
+# from an empty variable as the framework file was.
+_koad_io_env_path_guard \
+  GNUPGHOME ENTITY_DIR ENTITY_HOME \
+  KOAD_IO_PROCESS_PATH KOAD_IO_RUNTIME_PATH
 
 # Re-assert after the second cascade: .aliases (sourced between the two passes)
 # is another file that could name a stranger's author, and the derivation is
