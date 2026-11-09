@@ -314,6 +314,52 @@ if [ "$_briefs_count" -gt 0 ]; then
   echo
 fi
 
+# --- Habits (always-on directives) --------------------------------------
+# A habit is a rule the entity receives every session, not a menu item it loads
+# on demand — the opposite of a skill. The folder is the switch: an entity with
+# no habits/ directory is unaffected and pays nothing.
+#
+# README.md is skipped by name; it documents the folder rather than acting.
+# A leading YAML frontmatter block is stripped before injection so metadata
+# never reaches the prompt. A habit over _HABIT_WARN_BYTES is still injected but
+# warned about on stderr — a habit large enough to need a warning is usually a
+# skill wearing the wrong hat.
+_habit_dir="$ENTITY_DIR/habits"
+_habit_warn_bytes=4096
+if [ -d "$_habit_dir" ]; then
+  _habit_files="$(ls -1 "$_habit_dir" 2>/dev/null | { grep '\.md$' || true; } | { grep -v '^README\.md$' || true; })"
+  if [ -n "$_habit_files" ]; then
+    echo "[startup] habits: $(printf '%s\n' "$_habit_files" | wc -l | tr -d ' ') from $_habit_dir" >&2
+    cat <<'EOF'
+## Habits
+
+Always-on directives from this entity's `habits/` folder. **These are already in
+your context — you do not need to load them.** A skill is read when the
+situation matches it; a habit applies from the first turn, and is a default
+rather than a suggestion.
+
+EOF
+    printf '%s\n' "$_habit_files" | while IFS= read -r _hb; do
+      [ -n "$_hb" ] || continue
+      _hb_path="$_habit_dir/$_hb"
+      _hb_size=$(wc -c <"$_hb_path" 2>/dev/null || echo 0)
+      if [ "${_hb_size:-0}" -gt "$_habit_warn_bytes" ]; then
+        echo "[startup] habits: $_hb is ${_hb_size}B (> ${_habit_warn_bytes}B) — a habit this large is usually a skill" >&2
+      fi
+      # Strip a leading YAML frontmatter block; keep everything after it.
+      _hb_body="$(awk 'NR==1 && $0=="---" {fm=1; next}
+                       fm==1 && $0=="---"  {fm=2; next}
+                       fm==1              {next}
+                       {print}' "$_hb_path")"
+      printf '%s\n\n' "$_hb_body"
+    done
+  else
+    echo "[startup] habits: directory present but no habit files" >&2
+  fi
+else
+  echo "[startup] habits: none (no $_habit_dir)" >&2
+fi
+
 cat <<'EOF'
 ## Pre-emptive Primitives
 
