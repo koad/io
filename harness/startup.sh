@@ -319,6 +319,12 @@ fi
 # on demand — the opposite of a skill. The folder is the switch: an entity with
 # no habits/ directory is unaffected and pays nothing.
 #
+# Two shapes are supported, because a habit can grow a workbench:
+#   habits/<name>.md             flat — a rule and nothing else
+#   habits/<name>/HABIT.md       folder — the rule, plus whatever sits beside it
+#                                (a journal inbox, notes). Only HABIT.md is
+#                                injected; siblings are the entity's workshop.
+#
 # README.md is skipped by name; it documents the folder rather than acting.
 # A leading YAML frontmatter block is stripped before injection so metadata
 # never reaches the prompt. A habit over _HABIT_WARN_BYTES is still injected but
@@ -327,10 +333,25 @@ fi
 _habit_dir="$ENTITY_DIR/habits"
 _habit_warn_bytes=4096
 _habits_state=""
+_habit_sources=""
 if [ -d "$_habit_dir" ]; then
-  _habit_files="$(ls -1 "$_habit_dir" 2>/dev/null | { grep '\.md$' || true; } | { grep -v '^README\.md$' || true; })"
-  if [ -n "$_habit_files" ]; then
-    echo "[startup] habits: $(printf '%s\n' "$_habit_files" | wc -l | tr -d ' ') from $_habit_dir" >&2
+  for _entry in "$_habit_dir"/*; do
+    [ -e "$_entry" ] || continue
+    _ename="$(basename "$_entry")"
+    [ "$_ename" = "README.md" ] && continue
+    if [ -f "$_entry" ]; then
+      case "$_ename" in *.md) _habit_sources="${_habit_sources}${_entry}"$'\n' ;; esac
+    elif [ -d "$_entry" ] && [ -f "$_entry/HABIT.md" ]; then
+      _habit_sources="${_habit_sources}${_entry}/HABIT.md"$'\n'
+    fi
+  done
+  if [ -n "$_habit_sources" ]; then _habits_state=ok; else _habits_state=empty; fi
+else
+  _habits_state=absent
+fi
+
+if [ "$_habits_state" = "ok" ]; then
+    echo "[startup] habits: $(printf '%s' "$_habit_sources" | grep -c . || true) from $_habit_dir" >&2
     cat <<'EOF'
 ## Habits
 
@@ -340,12 +361,11 @@ situation matches it; a habit applies from the first turn, and is a default
 rather than a suggestion.
 
 EOF
-    printf '%s\n' "$_habit_files" | while IFS= read -r _hb; do
-      [ -n "$_hb" ] || continue
-      _hb_path="$_habit_dir/$_hb"
+    printf '%s' "$_habit_sources" | while IFS= read -r _hb_path; do
+      [ -n "$_hb_path" ] || continue
       _hb_size=$(wc -c <"$_hb_path" 2>/dev/null || echo 0)
       if [ "${_hb_size:-0}" -gt "$_habit_warn_bytes" ]; then
-        echo "[startup] habits: $_hb is ${_hb_size}B (> ${_habit_warn_bytes}B) — a habit this large is usually a skill" >&2
+        echo "[startup] habits: $_hb_path is ${_hb_size}B (> ${_habit_warn_bytes}B) — a habit this large is usually a skill" >&2
       fi
       # Strip a leading YAML frontmatter block; keep everything after it.
       _hb_body="$(awk 'NR==1 && $0=="---" {fm=1; next}
@@ -354,13 +374,10 @@ EOF
                        {print}' "$_hb_path")"
       printf '%s\n\n' "$_hb_body"
     done
-  else
+elif [ "$_habits_state" = "empty" ]; then
     echo "[startup] habits: folder present but no habit files" >&2
-    _habits_state="empty"
-  fi
 else
-  echo "[startup] habits: not enabled (no $_habit_dir)" >&2
-  _habits_state="absent"
+    echo "[startup] habits: not enabled (no $_habit_dir)" >&2
 fi
 
 # --- Habits: the folder is absent or empty ----------------------------------

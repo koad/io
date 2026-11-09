@@ -24,6 +24,9 @@ const EMPTY_FILE_SCOPE = {
   read_extensions: [],
   write_extensions: [],
   blocked_extensions: [],
+  // Substrings (like `blocked`) whose writes require an operator-present
+  // session. A dispatched or headless session is refused. Empty = no guard.
+  write_requires_operator: [],
 };
 
 const EMPTY_TOOL_GRANTS = {
@@ -76,6 +79,36 @@ export function isUnder(absolutePath, prefixes) {
 export function isBlocked(absolutePath, blocked) {
   const normalized = absolutePath + '/';
   return blocked.some(pattern => normalized.includes(pattern));
+}
+
+/**
+ * Is the operator actually present in this session?
+ *
+ * `interactive` is the UI fact the extension passes (ctx.hasUI). It is necessary
+ * and not sufficient: a dispatcher can hand a flight a pty, and a UI object can
+ * exist in a session no human is watching. Provenance is the stronger signal and
+ * it is already written by exactly one thing:
+ *   HARNESS_CONTROL_FLIGHT_ID  set by `koad-io dispatch open`, nothing else
+ *   KOAD_IO_SESSION_ORIGIN     explicit override (operator | dispatched | chat)
+ * A chat session has a visitor at the door, not the operator in the room.
+ */
+export function operatorPresent(interactive = false) {
+  const explicit = String(process.env.KOAD_IO_SESSION_ORIGIN || '').trim();
+  if (explicit === 'dispatched' || explicit === 'chat') return false;
+  if (process.env.HARNESS_CONTROL_FLIGHT_ID) return false;
+  return !!interactive;
+}
+
+/**
+ * Returns the guard pattern a write path falls under, or null.
+ * Matching is substring-on-slash-suffixed-path, identical to `blocked` — the
+ * bond vocabulary already means that, and a second matcher would be a second
+ * meaning for the same word.
+ */
+export function requiresOperatorForWrite(absolutePath, patterns) {
+  if (!patterns || patterns.length === 0) return null;
+  const normalized = absolutePath + '/';
+  return patterns.find(pattern => normalized.includes(pattern)) ?? null;
 }
 
 export function fileExtension(absolutePath) {
@@ -410,6 +443,7 @@ export function parseBonds(entity) {
         read_extensions: parseYamlList(capBlock, 'read_extensions'),
         write_extensions: parseYamlList(capBlock, 'write_extensions'),
         blocked_extensions: parseYamlList(capBlock, 'blocked_extensions'),
+        write_requires_operator: parseYamlList(capBlock, 'write_requires_operator'),
       } : structuredClone(EMPTY_FILE_SCOPE);
 
       const toolsBlock = extractYamlBlock(fm, 'tools');
@@ -527,6 +561,7 @@ export function mergeBondScope(entity, bonds, errors, interactive = false) {
     pushUnique(file.read_extensions, b.capabilities.read_extensions);
     pushUnique(file.write_extensions, b.capabilities.write_extensions);
     pushUnique(file.blocked_extensions, b.capabilities.blocked_extensions);
+    pushUnique(file.write_requires_operator, b.capabilities.write_requires_operator ?? []);
 
     if (b.tools.bash) tools.bash = true;
     if (b.tools.dispatch) tools.dispatch = true;
@@ -768,6 +803,21 @@ export function checkPath(entity, mode, targetPath, { cwd = process.cwd(), inter
   }
   if (mode === 'write' && !isExtensionAllowed(absolutePath, scope.file.write_extensions)) {
     return { ok: false, scope, absolutePath, reason: `extension not allowed for write: ${fileExtension(absolutePath) || '(none)'}` };
+  }
+  // Operator guard: the last check before a write is allowed, because it is a
+  // condition on WHO is present, not on WHAT is written. A path can be inside
+  // granted scope, allowed by extension, and still be refused here.
+  if (mode === 'write') {
+    const guarded = requiresOperatorForWrite(absolutePath, scope.file.write_requires_operator);
+    if (guarded && !operatorPresent(interactive)) {
+      return {
+        ok: false,
+        scope,
+        absolutePath,
+        requiresOperator: true,
+        reason: `write to \`${guarded}\` requires the operator present — this session is not interactive`,
+      };
+    }
   }
   return { ok: true, scope, absolutePath };
 }

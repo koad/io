@@ -90,11 +90,11 @@ KOAD_IO_VALUE_FLAGS=(
   --local-provider --location --log --max-lines --message --model --model-ceiling
   --model-filter --model_filter --month --name --network --new-key-path --note
   --only --out --out-dir --output --override-requires
-  --parent-consumed --parent-plan --parser --passphrase --per-leg --plan --priority
+  --parent-consumed --parent-plan --parser --passphrase --per-leg --pi-session --plan --priority
   --profile --psbt --pubkey-base64url --pubkey-path --purpose --query --reason --recovery-dir
-  --refs --root --schema --service --sign --signal
+  --refs --repo --root --schema --service --sign --signal
   --signing-key --since --skip --snooze-until --source --spec --stage
-  --subject --system --ticker --timeout --tip --title
+  --subject --status --system --ticker --timeout --tip --title
   --to --total --type --until --verbosity --visitor
   --wait --work-tree
 )
