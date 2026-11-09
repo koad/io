@@ -326,6 +326,7 @@ fi
 # skill wearing the wrong hat.
 _habit_dir="$ENTITY_DIR/habits"
 _habit_warn_bytes=4096
+_habits_state=""
 if [ -d "$_habit_dir" ]; then
   _habit_files="$(ls -1 "$_habit_dir" 2>/dev/null | { grep '\.md$' || true; } | { grep -v '^README\.md$' || true; })"
   if [ -n "$_habit_files" ]; then
@@ -354,10 +355,46 @@ EOF
       printf '%s\n\n' "$_hb_body"
     done
   else
-    echo "[startup] habits: directory present but no habit files" >&2
+    echo "[startup] habits: folder present but no habit files" >&2
+    _habits_state="empty"
   fi
 else
-  echo "[startup] habits: none (no $_habit_dir)" >&2
+  echo "[startup] habits: not enabled (no $_habit_dir)" >&2
+  _habits_state="absent"
+fi
+
+# --- Habits: the folder is absent or empty ----------------------------------
+# A capability nobody knows exists is a capability that does not exist. When the
+# folder is missing or empty, the session says what it would do and how to turn
+# it on instead of saying nothing. This is the treatment every optional folder in
+# this assembly should get: name it, state the effect, give the steps, link the
+# curriculum note.
+#   feature: ~/.koad-io/features/harness/lora/feature.md
+#   lesson:  ~/.koad-io/curriculum/entity-habits.md
+if [ "${_habits_state:-}" = "empty" ] || [ "${_habits_state:-}" = "absent" ]; then
+  cat <<'EOF'
+## Habits — not enabled
+
+EOF
+  if [ "$_habits_state" = "empty" ]; then
+    echo 'The `habits/` folder exists but holds no habit files.'
+  else
+    echo 'There is no `~/.<entity>/habits/` folder, so no standing rules were injected.'
+  fi
+  cat <<'EOF'
+
+That folder is where an entity keeps short rules it wants applied **every**
+session — the opposite of a skill, which is read only when the situation matches
+its description. Enabling it is administrative; there is no code change:
+
+1. `mkdir -p ~/.<entity>/habits`
+2. add one `.md` per habit — frontmatter `name:` and `when:`, then the rule
+   itself, in under a screen (`README.md` is skipped)
+3. start a new session — every habit file is injected automatically
+
+Curriculum: `~/.koad-io/curriculum/entity-habits.md` — `koad-io curriculum show entity-habits`
+EOF
+  printf '\nHabit path: `%s`\n\n' "$_habit_dir"
 fi
 
 cat <<'EOF'
