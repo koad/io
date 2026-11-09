@@ -20,11 +20,13 @@
 #   HARNESS_SESSION_ID="$(koad_session_identity "$ENTITY" "$_conv_id" pi "$PROVIDER/$MODEL" "$KOAD_IO_SPIRIT" "${HARNESS_CONTROL_FLIGHT_ID:-}")"
 #
 # Args: <entity> <conversation_id> [harness] [model] [spirit] [flight] [host]
-# Prints: "<entity>-<17-char cid>"
+# Prints: "<17-char cid>" — the id and nothing else.
 #
-# The entity prefix is deliberate and load-bearing: ~/.forge/commands/message derives its
-# entity hint as ${HARNESS_SESSION_ID%-*}, and the CID alphabet contains no dash, so exactly
-# one '-' survives as the separator.
+# The entity used to be prefixed onto the id ("vulcan-bhyNQqgAFLg94FKDF"). That put a
+# second fact inside an identifier and forced every consumer to split on the dash to get it
+# back. The entity is its own fact: launchers export HARNESS_ENTITY beside the id. Session
+# ids are ephemeral (one per launch), so changing the shape costs nothing durable — a
+# consumer that still reads a prefix is reading ids from launches that have already ended.
 #
 # The pid stays a pid. Launchers should keep exporting HARNESS_PID for orphan detection and
 # telemetry — it is a fact about a process, which is all it ever was.
@@ -74,5 +76,5 @@ koad_session_identity() {
   local seed cid
   seed="$(koad_session_seed "$entity" "$conversation" "${1:-pi}" "${2:-}" "${3:-}" "${4:-}" "${5:-}")"
   cid="$(koad_session_cid "$seed")"
-  printf '%s-%s' "$entity" "$cid"
+  printf '%s' "$cid"
 }

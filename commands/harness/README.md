@@ -204,7 +204,8 @@ These variables are set by the harness wrapper process and are available to all 
 | Variable | Set by | Value |
 |----------|--------|-------|
 | `HARNESS_PID` | claude, opencode | PID of the wrapper bash process (not the underlying CLI) |
-| `HARNESS_SESSION_ID` | claude, opencode | `<entity>-<harness-pid>` — stable for this wrapper's lifetime; shared by all subprocesses via the process tree |
+| `HARNESS_SESSION_ID` | claude, opencode, throne, codex, gemini | 17-char content id (`koad.generate.cid` over the launch) — stable for this wrapper's lifetime; shared by all subprocesses via the process tree; **carries no entity and no pid** |
+| `HARNESS_ENTITY` | claude, opencode, throne, codex, gemini | The entity this launch belongs to — a fact stated beside the id, not inside it (2026-11-09) |
 | `HARNESS_EMISSION_ID_FILE` | claude, opencode | Path to a file containing the current session's emission ID (persists across resume) |
 | `KOAD_IO_SPIRIT` | claude, opencode | Who is at the keyboard — defaults to `$USER` until sovereign-login is wired |
 | `KOAD_IO_MCP_SESSION_TOKEN` | claude | Pre-registered UUID for MCP auth. Registered with the daemon before the claude CLI starts; cleaned up on exit. |
