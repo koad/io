@@ -1456,7 +1456,7 @@ perform_cell
 # ---------------------------------------------------------------------------
 
 if [ ! -f "$ENTITY_DIR/.env" ]; then
-    SCAFFOLD_DOMAIN="${KOAD_IO_KINGDOM_DOMAIN:-koad.io}"
+    SCAFFOLD_DOMAIN="${KOAD_IO_KINGDOM_DOMAIN:-kingofalldata.com}"
     SCAFFOLD_DISPLAY="$(echo "${ENTITY_NAME:0:1}" | tr '[:lower:]' '[:upper:]')${ENTITY_NAME:1}"
 
     say ".env missing — scaffolding from kingdom defaults"

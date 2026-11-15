@@ -44,6 +44,15 @@
 _koad_io_room_pin="$KOAD_IO_ROOM"
 _koad_io_quiet_pin="$KOAD_IO_QUIET"
 
+# A SESSION IS NOT A SERVICE (2026-11-10). `koad-io start` run from inside a harness
+# session hands the long-lived service a copy of that session's environment — measured
+# at 75KB: the assembled SYSTEM_PROMPT, plus HARNESS_*. Nothing reads an inherited
+# prompt (opencode/ollama assemble their own), so it is wiped unconditionally, above
+# the launcher branch so both paths get it. HARNESS_* is deliberately NOT wiped —
+# emit/notify/session legitimately act as the calling session.
+# This is a stopgap; see briefs/2026-11-10-service-launch-environment.md for the fix.
+unset SYSTEM_PROMPT
+
 # Detect whether we were called from an entity launcher or directly as koad-io.
 # Entity launchers set KOAD_IO_VIA_LAUNCHER=1 before calling us.
 # If called directly (no launcher), ENTITY is stale env from a parent shell —
@@ -255,7 +264,7 @@ _koad_io_entity_git_identity() {
     grep -qE '^[[:space:]]*(export[[:space:]]+)?GIT_COMMITTER_EMAIL=' "$_f" 2>/dev/null && _have_c_mail=1
   done
 
-  local _domain="${ENTITY_DOMAIN:-${KOAD_IO_KINGDOM_DOMAIN:-koad.io}}"
+  local _domain="${ENTITY_DOMAIN:-${KOAD_IO_KINGDOM_DOMAIN:-kingofalldata.com}}"
   local _display="$(printf '%s' "${_ent_lower:0:1}" | tr '[:lower:]' '[:upper:]')${_ent_lower:1}"
 
   # Fallbacks come from what the entity DID declare, before anything derived:
