@@ -80,19 +80,19 @@
 #   # then keep only arms whose body references $2 / shift 2 / ${2:-…}
 
 KOAD_IO_VALUE_FLAGS=(
-  --account --action --arms --authorizing-key --avatar --bio --body
+  --account --action --answer --arms --assume --authorizing-key --avatar --bio --body
   --budget --budget-tokens --by --cache-dir --category --ceiling --chainpack --consumed
   --context --curator --cwd --cwd-filter --cwd_filter --date
   --days --delegate-to --description --device --device-id --domain
   --due --encrypt-with --endpoint --entity --fence-lines --file --files-archived
   --files-merged --files-read --format --fresh-hours --from --git-dir --home
-  --id --index --interval --into --kind --leg --limit
+  --id --in-reply-to --index --interval --into --kind --leg --limit
   --local-provider --location --log --max-lines --message --model --model-ceiling
   --model-filter --model_filter --month --name --network --new-key-path --note
   --only --out --out-dir --output --override-requires
-  --parent-consumed --parent-plan --parser --passphrase --per-leg --pi-session --plan --priority
+  --parent-consumed --parent-plan --parser --passphrase --path --per-leg --pi-session --plan --priority
   --profile --psbt --pubkey-base64url --pubkey-path --purpose --query --reason --recovery-dir
-  --refs --repo --root --schema --service --sign --signal
+  --ref --refs --repo --root --schema --service --session --sign --signal
   --signing-key --since --skip --snooze-until --source --spec --stage
   --subject --status --system --ticker --timeout --tip --title
   --to --total --type --until --verbosity --visitor
