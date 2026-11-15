@@ -486,7 +486,7 @@ _ls "$ENTITY_DIR/skills" | sed 's/^/- /'
 
 cat <<'EOF'
 
-#### Framework skills
+#### Skills
 EOF
 # Which directory? `~/.koad-io/harness/skills` was named here and has NEVER existed —
 # `git -C ~/.koad-io log --all --name-only -- harness/skills` returns nothing, so it
@@ -678,6 +678,29 @@ else
   echo "[startup] light mode: skipped briefs, primitives, daemon, flights, questions, tickles, inbox, workdir, .koad-io/, destinations" >&2
 fi # end light mode skip
 
+printf '\n---\n\n'
+
+# --- Vocabulary pointer -------------------------------------------------------
+# VESTA-SPEC-247 §5.2. A fixed block, emitted from the script — not read from a
+# file, so a well-meaning future edit cannot "improve" it into a summary of the
+# words (a summary of a definition is a definition). It points at
+# ~/.koad-io/GLOSSARY.md; it does NOT load it — the glossary must never be added
+# to the layer list (conformance C-4), or every preamble becomes a second copy of
+# every definition.
+#
+# Emitted before Layer 1, in every mode including --light: Layer 1 is written in
+# these words, and a light-mode session has nothing else — exactly where a model
+# invents vocabulary. No _subst: the pointer carries no substitutions, so it is
+# byte-identical for every entity.
+cat <<'EOF'
+## Vocabulary
+
+The words this kingdom uses are defined in one place: `~/.koad-io/GLOSSARY.md`.
+
+Read it before you use a word you are not certain of. Do not restate a definition in your own
+ENTITY.md or PRIMER.md — apply it to yourself and point at the entry. A word marked
+`status: retired` must not appear in any file you write.
+EOF
 printf '\n---\n\n'
 
 # --- Layer 1: Kingdom (multi-source) ---
