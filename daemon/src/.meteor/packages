@@ -1,2 +1,6 @@
 koad:io-core
 koad:io-entities
+standard-minifier-css@1.10.1
+standard-minifier-js@3.2.0
+shell-server@0.7.1
+dynamic-import@0.8.0
