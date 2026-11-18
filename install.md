@@ -11,9 +11,8 @@
 > a newcomer and the first thing they can actually run.
 >
 > **Status:** parts of this are verified on clean Debian 13 boxes on 2026-10-21 (marked **✓**);
-> parts remain unverified (marked **?**). The clean-room runs behind the ✓ marks are in
-> `~/.forge/clean-room/runs/`. Where a claim is wrong, the correction is in the text, not quietly
-> dropped.
+> parts remain unverified (marked **?**). The clean-room runs behind the ✓ marks are dated; where a
+> claim is wrong, the correction is in the text, not quietly dropped.
 
 ---
 
@@ -28,8 +27,8 @@ usermod -aG sudo koad          # needed for the apt step in §1
 su - koad
 ```
 
-**Why it matters:** the framework writes to `~/.koad-io/`, `~/.<entity>/`, and later `~/.forge/`.
-Installed as root, those become root-owned, your keys land in `/root`, and you will hit permission
+**Why it matters:** the framework writes to `~/.koad-io/` and `~/.<entity>/`. Installed as root,
+those become root-owned, your keys land in `/root`, and you will hit permission
 problems later that are painful to unpick.
 
 **⚠ "Nothing here needs elevation" was wrong — corrected 2026-10-21.** §1 is `apt install`, which
@@ -68,14 +67,24 @@ It appends to `~/.bashrc` only (no zsh path) and needs `wget`.
 
 ## 2. Clone the framework
 
+**Fork it before you clone it.** On a running machine `~/.koad-io/` is not a checkout you deploy
+from — it *is* the framework, and every entity's next command reads it. Upstream changes shape
+often, so a plain clone and your local edits will eventually meet a rewrite. A fork is yours to
+steer; `upstream` is yours to pull from when you want what changed.
+
 ```bash
-git clone https://github.com/koad/io.git ~/.koad-io
+# fork github.com/koad/io first — then clone the fork
+git clone https://github.com/<you>/io.git ~/.koad-io
+cd ~/.koad-io && git remote add upstream https://github.com/koad/io.git
 ```
 
 **✓ Verified:** the repository is public and this path is the framework root. `~/.koad-io/` is the
 convention every other path depends on.
 
-**One-liner** (clone + PATH in a single step, bash only):
+**Cloning upstream directly** also works, and is what the one-liner below does — it leaves you
+tracking a moving target with no branch of your own.
+
+**One-liner** (clone + PATH in a single step, bash only, upstream):
 
 ```bash
 git clone https://github.com/koad/io.git ~/.koad-io && echo -e "\n\n[ -d ~/.koad-io/bin ] && export PATH=\$PATH:\$HOME/.koad-io/bin\n" >> ~/.bashrc && export PATH=$PATH:$HOME/.koad-io/bin
@@ -158,12 +167,19 @@ This is the system. Everything else is detail.
 ls ~/.koad-io/commands/
 ```
 
-You will see `generate`, `gestate`, `harness`, `init`, `install`, `kingdom`, `summary`, `test`,
-`whoami` and friends. Open one:
+You will see the kindergarten verbs — `assert`, `curriculum`, `generate`, `gestate`, `harness`,
+`init`, `install`, `spawn`, `test`, `upstart`, `whoami` — one directory each. Anything else you have
+read about in a koad:io story (dispatch, kingdom, summary, flights) belongs to a layer you build, not
+to this folder. Open one:
 
 ```bash
 cat ~/.koad-io/commands/whoami/command.sh
 ```
+
+> **Worktree note (2026-11-18).** `commands/stop/` and `commands/summary/command.sh` are deleted in
+> the current worktree but not yet committed, so `HEAD` still carries them; `commands/contacts/` and
+> `commands/touch/` exist only as untracked worktree additions. This document describes the worktree
+> as it stands on that date — `git status` is the authority until those changes land.
 
 **A command is a directory containing `command.sh`.** That is the whole mechanism — no plugin
 registry, no framework API, no compilation step. Bash scripts in folders, discovered in cascade
@@ -399,8 +415,7 @@ When you want one → **`SOVEREIGN.md`**.
 
 | Missing | Note |
 |---|---|
-| **`~/.forge/`** | The business overlay (websites, services, packages). Not needed to install. Separate repo. |
-| **Packages** | The framework ships **no** Meteor packages as of 2026-10. Each koad:io-* package is its own repo under `~/.forge/packages/`, resolved via `KOAD_IO_PACKAGE_DIRS`. A bare install needs those cloned separately — **that step is not written**. |
+| **Packages** | The framework ships **no** Meteor packages as of 2026-10. Each `koad:io-*` package is its own repository, resolved through `KOAD_IO_PACKAGE_DIRS` — a colon-separated list of the directories that hold them. A bare install needs those cloned separately — **that step is not written**. |
 | **The daemon** | `koad-io install deps --daemon` installs its dependencies, but running it is not covered here. |
 | **`install.koad.sh`** | 0% built — a Meteor skeleton only. |
 | **`ppa.koad.sh`** | A 2023 hello-world `.deb`. |
