@@ -54,11 +54,13 @@
 #   that is unconditional on paper and never triggered in practice is the exact
 #   declared-versus-enforced gap this runner exists to close.
 #
-#   Two doors call it: `koad-io git commit` (scoped to the framework repo) and
-#   the versioned pre-commit hook at test/pre-commit, which fires on plain
-#   `git commit` too. The hook matters because the command path is bond-scoped
-#   and an entity without write scope on ~/.koad-io reaches the framework only
-#   through plain git — see README, "Two doors, one gate".
+#   Who calls it: the framework's own declaration, `koad-io.check` at the repo
+#   root, which the git command's hook layer runs on every `koad-io git` commit
+#   (the door arms `core.hooksPath` for its own invocation — VESTA-SPEC-248).
+#   Nothing is installed by hand and there is no symlink to forget. A human
+#   still runs `bash test/all` by hand; bare `git commit` runs none of this,
+#   because arming is the door's job and the door is `koad-io git`.
+#   See README, "One gate, armed by the door".
 #
 # CWD-INDEPENDENT BY CONSTRUCTION
 #   Paths come from BASH_SOURCE, never from $PWD, and every suite is executed

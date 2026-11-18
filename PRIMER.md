@@ -49,7 +49,7 @@ children:
     blurb: Starter templates for new entities and project types — bare/skeleton carries a PRIMER
     status: documented
   - path: test/
-    blurb: Substrate test suites — argv conformance, env values, the grep wrapper, session meta, spec-240; test/all, its known-failing set, and test/pre-commit
+    blurb: Substrate test suites — argv conformance, env values, the grep wrapper, session meta, spec-240; test/all, its known-failing set, and koad-io.check (the repo's declared commit check, run by the git command's hook layer)
     status: documented
 features:
   - name: environment-cascade

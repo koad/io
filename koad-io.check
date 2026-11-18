@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# koad-io.check — the substrate's declared commit check (VESTA-SPEC-248 §5).
+#
+# This file IS the declaration. Its existence and its mode bit are the whole
+# contract; there is no config grammar to misread and no registration step to
+# forget. The git command arms a hook layer for every `koad-io git` invocation,
+# the hook finds this file at the repository toplevel, and the hook runs it with
+# cwd = toplevel and the committing index in GIT_INDEX_FILE.
+#
+# What it runs: `test/all --staged`, the runner that owns the tier decision —
+# the fast contracts always, the slow acceptance suites only when a staged path
+# falls inside that suite's declared surface. Same runner, same table, same
+# refusal on an unmapped slow suite as a human gets by hand.
+#
+# Why this replaced test/pre-commit: that file was a second implementation of
+# the same gate, and it was armed by a hand-run symlink into .git/hooks, which
+# is arming by hand — twice measured as not arming at all. The reasoning it
+# carried (a rebase replays commits that already ran the suite) moved into the
+# hook layer's header, where the mechanism now actually lives.
+#
+# Run it yourself:  ~/.koad-io/koad-io.check
+# Exit: 0 = pass. Non-zero = refuse (the hook turns any non-zero into a refusal).
+
+set -uo pipefail
+
+_root="$(cd "$(dirname "$(readlink -f "$0")")" && pwd -P)"
+exec bash "$_root/test/all" --staged

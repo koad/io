@@ -256,33 +256,42 @@ An entry whose suite no longer exists is flagged stale, and one older than 30
 days warns on every run. The whole set is printed on every run: a standing
 confession, not a mute.
 
-### Two doors, one gate
+### One gate, armed by the door
 
 `~/.koad-io` is not a checkout of the framework — on a running machine it *is*
 the framework, and there is no deploy step between "committed" and every
-entity's next command. So the gate is wired at both doors that reach it:
+entity's next command. So the substrate declares its own check, and the git
+command arms it on every invocation:
 
-| Door | Gate |
-|------|------|
-| `koad-io git commit` (and `commit`, which hands off to it) | `test/all --staged`, scoped to the framework repo |
-| plain `git commit` | the `test/pre-commit` hook |
+| Piece | Where it lives | Whose job |
+|-------|----------------|-----------|
+| the declaration | `~/.koad-io/koad-io.check` — one executable file at the repo root | this repo's |
+| the arming | `~/.forge/commands/git/gate.sh` → `-c core.hooksPath=<derived>/hooks` | the command's |
+| the hook | `~/.forge/commands/git/hooks/pre-commit` | the command's |
 
-The hook exists because the command path is bond-scoped: an entity whose bond
-grants read but not write on `~/.koad-io` can only reach the framework through
-plain git. Gating the command path alone would gate the entities that least
-need it and miss the one that commits most.
+`koad-io git commit` — and `commit`, which hands off to it — arms that layer
+for the one invocation, so the hook fires on the tree actually being committed.
+The hook runs `koad-io.check` from the repository toplevel; the declaration runs
+`test/all --staged`, which decides the tier. Nothing is installed by hand and
+there is no symlink to forget: a gate armed by hand is not armed.
+
+Ask what would happen here, without committing:
 
 ```bash
-# once per clone — a symlink, so an update to the hook takes effect
-ln -sf ../../test/pre-commit ~/.koad-io/.git/hooks/pre-commit
+koad-io git armed
 ```
 
-The hook steps aside for a rebase/merge/cherry-pick/revert in progress — those
-re-apply commits that already ran the suite when they were authored, and the
-post-rewrite tree gets gated at the next ordinary commit.
+It prints the hooks path and the hook's mode bit, whether this repo declares a
+check, and whether the declaration would run — it measures, it does not judge.
 
-`git commit --no-verify` skips the hook because git never invokes it. That is git's
-own flag, not the gate's; `koad-io git commit` deliberately does not honour it.
+Bare `git commit` runs none of this, and that is deliberate: the door is the
+path entities actually take. `git commit --no-verify` skips the hook because git
+never invokes it — git's own flag on a lane the door does not own. On the door's
+lane, `--no-verify` and `-n` are refused by name rather than half-honoured.
+
+The hook steps aside for a rebase/merge/cherry-pick/revert in progress — those
+re-apply commits that already ran the suite when they were authored.
+
 
 ---
 
