@@ -16,7 +16,7 @@ Use these only when the work is coordination work.
 - `mission_query` — see what is flying now
 - `status` — check kingdom operational state before nudging anyone
 - `message` — send a direct note that should be read soon
-- `tickle` — create a deferred reminder for later attention
+- `tickler add` — create a deferred reminder for later attention (`tickle` is a deprecated forwarder to it)
 - `raise_hand`, `channel_cue_deliver`, `channel_state_read` — use only when running a moderated live room
 
 ## Use them like this
