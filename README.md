@@ -1,50 +1,88 @@
 <!-- SPDX-License-Identifier: CC0-1.0 -->
 
+> ⚠️ **Please note:** This app is under active development. It is riddled with bugs. Everything is subject to change.
+
 # 🧠 koad:io
 
-> A **cognitive externalization system** — think once per idea, encode as a named shard, and never think about the mechanics of it again.
+> **tldr:** An organizational tool for your mind's eye.
 
-**koad:io** is a sovereign, local-first substrate where cognition lives as files and folders on hardware you control. Every saved command is a remembered solution. Every entity is a role-bound projection of how you work. Every bond is an explicit capability declaration. Every package is a portable component that never needs rewiring.
+**koad:io** is a sovereign, local-first command-and-control framework for
+automating your digital life. It keeps identity, environment, and intent as files
+and folders you own, so your scripts, your services, and your notes stay
+composable, auditable, and yours to move.
 
-The system remembers so you don't have to.
+The rule underneath it is one sentence: **think once per idea, encode it as a
+named shard, wire it in — and never think about the mechanics of it again.** The
+system remembers so you don't have to.
+
+> "Your systems need to be faster than you (can) think."
+> — adapted from [Getting Things Done](https://gettingthingsdone.com/)
+
+> **Fork it before you clone it.** This repository is a moving target: the thing you
+> clone *is* the framework on a running machine, it changes shape often, and local
+> edits will eventually meet a rewrite. A fork is yours to steer; `upstream` is
+> yours to pull from when you want what changed.
 
 ---
 
-## The Core Idea
+## 🧭 Reason
 
-> **Think once per idea → encode as named shard → wire it in → never think about it again.**
+By saving a task as a `command`, and saving its working context as an `entity`,
+I can:
 
-koad:io is not a tool collection. It is a **system for embedding memory into code** and shaping your operational environment around your mental model.
+- 📜 Remember *how* you did a thing
+- 🔁 Replay it later, identically
+- ⏳ Audit your decisions and assumptions
+- 🗃 Keep your stuff together as simple files and folders
+- 🧠 Internalize the structure of your work
+- 📦 Package or pass projects on as-is
+- 👁 Visualize the state and focus areas of your system
+
+That list is the whole product. Everything below it exists to make one of those
+seven lines true on a machine you own.
+
+## 🔍 koad:io at a glance
+
+- 🧱 **Entities** — containers for env variables, commands, and keys
+- 🧾 **Commands** — repeatable tasks saved as scripts
+- 🧠 **Context-aware execution** — auto-loads `.env`, keys, and project scopes
+- 📜 **Identity-backed assertions** — sign, verify, and log in with your own keys
+- 🗂 **Everything is a file** — readable, diffable, yours, and on your disk
+- 🧰 **No cloud required** — no service holds your mind for you
+
+## 🧩 The parts
 
 Everything in koad:io is a **named shard** at a different scale:
 
-| Shard type | What it is | Example |
-|------------|-----------|---------|
-| **Commands** | Named operational verbs — remembered procedures | `alice start`, `alice ssh toronto` |
-| **Entities** | Role-bound cognitive shards — containers of identity, context, and capability | `alice`, `juno`, `vulcan` |
-| **Packages** | Portable application components — composable building blocks | `koad:io-core`, `koad:io-daemon-api` |
-| **Bonds** | Signed capability grants — explicit trust declarations | `koad-to-juno-orchestrator.md.asc` |
-| **Primers** | Named context shards — orientation documents for agents and humans | `~/.koad-io/PRIMER.md` |
-| **Harnesses** | Named execution surfaces — how entities run (pi, claude, opencode) | `harness/pi/`, `harness/opencode/` |
-| **Skills** | On-demand capability packages | `~/.koad-io/skills/` |
+| Shard type | What it is |
+|------------|-----------|
+| **Commands** | Named operational verbs — remembered procedures |
+| **Entities** | Containers of identity, context, and capability |
+| **Primers** | Orientation documents — how a folder works, for a person or a program |
+| **Packages** | Portable application components — composable building blocks |
+| **Bonds** | Signed capability grants — explicit trust declarations |
+| **Harnesses** | Named execution surfaces — how an entity runs |
+| **Skills** | On-demand capability packages |
 
-The apps themselves are **thin shells**. The real system lives in packages:
+The apps themselves are **thin shells**. The real system lives in packages — each
+one an independent repository, resolved through `KOAD_IO_PACKAGE_DIRS`:
 
+```bash
+KOAD_IO_PACKAGE_DIRS=$HOME/where/you/keep/packages
 ```
-~/.forge/packages/        ← koad:io-* packages and kingdom business, independent repos
-~/.ecoincore/packages/    ← domain packages
-```
 
-The framework tree ships no Meteor packages of its own. Each package is an
-independent repository, so the skeleton you clone contains structure and
-runtime — never someone else's product code.
+An entity may also keep packages of its own in `~/.<entity>/packages/`. The
+framework tree ships no Meteor packages of its own, so the skeleton you clone
+contains structure and runtime — never someone else's product code.
 
-Each package declares its own scope. Each command declares its own contract. Each entity declares its own identity. And the system wires them together automatically through a deterministic cascade.
+Each package declares its own scope. Each command declares its own contract. Each
+entity declares its own identity. And the system wires them together through a
+deterministic cascade.
 
 This means:
 
 - You never have to remember how things get wired together
-- An LLM can read a package and understand its purpose
+- Each part can be read, and understood, on its own
 - Each component is auditable, portable, and replaceable
 - Adding capability means dropping in a shard, not refactoring an app
 
@@ -67,16 +105,17 @@ koad:io rejects that at the foundation. Instead:
 - **Packages are portable components, not monolithic apps**
 - **Silence is a feature** — you build, the system remembers, nobody else gets a copy
 
-When synthetic intelligence arrived, koad:io didn't need to be redesigned. It just needed to become **LLM-addressable** — which is what the pi harness, bond gate, and control surface do.
+Synthetic intelligence arrived later, and it did not change what koad:io is. It
+changed who else can operate it — an afterthought in the honest sense, which is why
+it is documented near the end of this page rather than at the top.
 
 ---
 
 ## Architecture at a Glance
 
 ```
-~/.koad-io/          ← Framework: CLI tools, commands, packages, daemon, hooks
+~/.koad-io/          ← Framework: cascade, commands, hooks, helpers, harness, daemon
 ~/.<entity>/         ← Entity: identity, keys, memories, commands, trust bonds
-~/.forge/            ← Business overlay: websites, services, forge packages
 ```
 
 ### The Cascade
@@ -86,6 +125,7 @@ Every command runs through the entity launcher (`<entity> <cmd> [args]`). The la
 ```
 ~/.koad-io/.env       ← Framework defaults
 ~/.<entity>/.env      ← Entity overrides
+~/.<entity>/.credentials   ← Entity secrets — never in git
 ./commands/.env       ← Command-local overrides
 ```
 
@@ -94,7 +134,7 @@ By the time a command runs, every variable — ports, bind addresses, database U
 ### Example
 
 ```bash
-alice start site kingofalldata.com
+alice whoami
 ```
 
 Expands to:
@@ -103,8 +143,12 @@ Expands to:
 set -a
 source ~/.koad-io/.env
 source ~/.alice/.env
-~/.koad-io/commands/start/command.sh site kingofalldata.com
+source ~/.alice/.credentials
+~/.koad-io/commands/whoami/command.sh
 ```
+
+Run the same verb outside the launcher and it degrades to the system `whoami` —
+there is no entity to report. That is the contract, visible in one command.
 
 No guessing. No configuration drift. No remembering.
 
@@ -122,79 +166,43 @@ Entities are **containers of context** — each one holds:
 - Skills (on-demand capabilities)
 - Briefs, flights, and operational state
 
-Entities are not "AI characters." They are **role-bound projections of how you work**:
+An entity is a **working persona** — a projection of how one part of your work
+happens. You keep one for yourself, and one for each role you want held apart: a
+builder, an auditor, a correspondent, a set of hands for the machine. It is a place
+to keep that role's identity, environment, and commands together, so the work can be
+replayed, audited, or handed over.
 
-| Entity | Role | What they do |
-|--------|------|-------------|
-| `juno` | Orchestrator | Coordinates the kingdom, dispatches flights, moderates channels |
-| `vulcan` | Engineer | Builds, ships, refactors, maintains infrastructure |
-| `alice` | Explorer | Spawns projects, probes systems, investigates |
-| `argus` | Auditor | Reviews, verifies, compliance checks |
-| `mercury` | Communicator | Inter-entity communication, announcements |
-| `vesta` | Curator | Knowledge organization, memory curation |
-| `rooty` | Builder | System health, recovery, machine care, sovereign infrastructure |
-| `salus` | Healer | Wellness, repair, maintenance |
-| `cacula` | Game Master | Designs the mechanics — blockers, scoring, win conditions |
-
-20+ entities, each a shard of working patterns, each bounded by explicit bonds.
+How many you keep, and what you call them, is yours.
 
 ---
 
-## 🛡 Bond Gate + Control Surface
+## 🤝 When you want a collaborator
 
-The system has two halves of its safety model:
+koad:io was not built for a synthetic intelligence. It was built so that a person
+could keep their own memory in files. But a substrate that already knows where your
+identity, your commands, and your context live is exactly what a synthetic
+collaborator needs in order to be useful — and exactly what makes it dangerous to
+hand over carelessly. Two halves make that safe.
 
-### 1. Bond Gate (live constraint)
-
-"What can this entity even attempt?"
+### What a collaborator may attempt
 
 - Tool visibility follows resolved bond scope
-- Tool execution blocked by path, extension, and grant checks
-- Scoped read/write/exec lanes per bond
-- koad-io command lanes (grant specific verbs, not the whole cascade)
-- Channel moderation/participation scoped by slug
-- Dispatch targets restricted by bond
-- Bash policy reroutes shell calls to typed kingdom tools
-- Scrubbed results — secrets never reach the LLM
+- Tool execution is refused by path, extension, and grant checks
+- Read, write, and exec lanes are scoped per bond
+- Commands can be granted one at a time, not as the whole cascade
+- Dispatch targets are restricted by bond
+- Shell calls are rerouted to typed, auditable tools
+- Results are scrubbed — secrets never reach the model
 
-### 2. Control Surface (chain of custody)
+### What happened, and who did it
 
-"What is happening? What happened?"
+The gate answers what a collaborator may attempt. What it did is a different
+question, and one the framework does not answer on its own: attribution starts here —
+every action is taken as an entity, under a bond, inside a session — and the
+surfaces that keep the record run beside the framework rather than inside it.
 
-- Active/recent session index (`session-index.js`)
-- Flight index with stale detection (`flight-index.js`)
-- Dispatch records with full lineage (`runtime/dispatches/`)
-- Session live observation via the session index (DDP) — not `runtime/session-watchers/`, which was deleted with the delivery leg
-- Postgres audit trail (`koad_telemetry`)
-- JSONL archive sweep for terminal records
-- Question queue for cross-entity communication
-
-Together: **constrained embodiment + auditable custody.**
-
-And because every utterance becomes part of the substrate's permanent record, **restraint is a feature, not a limitation**. The entity doesn't get to hallucinate and walk away. The kingdom remembers.
-
----
-
-## 📦 Packages
-
-koad:io supports local Meteor packages via `KOAD_IO_PACKAGE_DIRS`:
-
-```bash
-KOAD_IO_PACKAGE_DIRS=$HOME/.forge/packages:$HOME/.ecoincore/packages
-```
-
-This allows:
-
-- koad:io-* framework packages and kingdom business packages in `~/.forge/packages/` (each its own repo)
-- Domain packages in `~/.ecoincore/packages/`
-- Entity-specific packages in `~/.<entity>/packages/`
-
-Each package is a **named, scoped component** that declares what it provides. The app shell consumes packages — it doesn't own the logic. This makes the system:
-
-- Portable (copy a package, it works)
-- Auditable (read the README, understand the scope)
-- Replaceable (swap a package without touching the app)
-- LLM-comprehensible (a package is a bounded context)
+Together: **constrained embodiment, auditable custody.** A collaborator does not get
+to act unattributed.
 
 ---
 
@@ -204,6 +212,8 @@ Each package is a **named, scoped component** that declares what it provides. Th
 > Use at your own curiosity. It works. But only mostly. Maybe.
 
 koad:io is a living system. The substrate (commands, entities, cascade, packages) is stable. The AI integration layer (pi harness, bond gate, control surface) is evolving fast. Things break, change shape, and get reorganized.
+
+---
 
 ## 🧪 Tests
 
@@ -217,14 +227,34 @@ bash ~/.koad-io/test/all --list   # what runs, and how it is tiered
 ```
 
 The runner discovers `test/*.test.sh` and `test/*.test.mjs` — a new suite runs
-the day it lands, without editing the runner. It is cwd-independent and exits
-non-zero on any failure.
+the day it lands, without editing the runner. It exits non-zero on any
+**unrecorded** failure. Paths resolve from the runner itself, so every mode is
+cwd-independent except `--staged`, which reads the git index of the repository
+that contains your *current* directory — run it from inside `~/.koad-io`.
 
-**Committing to the framework runs the suite first.** Fast tier always, the
+**Committing to the shared root runs the suite first.** Fast tier always, the
 slow acceptance suites only when a staged path falls in that suite's declared
-surface (`test/all --staged`). A red suite refuses the commit. There is no
-override flag, and an unmapped slow suite also refuses rather than being
-silently skipped.
+surface (`test/all --staged`). A red suite that is not in the known-failing set
+refuses the commit. An unmapped slow suite also refuses rather than being
+silently skipped. The gate has no per-commit override of its own.
+
+### The known-failing set
+
+`test/known-failing.txt` is a dated, owned, reasoned list of failures the gate
+tolerates while they are being fixed. **An entry is an admission, not a
+dismissal.** A red suite that is recorded there does not block a commit; a red
+suite that is not recorded does. The file's header carries the full eight-rule
+contract; two rules matter most in daily use:
+
+- **Rule 6 — the tolerance is withdrawn for the surface you touch.** If a staged
+  path falls in an entry's declared surface, that suite must pass for *this*
+  commit. You cannot edit around a known failure.
+- **Rule 4 — a recorded failure that starts passing is announced, never silent**,
+  so entries cannot rot into permanent lies. Delete the entry once it is fixed.
+
+An entry whose suite no longer exists is flagged stale, and one older than 30
+days warns on every run. The whole set is printed on every run: a standing
+confession, not a mute.
 
 ### Two doors, one gate
 
@@ -247,32 +277,27 @@ need it and miss the one that commits most.
 ln -sf ../../test/pre-commit ~/.koad-io/.git/hooks/pre-commit
 ```
 
-The hook steps aside for a rebase/merge/cherry-pick/revert in progress (those
-re-apply commits that already ran the suite) and for git's own `--no-verify`.
+The hook steps aside for a rebase/merge/cherry-pick/revert in progress — those
+re-apply commits that already ran the suite when they were authored, and the
+post-rewrite tree gets gated at the next ordinary commit.
+
+`git commit --no-verify` skips the hook because git never invokes it. That is git's
+own flag, not the gate's; `koad-io git commit` deliberately does not honour it.
 
 ---
 
 ## 🛠 Directory Layout
 
-### Framework root (`~/.koad-io/`)
+### What is in the root
 
-```
-.koad-io/
-├── bin/            # Launchers and CLI tools
-├── commands/       # Framework command set
-├── packages/       # Framework Meteor packages
-├── skeletons/      # Project templates
-├── hooks/          # Execution lifecycle hooks
-├── helpers/        # Sourced utilities (emit, discovery, ask)
-├── daemon/         # Kingdom backbone (Meteor, dev-mode, never built)
-├── harness/        # Role primers + pi extension + startup
-├── modules/        # Shared Node.js module (@koad-io/node)
-├── me/             # Sovereign identity root
-├── training/       # Master training layer
-├── .env            # Framework defaults
-├── .credentials    # Private credentials (not in git)
-└── .aliases        # Optional alias layer
-```
+The root is two things at once: a tree you can clone, and — on a running machine —
+the place where the console, the desktop widget, the passenger metadata, the
+workspace skeletons, the lighthouse, and the sovereign's own `me/` are checked out
+beside it as separate repositories. The listing therefore differs machine to
+machine, and a diagram of it goes stale by the next commit.
+
+**The inventory that knows the answer is [`PRIMER.md`](./PRIMER.md)** — walked,
+dated, and corrected against the disk. Trust it over any tree drawn here.
 
 ### Entity home (`~/.<entity>/`)
 
@@ -297,60 +322,60 @@ re-apply commits that already ran the suite) and for git's own `--no-verify`.
 ## ✍️ Example Usage
 
 ```bash
-# Login via SSH to a different device
-alice ssh crapple
+# Who is on the line
+alice whoami
 
-# Sign a message with alice's key
-alice sign "I am the sovereign."
+# Derive a stable content id from a human name
+alice generate cid "Addison Cameron-Huff"
 
-# Generate a login assertion for a domain
-alice generate login wonderland.koad.sh
-
-# Spawn a new project
+# Deploy a skeleton into an empty directory
 cd ~/Workspace
 mkdir my-project && cd my-project
 alice spawn bare
-alice start
-
-# Dispatch work as Juno
-juno dispatch vulcan "refactor the session scanner"
 ```
+
+> `koad:io` ships a small set of plumbing verbs. The rest — the ones your work
+> actually runs on — you name and write yourself.
 
 ---
 
 ## 🌐 Philosophy
 
-- **Anti-fragmentation, not anti-AI.** Sovereignty over your own keys, data, and substrate.
+- **No cloud, ever.** Your keys, your data, and your substrate stay on hardware you control.
 - **Identity-first.** Bonds are explicit and auditable. The constitution lives in the gate, never in the prompt.
-- **Modular, file-based, reproducible.** Files and folders are the external mind. Locality makes cognition at scale possible.
+- **Modular, file-based, reproducible.** Files and folders are the external mind. Locality makes memory at scale possible.
 - **Think once, encode forever.** Every saved command, entity, package, and bond is an idea you never have to think about again.
 - **Silence is a feature.** Everything you put on a platform you don't control becomes permanent and weaponizable. Build on your own hardware. Nobody else gets a copy.
 - **Rights are responsibilities.** The responsibility of sovereignty is choosing what to publish and what to keep.
-- **Designed for sovereign operators.** A $200 laptop, harnessed correctly, is enough to throne up.
-
-> **Synthetic intelligence connected via files and folders. On hardware you own.**
+- **Designed for thinkers, hackers, and sovereign operators.** A $200 laptop, harnessed correctly, is enough to throne up.
 
 ---
 
 ## 📚 Learn More
 
+- [`install.md`](./install.md) — stand a kingdom up: prerequisites, gestation, first entity
+- [`GLOSSARY.md`](./GLOSSARY.md) — the words this system uses, defined once
+- [`KOAD_IO.md`](./KOAD_IO.md) — the layer every entity loads before anything else
+- [`PRIMER.md`](./PRIMER.md) — the framework inventory: what is here, walked and dated
 - [Commands guide](https://kingofalldata.com/cheatsheets/bourn-again-scripting)
 - [kingofalldata.com](https://kingofalldata.com) — the public storefront
 - [alice repo](https://github.com/koad/alice) — a complete, working entity
-
-> `koad:io` doesn't ship with commands. You build your own — intimately, intentionally.
 
 ---
 
 ## 💬 Community
 
-Come hang out, share flows, scripts, bugs, ideas.
+[`#io:koad.sh` on Matrix](https://matrix.to/#/#io:koad.sh?via=koad.sh)
+
+Come hang out in the `#io:koad.sh` room — share flows, scripts, bugs, ideas.
 
 ---
 
 ## 🪪 License
 
-MIT — Yours to fork, break, and rebuild.
+**Four tiers, one thesis:** AGPL-3.0 at the core, 0BSD at the outskirts, the
+Kingdom License on published entity templates, CC0 on documentation.
+[`LICENSING.md`](./LICENSING.md) owns the terms — this page only points at it.
 
-> "Your systems need to be faster than you can think."
-> — adapted from Getting Things Done
+> "I am an amateur. This might all be shit. It's too early to tell."
+> — @you, wisely
