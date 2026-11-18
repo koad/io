@@ -122,6 +122,7 @@ declare -A DISPOSITION=(
   [--avatar]="boolean in io create (tail); value side is profile create/update --avatar CID (tail). Both parse their own argv; A-3.1 never consults the table there."
   [--schema]="boolean in ecoincore inspect chainpack (tail, mode switch); the only value use is summary's self-contained --schema=<x>, which never consults the table at all."
   [--passphrase]="boolean in ~/.dotfiles identity init (tail); value side is ecoincore import/export (tail shift 2). Operator-approved 2026-11-06; unreachable by jurisdiction under A-3.1."
+  [--due]="boolean in tickler ls (tail, the due filter); value side is brief issue --due=ISO / --due ISO (tail, shift 2). Both parse their own argv; A-3.1 never consults the table there."
 )
 
 pass=0          # conforming consuming arms in the fail-set trees

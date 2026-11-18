@@ -41,4 +41,3 @@
 # surface — an entry here is an admission, not a dismissal.
 #
 # suite	owner	recorded	surface	reason
-argv-value-conformance.test.sh	vulcan	2026-11-17	commands/ skeletons/ helpers/argv.sh test/argv-value-conformance.test.sh	1 undisposed boolean collision: --due is tabled as value-taking but used as a boolean at .forge/commands/tickler/ls/command.sh:61 (154 passed, 0 failed, 1 collision). Four untabled flags are the cause per the bond's v2/v3 amendments; fixing argv parsing is a separate job and is NOT done by this entry.
