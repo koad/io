@@ -165,12 +165,54 @@ path_hit() {  # $1 = newline-separated paths, $2 = surface entry
     { if ($0 == p || index($0, p "/") == 1) { print; exit } }' <<< "$1"
 }
 
+# ── the known-failing set ────────────────────────────────────────────────────
+# A recorded, dated, reasoned list of tolerated failures. See
+# test/known-failing.txt for the contract and the format. A suite recorded here
+# does not fail the gate; any failure NOT recorded here does. The set is printed
+# in full on every run (rule 5) and an entry older than 30 days warns (rule 8).
+KNOWN_FILE="$TEST_DIR/known-failing.txt"
+KNOWN_SUITES=()
+declare -A KN_OWNER=() KN_RECORDED=() KN_SURFACE=() KN_REASON=() MUST_PASS=()
+KNOWN_LOADED=0
+if [[ -f "$KNOWN_FILE" ]]; then
+  KNOWN_LOADED=1
+  while IFS=$'\t' read -r _ks _ko _kr _kf _kwhy; do
+    [[ -z "${_ks:-}" ]] && continue
+    [[ "$_ks" == \#* ]] && continue
+    KNOWN_SUITES+=("$_ks")
+    KN_OWNER["$_ks"]="$_ko"
+    KN_RECORDED["$_ks"]="$_kr"
+    KN_SURFACE["$_ks"]="$_kf"
+    KN_REASON["$_ks"]="$_kwhy"
+  done < "$KNOWN_FILE"
+fi
+unset _ks _ko _kr _kf _kwhy
+
+known_is() { [[ -n "${KN_REASON[$1]+x}" ]]; }
+
 if [[ "$MODE" == "staged" ]]; then
   _root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
     printf 'test/all: --staged needs a git work tree\n' >&2
     exit 2
   }
   _staged_paths="$(cd "$_root" && git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null)"
+
+  # Rule 6: a staged path inside a known-failing entry's declared surface means
+  # that entry's suite MUST pass for this commit — the tolerance is withdrawn.
+  for _ks in "${KNOWN_SUITES[@]}"; do
+    _kf="${KN_SURFACE[$_ks]}"
+    [[ "$_kf" == "-" || -z "$_kf" ]] && continue
+    for _p in $_kf; do
+      _hit="$(path_hit "$_staged_paths" "$_p")"
+      if [[ -n "$_hit" ]]; then
+        MUST_PASS["$_ks"]=1
+        printf 'test/all: %s is known-failing but a staged path (%s) is in its surface — it MUST pass this commit\n' \
+          "$_ks" "$_hit" >&2
+        break
+      fi
+    done
+  done
+  unset _ks _kf _p _hit
 
   MODE="fast"
   _reason="no staged path is in a slow suite's surface"
@@ -238,9 +280,41 @@ fi
 
 printf '%s\n' "${BOLD}koad:io framework contracts${OFF} ${DIM}— $KOAD_IO_DIR/test · mode: $MODE${OFF}"
 
+# ── rule 5: the set is a standing confession, printed on every run ──────────
+if (( KNOWN_LOADED == 0 )); then
+  printf '%s\n' "known-failing set: none recorded (test/known-failing.txt absent)"
+elif (( ${#KNOWN_SUITES[@]} == 0 )); then
+  printf '%s\n' "known-failing set: 0 entries recorded — every failure will be refused"
+else
+  printf 'known-failing set — %d entr%s tolerated (dated, owned, reasoned):\n' \
+    "${#KNOWN_SUITES[@]}" "$([[ ${#KNOWN_SUITES[@]} -eq 1 ]] && echo y || echo ies)"
+  _today="$(date +%s)"
+  for _ks in "${KNOWN_SUITES[@]}"; do
+    printf '  known  %-34s owner=%-7s recorded=%s\n' \
+      "$_ks" "${KN_OWNER[$_ks]:-?}" "${KN_RECORDED[$_ks]:-?}"
+    printf '         reason: %s\n' "${KN_REASON[$_ks]:-<none>}"
+    _found=0
+    for _f in "${FILES[@]}"; do [[ "${_f##*/}" == "$_ks" ]] && { _found=1; break; }; done
+    if (( _found == 0 )); then
+      printf '         %sSTALE ENTRY — no such suite under %s; remove this entry%s\n' \
+        "$RED" "$TEST_DIR" "$OFF"
+    fi
+    _recs="$(date -d "${KN_RECORDED[$_ks]:-}" +%s 2>/dev/null || echo '')"
+    if [[ -n "$_recs" ]]; then
+      _age=$(( (_today - _recs) / 86400 ))
+      (( _age > 30 )) && printf '         %sWARN: recorded %d days ago (>30) — re-review or fix%s\n' \
+        "$RED" "$_age" "$OFF"
+    fi
+    [[ -n "${MUST_PASS[$_ks]:-}" ]] && \
+      printf '         %sMUST PASS this commit — a staged path is in its surface%s\n' "$RED" "$OFF"
+  done
+  unset _ks _f _found _recs _age _today
+fi
+
 passed=0
 failed=0
-skipped=0
+known_failed=0
+fixed=0
 total_secs=0
 
 for _f in "${SELECTED[@]}"; do
@@ -268,22 +342,44 @@ for _f in "${SELECTED[@]}"; do
   [[ -z "$_counts" ]] && _counts="counts unavailable"
 
   if (( _rc == 0 )); then
-    passed=$((passed + 1))
-    printf '  %sok%s    %-34s %-24s %s%ds%s\n' \
-      "$GREEN" "$OFF" "$_name" "$_counts" "$DIM" "$_secs" "$OFF"
+    if known_is "$_name"; then
+      # Rule 4: a recorded failure that now passes must be loud, never silent.
+      fixed=$((fixed + 1))
+      printf '  %sFIXED%s %-34s %-24s %sFIXED — remove this entry%s\n' \
+        "$GREEN" "$OFF" "$_name" "$_counts" "$GREEN" "$OFF"
+    else
+      passed=$((passed + 1))
+      printf '  %sok%s    %-34s %-24s %s%ds%s\n' \
+        "$GREEN" "$OFF" "$_name" "$_counts" "$DIM" "$_secs" "$OFF"
+    fi
   else
-    failed=$((failed + 1))
     _why="exit $_rc"
     (( _rc == 124 )) && _why="timed out after ${TEST_TIMEOUT}s"
-    printf '  %sFAIL%s  %-34s %-24s %s%s%s\n' \
-      "$RED" "$OFF" "$_name" "$_counts" "$RED" "$_why" "$OFF"
-    if [[ -n "$_counts" && "$_counts" != "counts unavailable" ]]; then
-      # Name the failing assertions, not just the count.
-      grep -E '^(FAIL|  fail|  ✗)' "$_log" 2>/dev/null | head -10 | \
-        while IFS= read -r _l; do printf '        %s\n' "$_l"; done
+    if known_is "$_name"; then
+      if [[ -n "${MUST_PASS[$_name]:-}" ]]; then
+        # Rule 6: the tolerance is withdrawn for a commit that touches its surface.
+        failed=$((failed + 1))
+        printf '  %sFAIL%s  %-34s %-24s %s%s — MUST PASS this commit (staged path in its surface)%s\n' \
+          "$RED" "$OFF" "$_name" "$_counts" "$RED" "$_why" "$OFF"
+      else
+        known_failed=$((known_failed + 1))
+        printf '  %sknown%s %-34s %-24s %sknown-failing [owner %s, recorded %s]%s\n' \
+          "$DIM" "$OFF" "$_name" "$_counts" "$DIM" "${KN_OWNER[$_name]:-?}" "${KN_RECORDED[$_name]:-?}" "$OFF"
+        printf '        %stolerated: %s%s\n' "$DIM" "${KN_REASON[$_name]:-<no reason recorded>}" "$OFF"
+      fi
+    else
+      failed=$((failed + 1))
+      printf '  %sFAIL%s  %-34s %-24s %s%s%s\n' \
+        "$RED" "$OFF" "$_name" "$_counts" "$RED" "$_why" "$OFF"
+      printf '        %sUNRECORDED — not in test/known-failing.txt; the gate refuses%s\n' "$RED" "$OFF"
+      if [[ -n "$_counts" && "$_counts" != "counts unavailable" ]]; then
+        # Name the failing assertions, not just the count.
+        grep -E '^(FAIL|  fail|  ✗)' "$_log" 2>/dev/null | head -10 | \
+          while IFS= read -r _l; do printf '        %s\n' "$_l"; done
+      fi
+      printf '        %s--- last %s lines of %s ---%s\n' "$DIM" "$TEST_TAIL" "$_name" "$OFF"
+      tail -n "$TEST_TAIL" "$_log" | while IFS= read -r _l; do printf '        %s\n' "$_l"; done
     fi
-    printf '        %s--- last %s lines of %s ---%s\n' "$DIM" "$TEST_TAIL" "$_name" "$OFF"
-    tail -n "$TEST_TAIL" "$_log" | while IFS= read -r _l; do printf '        %s\n' "$_l"; done
   fi
   unset _start _rc _secs _counts _why
 done
@@ -291,13 +387,22 @@ unset _f _name _tier _runner _log
 
 printf '\n'
 if (( failed == 0 )); then
-  printf '%s── %d suite(s), %d passed, 0 failed — %ds ──%s\n' \
-    "$GREEN" "${#SELECTED[@]}" "$passed" "$total_secs" "$OFF"
+  printf '%s── %d suite(s), %d passed, %d known-failing, %d fixed — %ds ──%s\n' \
+    "$GREEN" "${#SELECTED[@]}" "$passed" "$known_failed" "$fixed" "$total_secs" "$OFF"
+  if (( known_failed > 0 )); then
+    printf '%s   no NEW failure. %d recorded failure(s) tolerated above — see test/known-failing.txt%s\n' \
+      "$DIM" "$known_failed" "$OFF"
+  fi
+  if (( fixed > 0 )); then
+    printf '%s   %d recorded entr%s now PASS — remove %s from test/known-failing.txt%s\n' \
+      "$GREEN" "$fixed" "$([[ $fixed -eq 1 ]] && echo y || echo ies)" \
+      "$([[ $fixed -eq 1 ]] && echo it || echo them)" "$OFF"
+  fi
   exit 0
 fi
 
-printf '%s── %d suite(s), %d passed, %d failed — %ds ──%s\n' \
-  "$RED" "${#SELECTED[@]}" "$passed" "$failed" "$total_secs" "$OFF"
-printf '%s   the framework surface is red; nothing that depends on it is honest yet%s\n' \
+printf '%s── %d suite(s), %d passed, %d FAILED (unrecorded or must-pass), %d known-failing — %ds ──%s\n' \
+  "$RED" "${#SELECTED[@]}" "$passed" "$failed" "$known_failed" "$total_secs" "$OFF"
+printf '%s   a NEW failure is present, or a known-failing suite was touched. The gate refuses.%s\n' \
   "$DIM" "$OFF"
 exit 1

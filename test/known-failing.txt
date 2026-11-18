@@ -1,0 +1,44 @@
+# /home/koad/.koad-io/test/known-failing.txt
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# THE KNOWN-FAILING SET — a recorded, dated, reasoned list of tolerated failures.
+#
+# A check that cannot pass is a check nobody reads. This file is how `test/all`
+# stays honest while a real failure is still being fixed: a red suite whose
+# failure is recorded HERE does not block every commit, and a red suite that is
+# NOT here does. Red therefore means "a new problem appeared"; green means "no
+# worse than the recorded state".
+#
+# THE CONTRACT (enforced by test/all):
+#   1. `test/all` exits 0 when every failure is recorded and no new failure appears.
+#   2. It exits non-zero when ANY unrecorded failure appears. That is the point.
+#   3. Deleting an entry while the failure persists makes the run fail — the
+#      failure becomes unrecorded. The set cannot be quietly emptied.
+#   4. A recorded failure that now PASSES prints "FIXED — remove this entry" on
+#      every run. It does not fail the gate (a good change is never blocked), but
+#      it is never silent, or entries rot into permanent lies.
+#   5. EVERY entry prints on EVERY run with its reason, owner and recorded date.
+#      The set is a standing confession, not a mute.
+#   6. `--staged`: if a staged path falls in an entry's declared SURFACE, that
+#      entry's suite MUST pass for this commit. The tolerance is withdrawn — you
+#      cannot edit around a known failure. This is what stops the set from
+#      becoming a place work goes to be forgotten.
+#   7. `--fast` and `--staged` honour the same set; they must not diverge.
+#   8. An entry older than 30 days warns on every run.
+#
+# FORMAT — one entry per line, FIVE tab-separated fields:
+#   suite     basename of the test file, e.g. argv-value-conformance.test.sh
+#   owner     entity handle accountable for removing the entry
+#   recorded  date the toleration was recorded, YYYY-MM-DD
+#   surface   space-separated repo-relative paths whose change means this suite
+#             MUST pass for that commit (rule 6). A trailing "/" means "this
+#             subtree"; "-" means "no surface — never forced". Keep it precise:
+#             the trees and table files the suite actually reads.
+#   reason    one line, no tabs. What fails, and why it is tolerated for now.
+#
+# Lines beginning with "#" and blank lines are ignored. Do NOT add an entry to
+# make a red run green unless the failure is real, dated, owned, and has a
+# surface — an entry here is an admission, not a dismissal.
+#
+# suite	owner	recorded	surface	reason
+argv-value-conformance.test.sh	vulcan	2026-11-17	commands/ skeletons/ helpers/argv.sh test/argv-value-conformance.test.sh	1 undisposed boolean collision: --due is tabled as value-taking but used as a boolean at .forge/commands/tickler/ls/command.sh:61 (154 passed, 0 failed, 1 collision). Four untabled flags are the cause per the bond's v2/v3 amendments; fixing argv parsing is a separate job and is NOT done by this entry.
