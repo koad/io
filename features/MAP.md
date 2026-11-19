@@ -8,10 +8,18 @@ why each of them behaved as it did.
 interface and forge services live in their own repositories and carry their own
 maps.
 
-## Landed (1)
+## Landed (3)
 
 - [habits](./harness/lora/feature.md) — standing rules injected into the system
   prompt every session; absent folder renders an enable instruction, not silence
+- [session-folder](./harness/session-folder/feature.md) — one directory per
+  session, one file per fact (`meta.json`, `telemetry.json`, `timing.jsonl`,
+  `gate.jsonl`, `errors.jsonl`, `dispatch.md`, `clues/`), readable without any
+  harness and written the same way by every harness
+- [session-provenance](./harness/session-provenance/feature.md) — the folder's
+  transport half: `entry` (ssh / desktop / console / headless), `tty` and the ssh
+  `remote`, so two writers on one transcript are distinguishable, and
+  `list sessions` prints where each session came from
 
 ## Building (0)
 

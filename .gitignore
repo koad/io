@@ -39,7 +39,7 @@ cache/
 
 # Workspace skeletons — separate repo
 skeletons/
-
+console/
 desktop/
 passenger/
 
