@@ -122,6 +122,19 @@ if [[ "$KOAD_IO_QUIET" == "1" ]]; then
   unset _filtered_args _arg
 fi
 
+# Trace lines are a courtesy to a human at a terminal; silence to a program.
+# koad, 2026-11-19: "in quiet mode, saying you are in quiet mode is not quiet."
+# Quiet means SILENCE. A piped stderr (harness tool, script, CI) is not reading
+# paint, so it gets silence too; KOAD_IO_DEBUG brings the trace back.
+# Always returns 0 — several calls sit inside `[ -f x ] && … && source x` chains.
+_koad_io_trace() {
+  [[ "$KOAD_IO_QUIET" == "1" ]] && return 0
+  if [[ -n "${KOAD_IO_DEBUG:-}" || -n "${DEBUG:-}" ]] || [[ -t 2 ]]; then
+    echo "$*" >&2
+  fi
+  return 0
+}
+
 # ── The argv boundary (VESTA-SPEC-245) ──────────────────────────────────────
 #
 # The launcher has exactly one job it cannot delegate: find the command.
@@ -313,22 +326,16 @@ if [[ $# -eq 0 ]]; then
   fi
 fi
 
-# ack — always emit plain-text status so callers can follow progress;
-# ANSI decoration is suppressed in quiet mode.
-if [[ "$KOAD_IO_QUIET" == "1" ]]; then
-  echo "[koad-io] start: $1 (quiet mode)" >&2
-else
-  echo "--koad-io [$ENTITY] $1 start--" >&2
-  echo "$0 [$# arguments]" >&2
-  echo "-" >&2
-fi
-echo "cascading enviroments" >&2
+_koad_io_trace "--koad-io [$ENTITY] $1 start--"
+_koad_io_trace "$0 [$# arguments]"
+_koad_io_trace "-"
+_koad_io_trace "cascading enviroments"
 set -a
 
 # Load any global environment details that exist in the koad-io folder.
-[ -f $HOME/.koad-io/.env ] && echo "absorbing $HOME/.koad-io/.env" >&2 && set -a && source $HOME/.koad-io/.env 
-[ -f $HOME/.koad-io/.credentials ] && echo "absorbing $HOME/.koad-io/.credentials" >&2 && set -a && source $HOME/.koad-io/.credentials 
-[ -f $HOME/.koad-io/.aliases ] && echo "absorbing $HOME/.koad-io/.aliases" >&2 && set -a && source $HOME/.koad-io/.aliases 
+[ -f $HOME/.koad-io/.env ] && _koad_io_trace "absorbing $HOME/.koad-io/.env" && set -a && source $HOME/.koad-io/.env 
+[ -f $HOME/.koad-io/.credentials ] && _koad_io_trace "absorbing $HOME/.koad-io/.credentials" && set -a && source $HOME/.koad-io/.credentials 
+[ -f $HOME/.koad-io/.aliases ] && _koad_io_trace "absorbing $HOME/.koad-io/.aliases" && set -a && source $HOME/.koad-io/.aliases 
 
 # ENTITY_DIR is always $HOME/.$ENTITY, lowercased.
 # Guard against empty ENTITY — otherwise resolves to "$HOME/."
@@ -337,8 +344,8 @@ set -a
 
 # Check and load any environment details from the entity's folder.
 if [ -d "$ENTITY_DIR" ]; then
-    [ -f $ENTITY_DIR/.env ] && echo "absorbing $ENTITY_DIR/.env" >&2 && set -a && source $ENTITY_DIR/.env
-    [ -f $ENTITY_DIR/.credentials ] && echo "absorbing $ENTITY_DIR/.credentials" >&2 && set -a && source $ENTITY_DIR/.credentials
+    [ -f $ENTITY_DIR/.env ] && _koad_io_trace "absorbing $ENTITY_DIR/.env" && set -a && source $ENTITY_DIR/.env
+    [ -f $ENTITY_DIR/.credentials ] && _koad_io_trace "absorbing $ENTITY_DIR/.credentials" && set -a && source $ENTITY_DIR/.credentials
 fi
 
 # Package resolution — single source of truth. After all .env files have
@@ -366,7 +373,7 @@ _koad_io_env_path_guard \
 # idempotent — an entity that names its own identity is left alone.
 _koad_io_entity_git_identity
 
-echo "-" >&2
+_koad_io_trace "-"
 # Framework commands — PATH-style search path, first entry = highest priority.
 # Default: forge commands (kingdom business layer) searched before framework.
 # Override via KOAD_IO_COMMANDS_DIRS in ~/.koad-io/.env to add more dirs.
@@ -450,13 +457,13 @@ done
 [[ $COMMAND_LOCATION ]] && POTENTIAL_REMAINDER_ARGUMENTS=("${EXEC_ARGS[@]}") && unset POTENTIAL_REMAINDER_ARGUMENTS[0] && [[ $DEBUG ]] && echo "POTENTIAL_REMAINDER_ARGUMENTS: ${POTENTIAL_REMAINDER_ARGUMENTS[@]}" >&2 && echo >&2
 
 # command file can either be named `command.sh` or have the same name as the command with .sh extension
-[[ -f $COMMAND_LOCATION/command.sh ]]                  && echo "command.sh is found in $COMMAND_LOCATION" >&2                     && export EXEC_FILE="$COMMAND_LOCATION/command.sh";
+[[ -f $COMMAND_LOCATION/command.sh ]]                  && _koad_io_trace "command.sh is found in $COMMAND_LOCATION"                     && export EXEC_FILE="$COMMAND_LOCATION/command.sh";
 
 [[ $DEBUG ]] && echo "checking for $COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh" >&2
-[[ -f $COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh ]] && echo "$POTENTIAL_NAMED_COMMAND.sh is found in $COMMAND_LOCATION" >&2 && EXEC_ARGS="${POTENTIAL_REMAINDER_ARGUMENTS[@]}" && export EXEC_FILE="$COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh";
+[[ -f $COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh ]] && _koad_io_trace "$POTENTIAL_NAMED_COMMAND.sh is found in $COMMAND_LOCATION" && EXEC_ARGS="${POTENTIAL_REMAINDER_ARGUMENTS[@]}" && export EXEC_FILE="$COMMAND_LOCATION/$POTENTIAL_NAMED_COMMAND.sh";
 
 # finally, find a command from current working directory of the same name
-[[ -f $CWD/$1.sh ]] && echo "$1.sh is found in $CWD" >&2 &&  EXEC_ARGS="$2 $3 $4 $5 $6 $7 $8"&& export EXEC_FILE="$CWD/$1.sh" && COMMAND_LOCATION=$CWD;
+[[ -f $CWD/$1.sh ]] && _koad_io_trace "$1.sh is found in $CWD" &&  EXEC_ARGS="$2 $3 $4 $5 $6 $7 $8"&& export EXEC_FILE="$CWD/$1.sh" && COMMAND_LOCATION=$CWD;
 
 # Harness safety net: a higher-priority command tree may intentionally carry
 # docs/assets under `commands/harness/<name>/` without shipping a `command.sh`.
@@ -591,8 +598,8 @@ if [[ ! -n $EXEC_FILE ]]; then
 fi
 
 # If the working directory contains environment and credentials, load them
-[ -f $COMMAND_LOCATION/.env ]         && echo "loading $COMMAND_LOCATION/.env" >&2         && set -a && source $COMMAND_LOCATION/.env 
-[ -f $COMMAND_LOCATION/.credentials ] && echo "loading $COMMAND_LOCATION/.credentials" >&2 && set -a && source $COMMAND_LOCATION/.credentials 
+[ -f $COMMAND_LOCATION/.env ]         && _koad_io_trace "loading $COMMAND_LOCATION/.env"         && set -a && source $COMMAND_LOCATION/.env 
+[ -f $COMMAND_LOCATION/.credentials ] && _koad_io_trace "loading $COMMAND_LOCATION/.credentials" && set -a && source $COMMAND_LOCATION/.credentials 
 
 
 export COMMAND_LOCATION=$COMMAND_LOCATION
@@ -653,7 +660,7 @@ if [[ $DEBUG ]]; then
   unset _a
 fi
 
-echo "--exec $EXEC_FILE ${_koad_io_exec_args[*]-}" >&2
+_koad_io_trace "--exec $EXEC_FILE ${_koad_io_exec_args[*]-}"
 
 # ---------------------------------------------------------------------------
 # Executable-bit preflight (2026-10-31)
