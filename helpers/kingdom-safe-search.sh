@@ -244,9 +244,18 @@ kg_safe_prune_args() {
   KG_ROOT_ZONE=""
 
   if _zone="$(kg_safe_zone_for_path "$_root_abs")"; then
-    KG_ROOT_EXCLUDED=1
+    if [[ "$_root_abs" == "$_zone" ]]; then
+      # The caller named the excluded directory ITSELF. Search it, with a notice.
+      KG_ROOT_EXCLUDED=1
+      KG_ROOT_ZONE="$_zone"
+      return 0
+    fi
+    # The root is BENEATH an excluded zone — a subdirectory was named, not the
+    # zone. "I named the parent" is not "I asked to walk everything under it",
+    # and disabling the prune layer here meant any temp tree inside the runtime
+    # was walked unpruned (caught 2026-11-10 when session TMPDIR moved test
+    # fixtures under $RUNTIME). Keep the prune layer; note the zone for context.
     KG_ROOT_ZONE="$_zone"
-    return 0
   fi
 
   local -a _preds=()

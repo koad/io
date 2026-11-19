@@ -192,6 +192,7 @@ koad_status_check_alert() {
   if [ -f "$HOME/.koad-io/helpers/emit.sh" ]; then
     (
       KOAD_IO_EMIT="${KOAD_IO_EMIT:-1}"
+      ENTITY=system   # alerts are system-origin, never the entity whose session ran the monitor
       # shellcheck disable=SC1090
       . "$HOME/.koad-io/helpers/emit.sh" 2>/dev/null || exit 0
       koad_io_emit_sync "$level" "$body" 2>/dev/null || true
@@ -201,7 +202,7 @@ koad_status_check_alert() {
   # Alert path 2 — message file to koad's inbox (canonical format, mirroring
   # ~/.forge/commands/message). Written directly so the monitor has no
   # dependency on the koad-io launcher (cron runs with a bare environment).
-  local from=vulcan to=koad ts iso slug dir file
+  local from=system to=koad ts iso slug dir file
   ts=$(date -u +"%Y%m%dT%H%M%SZ"); iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   slug=$(printf '%s' "$body" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g' | cut -c1-48 | sed 's/^-\+//; s/-\+$//')
   [ -z "$slug" ] && slug="status-check"
@@ -209,7 +210,7 @@ koad_status_check_alert() {
   mkdir -p "$dir" 2>/dev/null || return 0
   file="$dir/${ts}-${from}-${slug}.md"
   {
-    printf -- '---\nfrom: %s\nto: %s\ntype: alert\ntimestamp: %s\n---\n\n' "$from" "$to" "$iso"
+    printf -- '---\nfrom: %s\nto: %s\nvia: status\ntype: alert\ntimestamp: %s\n---\n\n' "$from" "$to" "$iso"
     printf '%s\n' "$body"
     # On a first run the ledger is empty, so every target reads as "new" —
     # do not enumerate 48 baseline bullets. Detail only matters for a diff.

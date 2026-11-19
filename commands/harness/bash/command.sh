@@ -108,6 +108,31 @@ fi
 [ "$_saw_continue" = "1" ] && echo "continue      : ignored (no session semantics in a shell)"
 echo
 
+# --- Presence ---------------------------------------------------------------
+#
+# A shell is work, and the daemon's entity index should say so. `lastActivity`
+# has two writers: the scanner (a floor, stale by however long since the last
+# commit) and POST /api/entities/touch. The console calls the second for its own
+# sessions; nothing in a shell did, so working in bash left the entity's row
+# showing yesterday (measured 2026-11-13: vulcan read 2026-11-12T21:02Z while a
+# live session was answering prompts).
+#
+# One touch at launch, then one per prompt — twice-fenced so a chatty shell costs
+# nothing: a 60s local clock here, and the daemon's own 30s per-handle throttle.
+# It never blocks the prompt and never prints. Failure is silent by design: a
+# daemon that is down must not make the shell unusable.
+
+_koad_io_presence_touch() {
+  [ -n "${ENTITY:-}" ] || return 0
+  [ -x "${HOME}/.koad-io/bin/${ENTITY}" ] || return 0
+  ( "${HOME}/.koad-io/bin/${ENTITY}" touch --quiet >/dev/null 2>&1 & )
+}
+
+# One at launch, synchronous enough to land, quiet either way.
+if [ "${KOAD_IO_PRESENCE:-1}" != "0" ]; then
+  ( "${HOME}/.koad-io/bin/${ENTITY}" touch --quiet >/dev/null 2>&1 ) || true
+fi
+
 # --- One-shot -------------------------------------------------------------
 
 if [ -n "$PROMPT" ]; then
@@ -141,5 +166,19 @@ if [ -n "$ENTITY" ]; then
 fi
 
 export KOAD_IO_HARNESS=bash
+
+# Presence per prompt, throttled locally to once a minute. `&` inside a subshell
+# so interactive job control does not print a job number over the prompt.
+if [ "${KOAD_IO_PRESENCE:-1}" != "0" ] && [ -n "${ENTITY:-}" ]; then
+  _koad_io_presence_last=0
+  _koad_io_presence_tick() {
+    local _now
+    _now=$(date +%s)
+    [ $(( _now - _koad_io_presence_last )) -lt 60 ] && return 0
+    _koad_io_presence_last=$_now
+    ( "${HOME}/.koad-io/bin/${ENTITY}" touch --quiet >/dev/null 2>&1 & )
+  }
+  PROMPT_COMMAND="_koad_io_presence_tick${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+fi
 RCEOF
 ) -i
