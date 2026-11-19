@@ -1343,10 +1343,29 @@ if (want('hygiene')) {
   await makeEntity(home, 'alice', '6', { entityKey: k1 });
 
   const entityDir = path.join(home, '.alice');
+  // A commit gate runs this suite from inside a pre-commit hook, where git exports
+  // GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE so the hook can find the repo it is
+  // gating. `-C entityDir` does NOT override GIT_DIR — so the fixture's
+  // `git add -A` was writing into the REAL repo's index while its blobs went into
+  // the fixture's object store. The gate then died building a tree for a path that
+  // never existed on disk:
+  //
+  //   error: invalid object 100644 57258841… for
+  //     'id/archive/rotation-20261119T051031Z/device-wonderland/leaf.public.asc'
+  //   error: Error building trees
+  //
+  // measured twice tonight (05:08:06Z and 05:10:31Z, once per gated commit) and
+  // filed as tickler space/wonderland/spec240-inherits-git-env. A suite must
+  // describe a repo, not inherit one.
+  const fixtureEnv = { ...process.env };
+  for (const inherited of [
+    'GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE',
+    'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  ]) delete fixtureEnv[inherited];
   const git = (args) => spawnSync('git', ['-C', entityDir, ...args], {
     encoding: 'utf8',
     env: {
-      ...process.env,
+      ...fixtureEnv,
       HOME: home,
       GIT_CONFIG_GLOBAL: path.join(home, '.gitconfig'),
       GIT_CONFIG_SYSTEM: '/dev/null',
