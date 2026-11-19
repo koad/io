@@ -185,8 +185,19 @@ export function appendEvent(channel, input = {}) {
   };
   // Optional, additive, and absent when not supplied — readers must treat
   // absence as "not addressed", never invent a target.
-  for (const key of ['to', 'to_session', 'ref', 'session']) {
+  for (const key of ['to', 'to_session', 'from_session', 'ref', 'session']) {
     if (input[key] != null) event[key] = String(input[key]);
+  }
+
+  // THE MESSAGE ENVELOPE (2026-11-10). A relayed or watched message carries the
+  // durable file's id and the message it answers. These were being DROPPED by the
+  // whitelist above, which made the messages watcher's "have I delivered this?"
+  // check impossible to answer — it re-delivered the same eight messages on every
+  // door restart (32 events, 8 ids, observed on wonderland). A whitelist is right;
+  // a whitelist that forgets the keys the new writer depends on is a silent data
+  // loss with a loud symptom.
+  for (const key of ['message_id', 'in_reply_to', 'chosen_by']) {
+    if (input[key] != null && input[key] !== '') event[key] = String(input[key]);
   }
 
   const file = channelPath(channel);
@@ -613,6 +624,39 @@ export function listPresence(options = {}) {
 }
 
 /**
+ * Resolve a session fragment against the ids that are actually listening.
+ *
+ * The footer quotes five characters, so "the session ending in xWJdC" is how a
+ * person — and an agent repeating that person — names a reader. A fragment is
+ * therefore an address, not a search term. Same rule as everywhere else in the
+ * kingdom: exact → prefix → suffix, and ambiguity is REPORTED (with the
+ * candidates) rather than resolved by picking the first match. Two readers whose
+ * tails collide are two different readers.
+ *
+ * → { kind: 'exact'|'prefix'|'suffix', session }
+ *   { kind: 'ambiguous', candidates: string[] }
+ *   { kind: 'none', fragment }
+ */
+export function resolveSessionFragment(fragment, sessions, opts = {}) {
+  const f = String(fragment || '').trim();
+  const min = opts.minLength == null ? 3 : Number(opts.minLength);
+  const ids = (sessions || []).map((id) => String(id));
+  if (!f) return { kind: 'none', fragment: f };
+  if (ids.includes(f)) return { kind: 'exact', session: f };
+  if (f.length < min) return { kind: 'none', fragment: f };
+
+  const prefixed = ids.filter((id) => id.startsWith(f));
+  if (prefixed.length === 1) return { kind: 'prefix', session: prefixed[0] };
+  if (prefixed.length > 1) return { kind: 'ambiguous', candidates: prefixed };
+
+  const suffix = ids.filter((id) => id.endsWith(f));
+  if (suffix.length === 1) return { kind: 'suffix', session: suffix[0] };
+  if (suffix.length > 1) return { kind: 'ambiguous', candidates: suffix };
+
+  return { kind: 'none', fragment: f };
+}
+
+/**
  * Is anybody fresh enough to receive a message addressed to `entity`?
  *
  * Returns the fresh entry to address, or null. `null` is the answer the door
@@ -712,6 +756,7 @@ export function takeRelayToken(key, options = {}) {
 }
 
 export default {
+  resolveSessionFragment,
   PRESENCE_FRESH_MS,
   SUMMARY_MAX,
   RELAY_BURST,
