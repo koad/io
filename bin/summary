@@ -1,3 +1,25 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# summary — compatibility shim (added 2026-10-30 by aegis, at koad's direction).
+#
+# The summary host moved OUT of the framework on 2026-10-30 16:53 to
+# ~/.forge/commands/summary/ — its own header says why: the shapes it knows
+# (sessions, flights, messages, inboxes, git dirs) are kingdom bookkeeping and the
+# framework has no sessions to summarise.
+#
+# The harness tools that consume it still default to this path:
+#   ~/.forge/harness/extension/tools/summary-host.ts
+#     const SUMMARY_BIN = process.env.KOAD_IO_SUMMARY_BIN || path.join(HOME, ".koad-io", "bin", "summary");
+#
+# So `flight_log` and `session_summarize` returned
+#   spawn /home/koad/.koad-io/bin/summary ENOENT
+# and the failure read as "the summary host is missing" — which is an absence claim
+# about a *path*, not about the *service* (convention amendments 17 and 18, ratified
+# the same day this broke).
+#
+# DURABLE FIX, not in this file: change that default to resolve through the command
+# cascade (koad-io summary <target>), or set KOAD_IO_SUMMARY_BIN in the environment.
+# This shim exists so nothing stays broken while that lands. Delete it when it does.
 set -euo pipefail
-exec node "$HOME/.koad-io/parsers/host.mjs" "$@"
+exec /home/koad/.forge/commands/summary/command.sh "$@"
